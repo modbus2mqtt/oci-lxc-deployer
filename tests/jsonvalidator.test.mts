@@ -14,7 +14,7 @@ describe("JsonValidator", () => {
     __dirname,
     "../json/shared/templates/010-get-latest-os-template.json",
   );
-  const appSchema =  "application.schema.json";
+  const appSchema = "application.schema.json";
   const templateSchema = "template.schema.json";
 
   it("should construct and validate all schemas", () => {

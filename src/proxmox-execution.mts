@@ -33,7 +33,9 @@ export class ProxmoxExecution extends EventEmitter {
     // Load SSH config on instance creation
     this.ssh = ProxmoxExecution.getSshParameters();
     // Nutze Singleton-Factory für JsonValidator
-    this.validator = JsonValidator.getInstance(path.join(process.cwd(), "schemas"));
+    this.validator = JsonValidator.getInstance(
+      path.join(process.cwd(), "schemas"),
+    );
   }
 
   /**
@@ -55,7 +57,7 @@ export class ProxmoxExecution extends EventEmitter {
         ) {
           return { host: data.host, port: data.port };
         }
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
         // ignore parse errors, treat as not set
       }

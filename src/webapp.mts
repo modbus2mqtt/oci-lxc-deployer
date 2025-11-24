@@ -100,12 +100,10 @@ export class ProxmoxWebApp {
         typeof ssh.host !== "string" ||
         typeof ssh.port !== "number"
       ) {
-        res
-          .status(400)
-          .json({
-            error:
-              "Invalid SSH config. Must provide host (string) and port (number).",
-          });
+        res.status(400).json({
+          error:
+            "Invalid SSH config. Must provide host (string) and port (number).",
+        });
         return;
       }
       try {

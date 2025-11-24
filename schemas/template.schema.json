@@ -28,40 +28,44 @@
           "secure": { "type": "boolean", "default": false },
           "default": { "type": ["string", "number", "boolean"] }
         },
-        "if":  {"properties": {"type": {"const": "enum"}}},
-        "then": { "properties":{"enumValues": {
-            "type": "array",
-            "items": { "type": "string" }
-          }}}
+        "if": { "properties": { "type": { "const": "enum" } } },
+        "then": {
+          "properties": {
+            "enumValues": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "outputs": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
-      "commands": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "type": "object",
-          "properties": {
-            "type": {
-              "enum": ["command", "script", "template"],
-              "default": "command"
-            },
-            "name": { "type": "string", "maxLength": 20 },
-            "execute": { "type": "string" },
-            "description": { "type": "string" }
-          },
-          "required": ["type", "execute"]
-        }
+      "type": "array",
+      "items": {
+        "type": "string"
       }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": ["command", "script", "template"],
+            "default": "command"
+          },
+          "name": { "type": "string", "maxLength": 20 },
+          "execute": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["type", "execute"]
+      }
+    }
   },
-  "if":  {"properties": {"type": {"enum": "enum"}}},
-  "then": { "required": ["type", "enumValues"] },
-  "else":  { "required": ["type"] },
-    
+  "if": {
+    "properties": { "type": { "enum": ["command", "script", "template"] } }
+  },
+  "then": { "properties": { "enumValues": { "type": "string" } } },
   "required": ["commands", "execute_on", "name"]
 }

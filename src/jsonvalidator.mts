@@ -1,62 +1,82 @@
 import { parse as parseWithSourceMap } from "json-source-map";
 
-import { Ajv } from "ajv";
+import { Ajv, ErrorObject } from "ajv";
 import ajvErrors from "ajv-errors";
 import { readFileSync, readdirSync } from "fs";
 import path, { resolve, extname, join } from "path";
-
+export interface IJsonErrorDetails {
+  line?: number;
+  error: Error;
+}
 export class JsonError extends Error {
-  public details: { line: number; message: string }[];
+  public details: IJsonErrorDetails[]|undefined;
   public filename: string;
 
-  constructor(filename: string, details: { line: number; message: string }[]) {
-    super(`Json file '${filename}' has errors. Details available`);
-    this.name = 'JsonError';
+  constructor(filename: string, details?: IJsonErrorDetails[]) {
+    super(`'${filename}' has errors. ` + (details && details.length > 1? `See details for ${details.length} errors.` : ""));
+    this.name = "JsonError";
     this.filename = filename;
     this.details = details;
   }
 }
-
+export class ValidateJsonError extends Error {
+   constructor(filename: string, result: ErrorObject) {
+    super(`'${filename}': Validation error ${result.instancePath} ${result.message || "Unknown validation error"}`);
+    this.name = "ValidateJsonError";
+  } 
+ 
+}
 export class JsonValidator {
   static instance: JsonValidator | undefined;
-  static getInstance(schemaPath: string, baseSchemas: string[] = ['templatelist.schema.json']): JsonValidator {
+  static getInstance(
+    schemaPath: string,
+    baseSchemas: string[] = ["templatelist.schema.json"],
+  ): JsonValidator {
     if (!JsonValidator.instance) {
       JsonValidator.instance = new JsonValidator(schemaPath, baseSchemas);
     }
     return JsonValidator.instance;
   }
   private ajv: Ajv;
-  private constructor(schemasDir: string = resolve("schemas"), baseSchemas: string[] = ['templatelist.schema.json']) {
-    this.ajv = new Ajv({allErrors: true, 
-            strict: true,
-            allowUnionTypes: true } );
+  private constructor(
+    schemasDir: string = resolve("schemas"),
+    baseSchemas: string[] = ["templatelist.schema.json"],
+  ) {
+    this.ajv = new Ajv({
+      allErrors: true,
+      strict: true,
+      allowUnionTypes: true,
+    });
     ajvErrors.default(this.ajv);
     // Validate and add all .schema.json files
-    try {
-      const files = readdirSync(schemasDir).filter(f => extname(f) === ".json");
-      // 1. Basis-Schemas zuerst
-      for (const file of baseSchemas) {
-        if (files.includes(file)) {
-          const schemaPath = join(schemasDir, file);
-          const schemaContent = readFileSync(schemaPath, "utf-8");
-          const schema = JSON.parse(schemaContent);
-          this.ajv.addSchema(schema, file);
-          this.ajv.compile(schema);
-        }
+    let allFiles: string[] = [];
+    const files = readdirSync(schemasDir).filter((f) => extname(f) === ".json");
+    // 1. Basis-Schemas zuerst
+    for (const file of baseSchemas) {
+      if (files.includes(file)) allFiles.push(file);
+    }
+    for (const file of files) {
+      if (!baseSchemas.includes(file)) {
+        allFiles.push(file);
       }
-      // 2. Alle anderen Schemas
-      for (const file of files) {
-        if (!baseSchemas.includes(file)) {
-          const schemaPath = join(schemasDir, file);
-          const schemaContent = readFileSync(schemaPath, "utf-8");
-          const schema = JSON.parse(schemaContent);
-          this.ajv.addSchema(schema, file);
-          this.ajv.compile(schema);
-        }
+    }
+    let errors: IJsonErrorDetails[] = [];
+    for (const file of allFiles) {
+      try {
+        const schemaPath = join(schemasDir, file);
+        const schemaContent = readFileSync(schemaPath, "utf-8");
+        const schema = JSON.parse(schemaContent);
+        this.ajv.addSchema(schema, file);
+        this.ajv.compile(schema);
+      } catch (err: Error | any) {
+        errors.push({ line: -1, error: err  as Error});
       }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (err) {
-      // Ignore errors when loading schemas (e.g. if directory does not exist)
+    }
+    if (errors.length > 0) {
+      throw new JsonError(
+        "",
+        errors
+      );
     }
   }
 
@@ -102,9 +122,9 @@ export class JsonValidator {
       );
     }
     if (!valid) {
-      let details: { line: number; message: string }[] = [];
+      let details: IJsonErrorDetails[] = [];
       if (validate.errors && originalText && sourceMap) {
-        details = validate.errors.map((e: any) => {
+        details = validate.errors.map((e: ErrorObject): IJsonErrorDetails => {
           const pointer = sourceMap.pointers[e.instancePath || ""];
           const line = pointer
             ? pointer.key
@@ -113,16 +133,15 @@ export class JsonValidator {
             : -1;
           return {
             line,
-            message: e.message ?? "Unknown error",
+            error: new ValidateJsonError(schemaKey, e)
           };
         });
       } else if (validate.errors) {
-        details = validate.errors.map((e: any) => ({
-          line: -1,
-          message: e.message ?? JSON.stringify(e),
+        details = validate.errors.map((e: ErrorObject): IJsonErrorDetails  => ({
+          error: new ValidateJsonError(schemaKey, e)
         }));
       } else {
-        details = [{ line: -1, message: "Unknown error" }];
+        details = [{ line: -1, error: new Error("Unknown error") }];
       }
       throw new JsonError(schemaId, details);
     }
@@ -174,4 +193,3 @@ export class JsonValidator {
     }
   }
 }
-

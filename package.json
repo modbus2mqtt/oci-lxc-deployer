@@ -12,7 +12,7 @@
   "scripts": {
     "test": "vitest run",
     "build": "tsc --project tsconfig.production.json && tsc-alias -p tsconfig.production.json",
-     "postbuild": "chmod +x ./dist/lxc-exec.mjs  ./dist/webapp.mjs",
+    "postbuild": "chmod +x ./dist/lxc-exec.mjs  ./dist/webapp.mjs",
     "prettier": "prettier --write ."
   },
   "keywords": [],

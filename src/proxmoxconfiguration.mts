@@ -7,14 +7,14 @@ import {
   ITemplate,
   TaskType,
 } from "@src/types.mjs";
-import { JsonValidator } from "./jsonvalidator.mjs";
+import { IJsonErrorDetails, JsonError, JsonValidator } from "./jsonvalidator.mjs";
 
 interface ProxmoxProcessTemplateOpts {
   application: string;
   template: string;
   resolvedParams: Set<string>;
   visitedTemplates?: Set<string>;
-  errors?: string[];
+  errors?: IJsonErrorDetails[];
   requestedIn?: string | undefined;
   parentTemplate?: string | undefined;
   jsonPath: string;
@@ -40,14 +40,12 @@ interface IApplication extends IApplicationWeb {
 // Interface generated from template.schema.json
 export interface ITemplateSchema {}
 
-export class ProxmoxConfigurationError extends Error {
-  details?: string[];
-  application?: any;
-  constructor(message: string, details?: string[], application?: any) {
-    super(message);
+export class ProxmoxConfigurationError extends JsonError {
+  
+  constructor(  application: string, details?: IJsonErrorDetails[]) {
+    super(application,details);
     this.name = "ProxmoxConfigurationError";
-    if (details) this.details = details;
-    if (application) this.application = application;
+    this.message = `'${application}' has errors. ` + (details && details.length > 1? `See details for ${details.length} errors.` : "")
   }
 }
 
@@ -196,6 +194,9 @@ class ProxmoxConfiguration {
         path.join(this.schemaPath, "application.schema.json"),
       );
     } catch (err: any) {
+      if (err.details && Array.isArray(err.details)) {
+        throw err;
+      }
       const appBase = {
         name: appData.name || applicationName,
         description: appData.description || "",
@@ -235,7 +236,7 @@ class ProxmoxConfiguration {
     const resolvedParams = new Set<string>();
 
     // 5. Process each template
-    const errors: string[] = [];
+    const errors: IJsonErrorDetails[] = [];
     for (const tmpl of templates) {
       this.#processTemplate({
         application: applicationName,
@@ -261,9 +262,8 @@ class ProxmoxConfiguration {
         throw errors[0];
       } else {
         const err = new ProxmoxConfigurationError(
-          `Multiple errors occurred while processing templates. See 'details' property for details.`,
-          errors,
-          appBase
+          applicationName,
+          errors
         );
         throw err;
       }
@@ -277,7 +277,7 @@ class ProxmoxConfiguration {
     // Prevent endless recursion
     if (opts.visitedTemplates.has(opts.template)) {
       opts.errors.push(
-        `Endless recursion detected for template: ${opts.template}`,
+        { error: new Error(`Endless recursion detected for template: ${opts.template}`) },
       );
       return;
     }
@@ -298,7 +298,7 @@ class ProxmoxConfiguration {
         foundLocation = "shared";
       } else {
         opts.errors.push(
-          `Template file not found: ${opts.template} (location: ${foundLocation ?? "not found"}, requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})`,
+          { error: new Error(`Template file not found: ${opts.template} (location: ${foundLocation ?? "not found"}, requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})`) },
         );
         return;
       }
@@ -308,7 +308,7 @@ class ProxmoxConfiguration {
       tmplData = JSON.parse(fs.readFileSync(tmplPath, "utf-8"));
     } catch (e) {
       opts.errors.push(
-        `Failed to read or parse template ${opts.template} in ${foundLocation}: ${e} (requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})`,
+        { error: new Error(`Failed to read or parse template ${opts.template} in ${foundLocation}: ${e} (requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})`) },
       );
       return;
     }
@@ -320,10 +320,8 @@ class ProxmoxConfiguration {
         tmplData,
         path.join(this.schemaPath, "template.schema.json"),
       );
-    } catch (err: any) {
-      opts.errors.push(
-        `Template ${opts.template} does not match schema: ${err.message}`,
-      );
+    } catch (e: any) {
+        opts.errors.push({ error: e});
       return;
     }
     // Mark outputs as resolved BEFORE adding parameters
@@ -405,14 +403,14 @@ class ProxmoxConfiguration {
   private validateScript(
     cmd: ICommand,
     application: string,
-    errors: string[],
+    errors: IJsonErrorDetails[],
     requestedIn?: string,
     parentTemplate?: string,
   ) {
     const scriptPath = this.findScriptPath(application, cmd.execute);
     if (!scriptPath) {
       errors.push(
-        `Script file not found: ${cmd.execute} (searched in: applications/${application}/scripts and shared/scripts, requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+        { error: new Error(`Script file not found: ${cmd.execute} (searched in: applications/${application}/scripts and shared/scripts, requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`) },
       );
       return;
     }
@@ -426,12 +424,12 @@ class ProxmoxConfiguration {
           !this._resolvedParams.has(v)
         ) {
           errors.push(
-            `Script ${cmd.execute} uses variable '{{ ${v} }}' but no such parameter is defined (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+            { error: new Error(`Script ${cmd.execute} uses variable '{{ ${v} }}' but no such parameter is defined (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`) },
           );
         }
       }
     } catch (e) {
-      errors.push(`Failed to read script ${cmd.execute}: ${e}`);
+      errors.push({ error: new Error(`Failed to read script ${cmd.execute}: ${e}`) });
     }
   }
 
@@ -440,7 +438,7 @@ class ProxmoxConfiguration {
    */
   private validateCommand(
     cmd: ICommand,
-    errors: string[],
+    errors: IJsonErrorDetails[],
     requestedIn?: string,
     parentTemplate?: string,
   ) {
@@ -452,7 +450,7 @@ class ProxmoxConfiguration {
           !this._resolvedParams.has(v)
         ) {
           errors.push(
-            `Command uses variable '{{ ${v} }}' but no such parameter is defined (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+            { error: new Error(`Command uses variable '{{ ${v} }}' but no such parameter is defined (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`) },
           );
         }
       }

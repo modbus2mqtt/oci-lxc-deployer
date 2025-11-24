@@ -7,6 +7,7 @@ import type { TaskType } from "./types.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { JsonError } from "./jsonvalidator.mjs";
 
 function printUsageAndExit() {
   console.error("Usage: lxc-exec <application> <task> <parameters.json>");
@@ -38,7 +39,7 @@ function printUnresolvedParameters(
           if (typeof detail === "object" && detail !== null) {
             const { message, line, column, instancePath, schemaPath } = detail;
             console.error(
-              `- ${message} (line: ${line}, column: ${column}, instancePath: ${instancePath}, schemaPath: ${schemaPath})`
+              `- ${message} (line: ${line}, column: ${column}, instancePath: ${instancePath}, schemaPath: ${schemaPath})`,
             );
           } else {
             console.error(`- ${detail}`);
@@ -123,27 +124,52 @@ async function main() {
     });
     exec.run();
   } catch (err) {
-    if (err instanceof Error) {
+    if (err instanceof JsonError) {
       console.error("Error:", err.message);
       // Print details if this is a JsonError
-      if ("details" in err && Array.isArray((err as any).details)) {
+      if (err.details &&  err.details.length > 0) {
         console.error("Details:");
-        for (const detail of (err as any).details) {
-          if (typeof detail === "object" && detail !== null) {
-            const { message, line, column, instancePath, schemaPath } = detail;
-            console.error(
-              `- ${message} (line: ${line}, column: ${column}, instancePath: ${instancePath}, schemaPath: ${schemaPath})`
-            );
-          } else {
-            console.error(`- ${detail}`);
-          }
-        }
+        printDetails(err.details);
+      } else {
+        console.error("Error:", err);
       }
-    } else {
-      console.error("Error:", err);
+      process.exit(2);
     }
-    process.exit(2);
   }
 }
+function printDetails(details: any[], level = 1) {
+  const indent = '  '.repeat(level);
+  for (const detail of details) {
+    if (detail && typeof detail === 'object') {
+      if ('error' in detail && detail.error && typeof detail.error.message === 'string') {
+        const line = detail.line !== undefined ? ` (line: ${detail.line})` : '';
+        console.error(`${indent}- ${detail.error.message}${line}`);
+      }
+      if ('details' in detail.error && Array.isArray(detail.error.details)) {
+        printDetails(detail.error.details, level + 1);
+      }
+      // Falls das Objekt noch weitere Properties hat, die nicht error/details sind:
+      const keys = Object.keys(detail).filter(k => k !== 'error' && k !== 'details' && k !== 'line');
+      if (keys.length > 0) {
+        console.error(`${indent}- ${JSON.stringify(detail, null, 2)}`);
+      }
+    } else {
+      console.error(`${indent}- ${detail}`);
+    }
+  }
+}
+function listDetails(err: JsonError) {
+  if (err.details && Array.isArray(err.details)) {
+    for (const detail of err.details) {
+      if ((detail as any).details && err.details.length > 0) {
+        listDetails(detail  as any);
+      }else
+      {
+           console.error(
+          `- ${detail.error.message} ` + (detail.line ? `(line: ${detail.line})` : "") )
+      }
+      }
+    }
+  }
 
 main();
