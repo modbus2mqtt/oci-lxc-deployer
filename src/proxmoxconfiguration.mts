@@ -19,21 +19,18 @@ interface ProxmoxProcessTemplateOpts {
   parentTemplate?: string | undefined;
   jsonPath: string;
 }
-
-// Interface generated from application.schema.json
-export interface IApplicationSchema {
+export interface IApplicationBase{
   name: string;
   extends?: string;
   description?: string;
   icon?: string;
-  installation?: string[];
-  backup?: string[];
-  restore?: string[];
-  uninstall?: string[];
-  update?: string[];
-  upgrade?: string[];
 }
-interface IApplication extends IApplicationWeb {
+// Interface generated from application.schema.json
+export type IApplicationSchema = IApplicationBase&{
+  [key in TaskType]?: string[];
+}
+
+interface IApplication extends IApplicationSchema {
   id: string;
 }
 
@@ -45,7 +42,7 @@ export class ProxmoxConfigurationError extends JsonError {
   constructor(  application: string, details?: IJsonErrorDetails[]) {
     super(application,details);
     this.name = "ProxmoxConfigurationError";
-    this.message = `'${application}' has errors. ` + (details && details.length > 1? `See details for ${details.length} errors.` : "")
+    this.filename = application;
   }
 }
 
@@ -179,35 +176,18 @@ class ProxmoxConfiguration {
       throw err;
     }
     const appDataFilePath = path.join(appPath, "application.json");
-    if (!fs.existsSync(appDataFilePath)) {
-      const err = new Error(`Application file not found: ${appDataFilePath}`);
-      throw err;
-    }
-    const appData = JSON.parse(fs.readFileSync(appDataFilePath, "utf-8"));
+    
     let application: IApplication | undefined;
     // 2. Validate against schema
     try {
       // Nutze die JsonValidator-Factory (Singleton)
       const validator = JsonValidator.getInstance(this.schemaPath);
-      application = validator.serializeJsonWithSchema(
-        appData,
+      application = validator.serializeJsonFileWithSchema(
+        appDataFilePath,
         path.join(this.schemaPath, "application.schema.json"),
       );
     } catch (err: any) {
-      if (err.details && Array.isArray(err.details)) {
         throw err;
-      }
-      const appBase = {
-        name: appData.name || applicationName,
-        description: appData.description || "",
-        icon: appData.icon,
-        errors: err.message,
-      };
-      const error = new Error(
-        appDataFilePath + " does not match schema: " + err.message,
-      );
-      (error as any).application = appBase;
-      throw error;
     }
     // Check for icon.png in the application directory
     let icon = application?.icon ? application.icon : "icon.png";
@@ -217,16 +197,17 @@ class ProxmoxConfiguration {
     }
     application!.id = applicationName;
     // 3. Get template list for the task
-    const templates: string[] | undefined = appData[task];
-    if (!templates || !Array.isArray(templates)) {
+    const templates: string[] | undefined = application?.[task];
+
+    if (!templates ) {
       const appBase = {
-        name: appData.name || applicationName,
-        description: appData.description || "",
-        icon: appData.icon,
-        errors: [`Task ${task} not found or not an array in application.json`],
+        name: applicationName,
+        description: application?.description || "",
+        icon: application?.icon,
+        errors: [`Task ${task} not found in application.json`],
       };
       const err = new Error(
-        `Task ${task} not found or not an array in application.json`,
+        `Task ${task} not found in application.json`,
       );
       (err as any).application = appBase;
       throw err;
@@ -251,12 +232,6 @@ class ProxmoxConfiguration {
     // Speichere resolvedParams für getUnresolvedParameters
     this._resolvedParams = resolvedParams;
     if (errors.length > 0) {
-      const appBase = {
-        name: appData.name || applicationName,
-        description: appData.description || "",
-        icon: appData.icon,
-        errors,
-      };
       if (errors.length === 1 && errors[0]) {
         // Only one error: throw it directly (as string or error object)
         throw errors[0];
@@ -304,20 +279,12 @@ class ProxmoxConfiguration {
       }
     }
     let tmplData: ITemplate;
-    try {
-      tmplData = JSON.parse(fs.readFileSync(tmplPath, "utf-8"));
-    } catch (e) {
-      opts.errors.push(
-        { error: new Error(`Failed to read or parse template ${opts.template} in ${foundLocation}: ${e} (requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})`) },
-      );
-      return;
-    }
     // Validate template against schema
     try {
       // Nutze die JsonValidator-Factory (Singleton)
       const validator = JsonValidator.getInstance(this.schemaPath);
-      validator.serializeJsonWithSchema(
-        tmplData,
+      tmplData = validator.serializeJsonFileWithSchema<ITemplate>(
+        tmplPath,
         path.join(this.schemaPath, "template.schema.json"),
       );
     } catch (e: any) {

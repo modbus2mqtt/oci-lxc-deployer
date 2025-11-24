@@ -1,6 +1,6 @@
 {
   "execute_on": "lxc",
-  "name": "Prepare 050-download-and-inst-apk",
+  "name": "Prep. install apk",
   "description": "Sets default download URL and public key for Modbus2Mqtt package",
   "parameters": [
     {
@@ -20,7 +20,6 @@
   "commands": [
     {
       "type": "script",
-      "name": "Prepare 050-download-and-inst-apk",
       "execute": "set-download-url.sh"
     }
   ]

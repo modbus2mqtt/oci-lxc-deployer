@@ -70,6 +70,8 @@ async function main() {
     const schemaPath = path.join(projectRoot, "schemas");
     const jsonPath = path.join(projectRoot, "json");
     const localPath = path.join(projectRoot, "local/json");
+    JsonError.baseDir=projectRoot;
+  
     // Hole alle Apps (Name -> Pfad)
     const allApps = ProxmoxConfiguration.getAllApps(jsonPath, localPath);
     const appPath = allApps.get(application);

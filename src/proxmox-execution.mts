@@ -154,7 +154,7 @@ export class ProxmoxExecution extends EventEmitter {
       const json = JSON.parse(stdout);
       // Validate against outputs.schema.json (throws on error)
 
-      this.validator.serializeJsonWithSchema(json, "outputs.schema.json");
+      this.validator.serializeJsonWithSchema(json, "outputs.schema.json", "Outputs " + tmplCommand.name);
       if (Array.isArray(json)) {
         for (const entry of json) {
           this.outputs.set(entry.name, entry.value);

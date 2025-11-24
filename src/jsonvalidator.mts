@@ -9,14 +9,21 @@ export interface IJsonErrorDetails {
   error: Error;
 }
 export class JsonError extends Error {
+  public static baseDir: string="";
   public details: IJsonErrorDetails[]|undefined;
   public filename: string;
 
   constructor(filename: string, details?: IJsonErrorDetails[]) {
-    super(`'${filename}' has errors. ` + (details && details.length > 1? `See details for ${details.length} errors.` : ""));
+    super();
     this.name = "JsonError";
     this.filename = filename;
     this.details = details;
+  }
+  get message(): string {
+    return `'${path.relative(JsonError.baseDir, this.filename)}' has errors.` +
+      (this.details && this.details.length > 1
+        ? ` See details for ${this.details.length} errors.`
+        : "");
   }
 }
 export class ValidateJsonError extends Error {
@@ -87,7 +94,7 @@ export class JsonValidator {
    * @param schemaId The path to the schema file
    * @returns The validated and typed object
    */
-  public serializeJsonWithSchema<T>(jsonData: unknown, schemaId: string): T {
+  public serializeJsonWithSchema<T>(jsonData: unknown, schemaId: string, filePath?: string): T {
     const schemaKey = path.basename(schemaId);
     const validate = this.ajv.getSchema<T>(schemaKey);
     if (!validate) {
@@ -138,7 +145,7 @@ export class JsonValidator {
         });
       } else if (validate.errors) {
         details = validate.errors.map((e: ErrorObject): IJsonErrorDetails  => ({
-          error: new ValidateJsonError(schemaKey, e)
+          error: new ValidateJsonError(filePath ? filePath : schemaKey, e)
         }));
       } else {
         details = [{ line: -1, error: new Error("Unknown error") }];
@@ -152,11 +159,11 @@ export class JsonValidator {
    * Reads a JSON file, parses it with source map, validates it against a schema, and returns the typed object.
    * Throws an error with line numbers if file is missing, parsing or validation fails.
    * @param filePath Path to the JSON file
-   * @param schemaPath Path to the schema file
+   * @param schemaKey Path to the schema file
    */
   public serializeJsonFileWithSchema<T>(
     filePath: string,
-    schemaPath: string,
+    schemaKey: string,
   ): T {
     let fileText: string;
     let data: unknown;
@@ -176,20 +183,16 @@ export class JsonValidator {
       (data as any).__sourceMap = { pointers };
     } catch (e: any) {
       // Try to extract line/column from error if possible
-      throw new Error(
-        `Failed to parse JSON file: ${filePath}\n${e && (e.message || String(e))}`,
-      );
+      if( e instanceof JsonError)
+        e.filename = filePath
+      throw e
     }
     try {
-      return this.serializeJsonWithSchema<T>(data, schemaPath);
+      return this.serializeJsonWithSchema<T>(data, schemaKey, filePath);
     } catch (e: any) {
-      const err = new Error(
-        `Validation failed for file: ${filePath}\n${e && (e.message || String(e))}`,
-      );
-      if (e && typeof e === "object" && "errorLines" in e) {
-        (err as any).errorLines = (e as any).errorLines;
-      }
-      throw err;
+      if( e instanceof JsonError)
+        e.filename = filePath
+      throw e;
     }
   }
 }
