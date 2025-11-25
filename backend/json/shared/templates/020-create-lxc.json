@@ -20,8 +20,8 @@
       "name": "disk_size",
       "type": "string",
       "required": true,
-      "default": "4G",
-      "description": "Disk size for the container (e.g. 4G)"
+      "default": "4",
+      "description": "Disk size for the container in GB"
     },
     {
       "name": "memory",

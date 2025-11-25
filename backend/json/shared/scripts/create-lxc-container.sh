@@ -1,18 +1,30 @@
 #!/bin/sh
 
-# Auto-select the best storage for LXC rootfs (most free space, supports rootdir)
-STORAGE=$(pvesm status | awk 'NR>1 {print $1}' | while read stor; do
+
+# Auto-select the best storage for LXC rootfs (most free space, supports rootdir) and set ROOTFS variable
+
+# Auto-select the best storage for LXC rootfs (most free space, supports rootdir) and set ROOTFS variable
+ROOTFS_RESULT=$(pvesm status | awk 'NR>1 {print $1, $6}' | while read stor free; do
   if pvesm list "$stor" --content rootdir 2>/dev/null | grep -q .; then
-    echo "$stor"
-    break
+    if pvesm status --storage "$stor" | grep -q zfs; then
+      echo "$free $stor size"
+    else
+      echo "$free $stor normal"
+    fi
   fi
-done)
-if [ -z "$STORAGE" ]; then
+done | sort -nr | head -n1)
+
+set -- $ROOTFS_RESULT
+stor=$2
+type=$3
+
+if [ -z "$stor" ]; then
   echo "No suitable storage found for LXC rootfs!" >&2
   exit 1
 fi
 
-echo "Selected storage: $STORAGE" >&2
+ROOTFS="$stor:$(({{ disk_size }} * 1024))"
+echo "Rootfs: $ROOTFS" >&2
 
 # Auto-select VMID if not set
 if [ -z "{{ vm_id }}" ]; then
@@ -22,9 +34,9 @@ else
   VMID="{{ vm_id }}"
 fi
 
-# Create the container
-pct create $VMID {{ template_path }} \
-  --rootfs "$STORAGE:{{ disk_size }}" \
+ # Create the container
+pct create "$VMID" "{{ template_path }}" \
+  --rootfs "$ROOTFS" \
   --hostname "{{ hostname }}" \
   --memory "{{ memory }}" \
   --net0 name=eth0,bridge="{{ bridge }}",ip=dhcp \

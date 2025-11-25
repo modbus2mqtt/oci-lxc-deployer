@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { ProxmoxConfiguration } from "./proxmoxconfiguration.mjs";
-import { ProxmoxExecution } from "./proxmox-execution.mjs";
+import { IRestartInfo, ProxmoxExecution } from "./proxmox-execution.mjs";
 // Make sure the types file exists, or update the path if necessary
 // If your types are in a TypeScript file, use './types' instead of './types.js'
 import type { TaskType } from "./types.mjs";
@@ -9,11 +9,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { JsonError } from "./jsonvalidator.mjs";
 import { TemplateProcessor } from "@src/templateprocessor.mjs";
-
+import { promises, writeFileSync } from "node:fs";
 function printUsageAndExit() {
   console.error("Usage: lxc-exec <application> <task> <parameters.json>");
 }
-
+function saveRestartInfo(
+  restartInfo: IRestartInfo | undefined,
+  restartInfoArg: string | undefined,
+) {
+  if (restartInfoArg && restartInfo) {
+    console.error("Saving restart info to ", restartInfoArg);
+    try {
+      const data = JSON.stringify(restartInfo, null, 2);
+      promises.writeFile(restartInfoArg, data, "utf-8");
+      writeFileSync(restartInfoArg, data, "utf-8");
+    } catch (e: Error | any) {
+      console.error("Failed to save restart info:", e.message);
+    }
+  }
+}
 function printUnresolvedParameters(
   application: string,
   task: TaskType,
@@ -24,7 +38,10 @@ function printUnresolvedParameters(
   try {
     const templateProcessor = new TemplateProcessor(config);
     const loaded = templateProcessor.loadApplication(application, task);
-    const unresolved = templateProcessor.getUnresolvedParameters(loaded.parameters, loaded.resolvedParams);
+    const unresolved = templateProcessor.getUnresolvedParameters(
+      loaded.parameters,
+      loaded.resolvedParams,
+    );
     const requiredNames = unresolved
       .filter((param: any) => param.default === undefined)
       .map((param: any) => param.name);
@@ -56,7 +73,8 @@ function printUnresolvedParameters(
 }
 
 async function main() {
-  const [, , applicationArg, taskArg, paramsFileArg] = process.argv;
+  const [, , applicationArg, taskArg, paramsFileArg, restartInfoArg] =
+    process.argv;
   if (!applicationArg || !taskArg) {
     printUsageAndExit();
     process.exit(1);
@@ -64,6 +82,7 @@ async function main() {
   const application = String(applicationArg);
   const task = String(taskArg) as TaskType;
   const paramsFile = paramsFileArg ? String(paramsFileArg) : undefined;
+  let restartInfo: IRestartInfo | null = null;
 
   try {
     const __filename = fileURLToPath(import.meta.url);
@@ -85,11 +104,18 @@ async function main() {
     }
 
     const config = new ProxmoxConfiguration(schemaPath, jsonPath, localPath);
-    const templateProcessor = new TemplateProcessor({schemaPath, jsonPath, localPath});
-     
+    const templateProcessor = new TemplateProcessor({
+      schemaPath,
+      jsonPath,
+      localPath,
+    });
+
     if (!paramsFile) {
-      templateProcessor.loadApplication(application, task);
-      const unresolved = config.getUnresolvedParameters();
+      const result = templateProcessor.loadApplication(application, task);
+      const unresolved = templateProcessor.getUnresolvedParameters(
+        result.parameters,
+        result.resolvedParams,
+      );
       const requiredNames = unresolved
         .filter((param: any) => param.default === undefined)
         .map((param: any) => param.name);
@@ -104,7 +130,16 @@ async function main() {
       console.error(JSON.stringify(paramTemplate, null, 2));
       process.exit(0);
     }
-
+    if (restartInfoArg) {
+      try {
+        restartInfo = JSON.parse(readFileSync(restartInfoArg, "utf-8"));
+      } catch (e: Error | any) {
+        console.error(
+          "Failed to get restartInfo. Start from the beginning",
+          e.message,
+        );
+      }
+    }
     const loaded = templateProcessor.loadApplication(application, task);
     const params = JSON.parse(readFileSync(paramsFile!, "utf-8"));
     if (!Array.isArray(params)) {
@@ -127,7 +162,8 @@ async function main() {
         console.error(`[${msg.commandtext}] ${msg.stderr}`);
       }
     });
-    exec.run();
+    const rcRestartInfo = exec.run(restartInfo);
+    saveRestartInfo(rcRestartInfo, restartInfoArg);
   } catch (err) {
     if (err instanceof JsonError) {
       console.error("Error:", err.message);

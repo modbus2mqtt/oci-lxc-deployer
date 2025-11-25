@@ -4,7 +4,6 @@ import path from "path";
 import { JsonValidator } from "./jsonvalidator.mjs";
 import fs from "fs";
 
-
 export interface IReadApplicationOptions {
   applicationHierarchy: string[];
   application?: IApplication;
@@ -15,10 +14,9 @@ export interface IReadApplicationOptions {
     templates: string[];
   }[];
 }
-export class ApplicationLoader  {
-    constructor(private pathes: IConfiguredPathes) {
-    }
-/**
+export class ApplicationLoader {
+  constructor(private pathes: IConfiguredPathes) {}
+  /**
    * Liest die application.json für eine Anwendung, unterstützt Vererbung und Template-Listen-Manipulation.
    * @param application Name der Anwendung (ggf. mit json: Präfix)
    * @param opts Optionen mit applicationHierarchy und templates
@@ -62,29 +60,29 @@ export class ApplicationLoader  {
       }
     }
     if (opts.applicationHierarchy.includes(appPath)) {
-        throw new Error(`Cyclic inheritance detected for application: ${appName}`);
+      throw new Error(
+        `Cyclic inheritance detected for application: ${appName}`,
+      );
     }
     // Datei lesen und validieren
     const validator = JsonValidator.getInstance(this.pathes.schemaPath);
     let appData: IApplication;
     try {
-      
       appData = validator.serializeJsonFileWithSchema<IApplication>(
         appFile,
         path.join(this.pathes.schemaPath, "application.schema.json"),
       );
       // Save the first application in the hierarchy
-      if(!opts.application) {
+      if (!opts.application) {
         opts.application = appData;
         opts.appPath = appPath;
       }
       // first application is first in hierarchy
       opts.applicationHierarchy.push(appPath);
-  
+
       // Rekursive Vererbung
       if (appData.extends) {
         try {
-
           this.readApplicationJson(appData.extends, opts);
         } catch (e: Error | any) {
           if (opts.error && Array.isArray(opts.error.details)) {
@@ -149,5 +147,4 @@ export class ApplicationLoader  {
       }
     }
   }
-
 }

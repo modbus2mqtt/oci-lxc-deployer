@@ -50,7 +50,10 @@ export class ProxmoxWebApp {
             localJsonPath,
           );
           const templateProcessor = new TemplateProcessor(config);
-          const loaded = templateProcessor.loadApplication(application, task as TaskType);
+          const loaded = templateProcessor.loadApplication(
+            application,
+            task as TaskType,
+          );
           const commands = loaded.commands;
           const defaults = new Map<string, string | number | boolean>();
           loaded.parameters.forEach((param) => {
@@ -126,8 +129,15 @@ export class ProxmoxWebApp {
             localJsonPath,
           );
           const templateProcessor = new TemplateProcessor(config);
-          const loaded = templateProcessor.loadApplication(application, task as TaskType);
-          res.json({ unresolvedParameters: loaded.parameters.filter(param => !param.default) });
+          const loaded = templateProcessor.loadApplication(
+            application,
+            task as TaskType,
+          );
+          res.json({
+            unresolvedParameters: loaded.parameters.filter(
+              (param) => !param.default,
+            ),
+          });
         } catch (err: any) {
           res
             .status(400)

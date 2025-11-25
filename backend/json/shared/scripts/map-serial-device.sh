@@ -1,4 +1,9 @@
 # Map serial device if provided
+if [  "{{ usb }}" = "false" ]; then
+  echo "No serial device specified, skipping mapping. {{ usb }}" >&2
+  exit 0
+fi
+echo "Checking if VM {{ vm_id }} is running... {{ usb }}" >&2
 VM_WAS_RUNNING=0
 if pct status {{ vm_id }} | grep -q 'status: running'; then
   pct stop {{ vm_id }} >&2
@@ -22,5 +27,6 @@ if [ -n "{{ serial_host }}" ]; then
 fi
 
 if [ "$VM_WAS_RUNNING" -eq 1 ]; then
+  echo "Restarting VM {{ vm_id }}..." >&2
   pct start {{ vm_id }} >&2
 fi

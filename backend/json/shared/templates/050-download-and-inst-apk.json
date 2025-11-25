@@ -19,9 +19,9 @@
   "commands": [
     {
       "type": "command",
-      "name": "Download Package",
-      "execute": "wget {{ packageurl }} -O packagefile",
-      "description": "Download package to the LXC container"
+      "name": "Debugg",
+      "execute": "uname -n",
+      "description": "Check where we are"
     },
     {
       "type": "command",

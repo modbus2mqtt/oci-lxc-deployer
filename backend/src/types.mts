@@ -1,3 +1,5 @@
+import { E } from "node_modules/vitest/dist/chunks/environment.d.CrsxCzP1.js";
+
 export interface ISsh {
   host: string;
   port: number;
@@ -39,7 +41,8 @@ export interface IProxmoxExecuteMessage {
   result: string | null;
   exitCode: number;
   execute_on?: "proxmox" | "lxc";
-  index: number;
+  error?: Error;
+  index?: number;
 }
 export interface IParameter {
   name: string;

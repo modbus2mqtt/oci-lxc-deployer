@@ -35,7 +35,10 @@ describe("ProxmoxConfiguration.loadApplication", () => {
   it("should load parameters and commands for modbus2mqtt installation", () => {
     const config = helper.createProxmoxConfiguration();
     const templateProcessor = new TemplateProcessor(config);
-    const result = templateProcessor.loadApplication("modbus2mqtt", "installation");
+    const result = templateProcessor.loadApplication(
+      "modbus2mqtt",
+      "installation",
+    );
 
     expect(result.parameters.length).toBeGreaterThan(0);
     expect(result.commands.length).toBeGreaterThan(0);
@@ -44,9 +47,11 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     expect(paramNames).toContain("packageurl");
     expect(paramNames).toContain("vm_id");
 
-    templateProcessor.getUnresolvedParameters(result.parameters, result.resolvedParams).forEach((param) => {
-      expect(param.name).not.toBe("vm_id");
-    });
+    templateProcessor
+      .getUnresolvedParameters(result.parameters, result.resolvedParams)
+      .forEach((param) => {
+        expect(param.name).not.toBe("vm_id");
+      });
   });
 
   it("should throw error if a template file is missing and provide all errors and application object", () => {
@@ -113,7 +118,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     try {
       const templateProcessor = new TemplateProcessor(config);
       templateProcessor.loadApplication(appName, "installation");
-    }  catch (err: any) {
+    } catch (err: any) {
       expect(err.message).toMatch(/Script file not found/);
     }
   });

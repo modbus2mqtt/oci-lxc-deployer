@@ -19,6 +19,6 @@ else
   echo "Downloading $TEMPLATE..." >&2
   pveam download $STORAGE "$TEMPLATE" >&2
 fi
-template_path="$STORAGE:$TEMPLATE"
+template_path=$(pveam list $STORAGE | awk -v T="$TEMPLATE" '$1 ~ T {print $1}')
 # Output the template path in JSON format
 echo '[{ "name": "template_path", "value": "'$template_path'"} ,{"name": "ostype", "value": "'$OSTYPE'" }]'

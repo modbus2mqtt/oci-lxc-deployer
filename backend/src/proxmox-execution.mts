@@ -15,6 +15,13 @@ export interface IOutput {
   value?: string;
   default?: string;
 }
+export interface IRestartInfo {
+  vm_id: string | number;
+  lastSuccessfull: number;
+  inputs: { name: string; value: string | number | boolean }[];
+  outputs: { name: string; value: string | number | boolean }[];
+  defaults: { name: string; value: string | number | boolean }[];
+}
 /**
  * ProxmoxExecution: Executes a list of ICommand objects with variable substitution and remote/container execution.
  */
@@ -27,7 +34,7 @@ export class ProxmoxExecution extends EventEmitter {
   constructor(
     commands: ICommand[],
     inputs: { name: string; value: string | number | boolean }[],
-    private defaults: Map<string, string | number | boolean>,
+    private defaults: Map<string, string | number | boolean> = new Map(),
   ) {
     super();
     this.commands = commands;
@@ -104,9 +111,7 @@ export class ProxmoxExecution extends EventEmitter {
         "-q", // Suppress SSH diagnostic output
         "-p",
         String(port),
-        `${host}`,
-        "sh", // Use 'sh' to execute the command
-        "-s",
+        `${host}`
       ];
     if (remoteCommand) {
       sshArgs = sshArgs.concat(remoteCommand);
@@ -122,89 +127,72 @@ export class ProxmoxExecution extends EventEmitter {
     // Only 'status' is available on SpawnSyncReturns<string> in Node.js typings
     const exitCode = typeof proc.status === "number" ? proc.status : -1;
     // Try to parse stdout as JSON and update outputs
-
+    const msg: IProxmoxExecuteMessage = {
+      stderr: structuredClone(stderr),
+      commandtext: structuredClone(input),
+      result: structuredClone(stdout),
+      exitCode,
+      command: structuredClone(tmplCommand.name),
+      execute_on: structuredClone(tmplCommand.execute_on!),
+    };
     try {
       if (stdout.trim().length === 0) {
         // output is empty but exit code 0
         // no outputs to parse
+        msg.command = tmplCommand.name;
+        msg.result = "OK";
+        msg.exitCode = exitCode;
         if (exitCode === 0) {
-          const msg: IProxmoxExecuteMessage = {
-            stderr,
-            commandtext: input,
-            result: "OK",
-            exitCode,
-            command: tmplCommand.name,
-            execute_on: tmplCommand.execute_on!,
-            index: index++,
-          };
+          msg.result = "OK";
+          msg.index = index++;
           this.emit("message", msg);
           return msg;
         } else {
-          const msg: IProxmoxExecuteMessage = {
-            stderr,
-            commandtext: input,
-            result: "ERROR",
-            exitCode,
-            command: tmplCommand.name,
-            execute_on: tmplCommand.execute_on!,
-            index: index++,
-          };
+          msg.result = "ERROR";
+          msg.index = index;
           this.emit("message", msg);
           throw new Error(
             `Command "${tmplCommand.name}" failed with exit code ${exitCode}: ${stderr}`,
           );
         }
       }
-
-      const outputsJson = this.validator.serializeJsonWithSchema<
-        IOutput[] | IOutput
-      >(
-        JSON.parse(stdout),
-        "outputs.schema.json",
-        "Outputs " + tmplCommand.name,
-      );
-      if (Array.isArray(outputsJson)) {
-        for (const entry of outputsJson) {
-          if (entry.value) this.outputs.set(entry.name, entry.value);
-          if (entry.default) this.defaults.set(entry.name, entry.default);
+      try {
+        const outputsJson = this.validator.serializeJsonWithSchema<
+          IOutput[] | IOutput
+        >(
+          JSON.parse(stdout),
+          "outputs.schema.json",
+          "Outputs " + tmplCommand.name,
+        );
+        if (Array.isArray(outputsJson)) {
+          for (const entry of outputsJson) {
+            if (entry.value) this.outputs.set(entry.name, entry.value);
+            if (entry.default) this.defaults.set(entry.name, entry.default);
+          }
+        } else if (typeof outputsJson === "object" && outputsJson !== null) {
+          if (outputsJson.value)
+            this.outputs.set(outputsJson.name, outputsJson.value);
+          if (outputsJson.default)
+            this.defaults.set(outputsJson.name, outputsJson.default);
         }
-      } else if (typeof outputsJson === "object" && outputsJson !== null) {
-        if (outputsJson.value)
-          this.outputs.set(outputsJson.name, outputsJson.value);
-        if (outputsJson.default)
-          this.defaults.set(outputsJson.name, outputsJson.default);
+      } catch (e) {
+        msg.index = index;
+        msg.commandtext = stdout;
+        throw e
       }
     } catch (e) {
-      const msg: IProxmoxExecuteMessage = {
-        stderr,
-        commandtext: input,
-        result: stdout,
-        exitCode,
-        command: tmplCommand.name,
-        execute_on: tmplCommand.execute_on!,
-        index: index++,
-      };
+      msg.index = index;
+      msg.error = e as Error;
+      msg.exitCode = -1;
       this.emit("message", msg);
-      throw new Error(
-        "Failed to parse command output as JSON: " + (e as any).message,
-      );
+      throw e;
     }
-
-    const msg: IProxmoxExecuteMessage = {
-      stderr,
-      commandtext: input,
-      result: stdout,
-      exitCode,
-      command: tmplCommand.name,
-      execute_on: tmplCommand.execute_on!,
-      index: index++,
-    };
-    this.emit("message", msg);
     if (exitCode !== 0) {
       throw new Error(
         `Command "${tmplCommand.name}" failed with exit code ${exitCode}: ${stderr}`,
       );
-    }
+    } else msg.index = index++;
+    this.emit("message", msg);
     return msg;
   }
 
@@ -238,10 +226,28 @@ export class ProxmoxExecution extends EventEmitter {
    * Runs all commands, replacing variables from inputs/outputs, and executes them on the correct target.
    * Returns the index of the last successfully executed command.
    */
-  run(): IProxmoxRunResult {
-    let lastSuccess = -1;
+  run(restartInfo: IRestartInfo | null = null): IRestartInfo | undefined {
+    let rcRestartInfo: IRestartInfo | undefined = undefined;
     let msgIndex = 0;
-    outerloop: for (let i = 0; i < this.commands.length; ++i) {
+    let startIdx = 0;
+    if (restartInfo) {
+      // Load previous state
+      this.outputs.clear();
+      this.inputs = {};
+      this.defaults.clear();
+      restartInfo.lastSuccessfull !== undefined &&
+        (startIdx = restartInfo.lastSuccessfull + 1);
+      for (const inp of restartInfo.inputs) {
+        this.inputs[inp.name] = inp.value;
+      }
+      for (const outp of restartInfo.outputs) {
+        this.outputs.set(outp.name, outp.value);
+      }
+      for (const def of restartInfo.defaults) {
+        this.defaults.set(def.name, def.value);
+      }
+    }
+    outerloop: for (let i = startIdx; i < this.commands.length; ++i) {
       const cmd = this.commands[i];
       if (!cmd || typeof cmd !== "object") continue;
       let execStr = "";
@@ -299,7 +305,24 @@ export class ProxmoxExecution extends EventEmitter {
             } as IProxmoxExecuteMessage);
             break outerloop;
         }
-        lastSuccess = i;
+
+        const vm_id = this.outputs.get("vm_id");
+        if (vm_id !== undefined) {
+          rcRestartInfo = {
+            vm_id: Number.parseInt(vm_id as string, 10),
+            lastSuccessfull: i,
+            inputs: Object.entries(this.inputs).map(([name, value]) => ({
+              name,
+              value,
+            })),
+            outputs: Array.from(this.outputs.entries()).map(
+              ([name, value]) => ({ name, value }),
+            ),
+            defaults: Array.from(this.defaults.entries()).map(
+              ([name, value]) => ({ name, value }),
+            ),
+          };
+        }
       } catch (e) {
         this.emit("message", {
           stderr: (e as any).message,
@@ -312,7 +335,7 @@ export class ProxmoxExecution extends EventEmitter {
         break outerloop;
       }
     }
-    return { lastSuccessIndex: lastSuccess };
+    return rcRestartInfo;
   }
 
   /**

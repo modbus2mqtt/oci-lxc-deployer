@@ -1,0 +1,78 @@
+{
+  "vm_id": 100,
+  "lastSuccessfull": 4,
+  "inputs": [
+    {
+      "name": "hostname",
+      "value": "test-lxc"
+    },
+    {
+      "name": "packagerpubkey",
+      "value": ""
+    },
+    {
+      "name": "packageurl",
+      "value": ""
+    }
+  ],
+  "outputs": [
+    {
+      "name": "template_path",
+      "value": "local:vztmpl/alpine-3.22-default_20250617_amd64.tar.xz"
+    },
+    {
+      "name": "ostype",
+      "value": "alpine"
+    },
+    {
+      "name": "vm_id",
+      "value": "100"
+    },
+    {
+      "name": "packageurl",
+      "value": "https://github.com/modbus2mqtt/modbus2mqtt/releases/download/v0.17.1/modbus2mqtt-0.17.1-r0-x86_64.apk"
+    },
+    {
+      "name": "packagerpubkeyurl",
+      "value": "https://github.com/modbus2mqtt/modbus2mqtt/releases/latest/download/packager.rsa.pub"
+    }
+  ],
+  "defaults": [
+    {
+      "name": "ostype",
+      "value": "alpine"
+    },
+    {
+      "name": "vm_id",
+      "value": ""
+    },
+    {
+      "name": "disk_size",
+      "value": "4"
+    },
+    {
+      "name": "memory",
+      "value": 512
+    },
+    {
+      "name": "bridge",
+      "value": "vmbr0"
+    },
+    {
+      "name": "usb",
+      "value": false
+    },
+    {
+      "name": "serial_host",
+      "value": "/dev/ttyUSB0"
+    },
+    {
+      "name": "packagerpubkeyurl",
+      "value": ""
+    },
+    {
+      "name": "packageurl",
+      "value": ""
+    }
+  ]
+}

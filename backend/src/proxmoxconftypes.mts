@@ -23,7 +23,7 @@ export interface IApplication extends IApplicationSchema {
   id: string;
 }
 export interface IConfiguredPathes {
-    schemaPath: string;
-    jsonPath: string;
-    localPath: string; 
+  schemaPath: string;
+  jsonPath: string;
+  localPath: string;
 }

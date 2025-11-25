@@ -1,17 +1,9 @@
 import fs from "fs";
 import * as path from "path";
-import {
-  IParameter,
-  IApplicationWeb,
-  TaskType,
-} from "@src/types.mjs";
-import {
-  IJsonErrorDetails,
-  JsonError,
-} from "./jsonvalidator.mjs";
+import { IParameter, IApplicationWeb, TaskType } from "@src/types.mjs";
+import { IJsonErrorDetails, JsonError } from "./jsonvalidator.mjs";
 import { IConfiguredPathes } from "@src/proxmoxconftypes.mjs";
 import { TemplateProcessor } from "@src/templateprocessor.mjs";
-
 
 export interface IApplicationBase {
   name: string;
@@ -58,7 +50,7 @@ export class ProxmoxLoadApplicationError extends JsonError {
     this.filename = application + "/" + (task ? task : "");
   }
 }
-class ProxmoxConfiguration implements IConfiguredPathes{
+class ProxmoxConfiguration implements IConfiguredPathes {
   /**
    * Liest die application.json für eine Anwendung, unterstützt Vererbung und Template-Listen-Manipulation.
    * @param application Name der Anwendung (ggf. mit json: Präfix)
@@ -89,7 +81,6 @@ class ProxmoxConfiguration implements IConfiguredPathes{
     public localPath: string,
   ) {}
 
-  
   listApplications(): IApplicationWeb[] {
     const applications: IApplicationWeb[] = [];
     for (const [appName, appDir] of ProxmoxConfiguration.getAllApps(
@@ -150,8 +141,6 @@ class ProxmoxConfiguration implements IConfiguredPathes{
     }
     return applications;
   }
-
-
 }
 
 export { ProxmoxConfiguration };

@@ -61,7 +61,7 @@ describe("ProxmoxConfiguration script path resolution", () => {
   it("should resolve script path in commands", () => {
     const config = new ProxmoxConfiguration(schemaPath, jsonPath, localPath);
     const templateProcessor = new TemplateProcessor(config);
-  
+
     const result = templateProcessor.loadApplication(appName, "installation");
     const scriptCmd = result.commands.find((cmd) => cmd.type === "script");
     expect(scriptCmd).toBeDefined();
