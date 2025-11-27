@@ -1,0 +1,7 @@
+{
+  "name": "001-set-properties",
+  "description": "Sets default values for username, mountpoint, uid, and gid for the backup application.",
+  "script": "scripts/set-properties.sh",
+  "outputs": ["username", "mountpoint", "uid", "gid"],
+  "notes": "This template outputs the default values as outputs in JSON format."
+}

@@ -4,7 +4,7 @@
   "installation": [
     "010-get-latest-os-template.json",
     "100-create-lxc.json",
-    "120-map-backup-disk.json",
+    "110-map-serial.json",
     "200-start-lxc.json",
     "set-download-url.json",
     "300-download-and-inst-apk.json"

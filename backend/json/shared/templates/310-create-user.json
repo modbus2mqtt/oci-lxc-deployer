@@ -1,0 +1,25 @@
+{
+  "name": "310-create-user",
+  "description": "Create a user inside the LXC container with specified username, uid, gid, and optional mountpoint write check. Calls create-user.sh with template variables.",
+  "script": "shared/scripts/create-user.sh",
+  "parameters": {
+    "username": {
+      "type": "string",
+      "description": "The username to create. Must not be empty."
+    },
+    "uid": {
+      "type": "string",
+      "description": "The UID for the user. Must not be empty."
+    },
+    "gid": {
+      "type": "string",
+      "description": "The GID for the user. Must not be empty."
+    },
+    "mountpoint": {
+      "type": "string",
+      "description": "Optional: The mountpoint to check for write access. Can be empty if not needed."
+    }
+  },
+  "required": ["username", "uid", "gid"],
+  "notes": "All parameters except mountpoint must be set and not empty. The script is idempotent and outputs errors to stderr."
+}

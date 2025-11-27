@@ -164,6 +164,8 @@ async function main() {
     });
     const rcRestartInfo = exec.run(restartInfo);
     saveRestartInfo(rcRestartInfo, restartInfoArg);
+    console.log("All tasks completed successfully.");
+    process.exit(0);
   } catch (err) {
     if (err instanceof JsonError) {
       console.error("Error:", err.message);
@@ -176,6 +178,13 @@ async function main() {
       }
       process.exit(2);
     }
+    if (err instanceof Error) {
+      console.error("Error:", err.message);
+    } else {
+      console.error("Error:", err);
+    }
+    process.exit(2);
+    
   }
 }
 function printDetails(details: any[], level = 1) {

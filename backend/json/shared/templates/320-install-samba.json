@@ -1,0 +1,21 @@
+{
+  "name": "320-install-samba",
+  "description": "Install and configure Samba for a given mountpoint and user, with Time Machine support. Calls install-samba.sh with template variables.",
+  "script": "shared/scripts/install-samba.sh",
+  "parameters": {
+    "mountpoint": {
+      "type": "string",
+      "description": "The mountpoint to share via Samba. Must not be empty."
+    },
+    "username": {
+      "type": "string",
+      "description": "The username for Samba access. Must not be empty."
+    },
+    "password": {
+      "type": "string",
+      "description": "The password for the Samba user. Must not be empty."
+    }
+  },
+  "required": ["mountpoint", "username", "password"],
+  "notes": "All parameters must be set and not empty. The script is idempotent, configures Time Machine support, and outputs errors to stderr."
+}

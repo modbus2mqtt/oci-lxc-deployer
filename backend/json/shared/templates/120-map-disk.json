@@ -1,0 +1,51 @@
+{
+  "name": "Map Disk to LXC Container",
+  "description": "Mounts a block device (by UUID) from the Proxmox host into an LXC container as a bind mount, with UID/GID mapping.\n\nThis template can be called independently of the LXC container's state (running or stopped) and is safe to call multiple times (idempotent), e.g. before using the share.",
+  "execute_on": "proxmox",
+  "parameters": [
+    {
+      "name": "vm_id",
+      "type": "string",
+      "required": true,
+      "description": "ID of the LXC container to which the disk will be mapped."
+    },
+    {
+      "name": "host_device_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of the block device to be mounted."
+    },
+    {
+      "name": "disk_size",
+      "type": "string",
+      "required": true,
+      "description": "Disk size (for documentation/logging only, not used for mounting)."
+    },
+    {
+      "name": "mountpoint",
+      "type": "string",
+      "required": true,
+      "default": "/mnt/backupdisk",
+      "description": "Mount point on the Proxmox host and inside the container."
+    },
+    {
+      "name": "uid",
+      "type": "string",
+      "required": true,
+      "description": "UID to set for the mount directory and bind mount."
+    },
+    {
+      "name": "gid",
+      "type": "string",
+      "required": true,
+      "description": "GID to set for the mount directory and bind mount."
+    }
+  ],
+  "commands": [
+    {
+      "type": "script",
+      "execute": "map-disk.sh",
+      "description": "Executes the script to map the disk by UUID and set up the bind mount in the container."
+    }
+  ]
+}
