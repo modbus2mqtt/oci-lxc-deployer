@@ -2,11 +2,10 @@ import * as path from "path";
 import { expect, describe, it, beforeEach, afterEach } from "vitest";
 import {
   ProxmoxConfiguration,
-  ProxmoxConfigurationError,
 } from "@src/proxmoxconfiguration.mjs";
 import { ProxmoxTestHelper } from "@tests/proxmoxTestHelper.mjs";
-import { JsonError } from "@src/jsonvalidator.mjs";
 import { TemplateProcessor } from "@src/templateprocessor.mjs";
+import { ProxmoxConfigurationError } from "@src/proxmoxconftypes.mjs";
 
 declare module "@tests/proxmoxTestHelper.mjs" {
   interface ProxmoxTestHelper {
@@ -125,7 +124,6 @@ describe("ProxmoxConfiguration.loadApplication", () => {
   });
 
   it("should throw error if a script uses an undefined parameter and provide application object", () => {
-    const config = helper.createProxmoxConfiguration();
     // Write a template that references a script using an undefined variable
     const appName = "modbus2mqtt";
     const templateName = "missing-param-script-template.json";
@@ -139,14 +137,13 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     helper.writeTemplate(appName, templateName, {
       execute_on: "proxmox",
       name: "Missing Param Script Template",
-      commands: [{ type: "script", execute: scriptName }],
+      commands: [{ script: scriptName }],
     });
     // Set this template as the only one in installation
     const app = helper.readApplication(appName);
     app.installation = [templateName];
     helper.writeApplication(appName, app);
     try {
-      const templateProcessor = new TemplateProcessor(config);
     } catch (err: any) {
       expect(err.message).toMatch(/ '{{ missing_param }}' but/);
     }

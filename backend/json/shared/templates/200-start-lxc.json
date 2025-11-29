@@ -1,5 +1,4 @@
 {
-  "$schema": "file:/Users/volkmar/proxmox2/schemas/template.schema.json",
   "execute_on": "proxmox",
   "name": "Start LXC Container",
   "description": "Start existing LXC container on Proxmox host",

@@ -28,49 +28,6 @@ function saveRestartInfo(
     }
   }
 }
-function printUnresolvedParameters(
-  application: string,
-  task: TaskType,
-  config: ProxmoxConfiguration,
-) {
-  printUsageAndExit();
-  // The following code will not be reached, but kept for clarity if refactored
-  try {
-    const templateProcessor = new TemplateProcessor(config);
-    const loaded = templateProcessor.loadApplication(application, task);
-    const unresolved = templateProcessor.getUnresolvedParameters(
-      loaded.parameters,
-      loaded.resolvedParams,
-    );
-    const requiredNames = unresolved
-      .filter((param: any) => param.default === undefined)
-      .map((param: any) => param.name);
-    console.error("Required Parameters:");
-    requiredNames.forEach((name: string) => console.error(name));
-    process.exit(0);
-  } catch (err) {
-    if (err instanceof Error) {
-      console.error("Error:", err.message);
-      // Print details if this is a JsonError
-      if ("details" in err && Array.isArray((err as any).details)) {
-        console.error("Details:");
-        for (const detail of (err as any).details) {
-          if (typeof detail === "object" && detail !== null) {
-            const { message, line, column, instancePath, schemaPath } = detail;
-            console.error(
-              `- ${message} (line: ${line}, column: ${column}, instancePath: ${instancePath}, schemaPath: ${schemaPath})`,
-            );
-          } else {
-            console.error(`- ${detail}`);
-          }
-        }
-      }
-    } else {
-      console.error("Error:", err);
-    }
-    process.exit(2);
-  }
-}
 
 async function main() {
   const [, , applicationArg, taskArg, paramsFileArg, restartInfoArg] =
@@ -103,7 +60,6 @@ async function main() {
       process.exit(2);
     }
 
-    const config = new ProxmoxConfiguration(schemaPath, jsonPath, localPath);
     const templateProcessor = new TemplateProcessor({
       schemaPath,
       jsonPath,
@@ -210,20 +166,6 @@ function printDetails(details: any[], level = 1) {
       }
     } else {
       console.error(`${indent}- ${detail}`);
-    }
-  }
-}
-function listDetails(err: JsonError) {
-  if (err.details && Array.isArray(err.details)) {
-    for (const detail of err.details) {
-      if ((detail as any).details && err.details.length > 0) {
-        listDetails(detail as any);
-      } else {
-        console.error(
-          `- ${detail.message} ` +
-            (detail.line ? `(line: ${detail.line})` : ""),
-        );
-      }
     }
   }
 }

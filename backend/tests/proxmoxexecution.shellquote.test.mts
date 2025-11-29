@@ -23,8 +23,7 @@ describe("ProxmoxExecution shell quoting", () => {
       'echo "foo && bar; $PATH \'quoted\' \\"double\\" \\`backtick\\`"';
     const command: ICommand = {
       name: "test",
-      type: "command",
-      execute: script,
+      command: script,
       execute_on: "proxmox",
     };
     const exec = new ProxmoxExecution([command], inputs, defaults);
@@ -33,8 +32,7 @@ describe("ProxmoxExecution shell quoting", () => {
     (exec as any).runOnProxmoxHost = function (
       command: string,
       tmplCommand: ICommand,
-      timeoutMs = 10000,
-      sshCommand = "/bin/sh",
+      timeoutMs = 10000
     ) {
       const proc = spawnSync("/bin/sh", ["-c", command], {
         encoding: "utf-8",
@@ -54,16 +52,16 @@ describe("ProxmoxExecution shell quoting", () => {
     };
     exec.run = function () {
       const msg = this.runOnProxmoxHost(
-        command.execute,
+        command.command!,
         command,
         10000,
         undefined,
         "/bin/sh",
       );
-      return { lastSuccessIndex: msg.exitCode === 0 ? 0 : -1 };
+      return { lastSuccessfull: msg.exitCode === 0 ? 0 : -1 , inputs: [], outputs:[],defaults:[]  }; 
     };
     const result = exec.run();
-    expect(result.lastSuccessIndex).toBe(0);
+    expect(result?.lastSuccessfull).toBe(0);
   });
 
   it("should execute a shell script with special characters via runOnLxc (simulated)", () => {
@@ -74,8 +72,7 @@ describe("ProxmoxExecution shell quoting", () => {
             echo \'{"name": "mocked", "value":true}\'';
     const command: ICommand = {
       name: "testlxc",
-      type: "command",
-      execute: script,
+      command: script,
       execute_on: "lxc",
     };
     const exec = new ProxmoxExecution(
@@ -87,17 +84,17 @@ describe("ProxmoxExecution shell quoting", () => {
     exec.run = function () {
       let lastSuccess = -1;
       try {
-        this.runOnLxc("dummy", command.execute, command, 10000, "/bin/sh");
+        this.runOnLxc("dummy", command.command!, command, 10000, "/bin/sh");
         expect(this.outputs.get("mocked")).toBe(true);
         lastSuccess = 0;
       } catch {
         lastSuccess = -1;
       }
-      return { lastSuccessIndex: lastSuccess };
+      return { lastSuccessfull: lastSuccess, inputs: [], outputs:[], defaults: [] };
     };
     const result = exec.run();
     // Prüfe, ob das Mock-Skript aufgerufen wurde und die Argumente geloggt hat
 
-    expect(result.lastSuccessIndex).toBe(0);
+    expect(result?.lastSuccessfull).toBe(0);
   });
 });

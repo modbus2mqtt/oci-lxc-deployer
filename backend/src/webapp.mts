@@ -181,7 +181,6 @@ if (
   const dirname = path.dirname(filename);
   const schemaPath = path.join(dirname, "../schemas");
   const jsonPath = path.join(dirname, "../json");
-  const configPath = path.join(dirname, "../config");
   const jsonTestPath = path.join(dirname, "../jsonTest");
   const webApp = new ProxmoxWebApp(schemaPath, jsonPath, jsonTestPath);
   const port = process.env.PORT || 3000;

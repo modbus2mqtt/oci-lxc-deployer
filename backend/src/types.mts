@@ -40,6 +40,7 @@ export interface ICommand {
 
 export interface IProxmoxExecuteMessage {
   command: string;
+  commandtext?: string;
   //commandtext: string;
   stderr: string;
   result: string | null;
