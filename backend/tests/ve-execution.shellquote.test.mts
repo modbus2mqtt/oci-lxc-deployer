@@ -28,11 +28,11 @@ describe("ProxmoxExecution shell quoting", () => {
     };
     const exec = new VeExecution([command], inputs, defaults);
     (exec as any).ssh = { host: "localhost", port: 22 };
-    // runOnProxmoxHost als Mock: akzeptiert alle Parameter, führt aber nur das Kommando lokal aus
+    // runOnProxmoxHost as a mock: accepts all parameters, but only executes the command locally
     (exec as any).runOnProxmoxHost = function (
       command: string,
       tmplCommand: ICommand,
-      timeoutMs = 10000
+      timeoutMs = 10000,
     ) {
       const proc = spawnSync("/bin/sh", ["-c", command], {
         encoding: "utf-8",
@@ -58,7 +58,12 @@ describe("ProxmoxExecution shell quoting", () => {
         undefined,
         "/bin/sh",
       );
-      return { lastSuccessfull: msg.exitCode === 0 ? 0 : -1 , inputs: [], outputs:[],defaults:[]  }; 
+      return {
+        lastSuccessfull: msg.exitCode === 0 ? 0 : -1,
+        inputs: [],
+        outputs: [],
+        defaults: [],
+      };
     };
     const result = exec.run();
     expect(result?.lastSuccessfull).toBe(0);
@@ -69,7 +74,7 @@ describe("ProxmoxExecution shell quoting", () => {
       '#!/bin/sh\n\
             echo "$@" >&2\n\
             echo "[lxc-attach-mock]: $@" >&2\n\
-            echo \'{"name": "mocked", "value":true}\'';
+            echo \'{"id": "mocked", "value":true}\'';
     const command: ICommand = {
       name: "testlxc",
       command: script,
@@ -77,7 +82,7 @@ describe("ProxmoxExecution shell quoting", () => {
     };
     const exec = new VeExecution(
       [command],
-      [{ name: "vm_id", value: "dummy" }],
+      [{ id: "vm_id",  value: "dummy" }],
       defaults,
     );
     (exec as any).ssh = { host: "localhost", port: 22 };
@@ -90,10 +95,15 @@ describe("ProxmoxExecution shell quoting", () => {
       } catch {
         lastSuccess = -1;
       }
-      return { lastSuccessfull: lastSuccess, inputs: [], outputs:[], defaults: [] };
+      return {
+        lastSuccessfull: lastSuccess,
+        inputs: [],
+        outputs: [],
+        defaults: [],
+      };
     };
     const result = exec.run();
-    // Prüfe, ob das Mock-Skript aufgerufen wurde und die Argumente geloggt hat
+    // Check if the mock script was called and the arguments were logged
 
     expect(result?.lastSuccessfull).toBe(0);
   });

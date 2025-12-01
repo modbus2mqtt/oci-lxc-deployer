@@ -51,11 +51,11 @@ describe("ProxmoxExecution", () => {
     }
     for (const combo of combos) {
       const outputs = new Map<string, string | number | boolean>();
-      const inputs: { name: string; value: string | number | boolean }[] = [];
+      const inputs: { id: string; value: string | number | boolean }[] = [];
       const parameters: Map<string, string | number | boolean> = new Map();
       if (combo.output !== undefined) outputs.set("foo", combo.output);
       if (combo.input !== undefined)
-        inputs.push({ name: "foo", value: combo.input });
+        inputs.push({ id: "foo", value: combo.input });
       if (combo.def !== undefined) parameters.set("foo", combo.def);
       const exec = new TestExec([], inputs, parameters);
       exec.outputs = outputs;
@@ -104,10 +104,7 @@ describe("ProxmoxExecution", () => {
     fs.writeFileSync(scriptPath, "echo {{ myvar }}");
     class TestExec extends VeExecution {
       public lastCommand = "";
-      protected runOnProxmoxHost(
-        command: string,
-        tmplCommand: ICommand
-      ) {
+      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
         this.lastCommand = command;
         return {
           stderr: "",
@@ -122,26 +119,23 @@ describe("ProxmoxExecution", () => {
       {
         script: scriptPath,
         name: "test",
-        execute_on: "proxmox"
+        execute_on: "proxmox",
       },
     ];
-    const inputs = [{ name: "myvar", value: "replacedValue" }];
+    const inputs = [{ id: "myvar", value: "replacedValue" }];
     const exec = new TestExec(commands, inputs, new Map());
     VeExecution.setSshParameters({ host: "localhost", port: 22 });
     exec.run();
     expect(exec.lastCommand).toBe("echo replacedValue");
     try {
       fs.unlinkSync(scriptPath);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e: any) {}
   });
 
   it("should replace variable in command with input value", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(
-        command: string,
-        tmplCommand: ICommand
-      ) {
+      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
         // Return the replaced value directly as result
         return {
           stderr: "",
@@ -159,17 +153,14 @@ describe("ProxmoxExecution", () => {
         execute_on: "proxmox",
       },
     ];
-    const inputs = [{ name: "somevariable", value: "replaced" }];
+    const inputs = [{ id: "somevariable", value: "replaced" }];
     new TestExec(commands, inputs, new Map());
     VeExecution.setSshParameters({ host: "localhost", port: 22 });
     // run() only returns lastSuccessIndex, but we can intercept runOnProxmoxHost
     // or check outputs. Here we check if the replaced value arrives:
     let resultValue = "";
     class CaptureExec extends TestExec {
-      protected runOnProxmoxHost(
-        command: string,
-        tmplCommand: ICommand
-      ) {
+      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
         resultValue = command;
         return {
           stderr: "",
@@ -189,10 +180,7 @@ describe("ProxmoxExecution", () => {
 
   it("should parse JSON output and fill outputs", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(
-        command: string,
-        tmplCommand: ICommand
-      ) {
+      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
         // Simuliere JSON-Parsing
         try {
           const json = JSON.parse(
@@ -234,7 +222,6 @@ describe("ProxmoxExecution", () => {
         execute_on: "proxmox",
       },
       {
-        
         command: 'echo "{\"vm_id\": 100}"',
         name: "test",
         execute_on: "proxmox",
@@ -259,10 +246,7 @@ describe("ProxmoxExecution", () => {
 
   it("should replace variables from inputs and outputs", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(
-        command: string,
-        tmplCommand: ICommand
-      ) {
+      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
         try {
           const json = JSON.parse(
             command
@@ -366,10 +350,7 @@ describe("ProxmoxExecution", () => {
 
   it("should return lastSuccessIndex", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(
-        command: string,
-        tmplCommand: ICommand
-      ) {
+      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
         return {
           stderr: "",
           result: command,

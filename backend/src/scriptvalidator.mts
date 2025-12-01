@@ -2,6 +2,7 @@ import { ICommand, IJsonError, IParameter } from "@src/types.mjs";
 import fs from "fs";
 import path from "path";
 import { JsonError } from "./jsonvalidator.mjs";
+import { IResolvedParam } from "./backend-types.mjs";
 
 export class ScriptValidator {
   /**
@@ -36,12 +37,12 @@ export class ScriptValidator {
     application: string,
     errors: IJsonError[],
     parameters: IParameter[],
-    resolvedParams: Set<string>,
+    resolvedParams: IResolvedParam[],
     requestedIn?: string,
     parentTemplate?: string,
     scriptPathes?: string[],
   ) {
-    if(cmd.script === undefined) {
+    if (cmd.script === undefined) {
       errors.push(
         new JsonError(
           `Script command missing 'script' property (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
@@ -53,7 +54,7 @@ export class ScriptValidator {
     if (!scriptPath) {
       errors.push(
         new JsonError(
-           `Script file not found: ${cmd.script} (searched in: applications/${application}/scripts and shared/scripts, requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+          `Script file not found: ${cmd.script} (searched in: applications/${application}/scripts and shared/scripts, requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
         ),
       );
       return;
@@ -63,7 +64,10 @@ export class ScriptValidator {
       const scriptContent = fs.readFileSync(scriptPath, "utf-8");
       const vars = this.extractTemplateVariables(scriptContent);
       for (const v of vars) {
-        if (!parameters.some((p) => p.id === v) && !resolvedParams.has(v)) {
+        if (
+          !parameters.some((p) => p.id === v) &&
+          !resolvedParams.some((rp) => rp.param === v)
+        ) {
           errors.push(
             new JsonError(
               `Script ${cmd.script} uses variable '{{ ${v} }}' but no such parameter is defined (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
@@ -83,14 +87,17 @@ export class ScriptValidator {
     cmd: ICommand,
     errors: IJsonError[],
     parameters: IParameter[],
-    resolvedParams: Set<string>,
+    resolvedParams: IResolvedParam[],
     requestedIn?: string,
     parentTemplate?: string,
   ) {
     if (cmd.command) {
       const vars = this.extractTemplateVariables(cmd.command);
       for (const v of vars) {
-        if (!parameters.some((p) => p.id === v) && !resolvedParams.has(v)) {
+        if (
+          !parameters.some((p) => p.id === v) &&
+          !resolvedParams.some((rp) => rp.param === v)
+        ) {
           errors.push(
             new JsonError(
               `Command uses variable '{{ ${v} }}' but no such parameter is defined (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,

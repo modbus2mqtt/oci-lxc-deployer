@@ -20,9 +20,9 @@ export interface IReadApplicationOptions {
 export class ApplicationLoader {
   constructor(private pathes: IConfiguredPathes) {}
   /**
-   * Liest die application.json für eine Anwendung, unterstützt Vererbung und Template-Listen-Manipulation.
-   * @param application Name der Anwendung (ggf. mit json: Präfix)
-   * @param opts Optionen mit applicationHierarchy und templates
+   * Reads the application.json for an application, supports inheritance and template list manipulation.
+   * @param application Name of the application (optionally with json: prefix)
+   * @param opts Options with applicationHierarchy and templates
    */
   public readApplicationJson(
     application: string,
@@ -39,7 +39,7 @@ export class ApplicationLoader {
       if (!fs.existsSync(appFile))
         throw new Error(`application.json not found for ${application}`);
     } else {
-      // Zuerst local, dann json
+      // First check local, then json
       let localPath = path.join(
         this.pathes.localPath,
         "applications",
@@ -67,7 +67,7 @@ export class ApplicationLoader {
         `Cyclic inheritance detected for application: ${appName}`,
       );
     }
-    // Datei lesen und validieren
+    // Read and validate file
     const validator = JsonValidator.getInstance(this.pathes.schemaPath);
     let appData: IApplication;
     try {
@@ -80,10 +80,10 @@ export class ApplicationLoader {
         opts.application = appData;
         opts.appPath = appPath;
       }
-      // first application is first in hierarchy
+      // First application is first in hierarchy
       opts.applicationHierarchy.push(appPath);
 
-      // Rekursive Vererbung
+      // Recursive inheritance
       if (appData.extends) {
         try {
           this.readApplicationJson(appData.extends, opts);
@@ -94,9 +94,12 @@ export class ApplicationLoader {
         }
       }
       this.processTemplates(appData, opts);
-      // application in Hierarchie eintragen
+      // Add application to hierarchy
     } catch (e: Error | any) {
-      opts.error.details?.push(e);
+      if(opts.error.details === undefined) {
+        opts.error.details = [];
+      }
+      opts.error.details.push(e);
     }
   }
 

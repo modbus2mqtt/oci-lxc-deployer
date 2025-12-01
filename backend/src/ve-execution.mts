@@ -16,7 +16,7 @@ export interface IProxmoxRunResult {
 let index = 0;
 // Generated from outputs.schema.json
 export interface IOutput {
-  name: string;
+  id: string;
   value?: string;
   default?: string;
 }
@@ -38,18 +38,18 @@ export class VeExecution extends EventEmitter {
   private validator: JsonValidator;
   constructor(
     commands: ICommand[],
-    inputs: { name: string; value: string | number | boolean }[],
+    inputs: { id: string; value: string | number | boolean }[],
     private defaults: Map<string, string | number | boolean> = new Map(),
   ) {
     super();
     this.commands = commands;
     this.inputs = {};
     for (const inp of inputs) {
-      this.inputs[inp.name] = inp.value;
+      this.inputs[inp.id] = inp.value;
     }
     // Load SSH config on instance creation
     this.ssh = VeExecution.getSshParameters();
-    // Nutze Singleton-Factory für JsonValidator
+    // Use singleton factory for JsonValidator
     this.validator = JsonValidator.getInstance(
       path.join(process.cwd(), "schemas"),
     );
@@ -76,15 +76,14 @@ export class VeExecution extends EventEmitter {
         }
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
-        // ignore parse errors, treat as not set
+        // Ignore parse errors, treat as not set
       }
     }
     return null;
   }
 
   /**
-   * Writes SSH parameters torunOnLxc
-   *  ./local/sshconfig.json. Creates the directory if needed.
+   * Writes SSH parameters to ./local/sshconfig.json. Creates the directory if needed.
    */
   static setSshParameters(ssh: ISsh): void {
     const dir = path.join(process.cwd(), "local");
@@ -172,14 +171,14 @@ export class VeExecution extends EventEmitter {
         );
         if (Array.isArray(outputsJson)) {
           for (const entry of outputsJson) {
-            if (entry.value) this.outputs.set(entry.name, entry.value);
-            if (entry.default) this.defaults.set(entry.name, entry.default);
+            if (entry.value) this.outputs.set(entry.id, entry.value);
+            if (entry.default) this.defaults.set(entry.id, entry.default);
           }
         } else if (typeof outputsJson === "object" && outputsJson !== null) {
           if (outputsJson.value)
-            this.outputs.set(outputsJson.name, outputsJson.value);
+            this.outputs.set(outputsJson.id, outputsJson.value);
           if (outputsJson.default)
-            this.defaults.set(outputsJson.name, outputsJson.default);
+            this.defaults.set(outputsJson.id, outputsJson.default);
         }
       } catch (e) {
         msg.index = index;
@@ -215,9 +214,9 @@ export class VeExecution extends EventEmitter {
     timeoutMs = 10000,
     sshCommand: string = "ssh",
   ): IProxmoxExecuteMessage {
-    // Befehl und Argumente als Array übergeben
+    // Pass command and arguments as array
     let lxcCmd: string[] | undefined = ["lxc-attach", "-n", String(vm_id)];
-    // for testing. Just pass to when using another sshCommand, like /bin/sh
+    // For testing: just pass through when using another sshCommand, like /bin/sh
     if (sshCommand !== "ssh") lxcCmd = undefined;
     return this.runOnProxmoxHost(
       command,
@@ -265,7 +264,7 @@ export class VeExecution extends EventEmitter {
         } else if (cmd.command !== undefined) {
           execStr = this.replaceVars(cmd.command);
         } else {
-          continue; // skip unknown command type
+          continue; // Skip unknown command type
         }
         switch (cmd.execute_on) {
           case "lxc":

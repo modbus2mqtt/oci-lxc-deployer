@@ -8,15 +8,15 @@
  * Usage: node scripts/validateTemplates.js
  */
 
-import { JsonValidator } from '../dist/jsonvalidator.mjs';
-import fs from 'fs';
-import path from 'path';
+import { JsonValidator } from "../dist/jsonvalidator.mjs";
+import fs from "fs";
+import path from "path";
 
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '..');
-const schemaPath = path.join(rootDir, 'schemas', 'template.schema.json');
+const rootDir = path.resolve(__dirname, "..");
+const schemaPath = path.join(rootDir, "schemas", "template.schema.json");
 
 function findTemplateDirs(dir) {
   let results = [];
@@ -24,7 +24,7 @@ function findTemplateDirs(dir) {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'templates') {
+      if (entry.name === "templates") {
         results.push(fullPath);
       } else {
         results = results.concat(findTemplateDirs(fullPath));
@@ -37,9 +37,9 @@ function findTemplateDirs(dir) {
 function validateTemplates() {
   let validator;
   try {
-    validator = JsonValidator.getInstance(path.join(rootDir, 'schemas'));
+    validator = JsonValidator.getInstance(path.join(rootDir, "schemas"));
   } catch (err) {
-    console.error('Schema validation failed during validator initialization:');
+    console.error("Schema validation failed during validator initialization:");
     if (err && err.details) {
       for (const detail of err.details) {
         console.error(`  - ${detail.message || detail}`);
@@ -51,9 +51,9 @@ function validateTemplates() {
   }
   const templateDirs = findTemplateDirs(rootDir);
   let hasError = false;
-  const jsonBase = path.join(rootDir, 'json');
+  const jsonBase = path.join(rootDir, "json");
   for (const dir of templateDirs) {
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
     for (const file of files) {
       const filePath = path.join(dir, file);
       const relPath = path.relative(jsonBase, filePath);
@@ -67,11 +67,20 @@ function validateTemplates() {
         if (err && err.details) {
           for (const detail of err.details) {
             const isAdditional =
-              detail.message && detail.message.includes('must NOT have additional properties');
-            if (isAdditional && detail.params && detail.params.additionalProperty) {
-              console.error(`  - ${detail.message} (property: '${detail.params.additionalProperty}')${detail.line ? ' (line ' + detail.line + ')' : ''}`);
+              detail.message &&
+              detail.message.includes("must NOT have additional properties");
+            if (
+              isAdditional &&
+              detail.params &&
+              detail.params.additionalProperty
+            ) {
+              console.error(
+                `  - ${detail.message} (property: '${detail.params.additionalProperty}')${detail.line ? " (line " + detail.line + ")" : ""}`,
+              );
             } else {
-              console.error(`  - ${detail.message}${detail.line ? ' (line ' + detail.line + ')' : ''}`);
+              console.error(
+                `  - ${detail.message}${detail.line ? " (line " + detail.line + ")" : ""}`,
+              );
             }
           }
         } else {
@@ -83,7 +92,7 @@ function validateTemplates() {
   if (hasError) {
     process.exit(1);
   } else {
-    console.log('All template files are valid.');
+    console.log("All template files are valid.");
   }
 }
 

@@ -53,7 +53,7 @@ export interface IProxmoxExecuteMessage {
 export type ParameterType = "string" | "number" | "boolean" | "enum";
 
 export interface IParameter {
-  id:string
+  id: string;
   name: string;
   type: ParameterType;
   description?: string;

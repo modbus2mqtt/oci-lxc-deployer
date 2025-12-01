@@ -23,14 +23,14 @@
         "type": "object",
         "properties": {
           "name": { "type": "string" },
-          "id": { "type": "string" }, 
+          "id": { "type": "string" },
           "type": { "enum": ["string", "number", "enum", "boolean"] },
           "description": { "type": "string" },
           "required": { "type": "boolean", "default": false },
           "secure": { "type": "boolean", "default": false },
           "default": { "type": ["string", "number", "boolean"] }
         },
-        "required": ["name","id","type"],
+        "required": ["name", "id", "type"],
         "if": { "properties": { "type": { "const": "enum" } } },
         "then": {
           "properties": {

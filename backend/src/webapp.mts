@@ -73,7 +73,6 @@ export class ProxmoxWebApp {
 
           res.json({ success: true });
           res.status(200);
-        
         } catch (err: any) {
           res
             .status(500)
@@ -136,10 +135,16 @@ export class ProxmoxWebApp {
             application,
             task as TaskType,
           );
-          const unresolvedParameters =  templateProcessor.getUnresolvedParameters(loaded.parameters, loaded.resolvedParams);
-          res.json({
-            unresolvedParameters: unresolvedParameters,
-          }).status(200);
+          const unresolvedParameters =
+            templateProcessor.getUnresolvedParameters(
+              loaded.parameters,
+              loaded.resolvedParams,
+            );
+          res
+            .json({
+              unresolvedParameters: unresolvedParameters,
+            })
+            .status(200);
         } catch (err: any) {
           res
             .status(400)
@@ -150,11 +155,7 @@ export class ProxmoxWebApp {
 
     this.app.get("/api/applications", (req, res) => {
       try {
-        const config = new VeConfiguration(
-          schemaPath,
-          jsonPath,
-          localJsonPath,
-        );
+        const config = new VeConfiguration(schemaPath, jsonPath, localJsonPath);
         const applications = config.listApplications();
         const testApplications =
           localJsonPath &&

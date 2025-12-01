@@ -2,11 +2,15 @@ import { JsonError } from "./jsonvalidator.mjs";
 import { IJsonError, TaskType } from "./types.mjs";
 
 export class ProxmoxConfigurationError extends JsonError {
-  constructor(message:string, application: string, details?: IJsonError[]) {
+  constructor(message: string, application: string, details?: IJsonError[]) {
     super(message, details, application);
     this.name = "ProxmoxConfigurationError";
     this.filename = application;
   }
+}
+export interface IResolvedParam {
+  template: string;
+  param: string;
 }
 export interface IApplicationBase {
   name: string;

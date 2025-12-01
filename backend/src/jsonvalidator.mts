@@ -11,16 +11,25 @@ export class JsonError extends Error implements IJsonError {
   public details: IJsonError[] | undefined;
   public filename?: string | undefined;
 
-  constructor(private passed_message: string, details?: IJsonError[], filename?: string | undefined) {
+  constructor(
+    private passed_message: string,
+    details?: IJsonError[],
+    filename?: string | undefined,
+  ) {
     super();
     this.name = "JsonError";
     this.filename = filename;
     this.details = details;
   }
   get message(): string {
-    const rel = this.filename !== undefined ? path.relative(JsonError.baseDir, this.filename) : "";
+    const rel =
+      this.filename !== undefined
+        ? path.relative(JsonError.baseDir, this.filename)
+        : "";
     return (
-      rel +this.passed_message +( this.details && this.details.length ==0? this.passed_message : "") +
+      rel +
+      this.passed_message +
+      (this.details && this.details.length == 0 ? this.passed_message : "") +
       (this.details && this.details.length > 1
         ? ` See details for ${this.details.length} errors.`
         : "")
@@ -43,9 +52,10 @@ export class JsonError extends Error implements IJsonError {
 }
 export class ValidateJsonError extends JsonError implements IJsonError {
   line?: number;
-  constructor( result: ErrorObject,filename?: string, _line?: number) {
+  constructor(result: ErrorObject, filename?: string, _line?: number) {
     super(
-      (filename?filename + ":":"") + ` Validation error ${result.instancePath} ${result.message || "Unknown validation error"}`,
+      (filename ? filename + ":" : "") +
+        ` Validation error ${result.instancePath} ${result.message || "Unknown validation error"}`,
     );
     this.name = "ValidateJsonError";
     if (_line !== undefined) this.line = _line;
@@ -138,7 +148,8 @@ export class JsonValidator {
     }
     try {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { __sourceMapText, __sourceMap, ...dataToValidate } = jsonData as any;
+      const { __sourceMapText, __sourceMap, ...dataToValidate } =
+        jsonData as any;
       const result = validate(dataToValidate);
       if (result instanceof Promise) {
         throw new Error(
@@ -172,7 +183,7 @@ export class JsonValidator {
       } else {
         details = [new JsonError("Unknown error")];
       }
-      
+
       throw new JsonError("Validation error", details);
     }
     return jsonData as T;
@@ -198,11 +209,11 @@ export class JsonValidator {
         `File not found or cannot be read: ${filePath}\n${e && (e.message || String(e))}`,
       );
     }
-      const parsed = parseWithSourceMap(fileText);
-      data = parsed.data;
-      pointers = parsed.pointers;
-      (data as any).__sourceMapText = fileText;
-      (data as any).__sourceMap = { pointers };
+    const parsed = parseWithSourceMap(fileText);
+    data = parsed.data;
+    pointers = parsed.pointers;
+    (data as any).__sourceMapText = fileText;
+    (data as any).__sourceMap = { pointers };
     return this.serializeJsonWithSchema<T>(data, schemaKey, filePath);
   }
 }

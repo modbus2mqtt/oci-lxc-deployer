@@ -56,7 +56,7 @@ describe("ProxmoxWebApp", () => {
     expect(invalidApp.errors).toBeDefined();
     expect(Array.isArray(invalidApp.errors)).toBe(true);
     // Check that the error message contains "Template file not found:"
-    const errorString = invalidApp.errors.join(" ");
+    const errorString = invalidApp.errors[0].message;
     expect(errorString).toContain("Template file not found:");
   });
   it("should return 404 if SSH config is not set", async () => {

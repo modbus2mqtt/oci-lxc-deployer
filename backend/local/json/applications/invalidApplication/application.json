@@ -1,5 +1,4 @@
 {
-  "$schema": "file:/Users/volkmar/proxmox2/schemas/application.schema.json",
   "name": "Invalid Application",
   "description": "Should be shown as invalid application",
   "installation": ["non-existing-template.json"]

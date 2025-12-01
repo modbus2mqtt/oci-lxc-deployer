@@ -1,13 +1,11 @@
 import * as path from "path";
 import { expect, describe, it, beforeEach, afterEach } from "vitest";
-import {
-  VeConfiguration,
-} from "@src/ve-configuration.mjs";
+import { VeConfiguration } from "@src/ve-configuration.mjs";
 import { ProxmoxTestHelper } from "@tests/ve-test-helper.mjs";
 import { TemplateProcessor } from "@src/templateprocessor.mjs";
 import { ProxmoxConfigurationError } from "@src/backend-types.mjs";
 
-declare module "@tests/proxmoxTestHelper.mjs" {
+declare module "@tests/ve-test-helper.mjs" {
   interface ProxmoxTestHelper {
     createProxmoxConfiguration(): VeConfiguration;
   }
@@ -41,7 +39,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
 
     expect(result.parameters.length).toBeGreaterThan(0);
     expect(result.commands.length).toBeGreaterThan(0);
-    const paramNames = result.parameters.map((p) => p.name);
+    const paramNames = result.parameters.map((p) => p.id);
     expect(paramNames).toContain("packagerpubkey");
     expect(paramNames).toContain("packageurl");
     expect(paramNames).toContain("vm_id");
@@ -86,8 +84,11 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     helper.writeTemplate(appName, templateName, {
       execute_on: "lxc",
       name: "Recursive Template",
-      commands: [{ 
-        template: templateName }],
+      commands: [
+        {
+          template: templateName,
+        },
+      ],
     });
     // Setze dieses Template als einziges in installation
     const app = helper.readApplication(appName);

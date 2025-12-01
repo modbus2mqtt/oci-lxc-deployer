@@ -36,10 +36,8 @@ describe("ProxmoxConfiguration script path resolution", () => {
     fs.writeFileSync(
       templatePath,
       JSON.stringify({
-        commands: [
-          { script: scriptName, execute_on: "proxmox" },
-        ],
-        parameters: [{ name: "param", type: "string" }],
+        commands: [{ script: scriptName, execute_on: "proxmox" }],
+        parameters: [{ id: "param", name: "param", type: "string" }],
         outputs: [],
       }),
     );

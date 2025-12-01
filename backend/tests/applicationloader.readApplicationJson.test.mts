@@ -1,7 +1,4 @@
-import {
-  ApplicationLoader,
-  IReadApplicationOptions,
-} from "@src/apploader.mjs";
+import { ApplicationLoader, IReadApplicationOptions } from "@src/apploader.mjs";
 import fs from "fs";
 import path from "path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

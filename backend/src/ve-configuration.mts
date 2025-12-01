@@ -40,7 +40,7 @@ export class ProxmoxLoadApplicationError extends ProxmoxConfigurationError {
     private task?: string,
     details?: IJsonError[],
   ) {
-    super(message,application, details);
+    super(message, application, details);
     this.name = "ProxmoxApplicationError";
     this.filename = application;
   }
@@ -107,16 +107,19 @@ export class VeConfiguration implements IConfiguredPathes {
           });
         } catch (err) {
           // On error: attach application object with errors
-          if ((err instanceof ProxmoxConfigurationError || err instanceof JsonError) ) {
-            if( err.details !== undefined && err.details!.length >0)
-            applications.push({
-              name: appData.name,
-              description: appData.description,
-              icon: appData.icon,
-              iconContent: iconBase64,
-              id: appName,
-              errors: [err.toJSON()],
-            })
+          if (
+            err instanceof ProxmoxConfigurationError ||
+            err instanceof JsonError
+          ) {
+            if (err.details !== undefined && err.details!.length > 0)
+              applications.push({
+                name: appData.name,
+                description: appData.description,
+                icon: appData.icon,
+                iconContent: iconBase64,
+                id: appName,
+                errors: [err.toJSON()],
+              });
             else {
               applications.push({
                 name: appData.name,

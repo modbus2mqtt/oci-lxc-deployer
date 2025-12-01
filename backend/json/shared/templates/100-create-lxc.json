@@ -27,7 +27,7 @@
     },
     {
       "id": "memory",
-      "name": "Memory in MB", 
+      "name": "Memory in MB",
       "type": "number",
       "required": true,
       "default": 512,

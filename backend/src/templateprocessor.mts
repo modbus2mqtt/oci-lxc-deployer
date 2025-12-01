@@ -6,6 +6,7 @@ import {
 } from "@src/ve-configuration.mjs";
 import {
   IConfiguredPathes,
+  IResolvedParam,
   ProxmoxConfigurationError,
 } from "@src/backend-types.mjs";
 import {
@@ -19,10 +20,10 @@ import { ApplicationLoader } from "@src/apploader.mjs";
 import fs from "fs";
 import { ScriptValidator } from "@src/scriptvalidator.mjs";
 
-interface ProxmoxProcessTemplateOpts {
+interface IProcessTemplateOpts {
   application: string;
   template: string;
-  resolvedParams: Set<string>;
+  resolvedParams: IResolvedParam[];
   parameters: IParameter[];
   commands: ICommand[];
   visitedTemplates?: Set<string>;
@@ -35,11 +36,11 @@ interface ProxmoxProcessTemplateOpts {
 export interface ITemplateProcessorLoadResult {
   commands: ICommand[];
   parameters: IParameter[];
-  resolvedParams: Set<string>;
+  resolvedParams: IResolvedParam[];
 }
 
 export class TemplateProcessor {
-  resolvedParams: Set<string> = new Set();
+  resolvedParams: IResolvedParam[] = [];
   constructor(private pathes: IConfiguredPathes) {}
   loadApplication(
     applicationName: string,
@@ -47,7 +48,7 @@ export class TemplateProcessor {
   ): ITemplateProcessorLoadResult {
     const readOpts: IReadApplicationOptions = {
       applicationHierarchy: [],
-      error: new ProxmoxConfigurationError("",applicationName),
+      error: new ProxmoxConfigurationError("", applicationName),
       taskTemplates: [],
     };
     const appLoader = new ApplicationLoader(this.pathes);
@@ -60,10 +61,11 @@ export class TemplateProcessor {
         readOpts.error.details,
       );
     }
+    // 2. Find the application entry for the requested task
     const appEntry = readOpts.taskTemplates.find((t) => t.task === task);
     if (!appEntry) {
-      const message = `Task ${task} not found in application.json`
-      throw new ProxmoxLoadApplicationError(message,applicationName, task, [
+      const message = `Template ${task} not found in ${applicationName} application`;
+      throw new ProxmoxLoadApplicationError(message, applicationName, task, [
         new JsonError(message),
       ]);
     }
@@ -99,7 +101,7 @@ export class TemplateProcessor {
     }
 
     // 4. Track resolved parameters
-    const resolvedParams = new Set<string>();
+    const resolvedParams: IResolvedParam[] = [];
     const templatePathes = readOpts.applicationHierarchy.map((appDir) =>
       path.join(appDir, "templates"),
     );
@@ -127,14 +129,18 @@ export class TemplateProcessor {
       };
       this.#processTemplate(ptOpts);
     }
-    // Speichere resolvedParams für getUnresolvedParameters
+    // Save resolvedParams for getUnresolvedParameters
     this.resolvedParams = resolvedParams;
     if (errors.length > 0) {
       if (errors.length === 1 && errors[0]) {
         // Only one error: throw it directly (as string or error object)
         throw errors[0];
       } else {
-        const err = new ProxmoxConfigurationError("Template processing error",applicationName, errors);
+        const err = new ProxmoxConfigurationError(
+          "Template processing error",
+          applicationName,
+          errors,
+        );
         throw err;
       }
     }
@@ -146,7 +152,7 @@ export class TemplateProcessor {
   }
 
   // Private method to process a template (including nested templates)
-  #processTemplate(opts: ProxmoxProcessTemplateOpts): void {
+  #processTemplate(opts: IProcessTemplateOpts): void {
     opts.visitedTemplates = opts.visitedTemplates ?? new Set<string>();
     opts.errors = opts.errors ?? [];
     // Prevent endless recursion
@@ -176,89 +182,87 @@ export class TemplateProcessor {
       const validator = JsonValidator.getInstance(this.pathes.schemaPath);
       tmplData = validator.serializeJsonFileWithSchema<ITemplate>(
         tmplPath,
-        path.join(this.pathes.schemaPath, "template.schema.json"),
+        "template.schema.json",
+        // Check for icon.png in the application directory
       );
     } catch (e: any) {
       opts.errors.push(e);
       return;
     }
     // Mark outputs as resolved BEFORE adding parameters
-    if (Array.isArray(tmplData.outputs)) {
-      for (const out of tmplData.outputs) {
-        opts.resolvedParams.add(out);
+    for (const out of tmplData.outputs ?? []) {
+      if (!opts.resolvedParams.some((p) => p.param === out && p.template === opts.template)) {
+        opts.resolvedParams.push({ template: opts.template, param: out });
       }
     }
 
     // Add all parameters (no duplicates)
-    if (Array.isArray(tmplData.parameters)) {
-      for (const param of tmplData.parameters) {
-        if (!opts.parameters.some((p) => p.id === param.id)) {
-          if (tmplData.name) param.template = tmplData.name;
-          opts.parameters.push(param);
-        }
+    for (const param of tmplData.parameters ?? []) {
+      if (!opts.parameters.some((p) => p.id === param.id)) {
+        if (tmplData.name) param.template = tmplData.name;
+        opts.parameters.push(param);
       }
     }
 
     // Add commands or process nested templates
-    if (Array.isArray(tmplData.commands)) {
-      // Add dummy parameters for all resolvedParams not already in parameters
-      for (const resolved of opts.resolvedParams) {
-        if (!opts.parameters.some((p) => p.id === resolved)) {
-          opts.parameters.push({ id: resolved, name: resolved, type: "string" });
-        }
+    for (const resolved of opts.resolvedParams) {
+      if (!opts.parameters.some((p) => p.id === resolved.param)) {
+        opts.parameters.push({
+          id: resolved.param,
+          name: resolved.param,
+          type: "string",
+        });
       }
-      for (const cmd of tmplData.commands) {
-        if (cmd.name === undefined || (cmd.name.trim() === "" && tmplData)) {
-          cmd.name = `${tmplData.name || "unnamed-template"}`;
-        }
-        if( cmd.template !== undefined) {
+    }
+    for (const cmd of tmplData.commands ?? []) {
+      if (cmd.name === undefined || (cmd.name.trim() === "" && tmplData)) {
+        cmd.name = `${tmplData.name || "unnamed-template"}`;
+        // 5. Process each template
+        if (cmd.template !== undefined) {
           this.#processTemplate({
-                ...opts,
-                template: cmd.template,
-                parentTemplate: opts.template,
-              });
-        }else if (cmd.script !== undefined) {
+            ...opts,
+            template: cmd.template,
+            parentTemplate: opts.template,
+          });
+        } else if (cmd.script !== undefined) {
           const scriptValidator = new ScriptValidator();
-            scriptValidator.validateScript(
-              cmd,
-              opts.application,
-              opts.errors,
-              opts.parameters,
-              opts.resolvedParams,
-              opts.requestedIn,
-              opts.parentTemplate,
-              opts.scriptPathes,
-            );
-            // Set execute to the full script path (if found)
-            const scriptPath = this.findInPathes(
-              opts.scriptPathes,
-              cmd.script,
-            );
-            opts.commands.push({
-              ...cmd,
-              script: scriptPath || cmd.script,
-              execute_on: tmplData.execute_on,
-            });
-        }else if (cmd.command !== undefined) {
+          scriptValidator.validateScript(
+            cmd,
+            opts.application,
+            opts.errors,
+            opts.parameters,
+            opts.resolvedParams,
+            opts.requestedIn,
+            opts.parentTemplate,
+            opts.scriptPathes,
+          );
+          // Save resolvedParams for getUnresolvedParameters
+          const scriptPath = this.findInPathes(opts.scriptPathes, cmd.script);
+          opts.commands.push({
+            ...cmd,
+            script: scriptPath || cmd.script,
+            execute_on: tmplData.execute_on,
+          });
+        } else if (cmd.command !== undefined) {
           const scriptValidator = new ScriptValidator();
-            scriptValidator.validateCommand(
-              cmd,
-              opts.errors,
-              opts.parameters,
-              opts.resolvedParams,
-              opts.requestedIn,
-              opts.parentTemplate,
-            );
-            opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
-        } else { 
-            opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
-            break;
+          scriptValidator.validateCommand(
+            cmd,
+            opts.errors,
+            opts.parameters,
+            opts.resolvedParams,
+            opts.requestedIn,
+            opts.parentTemplate,
+          );
+          opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
+        } else {
+          opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
+          break;
         }
       }
     }
   }
   findInPathes(pathes: string[], name: string) {
-    // Suche in allen templatePathes nach der ersten existierenden Template-Datei
+    // Search all templatePathes for the first existing template file
     let tmplPath: string | undefined = undefined;
     for (const basePath of pathes) {
       const candidate = path.join(basePath, name);
@@ -271,8 +275,11 @@ export class TemplateProcessor {
   }
   getUnresolvedParameters(
     parameters: IParameter[],
-    resolvedParams: Set<string>,
+    resolvedParams: IResolvedParam[],
   ): IParameter[] {
-    return parameters.filter((param) => !resolvedParams.has(param.id));
+    // Only parameters whose id is not in resolvedParams.param
+    return parameters.filter(
+      (param) => !resolvedParams.some((rp) => rp.param === param.id),
+    );
   }
 }

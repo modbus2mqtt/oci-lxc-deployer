@@ -15,6 +15,5 @@
     "upgrade": { "$ref": "templatelist.schema.json" }
   },
   "required": ["name", "installation"],
-    "additionalProperties": false
-
+  "additionalProperties": false
 }
