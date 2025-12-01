@@ -14,14 +14,12 @@
       "id": "template_path",
       "name": "Path to the LXC template",
       "type": "string",
-      "required": true,
       "description": "Path to the LXC template (e.g. local:vztmpl/alpine-3.19-default_20231107_amd64.tar.xz)"
     },
     {
       "id": "disk_size",
       "name": "Disk size",
       "type": "string",
-      "required": true,
       "default": "4",
       "description": "Disk size for the container in GB"
     },
@@ -29,7 +27,6 @@
       "id": "memory",
       "name": "Memory in MB",
       "type": "number",
-      "required": true,
       "default": 512,
       "description": "Memory for the container in MB"
     },
@@ -37,15 +34,14 @@
       "id": "bridge",
       "name": "Network bridge",
       "type": "string",
-      "required": true,
       "default": "vmbr0",
       "description": "Network bridge to use"
     },
     {
       "id": "hostname",
       "name": "Hostname",
-      "type": "string",
       "required": true,
+      "type": "string",
       "description": "Hostname for the LXC container"
     }
   ],

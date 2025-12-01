@@ -1,5 +1,5 @@
 {
-  "$id": "shared.application.schema",
+  "$id": "shared.application",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {

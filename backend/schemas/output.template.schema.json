@@ -1,0 +1,16 @@
+{
+  "$id": "output.template",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "default": { "type": "boolean" }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+    { "type": "string" }
+  ]
+}

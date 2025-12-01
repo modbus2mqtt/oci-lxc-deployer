@@ -46,7 +46,7 @@ export class VeConfigurationDialog implements OnInit {
         // Group parameters by template
         this.groupedParameters = {};
         for (const param of this.unresolvedParameters) {
-          const group = param.template || 'General';
+          const group = param.templatename || 'General';
           if (!this.groupedParameters[group]) this.groupedParameters[group] = [];
           this.groupedParameters[group].push(param);
           const validators = param.required ? [Validators.required] : [];
@@ -55,11 +55,9 @@ export class VeConfigurationDialog implements OnInit {
         }
         // Sort parameters in each group: required first, then optional
         for (const group in this.groupedParameters) {
-          this.groupedParameters[group] = this.groupedParameters[group].slice().sort((a, b) => {
-            if (a.required === b.required) return 0;
-            return a.required ? -1 : 1;
-          });
+          this.groupedParameters[group] = this.groupedParameters[group].slice().sort((a, b) => Number(!!b.required) - Number(!!a.required));
         }
+        this.form.markAllAsTouched();
         this.loading.set(false);
       },
       error: () => {

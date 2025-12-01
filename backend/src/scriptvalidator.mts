@@ -66,7 +66,7 @@ export class ScriptValidator {
       for (const v of vars) {
         if (
           !parameters.some((p) => p.id === v) &&
-          !resolvedParams.some((rp) => rp.param === v)
+          !resolvedParams.some((rp) => rp.id === v)
         ) {
           errors.push(
             new JsonError(
@@ -96,7 +96,7 @@ export class ScriptValidator {
       for (const v of vars) {
         if (
           !parameters.some((p) => p.id === v) &&
-          !resolvedParams.some((rp) => rp.param === v)
+          !resolvedParams.some((rp) => rp.id === v)
         ) {
           errors.push(
             new JsonError(

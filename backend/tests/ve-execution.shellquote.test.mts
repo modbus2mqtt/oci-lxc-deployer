@@ -7,7 +7,7 @@ import * as path from "path";
 describe("ProxmoxExecution shell quoting", () => {
   const dummySSH = { host: "localhost", port: 22 };
   const defaults = new Map<string, string | number | boolean>();
-  const inputs: { name: string; value: string | number | boolean }[] = [];
+  const inputs: { id: string; value: string | number | boolean }[] = [];
 
   beforeAll(() => {
     // Write dummy sshconfig.json for local test
@@ -82,7 +82,7 @@ describe("ProxmoxExecution shell quoting", () => {
     };
     const exec = new VeExecution(
       [command],
-      [{ id: "vm_id",  value: "dummy" }],
+      [{ id: "vm_id", value: "dummy" }],
       defaults,
     );
     (exec as any).ssh = { host: "localhost", port: 22 };

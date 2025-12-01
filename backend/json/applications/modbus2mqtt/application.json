@@ -2,6 +2,7 @@
   "name": "Modbus2Mqtt Gateway",
   "description": "Modbus2Mqtt Gateway from Modbus RTU/TCP to MQTT and vice versa",
   "installation": [
+    "set-ostype.json",
     "010-get-latest-os-template.json",
     "100-create-lxc.json",
     "110-map-serial.json",

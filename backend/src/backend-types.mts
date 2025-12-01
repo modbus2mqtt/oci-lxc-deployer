@@ -1,5 +1,5 @@
 import { JsonError } from "./jsonvalidator.mjs";
-import { IJsonError, TaskType } from "./types.mjs";
+import { ICommand, IJsonError, IParameter, TaskType } from "./types.mjs";
 
 export class ProxmoxConfigurationError extends JsonError {
   constructor(message: string, application: string, details?: IJsonError[]) {
@@ -9,8 +9,8 @@ export class ProxmoxConfigurationError extends JsonError {
   }
 }
 export interface IResolvedParam {
-  template: string;
-  param: string;
+  id: string; 
+  template: string
 }
 export interface IApplicationBase {
   name: string;
@@ -30,4 +30,13 @@ export interface IConfiguredPathes {
   schemaPath: string;
   jsonPath: string;
   localPath: string;
+}
+export interface ITemplate {
+  execute_on: "proxmox" | "lxc";
+  if?: boolean;
+  name: string;
+  description?: string;
+  parameters?: IParameter[];
+  outputs?: { id: string; default?: string | number | boolean , value?: string | number | boolean }[];
+  commands: ICommand[];
 }

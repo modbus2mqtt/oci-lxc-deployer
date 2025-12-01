@@ -1,24 +1,8 @@
 {
   "execute_on": "lxc",
-  "name": "Prep. install apk",
+  "name": "Set download URLs",
   "description": "Sets default download URL and public key for Modbus2Mqtt package",
-  "parameters": [
-    {
-      "id": "packagerpubkeyurl",
-      "name": "Public Key URL of Modbus2Mqtt package",
-      "type": "string",
-      "default": "",
-      "description": "Public key for verifying the Modbus2Mqtt package. Leaves empty to use default key"
-    },
-    {
-      "id": "packageurl",
-      "name": "URL of Modbus2Mqtt package",
-      "type": "string",
-      "default": "",
-      "description": "URL of the Modbus2Mqtt package to be installed. Leaves empty to use latest release URL"
-    }
-  ],
-  "outputs": ["packagerpubkey", "packageurl"],
+  "outputs": ["packagerpubkeyurl", "packageurl"],
   "commands": [
     {
       "script": "set-download-url.sh"

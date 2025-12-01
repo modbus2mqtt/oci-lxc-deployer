@@ -1,0 +1,11 @@
+{
+  "execute_on": "lxc",
+  "name": "Set OS Type",
+  "description": "Sets the OS type for Modbus2Mqtt package",
+  "outputs": ["ostype"],
+  "commands": [
+    {
+      "command": "echo '{\"id\": \"ostype\", \"value\": \"alpine\"}'"
+    }
+  ]
+}

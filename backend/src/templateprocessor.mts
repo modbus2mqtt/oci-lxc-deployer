@@ -23,8 +23,9 @@ import { ScriptValidator } from "@src/scriptvalidator.mjs";
 interface IProcessTemplateOpts {
   application: string;
   template: string;
+  templatename: string;
   resolvedParams: IResolvedParam[];
-  parameters: IParameter[];
+  parameters: IParameterWithTemplate[];
   commands: ICommand[];
   visitedTemplates?: Set<string>;
   errors?: IJsonError[];
@@ -33,12 +34,14 @@ interface IProcessTemplateOpts {
   templatePathes: string[];
   scriptPathes: string[];
 }
+export interface IParameterWithTemplate extends IParameter {
+  template: string;
+}
 export interface ITemplateProcessorLoadResult {
   commands: ICommand[];
-  parameters: IParameter[];
+  parameters: IParameterWithTemplate[];
   resolvedParams: IResolvedParam[];
 }
-
 export class TemplateProcessor {
   resolvedParams: IResolvedParam[] = [];
   constructor(private pathes: IConfiguredPathes) {}
@@ -112,12 +115,13 @@ export class TemplateProcessor {
     scriptPathes.push(path.join(this.pathes.jsonPath, "shared", "scripts"));
     // 5. Process each template
     const errors: IJsonError[] = [];
-    let outParameters: IParameter[] = [];
+    let outParameters: IParameterWithTemplate[] = [];
     let outCommands: ICommand[] = [];
     for (const tmpl of templates) {
-      let ptOpts = {
+      let ptOpts: IProcessTemplateOpts = {
         application: applicationName,
         template: tmpl,
+        templatename: tmpl,
         resolvedParams,
         visitedTemplates: new Set<string>(),
         parameters: outParameters,
@@ -178,46 +182,61 @@ export class TemplateProcessor {
     let tmplData: ITemplate;
     // Validate template against schema
     try {
-      // Nutze die JsonValidator-Factory (Singleton)
+      // Use the JsonValidator factory (singleton)
       const validator = JsonValidator.getInstance(this.pathes.schemaPath);
-      tmplData = validator.serializeJsonFileWithSchema<ITemplate>(
+      tmplData= validator.serializeJsonFileWithSchema<ITemplate>(
         tmplPath,
         "template.schema.json",
         // Check for icon.png in the application directory
       );
+      (tmplData.outputs ??= []).forEach((output, index) => {
+        if (typeof output === "string") {
+          // Convert string to object with id
+          (tmplData.outputs as any)[index] = { id: output };
+        }
+      });
     } catch (e: any) {
       opts.errors.push(e);
       return;
     }
     // Mark outputs as resolved BEFORE adding parameters
     for (const out of tmplData.outputs ?? []) {
-      if (!opts.resolvedParams.some((p) => p.param === out && p.template === opts.template)) {
-        opts.resolvedParams.push({ template: opts.template, param: out });
+      if (
+        undefined == opts.resolvedParams.find(
+          (p) => p.id === out.id,
+        )
+      ) {
+        opts.resolvedParams.push({   id: out.id, template: opts.template });
       }
     }
 
+    // Custom validation: 'if' must refer to another parameter name, not its own
+    if (tmplData.parameters) {
+      const paramNames = tmplData.parameters.map(p => p.name);
+      for (const param of tmplData.parameters) {
+        if (param.if && (param.if === param.name || !paramNames.includes(param.if))) {
+          opts.errors.push(new JsonError(`Parameter '${param.name}': 'if' must refer to another parameter name in the same template (not itself).`));
+        }
+      }
+    }
     // Add all parameters (no duplicates)
     for (const param of tmplData.parameters ?? []) {
       if (!opts.parameters.some((p) => p.id === param.id)) {
-        if (tmplData.name) param.template = tmplData.name;
-        opts.parameters.push(param);
+        const pparm: IParameterWithTemplate = {
+          ...param,
+          template: opts.template,
+          templatename: tmplData.name || opts.template,
+        };
+        opts.parameters.push(pparm);
       }
     }
 
     // Add commands or process nested templates
-    for (const resolved of opts.resolvedParams) {
-      if (!opts.parameters.some((p) => p.id === resolved.param)) {
-        opts.parameters.push({
-          id: resolved.param,
-          name: resolved.param,
-          type: "string",
-        });
-      }
-    }
+
     for (const cmd of tmplData.commands ?? []) {
       if (cmd.name === undefined || (cmd.name.trim() === "" && tmplData)) {
         cmd.name = `${tmplData.name || "unnamed-template"}`;
-        // 5. Process each template
+          // 5. Process each template
         if (cmd.template !== undefined) {
           this.#processTemplate({
             ...opts,
@@ -274,12 +293,12 @@ export class TemplateProcessor {
     return tmplPath;
   }
   getUnresolvedParameters(
-    parameters: IParameter[],
+    parameters: IParameterWithTemplate[],
     resolvedParams: IResolvedParam[],
   ): IParameter[] {
     // Only parameters whose id is not in resolvedParams.param
     return parameters.filter(
-      (param) => !resolvedParams.some((rp) => rp.param === param.id),
+      (param) => undefined == resolvedParams.find((rp) => rp.id == param.id && rp.template != param.template),
     );
   }
 }

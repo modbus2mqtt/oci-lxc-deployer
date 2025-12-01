@@ -16,52 +16,51 @@
 						<div class="group-title">{{ groupName }}</div>
 						<div class="group-fields">
 							@for (param of groupedParameters[groupName]; track param) {
-								@switch (param.type) {
-									@case ('boolean') {
+								@if (!param.if || form.get(param.if)?.value) {
+									@switch (param.type) {
+										@case ('boolean') {
 										<div class="param-field param-toggle">
-											<mat-slide-toggle [formControlName]="param.id">
-												{{ param.description || param.name }}
-											</mat-slide-toggle>
+										<mat-slide-toggle [formControlName]="param.id" [matTooltip]="getTooltip(param)" matTooltipPosition="above">
+										{{ param.description || param.name }}
+										</mat-slide-toggle>
 										</div>
-									}
-									@case ('enum') {
+										}
+										@case ('enum') {
 										<mat-form-field appearance="outline" class="param-field">
-											<mat-label>{{ param.name }}</mat-label>
-											<span matTooltip="{{ getTooltip(param) }}" matTooltipPosition="above"></span>
-											<mat-select [formControlName]="param.id" [required]="!!param.required">
-												@for (option of param.enumValues; track option) {
-													<mat-option [value]="option">{{ option }}</mat-option>
-												}
-											</mat-select>
-											@if (param.default !== undefined) {
-												<mat-hint>Default: {{ param.default }}</mat-hint>
-											}
+										<mat-label>{{ param.name }}</mat-label>
+										<mat-select [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above">
+										@for (option of param.enumValues; track option) {
+										<mat-option [value]="option">{{ option }}</mat-option>
+										}
+										</mat-select>
+										@if (param.default !== undefined) {
+										<mat-hint>Default: {{ param.default }}</mat-hint>
+										}
 										</mat-form-field>
-									}
-									@case ('string') {
+										}
+										@case ('string') {
 										<mat-form-field appearance="outline" class="param-field">
-											<mat-label>{{ param.name }}</mat-label>
-											<span matTooltip="{{ getTooltip(param) }}" matTooltipPosition="above"></span>
-											<input matInput [formControlName]="param.id" [required]="!!param.required" />
-											@if (param.default !== undefined) {
-												<mat-hint>Default: {{ param.default }}</mat-hint>
-											}
+										<mat-label>{{ param.name }}</mat-label>
+										<input matInput [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" />
+										@if (param.default !== undefined) {
+										<mat-hint>Default: {{ param.default }}</mat-hint>
+										}
 										</mat-form-field>
-									}
-									@case ('number') {
+										}
+										@case ('number') {
 										<mat-form-field appearance="outline" class="param-field">
-											<mat-label>{{ param.name }}</mat-label>
-											<span matTooltip="{{ getTooltip(param) }}" matTooltipPosition="above"></span>
-											<input matInput type="number" [formControlName]="param.id" [required]="!!param.required" />
-											@if (param.default !== undefined) {
-												<mat-hint>Default: {{ param.default }}</mat-hint>
-											}
+										<mat-label>{{ param.name }}</mat-label>
+										<input matInput type="number" [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" />
+										@if (param.default !== undefined) {
+										<mat-hint>Default: {{ param.default }}</mat-hint>
+										}
 										</mat-form-field>
-									}
-									@default {
-										<div class="param-field unsupported-param">
-										Unsupported parameter type: {{ param.type }}
-										</div>
+										}
+										@default {
+											<div class="param-field unsupported-param">
+											Unsupported parameter type: {{ param.type }}
+											</div>
+										}
 									}
 								}
 							}

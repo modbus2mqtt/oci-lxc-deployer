@@ -24,6 +24,7 @@
         "properties": {
           "name": { "type": "string" },
           "id": { "type": "string" },
+          "if": { "type": "string" },
           "type": { "enum": ["string", "number", "enum", "boolean"] },
           "description": { "type": "string" },
           "required": { "type": "boolean", "default": false },
@@ -44,9 +45,7 @@
     },
     "outputs": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "items": { "$ref": "output.template#" }
     },
     "commands": {
       "type": "array",

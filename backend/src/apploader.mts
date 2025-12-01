@@ -96,7 +96,7 @@ export class ApplicationLoader {
       this.processTemplates(appData, opts);
       // Add application to hierarchy
     } catch (e: Error | any) {
-      if(opts.error.details === undefined) {
+      if (opts.error.details === undefined) {
         opts.error.details = [];
       }
       opts.error.details.push(e);

@@ -166,7 +166,7 @@ export class VeExecution extends EventEmitter {
           IOutput[] | IOutput
         >(
           JSON.parse(stdout),
-          "outputs.schema.json",
+          "outputs",
           "Outputs " + tmplCommand.name,
         );
         if (Array.isArray(outputsJson)) {

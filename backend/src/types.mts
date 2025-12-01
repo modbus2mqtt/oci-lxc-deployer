@@ -61,7 +61,9 @@ export interface IParameter {
   secure?: boolean;
   default?: string | number | boolean;
   enumValues?: string[];
+  templatename?: string;
   template?: string;
+  if?: string;
 }
 
 export interface ITemplate {
@@ -70,7 +72,7 @@ export interface ITemplate {
   name: string;
   description?: string;
   parameters?: IParameter[];
-  outputs?: string[];
+  outputs?: { id: string; default?: boolean }[];
   commands: ICommand[];
 }
 export interface IError {

@@ -1,5 +1,5 @@
 {
-  "$id": "templatelist.schema.json",
+  "$id": "templatelist",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "array",
   "items": {
