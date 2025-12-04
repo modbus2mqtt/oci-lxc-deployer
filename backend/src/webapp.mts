@@ -4,6 +4,7 @@ import { TaskType, ISsh, ApiUri } from "@src/types.mjs";
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "node:url";
+import fs from "fs";
 import { StorageContext } from "./storagecontext.mjs";
 import { IVEContext } from "./backend-types.mjs";
 export class VEWebApp {
@@ -18,7 +19,7 @@ export class VEWebApp {
     // Serve Angular static files (built frontend)
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const fs = require("fs");
+    // fs imported from ESM above
     // Allow configuration via ENV or package.json
     // ENV has precedence: absolute or relative to repo root
     let configuredRel: string | undefined = process.env.LXC_MANAGER_FRONTEND_DIR;
@@ -146,12 +147,34 @@ if (
 ) {
   const filename = fileURLToPath(import.meta.url);
   const dirname = path.dirname(filename);
-  // Ensure working directory is the backend root so relative schema/json paths resolve
-  try {
-    process.chdir(path.join(dirname, ".."));
-  } catch {}
-  const jsonTestPath = path.join(dirname, "../local/json");
-  StorageContext.setInstance(jsonTestPath);
+  // Do NOT change working directory; respect caller's CWD.
+  // Support --local <dir> CLI option to set the local directory
+  // Default is './local' relative to current working directory
+  const argv = process.argv.slice(2);
+  let localDir: string | undefined;
+  const localIdx = argv.indexOf("--local");
+  if (localIdx !== -1) {
+    const candidateArg = argv[localIdx + 1] || "";
+    const candidate = String(candidateArg);
+    if (candidate.length > 0) {
+      localDir = path.isAbsolute(candidate)
+        ? candidate
+        : path.join(process.cwd(), candidate);
+    }
+  }
+  if (!localDir) {
+    localDir = path.join(process.cwd(), "local");
+  }
+  const backendRoot = path.join(dirname, "..");
+  const sharedJsonPath = path.join(backendRoot, "json");
+  const schemaPath = path.join(backendRoot, "schemas");
+  const jsonTestPath = path.join(localDir, "json");
+  // Initialize StorageContext with absolute paths to avoid CWD-dependency
+  (StorageContext as any).instance = new StorageContext(
+    jsonTestPath,
+    sharedJsonPath,
+    schemaPath,
+  );
   const webApp = new VEWebApp(StorageContext.getInstance());
   const port = process.env.PORT || 3000;
   webApp.httpServer.listen(port, () => {

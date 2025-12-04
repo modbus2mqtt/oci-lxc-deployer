@@ -53,9 +53,14 @@ export class JsonError extends Error implements IJsonError {
 export class ValidateJsonError extends JsonError implements IJsonError {
   line?: number;
   constructor(result: ErrorObject, filename?: string, _line?: number) {
+     let property = result.params.additionalProperty
+      if( property ) 
+        property = " '" + property + "'";
+      else
+        property = "";
     super(
       (filename ? filename + ":" : "") +
-        ` Validation error ${result.instancePath} ${result.message || "Unknown validation error"}`,
+        ` Validation error ${result.instancePath} ${result.message || "Unknown validation error"}${property}`
     );
     this.name = "ValidateJsonError";
     if (_line !== undefined) this.line = _line;
