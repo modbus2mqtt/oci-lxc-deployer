@@ -1,0 +1,16 @@
+# Exclude development-only content
+*
+!backend/dist/**
+!frontend/dist/**
+!backend/json/**
+!bin/**
+
+# Explicitly exclude local JSON overrides and tests
+backend/local/**
+backend/tests/**
+frontend/tests/**
+frontend/src/**
+backend/src/**
+node_modules/**
+.vscode/**
+.git/**

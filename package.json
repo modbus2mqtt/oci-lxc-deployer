@@ -1,0 +1,25 @@
+{
+  "name": "lxc-manager",
+  "version": "1.0.0",
+  "description": "Packaged web UI and backend for LXC Manager",
+  "private": false,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:backend --silent && npm run build:frontend --silent",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "bin": {
+    "lxc-manager-web": "bin/webapp"
+  },
+  "files": [
+    "backend/dist",
+    "frontend/dist",
+    "backend/json",
+    "bin"
+  ]
+  ,
+  "lxcManager": {
+    "frontendDir": "frontend/dist/webapp-angular/browser"
+  }
+}
