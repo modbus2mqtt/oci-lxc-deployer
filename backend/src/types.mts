@@ -83,6 +83,7 @@ export interface IError {
 }
 
 export enum ApiUri {
-  SshConfigs = '/api/sshconfigs',
-  SshConfig = '/api/sshconfig',
+  SshConfigs = "/api/sshconfigs",
+  SshConfig = "/api/sshconfig",
+  "ProxmoxExecute" = "/api/proxmox/execute",
 }

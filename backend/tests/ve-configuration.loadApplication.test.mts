@@ -3,7 +3,7 @@ import { expect, describe, it, beforeEach, afterEach } from "vitest";
 import { VeConfiguration } from "@src/ve-configuration.mjs";
 import { ProxmoxTestHelper } from "@tests/ve-test-helper.mjs";
 import { TemplateProcessor } from "@src/templateprocessor.mjs";
-import { ProxmoxConfigurationError } from "@src/backend-types.mjs";
+import { VEConfigurationError } from "@src/backend-types.mjs";
 
 declare module "@tests/ve-test-helper.mjs" {
   interface ProxmoxTestHelper {
@@ -60,8 +60,8 @@ describe("ProxmoxConfiguration.loadApplication", () => {
       const templateProcessor = new TemplateProcessor(config);
       templateProcessor.loadApplication("modbus2mqtt", "installation");
     } catch (err) {
-      expect(err).toBeInstanceOf(ProxmoxConfigurationError);
-      const errorObj = err as ProxmoxConfigurationError;
+      expect(err).toBeInstanceOf(VEConfigurationError);
+      const errorObj = err as VEConfigurationError;
       expect(Array.isArray(errorObj.details)).toBe(true);
       expect(errorObj.details!.length).toBeGreaterThan(0);
       expect(errorObj.message).toMatch(

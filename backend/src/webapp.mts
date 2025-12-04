@@ -1,103 +1,36 @@
 #!/usr/bin/env node
 import express from "express";
-import { VeConfiguration } from "@src/ve-configuration.mjs";
-import { TaskType, ISsh, IProxmoxExecuteMessage, ApiUri } from "@src/types.mjs";
-import { VeExecution } from "@src/ve-execution.mjs";
+import { TaskType, ISsh, ApiUri } from "@src/types.mjs";
 import http from "http";
 import path from "path";
-import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { TemplateProcessor } from "@src/templateprocessor.mjs";
-import { a } from "node_modules/vitest/dist/chunks/suite.d.BJWk38HB.js";
-
-export class ProxmoxWebApp {
+import { StorageContext } from "./storagecontext.mjs";
+import { IVEContext } from "./backend-types.mjs";
+export class VEWebApp {
   app: express.Application;
   public httpServer: http.Server;
-  messages: IProxmoxExecuteMessage[] = [];
 
-  constructor(schemaPath: string, jsonPath: string, localJsonPath: string) {
+  constructor(storageContext: StorageContext) {
     this.app = express();
     this.httpServer = http.createServer(this.app);
     // No socket.io needed anymore
 
-    // No socket.io initialization anymore
-    // POST /api/proxmox-configuration/:application/:task
-    this.app.post(
-      "/api/proxmox-configuration/:application/:task",
-      express.json(),
-      async (req, res) => {
-        const { application, task } = req.params;
-        const params = req.body; // Array of { name, value }
-        if (!Array.isArray(params)) {
-          return res
-            .status(400)
-            .json({ success: false, error: "Invalid parameters" });
-        }
-        try {
-          // 1. Save configuration in local/<application>.config.json
-          const localDir = path.join(process.cwd(), "local");
-          if (!fs.existsSync(localDir)) fs.mkdirSync(localDir);
-          const configPath = path.join(localDir, `${application}.config.json`);
-          fs.writeFileSync(
-            configPath,
-            JSON.stringify(params, null, 2),
-            "utf-8",
-          );
-
-          // 2. Load application (provides commands)
-          const config = new VeConfiguration(
-            schemaPath,
-            jsonPath,
-            localJsonPath,
-          );
-          const templateProcessor = new TemplateProcessor(config);
-          const loaded = templateProcessor.loadApplication(
-            application,
-            task as TaskType,
-          );
-          const webuiTemplates = loaded.webuiTemplates; 
-          templateProcessor.loadTemplatesForApplication(application, webuiTemplates);
-          const commands = loaded.commands;
-          const defaults = new Map<string, string | number | boolean>();
-          loaded.parameters.forEach((param) => {
-            const p = defaults.get(param.name);
-            if (!p && param.default !== undefined) {
-              // do not overwrite existing defaults
-              defaults.set(param.name, param.default);
-            }
-          });
-          // 3. Start ProxmoxExecution
-          const exec = new VeExecution(commands, params, defaults);
-          exec.on("message", (msg: IProxmoxExecuteMessage) => {
-            this.messages.push(msg);
-          });
-          this.messages = [];
-          exec.run();
-
-          res.json({ success: true });
-          res.status(200);
-        } catch (err: any) {
-          res
-            .status(500)
-            .json({ success: false, error: err.message || "Unknown error" });
-        }
-      },
-    );
     // SSH config API
     this.app.get(ApiUri.SshConfigs, (req, res) => {
       try {
-        const sshs: ISsh[] | null = VeExecution.getSshConfigurations() ;
-          res.json(sshs).status(200);
+        const sshs: ISsh[] = storageContext
+          .keys()
+          .filter((key) => key.startsWith("ve_"))
+          .map((key) => {
+            return storageContext.get<IVEContext>(key) as any;
+          });
+        res.json(sshs);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
     });
-    // GET /api/ProxmoxExecuteMessages: dequeues all messages in the queue and returns them
-    this.app.get("/api/ProxmoxExecuteMessages", (req, res) => {
-      res.json(this.messages);
-    });
 
-    this.app.post("/api/sshconfig", express.json(), (req, res) => {
+    this.app.post(ApiUri.SshConfig, express.json(), (req, res) => {
       const ssh: ISsh = req.body;
       if (
         !ssh ||
@@ -111,7 +44,11 @@ export class ProxmoxWebApp {
         return;
       }
       try {
-        VeExecution.setSshParameter(ssh);
+        storageContext.setVEContext({
+          host: ssh.host,
+          port: ssh.port,
+          current: ssh.current || false
+        } as IVEContext);
         res.json({ success: true }).status(200);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
@@ -123,12 +60,7 @@ export class ProxmoxWebApp {
       (req, res) => {
         const { application, task } = req.params;
         try {
-          const config = new VeConfiguration(
-            schemaPath,
-            jsonPath,
-            localJsonPath,
-          );
-          const templateProcessor = new TemplateProcessor(config);
+          const templateProcessor = storageContext.getTemplateProcessor();
           const loaded = templateProcessor.loadApplication(
             application,
             task as TaskType,
@@ -153,16 +85,9 @@ export class ProxmoxWebApp {
 
     this.app.get("/api/applications", (req, res) => {
       try {
-        const config = new VeConfiguration(schemaPath, jsonPath, localJsonPath);
-        const applications = config.listApplications();
-        const testApplications =
-          localJsonPath &&
-          localJsonPath !== jsonPath &&
-          fs.existsSync(localJsonPath)
-            ? config.listApplications()
-            : [];
+        const applications = storageContext.listApplications();
 
-        res.json(applications.concat(testApplications)).status(200);
+        res.json(applications).status(200);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
@@ -177,10 +102,9 @@ if (
 ) {
   const filename = fileURLToPath(import.meta.url);
   const dirname = path.dirname(filename);
-  const schemaPath = path.join(dirname, "../schemas");
-  const jsonPath = path.join(dirname, "../json");
-  const jsonTestPath = path.join(dirname, "../jsonTest");
-  const webApp = new ProxmoxWebApp(schemaPath, jsonPath, jsonTestPath);
+  const jsonTestPath = path.join(dirname, "../local/json");
+  StorageContext.setInstance(jsonTestPath);
+  const webApp = new VEWebApp(StorageContext.getInstance());
   const port = process.env.PORT || 3000;
   webApp.httpServer.listen(port, () => {
     console.log(`ProxmoxWebApp listening on port ${port}`);

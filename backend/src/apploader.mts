@@ -1,24 +1,27 @@
 import {
   IApplication,
   IConfiguredPathes,
-  ProxmoxConfigurationError,
+  VEConfigurationError,
 } from "@src/backend-types.mjs";
 import path from "path";
-import { JsonValidator } from "./jsonvalidator.mjs";
 import fs from "fs";
+import { StorageContext } from "./storagecontext.mjs";
 
 export interface IReadApplicationOptions {
   applicationHierarchy: string[];
   application?: IApplication;
   appPath?: string;
-  error: ProxmoxConfigurationError;
+  error: VEConfigurationError;
   taskTemplates: {
     task: string;
     templates: string[];
   }[];
 }
 export class ApplicationLoader {
-  constructor(private pathes: IConfiguredPathes) {}
+  constructor(
+    private pathes: IConfiguredPathes,
+    private storage: StorageContext = StorageContext.getInstance(),
+  ) {}
   /**
    * Reads the application.json for an application, supports inheritance and template list manipulation.
    * @param application Name of the application (optionally with json: prefix)
@@ -68,12 +71,12 @@ export class ApplicationLoader {
       );
     }
     // Read and validate file
-    const validator = JsonValidator.getInstance(this.pathes.schemaPath);
+    const validator = this.storage.getJsonValidator();
     let appData: IApplication;
     try {
       appData = validator.serializeJsonFileWithSchema<IApplication>(
         appFile,
-        path.join(this.pathes.schemaPath, "application.schema.json"),
+        path.join(this.pathes.schemaPath, "application"),
       );
       // Save the first application in the hierarchy
       if (!opts.application) {

@@ -1,23 +1,19 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
-import { ProxmoxWebApp } from "@src/webapp.mjs";
+import { VEWebApp } from "@src/webapp.mjs";
 import express from "express";
-import fs from "node:fs";
 import path from "node:path";
-
+import { StorageContext } from "@src/storagecontext.mjs";
+import { ApiUri } from "@src/types.mjs";
+StorageContext.setInstance(path.join(__dirname, "../local/json"));
 describe("ProxmoxWebApp", () => {
   let app: express.Application;
-  let schemaPath: string;
-  let jsonPath: string;
-  let jsonTestPath: string;
+
   const validSsh = { host: "localhost", port: 2222 };
   const invalidSsh = { host: 123, port: "not-a-number" };
 
   beforeAll(() => {
-    schemaPath = path.join(__dirname, "../schemas");
-    jsonPath = path.join(__dirname, "../json");
-    jsonTestPath = path.join(__dirname, "../local/json");
-    app = new ProxmoxWebApp(schemaPath, jsonPath, jsonTestPath).app;
+    app = new VEWebApp(StorageContext.getInstance()).app;
   });
 
   it("should return unresolved parameters for a valid application and task", async () => {
@@ -59,23 +55,24 @@ describe("ProxmoxWebApp", () => {
     const errorString = invalidApp.errors[0].message;
     expect(errorString).toContain("Template file not found:");
   });
-  it("should return 404 if SSH config is not set", async () => {
+  it("should return empty SSH configs", async () => {
     // Clean up config file if exists
-
-    const file = path.join(process.cwd(), "local", "sshconfig.json");
-    if (fs.existsSync(file)) fs.unlinkSync(file);
-    const res = await request(app).get("/api/sshconfig");
-    expect(res.status).toBe(404);
-    expect(res.body.error).toMatch(/not set/i);
+    StorageContext.getInstance().remove("ve_localhost");  
+    const res = await request(app).get(ApiUri.SshConfigs);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(0);
   });
 
   it("should set SSH config with POST and retrieve it with GET", async () => {
-    const resPost = await request(app).post("/api/sshconfig").send(validSsh);
+    const resPost = await request(app).post(ApiUri.SshConfig).send(validSsh);
     expect(resPost.status).toBe(200);
     expect(resPost.body.success).toBe(true);
-    const resGet = await request(app).get("/api/sshconfig");
+    const resGet = await request(app).get(ApiUri.SshConfigs);
     expect(resGet.status).toBe(200);
-    expect(resGet.body).toEqual(validSsh);
+    expect(Array.isArray(resGet.body)).toBe(true);
+    expect(resGet.body.length).toBe(1);
+    expect(resGet.body[0].host).toBe(validSsh.host);
   });
 
   it("should reject invalid SSH config (missing/invalid fields)", async () => {

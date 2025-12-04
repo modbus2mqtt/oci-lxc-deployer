@@ -1,11 +1,11 @@
-import { JsonValidator } from "../src/jsonvalidator.mjs";
+import { StorageContext } from "@src/storagecontext.mjs";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, it, expect } from "vitest";
+StorageContext.setInstance("local");
 
 describe("JsonValidator", () => {
-  const schemasDir = join(__dirname, "../schemas");
   const appFile = join(
     __dirname,
     "../json/applications/modbus2mqtt/application.json",
@@ -18,18 +18,18 @@ describe("JsonValidator", () => {
   const templateSchema = "template.schema.json";
 
   it("should construct and validate all schemas", () => {
-    expect(() => JsonValidator.getInstance(schemasDir)).not.toThrow();
+    expect(() => StorageContext.getInstance().getJsonValidator()).not.toThrow();
   });
 
   it("should validate modbus2mqtt/application.json", () => {
-    const validator = JsonValidator.getInstance(schemasDir);
+    const validator = StorageContext.getInstance().getJsonValidator();
     expect(() =>
       validator.serializeJsonFileWithSchema(appFile, appSchema),
     ).not.toThrow();
   });
 
   it("should validate a shared template", () => {
-    const validator = JsonValidator.getInstance(schemasDir);
+    const validator = StorageContext.getInstance().getJsonValidator();
     expect(() =>
       validator.serializeJsonFileWithSchema(sharedTemplate, templateSchema),
     ).not.toThrow();
@@ -46,7 +46,7 @@ describe("JsonValidator", () => {
       '"installation": { "foo": 1 }',
     );
     writeFileSync(invalidAppFile, broken);
-    const validator = JsonValidator.getInstance(schemasDir);
+    const validator = StorageContext.getInstance().getJsonValidator();
     let error: any = undefined;
     try {
       validator.serializeJsonFileWithSchema(invalidAppFile, appSchema);

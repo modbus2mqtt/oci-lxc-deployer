@@ -62,18 +62,8 @@ export class ValidateJsonError extends JsonError implements IJsonError {
   }
 }
 export class JsonValidator {
-  static instance: JsonValidator | undefined;
-  static getInstance(
-    schemaPath?: string,
-    baseSchemas: string[] = ["templatelist.schema.json"],
-  ): JsonValidator {
-    if (!JsonValidator.instance) {
-      JsonValidator.instance = new JsonValidator(schemaPath, baseSchemas);
-    }
-    return JsonValidator.instance;
-  }
   private ajv: Ajv;
-  private constructor(
+  constructor(
     schemasDir: string = resolve("schemas"),
     baseSchemas: string[] = ["templatelist.schema.json"],
   ) {
@@ -148,11 +138,11 @@ export class JsonValidator {
       sourceMap = (jsonData as any).__sourceMap;
     }
     try {
-      if(dataToValidate.__sourceMapText )
-        delete (dataToValidate as any).__sourceMapText
-      if(dataToValidate.__sourceMap )
-        delete (dataToValidate as any).__sourceMap
-      const result = validate(dataToValidate);  
+      if (dataToValidate.__sourceMapText)
+        delete (dataToValidate as any).__sourceMapText;
+      if (dataToValidate.__sourceMap)
+        delete (dataToValidate as any).__sourceMap;
+      const result = validate(dataToValidate);
       if (result instanceof Promise) {
         throw new Error(
           "Async schemas are not supported in serializeJsonWithSchema",

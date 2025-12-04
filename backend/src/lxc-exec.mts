@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { VeConfiguration } from "./ve-configuration.mjs";
 import { IRestartInfo, VeExecution } from "./ve-execution.mjs";
 // Make sure the types file exists, or update the path if necessary
 // If your types are in a TypeScript file, use './types' instead of './types.js'
@@ -10,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { JsonError } from "./jsonvalidator.mjs";
 import { TemplateProcessor } from "@src/templateprocessor.mjs";
 import { promises, writeFileSync } from "node:fs";
+import { StorageContext } from "./storagecontext.mjs";
 function printUsageAndExit() {
   console.error("Usage: lxc-exec <application> <task> <parameters.json>");
 }
@@ -49,9 +49,9 @@ async function main() {
     const jsonPath = path.join(projectRoot, "json");
     const localPath = path.join(projectRoot, "local/json");
     JsonError.baseDir = projectRoot;
-
-    // Hole alle Apps (Name -> Pfad)
-    const allApps = VeConfiguration.getAllApps(jsonPath, localPath);
+    StorageContext.setInstance(localPath);
+    // Get all apps (name -> path)
+    const allApps = StorageContext.getInstance().getAllAppNames();
     const appPath = allApps.get(application);
     if (!appPath) {
       console.error(
@@ -109,7 +109,12 @@ async function main() {
         defaults.set(param.name, param.default);
       }
     });
-    const exec = new VeExecution(loaded.commands, params, defaults);
+    const exec = new VeExecution(
+      loaded.commands,
+      params,
+      StorageContext.getInstance().getCurrentVEContext(),
+      defaults,
+    );
     exec.on("message", (msg) => {
       console.error(`[${msg.command}] ${msg.stderr}`);
       if (msg.exitCode !== 0) {
@@ -157,7 +162,7 @@ function printDetails(details: any[], level = 1) {
       if ("details" in detail.error && Array.isArray(detail.error.details)) {
         printDetails(detail.error.details, level + 1);
       }
-      // Falls das Objekt noch weitere Properties hat, die nicht error/details sind:
+      // If the object has other properties that are not error/details:
       const keys = Object.keys(detail).filter(
         (k) => k !== "error" && k !== "details" && k !== "line",
       );

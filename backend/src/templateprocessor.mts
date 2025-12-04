@@ -1,13 +1,11 @@
 import path from "path";
-import { JsonError, JsonValidator } from "@src/jsonvalidator.mjs";
-import {
-  IReadApplicationOptions,
-  ProxmoxLoadApplicationError,
-} from "@src/ve-configuration.mjs";
+import { JsonError } from "@src/jsonvalidator.mjs";
 import {
   IConfiguredPathes,
+  IReadApplicationOptions,
   IResolvedParam,
-  ProxmoxConfigurationError,
+  VEConfigurationError,
+  VELoadApplicationError,
 } from "@src/backend-types.mjs";
 import {
   TaskType,
@@ -19,6 +17,7 @@ import {
 import { ApplicationLoader } from "@src/apploader.mjs";
 import fs from "fs";
 import { ScriptValidator } from "@src/scriptvalidator.mjs";
+import { StorageContext } from "./storagecontext.mjs";
 
 interface IProcessTemplateOpts {
   application: string;
@@ -46,20 +45,23 @@ export interface ITemplateProcessorLoadResult {
 }
 export class TemplateProcessor {
   resolvedParams: IResolvedParam[] = [];
-  constructor(private pathes: IConfiguredPathes) {}
+  constructor(
+    private pathes: IConfiguredPathes,
+    private storageContext: StorageContext = StorageContext.getInstance(),
+  ) {}
   loadApplication(
     applicationName: string,
     task: TaskType,
   ): ITemplateProcessorLoadResult {
     const readOpts: IReadApplicationOptions = {
       applicationHierarchy: [],
-      error: new ProxmoxConfigurationError("", applicationName),
+      error: new VEConfigurationError("", applicationName),
       taskTemplates: [],
     };
     const appLoader = new ApplicationLoader(this.pathes);
     appLoader.readApplicationJson(applicationName, readOpts);
     if (readOpts.error.details && readOpts.error.details.length > 0) {
-      throw new ProxmoxLoadApplicationError(
+      throw new VELoadApplicationError(
         "Load Application error",
         applicationName,
         task,
@@ -70,13 +72,13 @@ export class TemplateProcessor {
     const appEntry = readOpts.taskTemplates.find((t) => t.task === task);
     if (!appEntry) {
       const message = `Template ${task} not found in ${applicationName} application`;
-      throw new ProxmoxLoadApplicationError(message, applicationName, task, [
+      throw new VELoadApplicationError(message, applicationName, task, [
         new JsonError(message),
       ]);
     }
     if (!readOpts.application) {
       const message = `Application data not found for ${applicationName}`;
-      throw new ProxmoxLoadApplicationError(message, applicationName, task, [
+      throw new VELoadApplicationError(message, applicationName, task, [
         new JsonError(message),
       ]);
     }
@@ -133,7 +135,7 @@ export class TemplateProcessor {
         requestedIn: task,
         templatePathes,
         scriptPathes,
-        webuiTemplates
+        webuiTemplates,
       };
       this.#processTemplate(ptOpts);
     }
@@ -144,7 +146,7 @@ export class TemplateProcessor {
         // Only one error: throw it directly (as string or error object)
         throw errors[0];
       } else {
-        const err = new ProxmoxConfigurationError(
+        const err = new VEConfigurationError(
           "Template processing error",
           applicationName,
           errors,
@@ -156,7 +158,7 @@ export class TemplateProcessor {
       parameters: outParameters,
       commands: outCommands,
       resolvedParams: resolvedParams,
-      webuiTemplates: webuiTemplates
+      webuiTemplates: webuiTemplates,
     };
   }
 
@@ -188,8 +190,8 @@ export class TemplateProcessor {
     // Validate template against schema
     try {
       // Use the JsonValidator factory (singleton)
-      const validator = JsonValidator.getInstance(this.pathes.schemaPath);
-      tmplData= validator.serializeJsonFileWithSchema<ITemplate>(
+      const validator = this.storageContext.getJsonValidator();
+      tmplData = validator.serializeJsonFileWithSchema<ITemplate>(
         tmplPath,
         "template.schema.json",
         // Check for icon.png in the application directory
@@ -206,21 +208,24 @@ export class TemplateProcessor {
     }
     // Mark outputs as resolved BEFORE adding parameters
     for (const out of tmplData.outputs ?? []) {
-      if (
-        undefined == opts.resolvedParams.find(
-          (p) => p.id === out.id,
-        )
-      ) {
-        opts.resolvedParams.push({   id: out.id, template: opts.template });
+      if (undefined == opts.resolvedParams.find((p) => p.id === out.id)) {
+        opts.resolvedParams.push({ id: out.id, template: opts.template });
       }
     }
 
     // Custom validation: 'if' must refer to another parameter name, not its own
     if (tmplData.parameters) {
-      const paramNames = tmplData.parameters.map(p => p.id);
+      const paramNames = tmplData.parameters.map((p) => p.id);
       for (const param of tmplData.parameters) {
-        if (param.if && (param.if === param.id || !paramNames.includes(param.if))) {
-          opts.errors.push(new JsonError(`Parameter '${param.name}': 'if' must refer to another parameter name in the same template (not itself).`));
+        if (
+          param.if &&
+          (param.if === param.id || !paramNames.includes(param.if))
+        ) {
+          opts.errors.push(
+            new JsonError(
+              `Parameter '${param.name}': 'if' must refer to another parameter name in the same template (not itself).`,
+            ),
+          );
         }
       }
     }
@@ -232,12 +237,12 @@ export class TemplateProcessor {
           template: opts.template,
           templatename: tmplData.name || opts.template,
         };
-        if( param.type === "enum" && (param as any).enumValuesTemplate) {
+        if (param.type === "enum" && (param as any).enumValuesTemplate) {
           // Load enum values from another template
           const enumTmplName = (param as any).enumValuesTemplate;
           opts.webuiTemplates?.push(enumTmplName);
         }
-            
+
         opts.parameters.push(pparm);
       }
     }
@@ -247,7 +252,7 @@ export class TemplateProcessor {
     for (const cmd of tmplData.commands ?? []) {
       if (cmd.name === undefined || (cmd.name.trim() === "" && tmplData)) {
         cmd.name = `${tmplData.name || "unnamed-template"}`;
-          // 5. Process each template
+        // 5. Process each template
         if (cmd.template !== undefined) {
           this.#processTemplate({
             ...opts,
@@ -309,7 +314,11 @@ export class TemplateProcessor {
   ): IParameter[] {
     // Only parameters whose id is not in resolvedParams.param
     return parameters.filter(
-      (param) => undefined == resolvedParams.find((rp) => rp.id == param.id && rp.template != param.template),
+      (param) =>
+        undefined ==
+        resolvedParams.find(
+          (rp) => rp.id == param.id && rp.template != param.template,
+        ),
     );
   }
 }

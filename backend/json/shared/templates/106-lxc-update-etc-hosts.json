@@ -1,0 +1,13 @@
+{
+  "execute_on": "proxmox",
+  "name": "Update /etc/hosts entries",
+  "description": "Optional template to update /etc/hosts with hostname and static IP addresses from previous steps.",
+  "parameters": [
+    { "name": "hostname", "id": "hostname", "type": "string", "description": "Hostname to update." },
+    { "name": "static_ip", "id": "static_ip", "type": "string", "description": "Static IPv4 address (optional)." },
+    { "name": "static_ip6", "id": "static_ip6", "type": "string", "description": "Static IPv6 address (optional)." }
+  ],
+  "commands": [
+    { "name": "lxc-update-etc-hosts", "script": "lxc-update-etc-hosts.sh" }
+  ]
+}

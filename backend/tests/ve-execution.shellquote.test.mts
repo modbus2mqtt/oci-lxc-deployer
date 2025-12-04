@@ -4,12 +4,15 @@ import { ICommand } from "@src/types.mjs";
 import { spawnSync } from "child_process";
 import fs from "fs";
 import * as path from "path";
+import { StorageContext } from "@src/storagecontext.mjs";
+import { IVEContext } from "@src/backend-types.mjs";
 describe("ProxmoxExecution shell quoting", () => {
-  const dummySSH = { host: "localhost", port: 22 };
+  const dummySSH:IVEContext = { host: "localhost", port: 22 } as IVEContext;
   const defaults = new Map<string, string | number | boolean>();
   const inputs: { id: string; value: string | number | boolean }[] = [];
 
   beforeAll(() => {
+    StorageContext.setInstance("local");
     // Write dummy sshconfig.json for local test
     const dir = path.join(process.cwd(), "local");
     const file = path.join(dir, "sshconfig.json");
@@ -26,7 +29,7 @@ describe("ProxmoxExecution shell quoting", () => {
       command: script,
       execute_on: "proxmox",
     };
-    const exec = new VeExecution([command], inputs, defaults);
+    const exec = new VeExecution([command], inputs, dummySSH, defaults);
     (exec as any).ssh = { host: "localhost", port: 22 };
     // runOnProxmoxHost as a mock: accepts all parameters, but only executes the command locally
     (exec as any).runOnProxmoxHost = function (
@@ -83,6 +86,7 @@ describe("ProxmoxExecution shell quoting", () => {
     const exec = new VeExecution(
       [command],
       [{ id: "vm_id", value: "dummy" }],
+      dummySSH,
       defaults,
     );
     (exec as any).ssh = { host: "localhost", port: 22 };

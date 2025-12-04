@@ -1,12 +1,16 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { VeExecution } from "@src/ve-execution.mjs";
-import { ICommand, ISsh } from "@src/types.mjs";
+import { ICommand } from "@src/types.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { IVEContext } from "@src/backend-types.mjs";
+import { StorageContext } from "@src/storagecontext.mjs";
 
 // New test cases are implemented here using overridable execCommand method.
 let index = 0;
+const dummyVE: IVEContext = { host: "localhost", port: 22 }as IVEContext;
+StorageContext.setInstance("local");
 describe("ProxmoxExecution", () => {
   it("should resolve variables from outputs, inputs, and defaults in all combinations", () => {
     type Combo = {
@@ -57,7 +61,7 @@ describe("ProxmoxExecution", () => {
       if (combo.input !== undefined)
         inputs.push({ id: "foo", value: combo.input });
       if (combo.def !== undefined) parameters.set("foo", combo.def);
-      const exec = new TestExec([], inputs, parameters);
+      const exec = new TestExec([], inputs, dummyVE, parameters);
       exec.outputs = outputs;
       // Patch parameters for default
       (exec as any).parameters = parameters;
@@ -79,7 +83,7 @@ describe("ProxmoxExecution", () => {
     }
     // Simulate a parameter with a default value
     const commands: ICommand[] = [];
-    const exec = new TestExec(commands, [], new Map());
+    const exec = new TestExec(commands, [], dummyVE, new Map());
     // Manually add a parameter with default value
     (exec as any).parameters = [
       { name: "foo", type: "string", default: "bar" },
@@ -123,8 +127,7 @@ describe("ProxmoxExecution", () => {
       },
     ];
     const inputs = [{ id: "myvar", value: "replacedValue" }];
-    const exec = new TestExec(commands, inputs, new Map());
-    VeExecution.setSshParameters({ host: "localhost", port: 22 });
+    const exec = new TestExec(commands, inputs, dummyVE, new Map());
     exec.run();
     expect(exec.lastCommand).toBe("echo replacedValue");
     try {
@@ -154,8 +157,7 @@ describe("ProxmoxExecution", () => {
       },
     ];
     const inputs = [{ id: "somevariable", value: "replaced" }];
-    new TestExec(commands, inputs, new Map());
-    VeExecution.setSshParameters({ host: "localhost", port: 22 });
+    new TestExec(commands, inputs, dummyVE, new Map());
     // run() only returns lastSuccessIndex, but we can intercept runOnProxmoxHost
     // or check outputs. Here we check if the replaced value arrives:
     let resultValue = "";
@@ -171,13 +173,10 @@ describe("ProxmoxExecution", () => {
         };
       }
     }
-    const exec2 = new CaptureExec(commands, inputs, new Map());
-    VeExecution.setSshParameters({ host: "localhost", port: 22 });
+    const exec2 = new CaptureExec(commands, inputs, dummyVE, new Map());
     exec2.run();
     expect(resultValue).toBe("replaced");
   });
-  const sshParams: ISsh = { host: "localhost", port: 22 };
-
   it("should parse JSON output and fill outputs", () => {
     class TestExec extends VeExecution {
       protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
@@ -233,11 +232,10 @@ describe("ProxmoxExecution", () => {
       },
     ];
     const inputs = [
-      { name: "foo", value: "inputFoo" },
-      { name: "baz", value: 99 },
+      { id: "foo", value: "inputFoo" },
+      { id: "baz", value: 99 },
     ];
-    const exec = new TestExec(commands, inputs, new Map());
-    VeExecution.setSshParameters(sshParams);
+    const exec = new TestExec(commands, inputs, dummyVE, new Map());
     exec.run();
     expect(exec.outputs.get("foo")).toBe("baz");
     expect(exec.outputs.get("baz")).toBe(99);
@@ -287,9 +285,8 @@ describe("ProxmoxExecution", () => {
         execute_on: "proxmox",
       },
     ];
-    const inputs = [{ name: "foo", value: "inputFoo" }];
-    const exec = new TestExec(commands, inputs, new Map());
-    VeExecution.setSshParameters(sshParams);
+    const inputs = [{ id: "foo", value: "inputFoo" }];
+    const exec = new TestExec(commands, inputs, dummyVE, new Map());
     exec.run();
     expect(exec.outputs.get("foo")).toBe("baz99");
   });
@@ -377,9 +374,8 @@ describe("ProxmoxExecution", () => {
         execute_on: "proxmox",
       },
     ];
-    const inputs = [{ name: "foo", value: "inputFoo" }];
-    const exec = new TestExec(commands, inputs, new Map());
-    VeExecution.setSshParameters(sshParams);
+    const inputs = [{ id: "foo", value: "inputFoo" }];
+    const exec = new TestExec(commands, inputs, dummyVE, new Map());
     const result = exec.run();
     expect(typeof result?.lastSuccessfull).toBe("number");
     expect(result?.lastSuccessfull).toBe(commands.length - 1);

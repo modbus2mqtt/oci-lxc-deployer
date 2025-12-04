@@ -1,4 +1,5 @@
 import { ApplicationLoader, IReadApplicationOptions } from "@src/apploader.mjs";
+import { StorageContext } from "@src/storagecontext.mjs";
 import fs from "fs";
 import path from "path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -7,6 +8,8 @@ const tmpDir = path.join(__dirname, "__apptest__");
 const localPath = path.join(tmpDir, "local");
 const jsonPath = path.join(tmpDir, "json");
 const schemaPath = path.join(__dirname, "../schemas");
+
+StorageContext.setInstance(localPath);
 
 function writeJson(filePath: string, data: any) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

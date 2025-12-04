@@ -1,14 +1,10 @@
 import { EventEmitter } from "events";
-import {
-  ICommand,
-  IJsonError,
-  IProxmoxExecuteMessage,
-  ISsh,
-} from "@src/types.mjs";
-import path from "path";
+import { ICommand, IJsonError, IProxmoxExecuteMessage } from "@src/types.mjs";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { JsonError, JsonValidator } from "./jsonvalidator.mjs";
+import { StorageContext } from "./storagecontext.mjs";
+import { IVEContext } from "./backend-types.mjs";
 export interface IProxmoxRunResult {
   lastSuccessIndex: number;
 }
@@ -31,8 +27,6 @@ export interface IRestartInfo {
  * ProxmoxExecution: Executes a list of ICommand objects with variable substitution and remote/container execution.
  */
 export class VeExecution extends EventEmitter {
-  private static sshs: ISsh[] | null = null;
-  private static ssh: ISsh | null = null;
   private commands!: ICommand[];
   private inputs!: Record<string, string | number | boolean>;
   public outputs: Map<string, string | number | boolean> = new Map();
@@ -40,6 +34,7 @@ export class VeExecution extends EventEmitter {
   constructor(
     commands: ICommand[],
     inputs: { id: string; value: string | number | boolean }[],
+    private veContext: IVEContext | null,
     private defaults: Map<string, string | number | boolean> = new Map(),
   ) {
     super();
@@ -48,75 +43,9 @@ export class VeExecution extends EventEmitter {
     for (const inp of inputs) {
       this.inputs[inp.id] = inp.value;
     }
-    // Load SSH config on instance creation
-    VeExecution.sshs = VeExecution.getSshConfigurations();
-    // Use singleton factory for JsonValidator
-    this.validator = JsonValidator.getInstance(
-      path.join(process.cwd(), "schemas"),
-    );
+    this.validator = StorageContext.getInstance().getJsonValidator();
   }
 
-  /**
-   * Reads SSH parameters from ./local/sshconfig.json. Creates the directory if needed.
-   */
-  static getSshConfigurations(): ISsh[] | [] {
-    const dir = path.join(process.cwd(), "local");
-    const file = path.join(dir, "sshconfigs.json");
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (fs.existsSync(file)) {
-      try {
-        const sshs =  JsonValidator.getInstance().serializeJsonFileWithSchema<ISsh[]>(file,"sshs");
-        sshs.find((s) => s.current);
-        VeExecution.sshs = sshs;
-        return VeExecution.sshs;
-
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (e) {
-        // Ignore parse errors, treat as not set
-      }
-    }
-    return [];
-  }
-
-  /**
-   * Writes SSH parameters to ./local/sshconfig.json. Creates the directory if needed.
-   */
-  static setSshParameter(ssh: ISsh): void {
-    const dir = path.join(process.cwd(), "local");
-    const file = path.join(dir, "sshconfigs.json");
-    let sshs: ISsh[] = VeExecution.sshs || [];
-    const existing = sshs.find((s) => s.host == ssh.host);
-    if( existing ) {
-      if( ssh.port !== undefined )
-        existing.port = ssh.port;
-      if( ssh.current !== undefined )
-        existing.current = ssh.current;
-    } else {
-      sshs.push(ssh);
-    }
-    if( ssh.current ) {
-      // unset current for all others
-      for( const s of sshs ) {
-        if( s.host != ssh.host ) {
-          s.current = false;
-        }
-      }
-    }
-    const validator = JsonValidator.getInstance().serializeJsonWithSchema<ISsh[]>(
-      sshs,
-      "sshs",
-    ); // validate before writing
-    if( !validator ) {
-      throw new Error("Invalid SSH configuration");
-    }
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    VeExecution.sshs = sshs;
-    fs.writeFileSync(file, JSON.stringify(sshs, null, 2), "utf-8");
-  }
   /**
    * Executes a command on the Proxmox host via SSH, with timeout. Parses stdout as JSON and updates outputs.
    * @param command The command to execute
@@ -129,9 +58,9 @@ export class VeExecution extends EventEmitter {
     remoteCommand?: string[],
     sshCommand: string = "ssh",
   ): IProxmoxExecuteMessage {
-    if (!VeExecution.ssh) throw new Error("SSH parameters not set");
-    const  host = VeExecution.ssh.host;
-    const port = VeExecution.ssh.port || 22;
+    if (!this.veContext) throw new Error("SSH parameters not set");
+    const host = this.veContext.host;
+    const port = this.veContext.port || 22;
     let sshArgs: string[] = [];
     if (sshCommand === "ssh")
       sshArgs = [
@@ -189,11 +118,7 @@ export class VeExecution extends EventEmitter {
       try {
         const outputsJson = this.validator.serializeJsonWithSchema<
           IOutput[] | IOutput
-        >(
-          JSON.parse(stdout),
-          "outputs",
-          "Outputs " + tmplCommand.name,
-        );
+        >(JSON.parse(stdout), "outputs", "Outputs " + tmplCommand.name);
         if (Array.isArray(outputsJson)) {
           for (const entry of outputsJson) {
             if (entry.value) this.outputs.set(entry.id, entry.value);

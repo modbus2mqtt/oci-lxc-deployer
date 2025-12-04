@@ -1,0 +1,7 @@
+{
+  "ve_localhost": {
+    "host": "localhost",
+    "port": 2222,
+    "current": false
+  }
+}

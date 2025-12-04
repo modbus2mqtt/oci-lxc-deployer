@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vecontext",
+  "title": "VE Context",
+  "type": "object",
+  "properties": {
+    "host": { "type": "string" },
+    "port": { "type": "integer" },
+    "current": { "type": "boolean" }
+  },
+  "required": ["host"],
+  "additionalProperties": false
+}

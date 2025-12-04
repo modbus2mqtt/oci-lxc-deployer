@@ -1,0 +1,18 @@
+{
+  "execute_on": "proxmox",
+  "name": "Static IP Address for LXC Container",
+  "description": "Edit LXC network settings for a container with static IPs.",
+  "parameters": [
+    { "name": "use_static_ip", "id": "use_static_ip", "type": "boolean", "description": "Enable static IP configuration." },
+    { "name": "static_ip", "id": "static_ip", "type": "string", "description": "Static IPv4 address.", "if": "use_static_ip" },
+    { "name": "static_gw", "id": "static_gw", "type": "string", "description": "Static IPv4 gateway.", "if": "use_static_ip" },
+    { "name": "static_ip6", "id": "static_ip6", "type": "string", "description": "Static IPv6 address.", "if": "use_static_ip" },
+    { "name": "static_gw6", "id": "static_gw6", "type": "string", "description": "Static IPv6 gateway.", "if": "use_static_ip" },
+    { "name": "vm_id", "id": "vm_id", "type": "string", "description": "VMID of the container." },
+    { "name": "hostname", "id": "hostname", "type": "string", "description": "Hostname of the container." },
+    { "name": "bridge", "id": "bridge", "type": "string", "description": "Bridge to attach (e.g. vmbr0)." }
+  ],
+  "commands": [
+    { "name": "lxc-static-ip", "script": "lxc-static-ip.sh" }
+  ]
+}
