@@ -101,13 +101,13 @@ jobs:
         run: |
           npm ci 
           echo "::group::Building project frontend ..."
-          cd frontend && npm ci && npm run build
+          (cd frontend && npm ci && npm run build)
           echo "::endgroup::"
           echo "::group::Building backend  ..."
-          cd backend  && npm ci && npm run build
+          (cd backend  && npm ci && npm run build)
           echo "::endgroup::"
           echo "::group::Building root  ..."
-          npm ci && npm run build
+          (npm ci && npm run build)
           echo "::endgroup::"          
           echo "::group::Publishing to NPM registry ..."  
           npm set registry https://registry.npmjs.org/
