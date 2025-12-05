@@ -1,3 +1,22 @@
-All text files in this projects in englisch
+All text files in this projects in english
 Use @for instead of *ngFor and @if instead of *ngIf
 Find all json schemas in schemas directory
+This project has two main executables lxc-exec.mjs and webapp.mjs
+lxc-exec.mjs -> Simple command line tool to execute tasks (installation, backup) to be used in scripts
+webapp.mjs -> As lxc-exec.mjs but with web ui: select application then execute task 
+
+Installation scenario:
+Install lxc-manager as lxc container on a ve host.(Currently proxmox only)
+Use scenario:
+- open the web ui and install lxc containers for the commonly available applications (homeassistant nodered ...)
+- create own extended applications and templates with easier setup (e.g. static ip generation...)
+The applications:
+They have the same purpose:
+Make installation of lxc container easy
+Make configuration easy by using extended applications and own templates and script in local directory
+Allow own applications
+Provide templates for easy optional features like disk sharing, usb serial sharing ...
+Templates to manage IP Addresses ...
+They can be used by creating own extended applications.
+
+Create a README.md document in the root
