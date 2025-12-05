@@ -99,7 +99,9 @@ jobs:
       - name: NPM run build and publish
         id: npmbuildpublish
         run: |
-          npm ci 
+          npm ci --production
+          cd frontend && npm ci --production && npm run build
+          cd backend  && npm ci --production && npm run build
           npm run build
           npm set registry https://registry.npmjs.org/
           npm publish --public
