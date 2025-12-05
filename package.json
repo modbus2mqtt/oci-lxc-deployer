@@ -1,6 +1,6 @@
 {
   "name": "lxc-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Packaged web UI and backend for LXC Manager",
   "private": false,
   "type": "module",
@@ -20,8 +20,7 @@
     "frontend/dist",
     "backend/json",
     "bin"
-  ]
-  ,
+  ],
   "lxcManager": {
     "frontendDir": "frontend/dist/webapp-angular/browser"
   },
