@@ -37,12 +37,28 @@ if [ -x "$GENERATOR" ]; then
     find "$PKG_BASE" -maxdepth 1 -type f -name "*.ini" | while read -r ini; do
         pkg="$(basename "$ini" .ini)"
         echo "  -> Generating package dir for $pkg"
-        (cd "$PKG_BASE" && ./generate-ap.sh "$pkg" "$pkg.ini")
+        (cd "$PKG_BASE" && ./generate-ap.sh "$pkg" "$pkg.ini" && grep -v "shasums=" "$pkg/APKBUILD" >/dev/null 2>&1 && echo "     -> OK: $pkg APKBUILD generated") || {
+            echo "ERROR: generate-ap.sh failed for $pkg" >&2
+            exit 1
+        }   
     done
 fi
 
 echo "Building APKs inside Docker (Alpine) because abuild isn't supported on macOS..."
 status=0
+# Detect Alpine version to align with other build scripts
+detect_alpine_version || true
+ALPINE_VERSION="${ALPINE_VERSION:-3.19}"
+echo "Using Alpine version: $ALPINE_VERSION"
+
+# Prepare npm cache directory on host to speed up repeated builds
+NPM_CACHE_DIR="$REPO_ROOT/alpine/cache/npm"
+mkdir -p "$NPM_CACHE_DIR"
+
+# Prepare APK cache directory on host to speed up apk installs
+APK_CACHE_DIR="$REPO_ROOT/alpine/cache/apk"
+mkdir -p "$APK_CACHE_DIR"
+
 
 # Clean local repo to avoid mixing packages signed with different keys
 REPO_DIR="$REPO_ROOT/alpine/repo"
@@ -73,37 +89,23 @@ for ini in "$PKG_BASE"/*.ini; do
         continue
     fi
 
-    echo "--- Building $pkg in container ---"
+    echo "--- Building $pkg in container from $REPO_ROOT ---"
+    echo ""$(id -u)":"$(id -g)""  # Debug: show UID:GID
     docker run --rm \
         -e PACKAGER_PRIVKEY \
+        -e PKG_NAME="$pkg" \
+        -e PKG_BASE="$PKG_BASE" \
+        -e ALPINE_VERSION="$ALPINE_VERSION" \
+        -e ALLOW_UNTRUSTED=1 \
+        -e NPM_CONFIG_CACHE="/home/builder/.npm" \
+        -e npm_config_cache="/home/builder/.npm" \
+        -e HOST_UID="$(id -u)" \
+        -e HOST_GID="$(id -g)" \
         -v "$REPO_ROOT":"/work" \
-        -w "/work/$PKG_BASE/$pkg" \
-        alpine:3.19 sh -lc '
-            set -e
-            apk add --no-cache alpine-sdk abuild sudo shadow bash git nodejs npm rsync python3 py3-psutil make build-base linux-headers udev openssl
-            adduser -D build && addgroup build abuild
-            # Write provided private key into abuild key path
-            mkdir -p /home/build/.abuild
-            umask 077
-            printf "%s" "$PACKAGER_PRIVKEY" > /home/build/.abuild/privkey.rsa
-            chmod 600 /home/build/.abuild/privkey.rsa
-            # Generate public key required by abuild-sign
-            openssl rsa -in /home/build/.abuild/privkey.rsa -pubout -out /home/build/.abuild/privkey.rsa.pub 2>/dev/null
-            chmod 644 /home/build/.abuild/privkey.rsa.pub || true
-            # Trust the public key for indexing: install into /etc/apk/keys
-            mkdir -p /etc/apk/keys
-            cp /home/build/.abuild/privkey.rsa.pub /etc/apk/keys/packager.rsa.pub
-            # Also place a copy in the repo for convenience
-            mkdir -p /work/alpine/repo
-            cp /home/build/.abuild/privkey.rsa.pub /work/alpine/repo/packager.rsa.pub
-            # Configure abuild
-            echo "PACKAGER_PRIVKEY=/home/build/.abuild/privkey.rsa" > /home/build/.abuild/abuild.conf
-            echo "REPODEST=/work/alpine/repo" >> /home/build/.abuild/abuild.conf
-            chown -R build:build /home/build
-            # abuild expects keys in /home/build/.abuild
-            su build -c "abuild checksum"
-            su build -c "abuild -r"
-        ' || status=1
+        -v "$NPM_CACHE_DIR":"/home/builder/.npm" \
+        -v "$APK_CACHE_DIR":"/var/cache/apk" \
+        -w "/work" \
+        alpine:"$ALPINE_VERSION" sh -lc 'sh /work/alpine/package-build.sh' || status=1
 done
 
 if [ "$status" -ne 0 ]; then
