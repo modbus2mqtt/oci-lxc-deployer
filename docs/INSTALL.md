@@ -43,6 +43,8 @@ curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/lxc-manager/main/instal
 - Auto-selects the latest Alpine LXC template.
 - Creates the container with the provided resources.
 - Configures static IPv4/IPv6 networking when specified (CIDR validated).
+- Installs the lxc-manager in the lxc-container
+- Starts the web server.
 
 ## Access the Web UI
 - Open `http://lxc-manager:3000` from your network (or use the container IP/hostname you configured).
