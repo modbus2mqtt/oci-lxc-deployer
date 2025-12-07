@@ -1,16 +1,45 @@
 # LXC Manager
 
+Install and manage common LXC applications on Proxmox (e.g., Home Assistant, Node-RED), with support for custom templates and extended application configurations.
+
+## Quick Install
+Run this on your Proxmox host **(adjust IP addresses to your network)**:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/lxc-manager/main/install-lxc-manager.sh \
+  | sh -s -- --static-ip 192.168.4.100/24 --static-gw 192.168.4.1  # <- adjust IPs
+```
+
+- `--static-ip`: IPv4 address in CIDR (e.g., `192.168.4.100/24`)
+- `--static-gw`: IPv4 gateway (e.g., `192.168.4.1`)
+
+For IPv6 **(adjust IP addresses to your network)**:
+```sh
+curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/lxc-manager/main/install-lxc-manager.sh \
+  | sh -s -- --static-ip6 fd00::50/64 --static-gw6 fd00::1  # <- adjust IPs
+```
+
+## Options
+- `--vm-id <id>`: Specific VMID; if omitted, next free VMID is used
+- `--disk-size <GB>`: Rootfs size (default: `1`)
+- `--memory <MB>`: Memory (default: `256`)
+- `--bridge <name>`: Network bridge (default: `vmbr0`)
+- `--hostname <name>`: Hostname (default: `lxc-manager`)
+
+## Access the Web UI
+- Open `http://lxc-manager:3000` from your network (or replace `lxc-manager` with the container's IP/hostname you configured).
+- If Proxmox VE is behind a firewall, ensure port `3000/tcp` is reachable from the browser.
+
+## Documentation
+See `docs/INSTALL.md` for full installation details, examples, and troubleshooting.
+# LXC Manager
+
 LXC Manager provides a simple way to install and manage LXC containers (currently Proxmox VE) using reusable JSON templates and a Web UI.
 
-- All text files in this project are in English.
-- Angular templates: use `@for` instead of `*ngFor` and `@if` instead of `*ngIf`.
-- JSON Schemas are located under `backend/schemas/`.
-- Main executables:
+ LXC Manager provides a simple way to install and manage LXC containers (currently Proxmox VE) using reusable JSON templates and a Web UI.
+ 
   - `backend/dist/lxc-exec.mjs`: CLI to execute tasks like `installation`, `backup`, etc.
   - `backend/dist/webapp.mjs`: Same engine with a Web UI to select an application and run a task.
-
-## Installation Scenario
-Install LXC Manager as an LXC container on a VE host (currently Proxmox only).
 
 ## Use Scenarios
 - Open the Web UI and install commonly available applications (e.g., Home Assistant, Node-RED).
@@ -30,28 +59,6 @@ Applications have the same purpose:
 - `backend/local/`: Your local parameters, templates, and runtime JSON (not packaged).
 - `frontend/`: Angular Web UI (build output typically under `frontend/dist/...`).
 
-## Quick Start
-1) Build backend and frontend:
-```zsh
-cd backend && npm run build
-cd ../frontend && npm run build
-```
-
-2) Run Web UI locally:
-```zsh
-cd ..
-node bin/webapp --local ./backend/local
-# Open http://localhost:3000
-```
-
-3) Run a CLI task (installation example):
-```zsh
-cd backend
-node dist/lxc-exec.mjs <application-id> installation "local/parameters.json" "local/restart-info.json"
-```
-
-- `<application-id>` refers to a folder under `backend/json/applications/` (e.g., `macbckpsrv`, `modbus2mqtt`).
-- `local/parameters.json` holds environment-specific values; `local/restart-info.json` is used for resuming/metadata.
 
 ## Templates & Features
 - Network helpers (e.g., static IP generation and application in separate steps).
