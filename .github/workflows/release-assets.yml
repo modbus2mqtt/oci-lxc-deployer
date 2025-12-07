@@ -88,10 +88,10 @@ jobs:
           echo "Building APK for ${{ steps.platformattributes.outputs.arch }} on native runner..."
 
           # Ensure generator script is executable
-          chmod +x alpine/package/generate-ap.sh || true
+          chmod +x alpine/build.sh || true
 
           # Build APKs using the unified generator script
-          alpine/generate-ap.sh
+          alpine/build.sh
           echo "✓ APK build completed for ${{ steps.platformattributes.outputs.arch }}"
 
           # Verify APK creation
