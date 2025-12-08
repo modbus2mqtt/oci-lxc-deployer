@@ -79,7 +79,7 @@ jobs:
 
           # Verify APK creation
           echo "Verifying APK creation..."
-          REPO_DIR="alpine/package/repo/lxc-manager"
+          REPO_DIR="alpine/package/repo"
           if [ -d "$REPO_DIR" ]; then
             echo "✓ Repo directory exists: $REPO_DIR"
             ls -la "$REPO_DIR" || true
