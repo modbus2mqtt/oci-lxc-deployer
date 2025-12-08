@@ -160,22 +160,22 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.resolved_version }}"
 
-          # Füge GitHub-Changelog (initial-release-notes.md) am Anfang ein
+          # Append GitHub changelog (initial-release-notes.md) at the top
           if [ -f initial-release-notes.md ]; then
-            # Füge eine Leerzeile nach dem Changelog ein, damit Markdown-Header korrekt erkannt werden
+            # Add a blank line after the changelog so Markdown headers render correctly
             cat initial-release-notes.md > release-body.md
             echo >> release-body.md
           fi
 
-          # Create release body mit APK-Tabelle
-          cat >> release-body.md << 'EOF'
+          # Create release body with APK table
+          cat >> release-body.md << EOF
           ## 📦 $product_name v${{ needs.prepare.outputs.resolved_version }}
 
           ### 📋 Alpine APK Package
 
           EOF
 
-          # Einen Eintrag für das generierte APK erzeugen (plattformunabhängig)
+          # Add an entry for the generated APK (platform-independent)
           APK_FILE=$(ls release-apks/*.apk 2>/dev/null | head -n1 || true)
           if [ -n "$APK_FILE" ]; then
             FILENAME=$(basename "$APK_FILE")
@@ -198,29 +198,22 @@ jobs:
           |------|---------|----------|
           | `packager.rsa.pub` | APK signature verification | [📥 Download](https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.resolved_version }}/packager.rsa.pub) |
 
-          **Installation with signature verification:**
+          ## Quick Install
+          Run this on your Proxmox host **(adjust IP addresses to your network)**:
 
-          ```bash
-          # Download and install public key
-          wget https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.resolved_version }}/packager.rsa.pub
-          sudo cp packager.rsa.pub /etc/apk/keys/
-
-          # Install APK with verification
-          wget https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.resolved_version }}/$product_name-${{ needs.prepare.outputs.resolved_version }}-r0.apk
-          apk add $product_name-${{ needs.prepare.outputs.resolved_version }}-r0.apk
+          ```sh
+          curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/lxc-manager/main/install-lxc-manager.sh \
+            | sh -s -- --static-ip 192.168.4.100/24 --static-gw 192.168.4.1  # <- adjust IPs
           ```
 
-          ### 🚀 Quick Start
+          - `--static-ip`: IPv4 address in CIDR (e.g., `192.168.4.100/24`)
+          - `--static-gw`: IPv4 gateway (e.g., `192.168.4.1`)
 
-          **Docker (Recommended):**
-          ```bash
-          docker run -d \
-            --name ${{ env.product_name }}\
-            -p 3000:3000 \
-            -v /path/to/config:/data \
-            ${{ env.main_docker_name }}:${{ needs.prepare.outputs.resolved_version }}
+          For IPv6 **(adjust IP addresses to your network)**:
+          ```sh
+          curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/lxc-manager/main/install-lxc-manager.sh \
+            | sh -s -- --static-ip6 fd00::50/64 --static-gw6 fd00::1  # <- adjust IPs
           ```
-
           ---
 
           📚 **Documentation:** [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)  
