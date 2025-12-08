@@ -18,8 +18,9 @@ https://mirror.init7.net/alpinelinux/${ALPINE_REPO_VER}/main
 https://mirror.init7.net/alpinelinux/${ALPINE_REPO_VER}/community
 REPO
 fi
-# Install build tools
-apk add --no-cache --allow-untrusted --cache-dir /var/cache/apk abuild alpine-sdk nodejs npm shadow openssl doas rsync python3 py3-psutil make build-base linux-headers udev
+# Install build tools (avoid explicit cache-dir to prevent CI cache warnings)
+mkdir -p /var/cache/apk || true
+apk add --no-cache --allow-untrusted abuild alpine-sdk nodejs npm shadow openssl doas rsync python3 py3-psutil make build-base linux-headers udev
 mkdir -p /etc/doas.d
 echo 'permit nopass :dialout as root' > /etc/doas.d/doas.conf || true
 
