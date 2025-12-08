@@ -1,7 +1,7 @@
 
 .dialog.ssh-dialog {
-	min-width: 260px;
-	max-width: 320px;
+	min-width: 560px;
+	max-width: 900px;
 	padding: 1.2rem 1.2rem 1rem 1.2rem;
 	background: #fff;
 	border-radius: 8px;
@@ -13,21 +13,82 @@
 	font-size: 1.1rem;
 	margin-bottom: 1.2rem;
 }
-.form-row {
+.header {
 	display: flex;
 	align-items: center;
-	margin-bottom: 1rem;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: 0.8rem;
 }
-.form-row label {
-	flex: 0 0 60px;
-	font-size: 0.98rem;
+.form-row {
+	display: grid;
+	grid-template-columns: auto 1fr 160px auto;
+	align-items: center;
+	gap: 0.6rem;
+	margin-bottom: 0.8rem;
 }
-.form-row input {
-	flex: 1 1 auto;
-	font-size: 1rem;
-	padding: 0.2em 0.5em;
-	border: 1px solid #ccc;
-	border-radius: 4px;
+.field { width: 100%; }
+.field.narrow { max-width: 160px; }
+
+.full-width {
+	width: 100%;
+}
+
+textarea[matInput] {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	white-space: pre-wrap;
+}
+/* layout for command fields with an external copy button */
+.command-row {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	column-gap: 8px;
+	align-items: center; /* vertically center button to field height */
+}
+.command-row .full-width { min-width: 0; }
+
+/* Remove reserved hint/error space to avoid shifting visual center */
+.command-row .mat-mdc-form-field-subscript-wrapper {
+	min-height: 0;
+	height: 0;
+}
+
+/* Make the suffix icon button visibly distinct while staying subtle */
+.mat-mdc-form-field .mat-mdc-form-field-icon-suffix .mat-mdc-icon-button.copy-btn,
+.command-row .copy-btn {
+	opacity: 0.95;
+	background-color: #f0f2f5; /* slightly cooler than white */
+	border: 1px solid #d9d9d9;
+	box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+	border-radius: 6px;
+	color: #555;
+	width: 32px;
+	height: 32px;
+	min-width: 32px;
+	min-height: 32px;
+	margin-left: 4px;
+	display: inline-flex;            /* center icon inside button */
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	align-self: center;              /* align button to field middle */
+	transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+.mat-mdc-form-field .mat-mdc-form-field-icon-suffix .mat-mdc-icon-button.copy-btn:hover,
+.command-row .copy-btn:hover {
+	opacity: 1;
+	background-color: #e9ecf0;
+	border-color: #cfcfcf;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+/* Ensure ligature icons render as glyphs, not text, if font loading lags */
+.mat-mdc-form-field .mat-mdc-form-field-icon-suffix .mat-mdc-icon-button.copy-btn .mat-icon,
+.command-row .copy-btn .mat-icon {
+	font-family: 'Material Icons' !important;
+	font-feature-settings: 'liga';
+	font-size: 18px;
+	line-height: 1;                  /* let flex centering do the work */
 }
 .dialog-actions {
 	display: flex;
@@ -58,4 +119,47 @@
 	color: #c00;
 	margin-top: 0.7em;
 	font-size: 0.95em;
+}
+
+/* kurze Hilfetexte über den Befehlen */
+.help {
+    font-size: 0.85rem;
+    color: #666;
+    margin: 4px 0 8px;
+}
+
+.ok-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 10px;
+	margin: 8px 0 12px;
+	background: #e8f5e9; /* light green */
+	color: #2e7d32;     /* success green */
+	border: 1px solid #c8e6c9;
+	border-radius: 6px;
+	font-size: 0.95rem;
+}
+.ok-icon { color: #2e7d32; }
+.panel-ok { margin-left: 8px; }
+
+.warn-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 10px;
+	margin: 8px 0 12px;
+	background: #fff8e1; /* light amber */
+	color: #8a6d3b;     /* dark amber/brown */
+	border: 1px solid #ffe0a3;
+	border-radius: 6px;
+	font-size: 0.95rem;
+}
+.warn-icon { color: #f57c00; }
+
+@media (max-width: 700px) {
+	.form-row {
+		grid-template-columns: auto 1fr 120px auto;
+	}
+	.field.narrow { max-width: 120px; }
 }

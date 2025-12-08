@@ -1,26 +1,89 @@
 <div class="dialog" [class.ssh-dialog]="sshMode">
 	@if (sshMode) {
-		<h3>SSH Configuration</h3>
+		<div class="header">
+			<h3>SSH Configuration</h3>
+			<button type="button" mat-stroked-button color="primary" (click)="addSsh()">➕ Add SSH</button>
+		</div>
 		<form #sshForm="ngForm" (ngSubmit)="save()">
 			@if (ssh.length > 0) {
-				@for (s of ssh; track s; let idx = $index) {
-					<div class="form-row">
-						<input type="radio" name="current" [checked]="s.current" (change)="setCurrent(idx)" />
-						<input [(ngModel)]="s.host" [name]="'host' + idx" required placeholder="Host" />
-						<input type="number" [(ngModel)]="s.port" [name]="'port' + idx" required min="1" max="65535" placeholder="Port" />
-						@if (ssh.length > 1) {
-							<button type="button" (click)="removeSsh(idx)">🗑️</button>
+						@for (s of ssh; track s; let idx = $index) {
+							<div class="form-row">
+								<mat-radio-button [checked]="s.current" (change)="setCurrent(idx)" aria-label="Set current"></mat-radio-button>
+								<mat-form-field appearance="fill" class="field">
+									<input matInput [(ngModel)]="s.host" [name]="'host' + idx" required placeholder="Host" (blur)="refreshPermission(idx)" />
+								</mat-form-field>
+								<mat-form-field appearance="fill" class="field narrow">
+									<input matInput type="number" [(ngModel)]="s.port" [name]="'port' + idx" required min="1" max="65535" placeholder="Port" (blur)="refreshPermission(idx)" />
+								</mat-form-field>
+								@if (ssh.length > 1) {
+									<button type="button" mat-icon-button color="warn" (click)="removeSsh(idx)" aria-label="Remove">
+										🗑️
+									</button>
+								}
+							</div>
 						}
-					</div>
-				}
 			}
-			<div class="form-row">
-				<button type="button" (click)="addSsh()">Add SSH Configuration</button>
-			</div>
+			<!-- Add button moved to header -->
+			@if (permissionOk) {
+				<div class="ok-banner"><mat-icon class="ok-icon">verified</mat-icon> SSH access is working. No further action required.</div>
+			}
+			@else {
+				<div class="warn-banner"><mat-icon class="warn-icon">warning</mat-icon> SSH access is not allowed yet. Please run the steps below.</div>
+			}
+			<mat-accordion multi>
+				@if (publicKeyCommand) {
+					<mat-expansion-panel>
+						<mat-expansion-panel-header>
+							Add the service public key (run first)
+							@if (permissionOk) { <span class="panel-ok"><mat-icon class="ok-icon">check_circle</mat-icon></span> }
+						</mat-expansion-panel-header>
+						<div class="help">
+							Run this on the Proxmox host as <strong>root</strong>.
+							It appends the public key to <code>~/.ssh/authenticated_keys</code>, which is used by the SSH drop‑in.
+							It is safe to run this command multiple times.
+						</div>
+						<div class="command-row">
+							<mat-form-field appearance="fill" class="full-width">
+								<textarea matInput [value]="publicKeyCommand" readonly rows="3"></textarea>
+							</mat-form-field>
+							<button mat-icon-button type="button" class="copy-btn" (click)="copy(publicKeyCommand)" aria-label="Copy public key command">
+								<mat-icon>content_copy</mat-icon>
+							</button>
+						</div>
+					</mat-expansion-panel>
+				}
+				@if (installSshServer) {
+					<mat-expansion-panel>
+						<mat-expansion-panel-header>
+							Install and harden SSH server (one‑time)
+							@if (permissionOk) { <span class="panel-ok"><mat-icon class="ok-icon">check_circle</mat-icon></span> }
+						</mat-expansion-panel-header>
+						<div class="help">
+							Run on the Proxmox host as <strong>root</strong>, after the public key is present.<br />
+							This installs <code>openssh-server</code> (if needed), writes a drop‑in at <code>/etc/ssh/sshd_config.d/lxc-manager.conf</code>,
+							enables public key authentication and disables password authentication, then restarts SSH.<br />
+							Tip: Ensure you have console access in case you need to revert settings.
+						</div>
+						<div class="command-row">
+							<mat-form-field appearance="fill" class="full-width">
+								<textarea matInput [value]="installSshServer" readonly rows="4"></textarea>
+							</mat-form-field>
+							<button mat-icon-button type="button" class="copy-btn" (click)="copy(installSshServer)" aria-label="Copy install command">
+								<mat-icon>content_copy</mat-icon>
+							</button>
+						</div>
+						<div class="help">
+							Verify: <code>systemctl status ssh</code> and <code>tail -n1 ~/.ssh/authenticated_keys</code> on the Proxmox host.
+						</div>
+					</mat-expansion-panel>
+				}
+			</mat-accordion>
+
 			<div class="dialog-actions">
 				<button type="submit" [disabled]="!canSave || !sshForm.form.valid">Save</button>
 				<button type="button" (click)="cancel()">Cancel</button>
 			</div>
+
 			@if (error) {
 				<div class="error">{{ error }}</div>
 			}

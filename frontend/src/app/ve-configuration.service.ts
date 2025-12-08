@@ -62,6 +62,14 @@ export class ProxmoxConfigurationService {
     );
   }
 
+  checkSsh(host: string, port?: number) {
+    const params = new URLSearchParams({ host });
+    if (typeof port === 'number') params.set('port', String(port));
+    return this.http.get<{ permissionOk: boolean }>(`${ApiUri.SshCheck}?${params.toString()}`).pipe(
+      catchError(ProxmoxConfigurationService.handleError)
+    );
+  }
+
   postProxmoxConfiguration(application: string, task: string, params: VeConfigurationParam[]): Observable<{ success: boolean }> {
     const url = `/api/proxmox-configuration/${encodeURIComponent(application)}/${encodeURIComponent(task)}`;
     return this.http.post<{ success: boolean }>(url, params).pipe(

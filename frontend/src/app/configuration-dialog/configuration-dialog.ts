@@ -1,13 +1,19 @@
 import { Component, Input, Output, EventEmitter, OnInit, inject } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
+import { MatExpansionModule } from '@angular/material/expansion';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatRadioModule } from '@angular/material/radio';
 import { ProxmoxConfigurationService } from '../ve-configuration.service';
 import { ISsh } from '../../shared/types';
 
 @Component({
   selector: 'app-configuration-dialog',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, MatExpansionModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatRadioModule, MatIconModule],
   templateUrl: './configuration-dialog.html',
   styleUrl: './configuration-dialog.scss',
 })
@@ -37,6 +43,13 @@ export class ConfigurationDialog implements OnInit {
 
   setCurrent(index: number) {
     this.ssh.forEach((s, i) => s.current = i === index);
+    const sel = this.ssh[index];
+    if (sel?.host) {
+      this.configService.checkSsh(sel.host, sel.port).subscribe({
+        next: r => { sel.permissionOk = !!r?.permissionOk; },
+        error: () => { sel.permissionOk = false; }
+      });
+    }
   }
 
   addSsh() {
@@ -73,5 +86,35 @@ export class ConfigurationDialog implements OnInit {
 
   cancel() {
     this.dialogClose.emit();
+  }
+
+  get installSshServer(): string | undefined {
+    return this.ssh.length > 0 ? this.ssh[0].installSshServer : undefined;
+  }
+
+  get publicKeyCommand(): string | undefined {
+    return this.ssh.length > 0 ? this.ssh[0].publicKeyCommand : undefined;
+  }
+
+  get permissionOk(): boolean {
+    const cur = this.ssh.find(s => s.current) ?? this.ssh[0];
+    return !!cur?.permissionOk;
+  }
+
+  refreshPermission(index: number) {
+    const sel = this.ssh[index];
+    if (sel?.host) {
+      this.configService.checkSsh(sel.host, sel.port).subscribe({
+        next: r => { sel.permissionOk = !!r?.permissionOk; },
+        error: () => { sel.permissionOk = false; }
+      });
+    }
+  }
+
+  copy(text: string | undefined) {
+    if (!text) return;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
   }
 }

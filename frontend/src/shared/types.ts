@@ -7,6 +7,9 @@ export interface ISsh {
   host: string;
   port?: number;
   current?: boolean;
+  publicKeyCommand?: string;
+  installSshServer?: string;
+  permissionOk?: boolean;
 }
 export interface IApplicationBase {
   name: string;
@@ -85,5 +88,6 @@ export interface IError {
 export enum ApiUri {
   SshConfigs = "/api/sshconfigs",
   SshConfig = "/api/sshconfig",
+  SshCheck = "/api/ssh/check",
   "ProxmoxExecute" = "/api/proxmox/execute",
 }

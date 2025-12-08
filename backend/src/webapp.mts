@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "node:url";
 import fs from "fs";
 import { StorageContext } from "./storagecontext.mjs";
+import { Ssh } from "./ssh.mjs";
 import { IVEContext } from "./backend-types.mjs";
 export class VEWebApp {
   app: express.Application;
@@ -63,24 +64,40 @@ export class VEWebApp {
     // SSH config API
     this.app.get(ApiUri.SshConfigs, (req, res) => {
       try {
-        const sshs: ISsh[] = storageContext
-          .keys()
-          .filter((key) => key.startsWith("ve_"))
-          .map((key) => {
-            return storageContext.get<IVEContext>(key) as any;
-          });
+        const sshs: ISsh[] = Ssh.allFromStorage(storageContext);
         res.json(sshs);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
     });
 
+    // Check SSH permission for host/port
+    this.app.get(ApiUri.SshCheck, (req, res) => {
+      try {
+        const host = String(req.query.host || "").trim();
+        const portRaw = req.query.port as string | undefined;
+        const port = portRaw ? Number(portRaw) : undefined;
+        if (!host) {
+          res.status(400).json({ error: "Missing host" });
+          return;
+        }
+        const ok = Ssh.checkSshPermission(host, port);
+        res.json({ permissionOk: ok });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
     this.app.post(ApiUri.SshConfig, express.json(), (req, res) => {
-      const ssh: ISsh = req.body;
+      const body = req.body as Partial<ISsh> | undefined;
+      const host = body?.host;
+      const port = body?.port;
+      const current = body?.current === true;
+      // publicKeyCommand must never be persisted; ignore it from payload
       if (
-        !ssh ||
-        typeof ssh.host !== "string" ||
-        typeof ssh.port !== "number"
+        !host ||
+        typeof host !== "string" ||
+        typeof port !== "number"
       ) {
         res.status(400).json({
           error:
@@ -90,9 +107,9 @@ export class VEWebApp {
       }
       try {
         storageContext.setVEContext({
-          host: ssh.host,
-          port: ssh.port,
-          current: ssh.current || false
+          host,
+          port,
+          current,
         } as IVEContext);
         res.json({ success: true }).status(200);
       } catch (err: any) {
