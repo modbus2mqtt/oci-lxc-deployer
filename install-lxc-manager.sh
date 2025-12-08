@@ -110,6 +110,8 @@ static_gw=""
 static_ip6=""
 static_gw6=""
 use_static_ip="false"
+nameserver4=""
+nameserver6=""
 
 # Parse optional CLI flags
 while [ "$#" -gt 0 ]; do
@@ -123,6 +125,8 @@ while [ "$#" -gt 0 ]; do
     --static-gw) static_gw="$2"; shift 2 ;;
     --static-ip6) static_ip6="$2"; shift 2 ;;
     --static-gw6) static_gw6="$2"; shift 2 ;;
+    --nameserver4) nameserver4="$2"; shift 2 ;;
+    --nameserver6) nameserver6="$2"; shift 2 ;;
     --help|-h)
       cat >&2 <<USAGE
 Usage: $0 [options]
@@ -143,6 +147,8 @@ Options:
   --static-ip6 <CIDR>   IPv6 address in CIDR notation, e.g. fd00::50/64
                         When set, you may also provide --static-gw6.
   --static-gw6 <IP>     IPv6 gateway, e.g. fd00::1. Requires --static-ip6.
+  --nameserver4 <IP>    IPv4 DNS nameserver, e.g. 192.168.1.1 (optional).
+  --nameserver6 <IP>    IPv6 DNS nameserver, e.g. fd00:...::1 or 2001:...::1 (optional).
 
 Notes:
   - Template is auto-selected for ostype=alpine.
@@ -184,5 +190,7 @@ execute_script_from_github \
   "static_ip=$static_ip" \
   "static_gw=$static_gw" \
   "static_ip6=$static_ip6" \
-  "static_gw6=$static_gw6" 
- exit 0
+  "static_gw6=$static_gw6" \
+  "nameserver4=$nameserver4" \
+  "nameserver6=$nameserver6"
+exit 0
