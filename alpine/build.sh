@@ -58,21 +58,22 @@ mkdir -p "$NPM_CACHE_DIR"
 # Prepare APK cache directory on host to speed up apk installs
 APK_CACHE_DIR="$REPO_ROOT/alpine/cache/apk"
 mkdir -p "$APK_CACHE_DIR"
+# Determine host UID/GID (use 1000:1000 fallback if running as root)
 if [ "$(id -u)" -eq 0 ]; then
-    HOST_ID=1000:1000
+    HOST_UID=1000
     HOST_GID=1000
 else
-    HOST_ID="$(id -u)"
+    HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
 fi
-echo "Host UID:GID for container build: $HOST_ID"
+echo "Host UID:GID for container build: ${HOST_UID}:${HOST_GID}"
 # Clean local repo to avoid mixing packages signed with different keys
-REPO_DIR="$REPO_ROOT/alpine/repo"
+REPO_DIR="$REPO_ROOT/alpine/package/repo"
 echo "Cleaning local APK repo at $REPO_DIR to avoid signature mismatches..."
 rm -rf "$REPO_DIR"/* 2>/dev/null || true
 mkdir -p "$REPO_DIR"
-chown -R "$HOST_ID:$HOST_GID" "$REPO_DIR" || true
-chmod -R 777 "$REPO_DIR" || true
+chown -R "$HOST_UID:$HOST_GID" "$REPO_DIR" || true
+chmod -R 0777 "$REPO_DIR" || true
 
 # Optional: build only specific packages via BUILD_ONLY (space-separated)
 BUILD_ONLY="${BUILD_ONLY:-}"
@@ -109,13 +110,16 @@ for ini in "$PKG_BASE"/*.ini; do
         -e ALLOW_UNTRUSTED=1 \
         -e NPM_CONFIG_CACHE="/home/builder/.npm" \
         -e npm_config_cache="/home/builder/.npm" \
-        -e HOST_UID="$HOST_ID" \
+        -e HOST_UID="$HOST_UID" \
         -e HOST_GID="$HOST_GID" \
         -v "$REPO_ROOT/alpine/package":"/work" \
         -v "$NPM_CACHE_DIR":"/home/builder/.npm" \
         -v "$APK_CACHE_DIR":"/var/cache/apk" \
         -w "/work" \
         alpine:"$ALPINE_VERSION" sh -lc 'sh /work/package-build.sh' || status=1
+    # Ensure repo output is accessible to subsequent CI steps
+    chown -R "$HOST_UID:$HOST_GID" "$REPO_DIR" || true
+    chmod -R 0777 "$REPO_DIR" || true
 done
 
 if [ "$status" -ne 0 ]; then
