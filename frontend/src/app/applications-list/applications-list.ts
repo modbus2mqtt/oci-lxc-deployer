@@ -2,6 +2,7 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { VeConfigurationDialog } from '../ve-configuration-dialog/ve-configuration-dialog';
+import { ErrorDialog } from './error-dialog';
 import { CommonModule } from '@angular/common';
 import { ProxmoxConfigurationService } from '../ve-configuration.service';
 import { IApplicationWeb } from '../../shared/types';
@@ -28,6 +29,11 @@ export class ApplicationsList implements OnInit {
     this.dialog.open(VeConfigurationDialog, {
       data: { app },
     });
+  }
+  showErrors(app: IApplicationWebIntern) {
+    if (app.errors && app.errors.length > 0) {
+      this.dialog.open(ErrorDialog, { data: { errors: app.errors }, panelClass: 'error-dialog-panel' });
+    }
   }
 
   ngOnInit(): void {

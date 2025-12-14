@@ -4,10 +4,11 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import { ApiUri, IProxmoxExecuteMessage, TaskType } from "./types.mjs";
-import { VeExecution } from "./ve-execution.mjs";
+import { IRestartInfo, VeExecution } from "./ve-execution.mjs";
 
 export class WebAppVE {
   messages: IProxmoxExecuteMessage[] = [];
+  private restartInfos: Map<string, IRestartInfo> = new Map();
 
   constructor(
     private app: express.Application,
@@ -17,10 +18,11 @@ export class WebAppVE {
     // Initialize VE specific web app features here
     // POST /api/proxmox-configuration/:application/:task
     this.app.post(
-      "/api/proxmox-configuration/:application/:task",
+      ApiUri.VeConfiguration,
       express.json(),
       async (req, res) => {
         const { application, task } = req.params;
+        const restartKeyParam = (req.query.restartKey as string | undefined) || undefined;
         const params = req.body; // Array of { name, value }
         if (!Array.isArray(params)) {
           return res
@@ -45,6 +47,7 @@ export class WebAppVE {
           const loaded = templateProcessor.loadApplication(
             application,
             task as TaskType,
+            this.veContext
           );
           // const webuiTemplates = loaded.webuiTemplates;
           //templateProcessor.loadTemplatesForApplication(application, webuiTemplates);
@@ -68,10 +71,19 @@ export class WebAppVE {
             this.messages.push(msg);
           });
           this.messages = [];
-          exec.run();
-
-          res.json({ success: true });
-          res.status(200);
+          let restartInfoToUse: IRestartInfo | undefined = undefined;
+          if (restartKeyParam) {
+            const stored = this.restartInfos.get(restartKeyParam);
+            if (stored) restartInfoToUse = stored;
+          }
+          const result = exec.run(restartInfoToUse);
+          if (result) {
+            const key = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+            this.restartInfos.set(key, result);
+            res.status(200).json({ success: false, restartKey: key });
+            return;
+          }
+          res.status(200).json({ success: true });
         } catch (err: any) {
           res
             .status(500)
@@ -80,7 +92,7 @@ export class WebAppVE {
       },
     );
     // GET /api/ProxmoxExecuteMessages: dequeues all messages in the queue and returns them
-    this.app.get(ApiUri.ProxmoxExecute, (req, res) => {
+    this.app.get(ApiUri.VeExecute, (req, res) => {
       res.json(this.messages);
     });
   }

@@ -1,6 +1,9 @@
 
 <h2>Process Monitor</h2>
 
+<button (click)="triggerRestart()" [disabled]="!restartKey">Restart ausführen</button>
+@if (!restartKey) { <small>(kein Restart-Key vorhanden)</small> }
+
 <mat-accordion>
   @for (msg of messages; track msg.index) {
     <mat-expansion-panel>

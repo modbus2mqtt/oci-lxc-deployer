@@ -7,6 +7,16 @@
   "ve_localhost": {
     "host": "localhost",
     "port": 2222,
-    "current": false
+    "current": true
+  },
+  "ve_pve1.cluster": {
+    "host": "pve1.cluster",
+    "port": 22,
+    "current": true
+  },
+  "ve_root@pve1.cluster": {
+    "host": "root@pve1.cluster",
+    "port": 22,
+    "current": true
   }
 }

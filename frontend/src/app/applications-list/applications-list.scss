@@ -41,11 +41,9 @@
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		justify-content: center;
+		justify-content: flex-start;
 		min-height: 48px;
-		h2 {
-			margin-bottom: 0.15em;
-		}
+		h2 { margin-bottom: 0.15em; }
 	}
 	.app-description {
 		font-size: 0.98em;
@@ -58,13 +56,7 @@
 		max-height: 3.5em;
 		overflow: hidden;
 	}
-	.header-info {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: flex-start;
-	}
+	/* duplicate .header-info removed */
 	.error-list {
 		display: flex;
 		align-items: flex-start;
@@ -86,7 +78,7 @@
 		}
 	}
 	.show-errors-btn {
-		margin: 0.5em 0 0.5em 0;
+		margin: 1.4em 0 0.8em 0; /* push button lower to avoid border overlap */
 		color: #c00;
 		background: #fff0f0;
 		border: 1px solid #e53935;
@@ -148,14 +140,7 @@
 		z-index: 1;
 		opacity: 0.5;
 	}
-	.close-errors-btn:hover {
-		opacity: 1;
-	}
-	.close-errors-btn:hover {
-		background: #ffe0e0;
-		color: #a00;
-		border-color: #c00;
-	}
+	.close-errors-btn:hover { opacity: 1; background: #ffe0e0; color: #a00; border-color: #c00; }
 	.card-actions {
 		display: flex;
 		justify-content: center;
@@ -210,34 +195,5 @@
 			object-fit: contain;
 		}
 	}
-	.app-info {
-		text-align: left;
-		h2 {
-			font-size: 1.2rem;
-			margin: 0 0 0.5rem 0;
-		}
-		p {
-			color: #444;
-			margin: 0 0 1rem 0;
-		}
-		button {
-			background: linear-gradient(90deg, #1976d2 0%, #42a5f5 100%);
-			color: #fff;
-			border: none;
-			border-radius: 6px;
-			padding: 0.5rem 1.2rem;
-			font-size: 1rem;
-			font-weight: 500;
-			cursor: pointer;
-			box-shadow: 0 2px 8px rgba(25, 118, 210, 0.08);
-			transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
-			outline: none;
-			margin-top: 0.5rem;
-		}
-		button:hover, button:focus {
-			background: linear-gradient(90deg, #1565c0 0%, #1e88e5 100%);
-			box-shadow: 0 4px 16px rgba(25, 118, 210, 0.16);
-			transform: translateY(-2px) scale(1.03);
-		}
-	}
+	/* .app-info block removed as unused */
 }

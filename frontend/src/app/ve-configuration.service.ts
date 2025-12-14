@@ -70,9 +70,13 @@ export class ProxmoxConfigurationService {
     );
   }
 
-  postProxmoxConfiguration(application: string, task: string, params: VeConfigurationParam[]): Observable<{ success: boolean }> {
-    const url = `/api/proxmox-configuration/${encodeURIComponent(application)}/${encodeURIComponent(task)}`;
-    return this.http.post<{ success: boolean }>(url, params).pipe(
+  postProxmoxConfiguration(application: string, task: string, params: VeConfigurationParam[], restartKey?: string): Observable<{ success: boolean; restartKey?: string }> {
+    let url = `/api/proxmox-configuration/${encodeURIComponent(application)}/${encodeURIComponent(task)}`;
+    if (restartKey) {
+      const qp = new URLSearchParams({ restartKey });
+      url = `${url}?${qp.toString()}`;
+    }
+    return this.http.post<{ success: boolean; restartKey?: string }>(url, params).pipe(
       catchError(ProxmoxConfigurationService.handleError)
     );
   }

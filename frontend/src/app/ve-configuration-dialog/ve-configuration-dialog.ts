@@ -11,7 +11,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { IApplicationWeb, IParameter } from '../../shared/types';
 import { ProxmoxConfigurationService } from '../ve-configuration.service';
-
+import type { NavigationExtras } from '@angular/router';
 @Component({
   selector: 'app-ve-configuration-dialog',
   standalone: true,
@@ -87,11 +87,12 @@ export class VeConfigurationDialog implements OnInit {
     const application = this.data.app.id;
     const task = 'installation';
     this.configService.postProxmoxConfiguration(application, task, params).subscribe({
-      next: () => {
+      next: (res) => {
         this.loading.set(false);
         this.dialogRef.close(this.form.value);
-        // Navigate to process monitor after successful installation
-        this.configService['router'].navigate(['/monitor']);
+        // Navigate to process monitor; pass restartKey if present
+        const extras: NavigationExtras = res.restartKey ? { queryParams: { restartKey: res.restartKey } } : {};
+        this.configService['router'].navigate(['/monitor'], extras);
       },
       error: () => {
         this.error.set('Failed to install configuration');

@@ -67,7 +67,12 @@ async function main() {
     });
 
     if (!paramsFile) {
-      const result = templateProcessor.loadApplication(application, task);
+      const veContext = StorageContext.getInstance().getCurrentVEContext();
+      if (!veContext) {
+        console.error("VE context not set. Please configure SSH host/port first.");
+        process.exit(2);
+      }
+      const result = templateProcessor.loadApplication(application, task, veContext);
       const unresolved = templateProcessor.getUnresolvedParameters(
         result.parameters,
         result.resolvedParams,
@@ -96,7 +101,12 @@ async function main() {
         );
       }
     }
-    const loaded = templateProcessor.loadApplication(application, task);
+    const veContext = StorageContext.getInstance().getCurrentVEContext();
+    if (!veContext) {
+      console.error("VE context not set. Please configure SSH host/port first.");
+      process.exit(2);
+    }
+    const loaded = templateProcessor.loadApplication(application, task, veContext);
     const params = JSON.parse(readFileSync(paramsFile!, "utf-8"));
     if (!Array.isArray(params)) {
       throw new Error(

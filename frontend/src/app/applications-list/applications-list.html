@@ -24,20 +24,10 @@
 
 				</div>
 								@if (app.errors) {
-									<button type="button" class="show-errors-btn" (click)="app.showErrors = !app.showErrors">
+									<button type="button" class="show-errors-btn" (click)="showErrors(app)">
 										<span class="error-x">&#10006;</span>
 										Show errors
 									</button>
-									@if (app.showErrors) {
-										<div class="error-list-overlay">
-											<ul class="error-list-ul">
-												<button type="button" class="close-errors-btn" (click)="app.showErrors = false" aria-label="Close error list">&times;</button>
-												@for (err of app.errors; track err) {
-													<ng-container *ngTemplateOutlet="recursiveError; context: { $implicit: err }"></ng-container>
-												}
-											</ul>
-										</div>
-									}
 								}
 
 								<ng-template #recursiveError let-err>
@@ -52,10 +42,12 @@
 										}
 									</li>
 								</ng-template>
-				<!-- Description now in header -->
+								<!-- Description now in header -->
 				<div class="card-actions">
 					<button type="button" (click)="openProxmoxConfigDialog(app)" [disabled]="app.errors">Configure</button>
 				</div>
 			</div>
 		}
 	</div>
+
+
