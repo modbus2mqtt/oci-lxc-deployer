@@ -123,9 +123,17 @@ export class VEWebApp {
         const { application, task } = req.params;
         try {
           const templateProcessor = storageContext.getTemplateProcessor();
+          const veContext = storageContext.getCurrentVEContext();
+          if (!veContext) {
+            res
+              .status(400)
+              .json({ error: "VE context not set. Please configure SSH host/port first." });
+            return;
+          }
           const loaded = templateProcessor.loadApplication(
             application,
             task as TaskType,
+            veContext,
           );
           const unresolvedParameters =
             templateProcessor.getUnresolvedParameters(
@@ -195,6 +203,6 @@ if (
   const webApp = new VEWebApp(StorageContext.getInstance());
   const port = process.env.PORT || 3000;
   webApp.httpServer.listen(port, () => {
-    console.log(`ProxmoxWebApp listening on port ${port}`);
+    console.log(`VEWebApp listening on port ${port}`);
   });
 }

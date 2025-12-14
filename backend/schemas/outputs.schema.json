@@ -2,23 +2,57 @@
   "$id": "outputs",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Outputs",
-  "description": "Schema for outputs: either a single object with id and value, or an array of such objects.",
+  "description": "Schema for outputs: either a single object with id and value, an array of such objects, or a plain array of name/value objects.",
   "oneOf": [
     { "$ref": "#/$defs/outputObject" },
     {
       "type": "array",
       "items": { "$ref": "#/$defs/outputObject" }
-    }
+    },
+    { "$ref": "#/$defs/nameValueArray" }
   ],
   "$defs": {
     "outputObject": {
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "value": { "type": ["string", "boolean", "number"] }
+        "value": {
+          "oneOf": [
+            { "type": ["string", "boolean", "number"] },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string" },
+                      "value": { "type": ["string", "number", "boolean"] }
+                    },
+                    "required": ["name", "value"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          ]
+        }
       },
       "required": ["id", "value"],
       "additionalProperties": false
+    },
+    "nameValueArray": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "value": { "type": ["string", "number", "boolean"] }
+        },
+        "required": ["name", "value"],
+        "additionalProperties": false
+      }
     }
   }
 }

@@ -123,7 +123,7 @@ describe("ProxmoxExecution", () => {
       {
         script: scriptPath,
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
     ];
     const inputs = [{ id: "myvar", value: "replacedValue" }];
@@ -153,7 +153,7 @@ describe("ProxmoxExecution", () => {
       {
         command: "{{ somevariable }}",
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
     ];
     const inputs = [{ id: "somevariable", value: "replaced" }];
@@ -213,22 +213,22 @@ describe("ProxmoxExecution", () => {
       {
         command: 'echo "{\"foo\": \"bar\"}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
       {
         command: 'echo "{\"baz\": 99}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
       {
         command: 'echo "{\"vm_id\": 100}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
       {
         command: 'echo "{\"foo\": \"baz\"}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
     ];
     const inputs = [
@@ -277,12 +277,12 @@ describe("ProxmoxExecution", () => {
       {
         command: 'echo "{\"foo\": \"bar\"}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
       {
         command: 'echo "{\"foo\": \"baz99\"}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
@@ -314,12 +314,12 @@ describe("ProxmoxExecution", () => {
   //     {
   //       command: 'echo "{\"foo\": \"bar\"}"',
   //       name: "test",
-  //       execute_on: "proxmox",
+  //       execute_on: "ve",
   //     },
   //     {
   //       command: 'echo "{\"foo\": \"bar\"}"',
   //       name: "test",
-  //       execute_on: "proxmox",
+  //       execute_on: "ve",
   //     },
   //     {
   //       command: 'echo "echo hi"',
@@ -361,17 +361,17 @@ describe("ProxmoxExecution", () => {
       {
         command: 'echo "{\"foo\": \"bar\"}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
       {
         command: 'echo "{\"foo\": \"baz99\"}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
       {
         command: 'echo "{\"baz\": 99}"',
         name: "test",
-        execute_on: "proxmox",
+        execute_on: "ve",
       },
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
@@ -379,6 +379,46 @@ describe("ProxmoxExecution", () => {
     const result = exec.run();
     expect(typeof result?.lastSuccessfull).toBe("number");
     expect(result?.lastSuccessfull).toBe(commands.length - 1);
+  });
+
+  it("should fill IRestartInfo.outputs[0] with parsed JSON result", () => {
+    class TestExec extends VeExecution {
+      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+        try {
+          const json = JSON.parse(
+            command
+              .replace(/^echo /, "")
+              .replace(/^"/, "")
+              .replace(/"$/, ""),
+          );
+          for (const [k, v] of Object.entries(json)) {
+            this.outputs.set(k, v as string | number | boolean);
+          }
+        } catch {}
+        return {
+          stderr: "",
+          result: command,
+          exitCode: 0,
+          command: tmplCommand.name,
+          index: index++,
+        };
+      }
+    }
+    const commands: ICommand[] = [
+      {
+        command: 'echo "{\"foo\": \"bar\"}"',
+        name: "emit-json",
+        execute_on: "ve",
+      },
+    ];
+    const exec = new TestExec(commands, [], dummyVE, new Map());
+    const rc = exec.run();
+    expect(rc).toBeDefined();
+    expect(Array.isArray(rc!.outputs)).toBe(true);
+    expect(rc!.outputs.length).toBeGreaterThan(0);
+    const first = rc!.outputs[0];
+    expect(first.name).toBe("foo");
+    expect(first.value).toBe("bar");
   });
 
   // it("should emit error message if SSH connection fails", async () => {
@@ -405,7 +445,7 @@ describe("ProxmoxExecution", () => {
   //     {
   //       command: 'echo "{\"foo\": \"bar\"}"',
   //       name: "test",
-  //       execute_on: "proxmox",
+  //       execute_on: "ve",
   //     },
   //   ];
   //   const inputs = [{ name: "foo", value: "inputFoo" }];

@@ -1,4 +1,5 @@
-import path from "path";
+import path from "node:path";
+import { EventEmitter } from "events";
 import { JsonError } from "@src/jsonvalidator.mjs";
 import {
   IConfiguredPathes,
@@ -14,10 +15,12 @@ import {
   IParameter,
   IJsonError,
 } from "@src/types.mjs";
+import { IVEContext } from "@src/backend-types.mjs";
 import { ApplicationLoader } from "@src/apploader.mjs";
 import fs from "fs";
 import { ScriptValidator } from "@src/scriptvalidator.mjs";
 import { StorageContext } from "./storagecontext.mjs";
+import { VeExecution } from "./ve-execution.mjs";
 export interface ITemplateReference {
   name: string;
   before?: string[];
@@ -37,6 +40,8 @@ interface IProcessTemplateOpts {
   templatePathes: string[];
   scriptPathes: string[];
   webuiTemplates: string[];
+  veContext?: IVEContext;
+  sshCommand: string | undefined;
 }
 export interface IParameterWithTemplate extends IParameter {
   template: string;
@@ -47,15 +52,19 @@ export interface ITemplateProcessorLoadResult {
   resolvedParams: IResolvedParam[];
   webuiTemplates: string[];
 }
-export class TemplateProcessor {
+export class TemplateProcessor extends EventEmitter {
   resolvedParams: IResolvedParam[] = [];
   constructor(
     private pathes: IConfiguredPathes,
     private storageContext: StorageContext = StorageContext.getInstance(),
-  ) {}
+  ) {
+    super();
+  }
   loadApplication(
     applicationName: string,
     task: TaskType,
+    veContext: IVEContext,
+    sshCommand?: string
   ): ITemplateProcessorLoadResult {
     const readOpts: IReadApplicationOptions = {
       applicationHierarchy: [],
@@ -142,6 +151,8 @@ export class TemplateProcessor {
         templatePathes,
         scriptPathes,
         webuiTemplates,
+        veContext,
+        sshCommand,
       };
       this.#processTemplate(ptOpts);
     }
@@ -192,12 +203,17 @@ export class TemplateProcessor {
     opts.visitedTemplates.add(this.extractTemplateName(opts.template));
     const tmplPath = this.findInPathes(opts.templatePathes, this.extractTemplateName(opts.template));
     if (!tmplPath) {
-      opts.errors.push(
-        new JsonError(
-          `Template file not found: ${opts.template} (searched in: ${opts.templatePathes.join(", ")}` +
-            ', requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})',
-        ),
-      );
+      const msg = `Template file not found: ${opts.template} (searched in: ${opts.templatePathes.join(", ")}` +
+        ', requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})';
+      opts.errors.push(new JsonError(msg));
+      this.emit("message", {
+        stderr: msg,
+        result: null,
+        exitCode: -1,
+        command: String(opts.templatename || opts.template),
+        execute_on: undefined,
+        index: 0,
+      });
       return;
     }
     let tmplData: ITemplate;
@@ -218,6 +234,14 @@ export class TemplateProcessor {
       });
     } catch (e: any) {
       opts.errors.push(e);
+      this.emit("message", {
+        stderr: e?.message ?? String(e),
+        result: null,
+        exitCode: -1,
+        command: String(opts.templatename || opts.template),
+        execute_on: undefined,
+        index: 0,
+      });
       return;
     }
     // Mark outputs as resolved BEFORE adding parameters
@@ -252,9 +276,60 @@ export class TemplateProcessor {
           templatename: tmplData.name || this.extractTemplateName(opts.template),
         };
         if (param.type === "enum" && (param as any).enumValuesTemplate) {
-          // Load enum values from another template
+          // Load enum values from another template (mocked execution):
           const enumTmplName = (param as any).enumValuesTemplate;
           opts.webuiTemplates?.push(enumTmplName);
+            // Prefer reusing the same processing logic by invoking #processTemplate
+            // on the referenced enum template; capture its commands and parse payload.
+            const tmpCommands: ICommand[] = [];
+            const tmpParams: IParameterWithTemplate[] = [];
+            const tmpErrors: IJsonError[] = [];
+            const tmpResolved: IResolvedParam[] = [];
+            const tmpWebui: string[] = [];
+            this.#processTemplate({
+              ...opts,
+              template: enumTmplName,
+              templatename: enumTmplName,
+              commands: tmpCommands,
+              parameters: tmpParams,
+              errors: tmpErrors,
+              resolvedParams: tmpResolved,
+              webuiTemplates: tmpWebui,
+              parentTemplate: this.extractTemplateName(opts.template),
+            });
+            // Try executing via VeExecution to respect execution semantics; collect errors
+            try {
+              const context = opts.veContext!;
+              const ve = new VeExecution(
+                tmpCommands,
+                [],
+                context ?? null,
+                undefined,
+                opts.sshCommand ?? "ssh",
+              );
+              const rc = ve.run(null);
+              if (rc && Array.isArray(rc.outputs) && rc.outputs.length > 0) {
+                // If outputs is an array of {name, value}, map names as enum strings
+                const first = rc.outputs[0];
+                if (first && typeof first === "object" && "name" in first) {
+                  pparm.enumValues = rc.outputs.map((o) => String(o.name));
+                }
+              }
+            } catch (e: any) {
+              const err = e instanceof JsonError
+                ? e
+                : new JsonError(String(e?.message ?? e));
+              opts.errors?.push(err);
+              this.emit("message", {
+                stderr: err.message,
+                result: null,
+                exitCode: -1,
+                command: String(enumTmplName),
+                execute_on: undefined,
+                index: 0,
+              });
+            }
+
         }
 
         opts.parameters.push(pparm);
@@ -264,49 +339,46 @@ export class TemplateProcessor {
     // Add commands or process nested templates
 
     for (const cmd of tmplData.commands ?? []) {
-      if (cmd.name === undefined || (cmd.name.trim() === "" && tmplData)) {
+      if (!cmd.name || cmd.name.trim() === "") {
         cmd.name = `${tmplData.name || "unnamed-template"}`;
-        // 5. Process each template
-        if (cmd.template !== undefined) {
-          this.#processTemplate({
-            ...opts,
-            template: cmd.template,
-            parentTemplate: this.extractTemplateName(opts.template),
-          });
-        } else if (cmd.script !== undefined) {
-          const scriptValidator = new ScriptValidator();
-          scriptValidator.validateScript(
-            cmd,
-            opts.application,
-            opts.errors,
-            opts.parameters,
-            opts.resolvedParams,
-            opts.requestedIn,
-            opts.parentTemplate,
-            opts.scriptPathes,
-          );
-          // Save resolvedParams for getUnresolvedParameters
-          const scriptPath = this.findInPathes(opts.scriptPathes, cmd.script);
-          opts.commands.push({
-            ...cmd,
-            script: scriptPath || cmd.script,
-            execute_on: tmplData.execute_on,
-          });
-        } else if (cmd.command !== undefined) {
-          const scriptValidator = new ScriptValidator();
-          scriptValidator.validateCommand(
-            cmd,
-            opts.errors,
-            opts.parameters,
-            opts.resolvedParams,
-            opts.requestedIn,
-            opts.parentTemplate,
-          );
-          opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
-        } else {
-          opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
-          break;
-        }
+      }
+      if (cmd.template !== undefined) {
+        this.#processTemplate({
+          ...opts,
+          template: cmd.template,
+          parentTemplate: this.extractTemplateName(opts.template),
+        });
+      } else if (cmd.script !== undefined) {
+        const scriptValidator = new ScriptValidator();
+        scriptValidator.validateScript(
+          cmd,
+          opts.application,
+          opts.errors,
+          opts.parameters,
+          opts.resolvedParams,
+          opts.requestedIn,
+          opts.parentTemplate,
+          opts.scriptPathes,
+        );
+        const scriptPath = this.findInPathes(opts.scriptPathes, cmd.script);
+        opts.commands.push({
+          ...cmd,
+          script: scriptPath || cmd.script,
+          execute_on: tmplData.execute_on,
+        });
+      } else if (cmd.command !== undefined) {
+        const scriptValidator = new ScriptValidator();
+        scriptValidator.validateCommand(
+          cmd,
+          opts.errors,
+          opts.parameters,
+          opts.resolvedParams,
+          opts.requestedIn,
+          opts.parentTemplate,
+        );
+        opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
+      } else {
+        opts.commands.push({ ...cmd, execute_on: tmplData.execute_on });
       }
     }
   }

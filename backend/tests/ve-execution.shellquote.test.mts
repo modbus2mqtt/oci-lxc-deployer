@@ -27,7 +27,7 @@ describe("ProxmoxExecution shell quoting", () => {
     const command: ICommand = {
       name: "test",
       command: script,
-      execute_on: "proxmox",
+      execute_on: "ve",
     };
     const exec = new VeExecution([command], inputs, dummySSH, defaults);
     (exec as any).ssh = { host: "localhost", port: 22 };
@@ -88,12 +88,14 @@ describe("ProxmoxExecution shell quoting", () => {
       [{ id: "vm_id", value: "dummy" }],
       dummySSH,
       defaults,
+      "sh"
     );
     (exec as any).ssh = { host: "localhost", port: 22 };
     exec.run = function () {
       let lastSuccess = -1;
       try {
-        this.runOnLxc("dummy", command.command!, command, 10000, "/bin/sh");
+        this.runOnLxc("dummy", command.command!, command, 10000
+        );
         expect(this.outputs.get("mocked")).toBe(true);
         lastSuccess = 0;
       } catch {

@@ -40,7 +40,7 @@ export interface ICommand {
   script?: string;
   template?: string;
   description?: string;
-  execute_on?: "proxmox" | "lxc";
+  execute_on?: "ve" | "lxc";
 }
 
 export interface IProxmoxExecuteMessage {
@@ -50,7 +50,7 @@ export interface IProxmoxExecuteMessage {
   stderr: string;
   result: string | null;
   exitCode: number;
-  execute_on?: "proxmox" | "lxc";
+  execute_on?: "ve" | "lxc";
   error?: IJsonError;
   index?: number;
 }
@@ -72,7 +72,7 @@ export interface IParameter {
 }
 
 export interface ITemplate {
-  execute_on: "proxmox" | "lxc";
+  execute_on: "ve" | "lxc";
   if?: boolean;
   name: string;
   description?: string;

@@ -1,0 +1,20 @@
+{
+  "execute_on": "ve",
+  "name": "Dynamic Enum",
+  "description": "Parameter with enum values resolved via template",
+  "parameters": [
+    {
+      "id": "iface",
+      "name": "Interface",
+      "type": "enum",
+      "enumValuesTemplate": "list-enum-values.json"
+    }
+  ],
+  "outputs": ["enumValues"],
+  "commands": [
+    {
+      "name": "Emit enumValues",
+      "command": "echo '[{\"id\":\"enumValues\",\"value\":[{\"name\":\"eth0\",\"value\":\"eth0\"},{\"name\":\"eth1\",\"value\":\"eth1\"}]}]'"
+    }
+  ]
+}

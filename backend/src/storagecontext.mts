@@ -94,7 +94,7 @@ export class StorageContext extends Context implements IContext {
       jsonPath: this.jsonPath,
       schemaPath: this.schemaPath,
     };
-    return new TemplateProcessor(pathes);
+    return new TemplateProcessor(pathes, this);
   }
   listApplications(): IApplicationWeb[] {
     const applications: IApplicationWeb[] = [];
@@ -111,7 +111,14 @@ export class StorageContext extends Context implements IContext {
         }
         try {
           const templateProcessor = this.getTemplateProcessor();
-          templateProcessor.loadApplication(appName, "installation");
+          const veContext = this.getCurrentVEContext();
+          if (!veContext) {
+            throw new VEConfigurationError(
+              "VE context not set",
+              storageContextKey,
+            );
+          }
+          templateProcessor.loadApplication(appName, "installation", veContext);
           applications.push({
             name: appData.name,
             description: appData.description,

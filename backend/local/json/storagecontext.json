@@ -1,12 +1,12 @@
 {
-  "ve_localhost": {
-    "host": "localhost",
-    "port": 2222,
-    "current": false
-  },
   "ve_pve1.lan": {
     "host": "pve1.lan",
     "port": 22,
     "current": true
+  },
+  "ve_localhost": {
+    "host": "localhost",
+    "port": 2222,
+    "current": false
   }
 }

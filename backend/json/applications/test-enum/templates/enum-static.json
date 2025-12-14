@@ -1,0 +1,9 @@
+{
+  "execute_on": "lxc",
+  "name": "Static Enum",
+  "description": "Provides a static enum parameter",
+  "parameters": [
+    { "id": "color", "name": "Color", "type": "enum", "enumValues": ["red", "green", "blue"] }
+  ],
+  "commands": [ { "name": "Noop", "command": "echo noop 1>&2" } ]
+}

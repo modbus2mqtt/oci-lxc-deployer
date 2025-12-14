@@ -1,0 +1,12 @@
+{
+  "execute_on": "ve",
+  "name": "List Enum Values",
+  "description": "Outputs a list of enum values (name/value pairs)",
+  "outputs": ["enumValues"],
+  "commands": [
+    {
+      "name": "Emit enumValues",
+      "command": "printf '[{\"name\":\"eth0\",\"value\":\"eth0\"},{\"name\":\"eth1\",\"value\":\"eth1\"}]'"
+    }
+  ]
+}

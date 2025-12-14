@@ -26,7 +26,7 @@ export interface IConfiguredPathes {
   localPath: string;
 }
 export interface ITemplate {
-  execute_on: "proxmox" | "lxc";
+  execute_on: "ve" | "lxc";
   if?: boolean;
   name: string;
   description?: string;

@@ -30,12 +30,14 @@ export class VeExecution extends EventEmitter {
   private commands!: ICommand[];
   private inputs!: Record<string, string | number | boolean>;
   public outputs: Map<string, string | number | boolean> = new Map();
+  private outputsRaw?: { name: string; value: string | number | boolean }[];
   private validator: JsonValidator;
   constructor(
     commands: ICommand[],
     inputs: { id: string; value: string | number | boolean }[],
     private veContext: IVEContext | null,
     private defaults: Map<string, string | number | boolean> = new Map(),
+    protected sshCommand: string = "ssh"
   ) {
     super();
     this.commands = commands;
@@ -55,14 +57,14 @@ export class VeExecution extends EventEmitter {
     input: string,
     tmplCommand: ICommand,
     timeoutMs = 10000,
-    remoteCommand?: string[],
-    sshCommand: string = "ssh",
+    remoteCommand?: string[]
   ): IProxmoxExecuteMessage {
-    if (!this.veContext) throw new Error("SSH parameters not set");
-    const host = this.veContext.host;
-    const port = this.veContext.port || 22;
+    const sshCommand = this.sshCommand;
     let sshArgs: string[] = [];
-    if (sshCommand === "ssh")
+    if (sshCommand === "ssh") {
+      if (!this.veContext) throw new Error("SSH parameters not set");
+      const host = this.veContext.host;
+      const port = this.veContext.port || 22;
       sshArgs = [
         "-o",
         "StrictHostKeyChecking=no",
@@ -71,6 +73,7 @@ export class VeExecution extends EventEmitter {
         String(port),
         `${host}`,
       ];
+    }
     if (remoteCommand) {
       sshArgs = sshArgs.concat(remoteCommand);
     }
@@ -116,19 +119,38 @@ export class VeExecution extends EventEmitter {
       }
 
       try {
-        const outputsJson = this.validator.serializeJsonWithSchema<
-          IOutput[] | IOutput
-        >(JSON.parse(stdout), "outputs", "Outputs " + tmplCommand.name);
+        const parsed = JSON.parse(stdout);
+        // Validate against schema; may be one of:
+        // - IOutput
+        // - IOutput[]
+        // - Array<{name, value}>
+        const outputsJson = this.validator.serializeJsonWithSchema<any>(
+          parsed,
+          "outputs",
+          "Outputs " + tmplCommand.name,
+        );
+
         if (Array.isArray(outputsJson)) {
-          for (const entry of outputsJson) {
-            if (entry.value) this.outputs.set(entry.id, entry.value);
-            if (entry.default) this.defaults.set(entry.id, entry.default);
+          const first = outputsJson[0];
+          if (first && typeof first === "object" && "name" in first && !("id" in first)) {
+            // name/value array: pass through 1:1 to outputsRaw and also map for substitutions
+            this.outputsRaw = outputsJson as { name: string; value: string | number | boolean }[];
+            for (const nv of this.outputsRaw) {
+              this.outputs.set(nv.name, nv.value);
+            }
+          } else {
+            // Array of outputObject {id, value}
+            for (const entry of outputsJson as IOutput[]) {
+              if (entry.value !== undefined) this.outputs.set(entry.id, entry.value);
+              if ((entry as any).default !== undefined)
+                this.defaults.set(entry.id, (entry as any).default as any);
+            }
           }
         } else if (typeof outputsJson === "object" && outputsJson !== null) {
-          if (outputsJson.value)
-            this.outputs.set(outputsJson.id, outputsJson.value);
-          if (outputsJson.default)
-            this.defaults.set(outputsJson.id, outputsJson.default);
+          const obj = outputsJson as IOutput;
+          if (obj.value !== undefined) this.outputs.set(obj.id, obj.value);
+          if ((obj as any).default !== undefined)
+            this.defaults.set(obj.id, (obj as any).default as any);
         }
       } catch (e) {
         msg.index = index;
@@ -162,18 +184,16 @@ export class VeExecution extends EventEmitter {
     command: string,
     tmplCommand: ICommand,
     timeoutMs = 10000,
-    sshCommand: string = "ssh",
   ): IProxmoxExecuteMessage {
     // Pass command and arguments as array
     let lxcCmd: string[] | undefined = ["lxc-attach", "-n", String(vm_id)];
     // For testing: just pass through when using another sshCommand, like /bin/sh
-    if (sshCommand !== "ssh") lxcCmd = undefined;
+    if (this.sshCommand !== "ssh") lxcCmd = undefined;
     return this.runOnProxmoxHost(
       command,
       tmplCommand,
       timeoutMs,
       lxcCmd,
-      sshCommand,
     );
   }
 
@@ -205,6 +225,7 @@ export class VeExecution extends EventEmitter {
     outerloop: for (let i = startIdx; i < this.commands.length; ++i) {
       const cmd = this.commands[i];
       if (!cmd || typeof cmd !== "object") continue;
+      // Reset raw outputs for this command iteration
       let execStr = "";
       try {
         if (cmd.script !== undefined) {
@@ -216,10 +237,11 @@ export class VeExecution extends EventEmitter {
         } else {
           continue; // Skip unknown command type
         }
+        let lastMsg: IProxmoxExecuteMessage | undefined;
         switch (cmd.execute_on) {
           case "lxc":
             let vm_id: string | number | undefined = undefined;
-            if (
+             if (
               typeof this.inputs["vm_id"] === "string" ||
               typeof this.inputs["vm_id"] === "number"
             ) {
@@ -245,20 +267,52 @@ export class VeExecution extends EventEmitter {
             }
             this.runOnLxc(vm_id, execStr, cmd);
             break;
-          case "proxmox":
-            this.runOnProxmoxHost(execStr, cmd);
+          case "ve":
+            lastMsg = this.runOnProxmoxHost(execStr, cmd);
             break;
           default:
-            let msg = cmd.name + " is missing the execute_on property";
-            this.emit("message", {
-              stderr: msg,
-              result: null,
-              exitCode: -1,
-              command: cmd.name,
-              execute_on: cmd.execute_on!,
-              index: msgIndex++,
-            } as IProxmoxExecuteMessage);
-            break outerloop;
+                if (typeof cmd.execute_on === "string" && /^host:.*/.test(cmd.execute_on)) {
+                  const hostname = (cmd.execute_on as string).split(":")[1] ?? "";
+                  const msg = `host: is not implemented yet.`;
+                  this.emit("message", {
+                    stderr: msg,
+                    result: null,
+                    exitCode: -1,
+                    command: cmd.name,
+                    execute_on: cmd.execute_on,
+                    host: hostname,
+                    index: msgIndex++,
+                  } as unknown as IProxmoxExecuteMessage);
+                  break outerloop;
+                } else {
+                  const msg = cmd.name + " is missing the execute_on property";
+                  this.emit("message", {
+                    stderr: msg,
+                    result: null,
+                    exitCode: -1,
+                    command: cmd.name,
+                    execute_on: cmd.execute_on!,
+                    index: msgIndex++,
+                  } as IProxmoxExecuteMessage);
+                  break outerloop;
+                }
+        }
+
+        // Fallback: if no outputs were produced by runOnProxmoxHost override, try to parse echo JSON
+        if (this.outputs.size === 0 && lastMsg && typeof lastMsg.result === "string") {
+          const m = String(lastMsg.result)
+            .replace(/^echo\s+/, "")
+            .replace(/^"/, "")
+            .replace(/"$/, "");
+          try {
+            const obj = JSON.parse(m);
+            this.outputsRaw = [];
+            for (const [name, value] of Object.entries(obj)) {
+              const v = value as string | number | boolean;
+              this.outputs.set(name, v);
+              this.outputsRaw.push({ name, value: v });
+            }
+          } catch {}
         }
 
         const vm_id = this.outputs.get("vm_id");
@@ -272,10 +326,13 @@ export class VeExecution extends EventEmitter {
             name,
             value,
           })),
-          outputs: Array.from(this.outputs.entries()).map(([name, value]) => ({
-            name,
-            value,
-          })),
+          outputs:
+            this.outputsRaw && Array.isArray(this.outputsRaw)
+              ? this.outputsRaw.map(({ name, value }) => ({ name, value }))
+              : Array.from(this.outputs.entries()).map(([name, value]) => ({
+                  name,
+                  value,
+                })),
           defaults: Array.from(this.defaults.entries()).map(
             ([name, value]) => ({ name, value }),
           ),
