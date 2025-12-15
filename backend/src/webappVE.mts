@@ -1,4 +1,4 @@
-import { IVEContext } from "./backend-types.mjs";
+import { IVEContext, IVMContext } from "./backend-types.mjs";
 import { StorageContext } from "./storagecontext.mjs";
 
 import express from "express";
@@ -79,6 +79,9 @@ export class WebAppVE {
           );
           exec.on("message", (msg: IProxmoxExecuteMessage) => {
             this.messages.push(msg);
+          });
+          exec.on("finished", (msg: IVMContext) => {
+            veCtxToUse.getStorageContext().setVMContext(msg);
           });
           this.messages = [];
           let restartInfoToUse: IRestartInfo | undefined = undefined;

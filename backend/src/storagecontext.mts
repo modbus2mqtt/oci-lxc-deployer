@@ -16,12 +16,17 @@ import { Ssh } from "./ssh.mjs";
 
 const baseSchemas: string[] = ["templatelist.schema.json"];
 
-class VMContext implements IVMContext {
-  vmid: number;
-  vekey: string;
+export class VMContext implements IVMContext {
   constructor(data: IVMContext) {
     this.vmid = data.vmid;
     this.vekey = data.vekey;
+    this.data = data.data;
+  }
+  public vmid: number;
+  public vekey: string;  
+  public data: any;
+  getKey(): string {
+    return `vm_${this.vmid}`; 
   }
 }
 
@@ -66,6 +71,12 @@ export class StorageContext extends Context implements IContext {
     this.jsonValidator = new JsonValidator(this.schemaPath, baseSchemas);
     this.loadContexts("vm", VMContext);
     this.loadContexts("ve", VEContext);
+  }
+  getLocalPath(): string {
+    return this.localPath;
+  }
+  getJsonPath(): string {
+    return this.jsonPath;
   }
   getKey(): string {
     // return `storage_${this.localPath.replace(/[\/\\:]/g, "_")}`;
@@ -206,6 +217,21 @@ export class StorageContext extends Context implements IContext {
   getVEContextByKey(key: string): IVEContext | null {
     const value = this.get(key);
     if (value instanceof VEContext) return value as IVEContext;
+    return null;
+  }
+
+  /** Find a VMContext by hostname stored inside its data */
+  getVMContextByHostname(hostname: string): IVMContext | null {
+    for (const key of this.keys().filter((k) => k.startsWith("vm_"))) {
+      const value = this.get(key);
+      if (value instanceof VMContext) {
+        const vm = value as VMContext;
+        const h = (vm as any)?.data?.hostname;
+        if (typeof h === "string" && h === hostname) {
+          return vm as IVMContext;
+        }
+      }
+    }
     return null;
   }
 

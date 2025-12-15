@@ -45,6 +45,8 @@ export interface IContext {
 export interface IVMContext {
   vmid: number;
   vekey: string;
+  data:any
+  getKey(): string;
 }
 export interface IApplicationBase {
   name: string;

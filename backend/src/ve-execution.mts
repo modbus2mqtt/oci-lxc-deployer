@@ -1,10 +1,10 @@
 import { EventEmitter } from "events";
-import { ICommand, IJsonError, IProxmoxExecuteMessage } from "@src/types.mjs";
+import { ICommand, IProxmoxExecuteMessage } from "@src/types.mjs";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { JsonError, JsonValidator } from "./jsonvalidator.mjs";
-import { StorageContext } from "./storagecontext.mjs";
-import { IVEContext } from "./backend-types.mjs";
+import { StorageContext, VMContext } from "./storagecontext.mjs";
+import { IVEContext, IVMContext } from "./backend-types.mjs";
 export interface IProxmoxRunResult {
   lastSuccessIndex: number;
 }
@@ -53,7 +53,7 @@ export class VeExecution extends EventEmitter {
    * @param command The command to execute
    * @param timeoutMs Timeout in milliseconds
    */
-  protected runOnProxmoxHost(
+  protected runOnVeHost(
     input: string,
     tmplCommand: ICommand,
     timeoutMs = 10000,
@@ -157,12 +157,12 @@ export class VeExecution extends EventEmitter {
         msg.commandtext = stdout;
         throw e;
       }
-    } catch (e) {
+    } catch {
       msg.index = index;
-      msg.error = e as IJsonError;
+      msg.error = undefined;
       msg.exitCode = -1;
       this.emit("message", msg);
-      throw e;
+      throw new Error("An error occurred during command execution.");
     }
     if (exitCode !== 0) {
       throw new Error(
@@ -189,12 +189,48 @@ export class VeExecution extends EventEmitter {
     let lxcCmd: string[] | undefined = ["lxc-attach", "-n", String(vm_id)];
     // For testing: just pass through when using another sshCommand, like /bin/sh
     if (this.sshCommand !== "ssh") lxcCmd = undefined;
-    return this.runOnProxmoxHost(
+    return this.runOnVeHost(
       command,
       tmplCommand,
       timeoutMs,
       lxcCmd,
     );
+  }
+
+  /**
+   * Executes host discovery flow: calls write-vmids-json.sh on VE host, parses used_vm_ids,
+   * resolves VMContext by hostname, validates pve and vmid, then runs the provided command inside LXC.
+   */
+  protected executeOnHost(hostname: string, command: string, tmplCommand: ICommand): void {
+    const { join, dirname } = require("node:path");
+    const { fileURLToPath } = require("node:url");
+    const here = dirname(fileURLToPath(import.meta.url));
+    const scriptPath = join(here, "..", "json", "shared", "scripts", "write-vmids-json.sh");
+    const probeMsg = this.runOnVeHost("", { ...tmplCommand, name: "write-vmids" } as any, 10000, [scriptPath]);
+    // Prefer parsed outputsRaw (name/value) if available
+    let usedStr: string | undefined = undefined;
+    if (this.outputs.has("used_vm_ids")) usedStr = String(this.outputs.get("used_vm_ids"));
+    if (!usedStr && typeof probeMsg.result === "string") usedStr = probeMsg.result as string;
+    if (!usedStr) throw new Error("No used_vm_ids result received from host probe");
+    let arr: any;
+    try {
+      arr = JSON.parse(usedStr);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (e) {
+      throw new Error("Invalid used_vm_ids JSON");
+    }
+    if (!Array.isArray(arr)) throw new Error("used_vm_ids is not an array");
+    const found = arr.find((x: any) => typeof x?.hostname === "string" && x.hostname === hostname);
+    if (!found) throw new Error(`Hostname ${hostname} not found in used_vm_ids`);
+    const storage = StorageContext.getInstance();
+    const vmctx = storage.getVMContextByHostname(hostname);
+    if (!vmctx) throw new Error(`VMContext for ${hostname} not found`);
+    const pveOk = (vmctx as any)?.data?.pve !== undefined && (vmctx as any).data.pve === found.pve;
+    const vmidOk = Number(vmctx.vmid) === Number(found.vmid);
+    if (!pveOk || !vmidOk) throw new Error("PVE or VMID mismatch between host data and VMContext");
+    // Replace variables with vmctx.data for host execution
+    const execCmd = this.replaceVarsWithContext(command, (vmctx as any).data || {});
+    this.runOnLxc(vmctx.vmid, execCmd, tmplCommand);
   }
 
   /**
@@ -226,20 +262,21 @@ export class VeExecution extends EventEmitter {
       const cmd = this.commands[i];
       if (!cmd || typeof cmd !== "object") continue;
       // Reset raw outputs for this command iteration
-      let execStr = "";
+      let rawStr = "";
       try {
         if (cmd.script !== undefined) {
           // Read script file, replace variables, then execute
-          const scriptContent = fs.readFileSync(cmd.script, "utf-8");
-          execStr = this.replaceVars(scriptContent);
+          rawStr = fs.readFileSync(cmd.script, "utf-8");
         } else if (cmd.command !== undefined) {
-          execStr = this.replaceVars(cmd.command);
+          rawStr = cmd.command;
         } else {
           continue; // Skip unknown command type
         }
         let lastMsg: IProxmoxExecuteMessage | undefined;
         switch (cmd.execute_on) {
           case "lxc":
+            // For lxc path, perform default variable replacement
+            const execStrLxc = this.replaceVars(rawStr);
             let vm_id: string | number | undefined = undefined;
              if (
               typeof this.inputs["vm_id"] === "string" ||
@@ -265,25 +302,33 @@ export class VeExecution extends EventEmitter {
               } as IProxmoxExecuteMessage);
               break outerloop;
             }
-            this.runOnLxc(vm_id, execStr, cmd);
+            this.runOnLxc(vm_id, execStrLxc, cmd);
             break;
           case "ve":
-            lastMsg = this.runOnProxmoxHost(execStr, cmd);
+            // Default replacement for direct ve execution
+            const execStrVe = this.replaceVars(rawStr);
+            lastMsg = this.runOnVeHost(execStrVe, cmd);
             break;
           default:
                 if (typeof cmd.execute_on === "string" && /^host:.*/.test(cmd.execute_on)) {
                   const hostname = (cmd.execute_on as string).split(":")[1] ?? "";
-                  const msg = `host: is not implemented yet.`;
-                  this.emit("message", {
-                    stderr: msg,
-                    result: null,
-                    exitCode: -1,
-                    command: cmd.name,
-                    execute_on: cmd.execute_on,
-                    host: hostname,
-                    index: msgIndex++,
-                  } as unknown as IProxmoxExecuteMessage);
-                  break outerloop;
+                  try {
+                    // Pass raw (unreplaced) string; executeOnHost will replace with vmctx.data
+                    this.executeOnHost(hostname, rawStr, cmd);
+                  } catch (err: any) {
+                    const msg = String(err?.message ?? err);
+                    this.emit("message", {
+                      stderr: msg,
+                      result: null,
+                      exitCode: -1,
+                      command: cmd.name,
+                      execute_on: cmd.execute_on,
+                      host: hostname,
+                      index: msgIndex++,
+                    } as unknown as IProxmoxExecuteMessage);
+                    break outerloop;
+                  }
+                  break;
                 } else {
                   const msg = cmd.name + " is missing the execute_on property";
                   this.emit("message", {
@@ -349,14 +394,52 @@ export class VeExecution extends EventEmitter {
         break outerloop;
       }
     }
+    if (
+      restartInfo == undefined &&
+      rcRestartInfo !== undefined &&
+      rcRestartInfo.lastSuccessfull === this.commands.length - 1
+    ) {
+      this.emit("finished", this.buildVmContext());
+    }
     return rcRestartInfo;
   }
+  buildVmContext(): IVMContext {
+    if (!this.veContext) {
+      throw new Error("VE context not set");
+    } 
+    var data: any = {};
+    data.vmid = this.outputs.get("vm_id");
+    const hostVal = (this.veContext as any)?.host;
+    const veKey = typeof (this.veContext as any)?.getKey === 'function'
+      ? (this.veContext as any).getKey()
+      : (typeof hostVal === 'string' ? `ve_${hostVal}` : undefined);
+    data.vekey = veKey;
+    data.data = {};
+   
+    this.outputs.forEach((value, key) => {
+      data.data[key] = value;
+      })
+    return new VMContext( data );
+  }
+
 
   /**
    * Replaces {{var}} in a string with values from inputs or outputs.
    */
   private replaceVars(str: string): string {
+    return this.replaceVarsWithContext(str, {});
+  }
+
+  /**
+   * Replace variables using a provided context map first (e.g., vmctx.data),
+   * then fall back to outputs, inputs, and defaults.
+   */
+  protected replaceVarsWithContext(str: string, ctx: Record<string, any>): string {
     return str.replace(/{{\s*([^}\s]+)\s*}}/g, (_: string, v: string) => {
+      if (ctx && Object.prototype.hasOwnProperty.call(ctx, v)) {
+        const val = ctx[v];
+        if (val !== undefined && val !== null) return String(val);
+      }
       if (this.outputs.has(v)) return String(this.outputs.get(v));
       if (this.inputs[v] !== undefined) return String(this.inputs[v]);
       if (this.defaults.has(v)) return String(this.defaults.get(v));

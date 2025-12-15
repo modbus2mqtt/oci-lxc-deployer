@@ -11,7 +11,7 @@ import { StorageContext } from "@src/storagecontext.mjs";
 let index = 0;
 const dummyVE: IVEContext = { host: "localhost", port: 22 }as IVEContext;
 StorageContext.setInstance("local");
-describe("ProxmoxExecution", () => {
+describe("VeExecution", () => {
   it("should resolve variables from outputs, inputs, and defaults in all combinations", () => {
     type Combo = {
       output?: string | number | boolean;
@@ -108,7 +108,7 @@ describe("ProxmoxExecution", () => {
     fs.writeFileSync(scriptPath, "echo {{ myvar }}");
     class TestExec extends VeExecution {
       public lastCommand = "";
-      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
         this.lastCommand = command;
         return {
           stderr: "",
@@ -138,7 +138,7 @@ describe("ProxmoxExecution", () => {
 
   it("should replace variable in command with input value", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
         // Return the replaced value directly as result
         return {
           stderr: "",
@@ -162,7 +162,7 @@ describe("ProxmoxExecution", () => {
     // or check outputs. Here we check if the replaced value arrives:
     let resultValue = "";
     class CaptureExec extends TestExec {
-      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
         resultValue = command;
         return {
           stderr: "",
@@ -179,7 +179,7 @@ describe("ProxmoxExecution", () => {
   });
   it("should parse JSON output and fill outputs", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
         // Simuliere JSON-Parsing
         try {
           const json = JSON.parse(
@@ -244,7 +244,7 @@ describe("ProxmoxExecution", () => {
 
   it("should replace variables from inputs and outputs", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
         try {
           const json = JSON.parse(
             command
@@ -347,7 +347,7 @@ describe("ProxmoxExecution", () => {
 
   it("should return lastSuccessIndex", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
         return {
           stderr: "",
           result: command,
@@ -383,7 +383,7 @@ describe("ProxmoxExecution", () => {
 
   it("should fill IRestartInfo.outputs[0] with parsed JSON result", () => {
     class TestExec extends VeExecution {
-      protected runOnProxmoxHost(command: string, tmplCommand: ICommand) {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
         try {
           const json = JSON.parse(
             command
@@ -419,6 +419,77 @@ describe("ProxmoxExecution", () => {
     const first = rc!.outputs[0];
     expect(first!.name).toBe("foo");
     expect(first!.value).toBe("bar");
+  });
+
+  it("emits finished with IVMContext containing vmid on success", () => {
+    class TestExec extends VeExecution {
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+        // Produce outputs including vm_id
+        try {
+          const json = JSON.parse(
+            command
+              .replace(/^echo /, "")
+              .replace(/^"/, "")
+              .replace(/"$/, ""),
+          );
+          for (const [k, v] of Object.entries(json)) {
+            this.outputs.set(k, v as string | number | boolean);
+          }
+        } catch {}
+        return {
+          stderr: "",
+          result: command,
+          exitCode: 0,
+          command: tmplCommand.name,
+          index: index++,
+        };
+      }
+    }
+    const commands: ICommand[] = [
+      { command: 'echo "{\"vm_id\": 123}"', name: "emit-vmid", execute_on: "ve" },
+    ];
+    const exec = new TestExec(commands, [], dummyVE, new Map());
+    let received: any = undefined;
+    exec.on("finished", (ctx: any) => {
+      received = ctx;
+    });
+    exec.run();
+    expect(received).toBeDefined();
+    expect(typeof received.vmid).toBe("number");
+    expect(received.vmid).toBe(123);
+  });
+
+  it("does not emit finished when a command fails", () => {
+    class FailingExec extends VeExecution {
+      private called = false;
+      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+        if (!this.called) {
+          this.called = true;
+          // Simulate failure by throwing
+          throw new Error("simulated failure");
+        }
+        return {
+          stderr: "",
+          result: command,
+          exitCode: 0,
+          command: tmplCommand.name,
+          index: index++,
+        };
+      }
+    }
+    const commands: ICommand[] = [
+      { command: "echo \"first\"", name: "first", execute_on: "ve" },
+      { command: "echo \"second\"", name: "second", execute_on: "ve" },
+    ];
+    const exec = new FailingExec(commands, [], dummyVE, new Map());
+    let finishedCalled = false;
+    exec.on("finished", () => {
+      finishedCalled = true;
+    });
+    try {
+      exec.run();
+    } catch {}
+    expect(finishedCalled).toBe(false);
   });
 
   // it("should emit error message if SSH connection fails", async () => {

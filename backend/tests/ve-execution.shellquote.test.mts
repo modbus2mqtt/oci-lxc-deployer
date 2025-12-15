@@ -32,7 +32,7 @@ describe("ProxmoxExecution shell quoting", () => {
     const exec = new VeExecution([command], inputs, dummySSH, defaults);
     (exec as any).ssh = { host: "localhost", port: 22 };
     // runOnProxmoxHost as a mock: accepts all parameters, but only executes the command locally
-    (exec as any).runOnProxmoxHost = function (
+    (exec as any).runOnVeHost = function (
       command: string,
       tmplCommand: ICommand,
       timeoutMs = 10000,
@@ -54,7 +54,7 @@ describe("ProxmoxExecution shell quoting", () => {
       };
     };
     exec.run = function () {
-      const msg = this.runOnProxmoxHost(
+      const msg = this.runOnVeHost(
         command.command!,
         command,
         10000,
