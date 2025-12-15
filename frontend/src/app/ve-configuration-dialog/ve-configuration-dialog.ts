@@ -10,7 +10,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { IApplicationWeb, IParameter } from '../../shared/types';
-import { ProxmoxConfigurationService } from '../ve-configuration.service';
+import { VeConfigurationService } from '../ve-configuration.service';
 import type { NavigationExtras } from '@angular/router';
 @Component({
   selector: 'app-ve-configuration-dialog',
@@ -34,7 +34,7 @@ export class VeConfigurationDialog implements OnInit {
   groupedParameters: Record<string, IParameter[]> = {};
   loading = signal(true);
   error = signal<string | null>(null);
-  private configService: ProxmoxConfigurationService = inject(ProxmoxConfigurationService);
+  private configService: VeConfigurationService = inject(VeConfigurationService);
   public dialogRef: MatDialogRef<VeConfigurationDialog> = inject(MatDialogRef<VeConfigurationDialog>);
   private fb: FormBuilder = inject(FormBuilder);
   public data = inject(MAT_DIALOG_DATA) as { app: IApplicationWeb };
@@ -86,7 +86,7 @@ export class VeConfigurationDialog implements OnInit {
       .map(([name, value]) => ({ name, value: value as string | number | boolean }));
     const application = this.data.app.id;
     const task = 'installation';
-    this.configService.postProxmoxConfiguration(application, task, params).subscribe({
+    this.configService.postVeConfiguration(application, task, params).subscribe({
       next: (res) => {
         this.loading.set(false);
         this.dialogRef.close(this.form.value);

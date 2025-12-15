@@ -64,8 +64,27 @@ export class VEWebApp {
     // SSH config API
     this.app.get(ApiUri.SshConfigs, (req, res) => {
       try {
-        const sshs: ISsh[] = Ssh.allFromStorage(storageContext);
-        res.json(sshs);
+        const sshs: ISsh[] = storageContext.listSshConfigs();
+        const key:string|undefined = storageContext.getCurrentVEContext()?.getKey();
+        res.json({sshs:sshs, key: key}).status(200);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+    // Get SSH config key by host
+    this.app.get(ApiUri.SshConfig, (req, res) => {
+      try {
+        const host = String(req.query.host || "").trim();
+        if (!host) {
+          res.status(400).json({ error: "Missing host" });
+          return;
+        }
+        const key = `ve_${host}`;
+        if (!storageContext.has(key)) {
+          res.status(404).json({ error: "SSH config not found" });
+          return;
+        }
+        res.json({ key }).status(200);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
@@ -107,16 +126,18 @@ export class VEWebApp {
       }
       try {
         // Add or update VE context
-        storageContext.setVEContext({ host, port, current } as IVEContext);
+        var currentKey:string| undefined = storageContext.setVEContext({ host, port, current } as IVEContext);
         // If set as current, unset others
         if (current === true) {
           for (const key of storageContext.keys().filter((k) => k.startsWith("ve_") && k !== `ve_${host}`)) {
             const ctx: any = storageContext.get(key) || {};
             const updated = { ...ctx, current: false };
-            storageContext.set(key, updated);
-          }
-        }
-        res.json({ success: true }).status(200);
+            storageContext.setVEContext(updated);
+           }
+         }
+         else
+          currentKey = undefined;
+        res.json({ success: true , key: currentKey }).status(200);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
@@ -139,14 +160,15 @@ export class VEWebApp {
         storageContext.remove(key);
         // If the removed one was current, set another VE as current (first found)
         const remainingKeys: string[] = storageContext.keys().filter((k: string) => k.startsWith("ve_"));
-        if (remainingKeys.length > 0) {
+        var currentKey:string| undefined = undefined
+        if (remainingKeys.length > 0 && remainingKeys[0] !== undefined) {
           // Choose first and mark as current
-          const firstKey: string = remainingKeys[0] as string;
-          const ctx: any = storageContext.get(firstKey) || {};
+          currentKey = remainingKeys[0];
+          const ctx: any = storageContext.get(currentKey) || {};
           const updated = { ...ctx, current: true };
-          storageContext.set(firstKey, updated);
+          storageContext.set(currentKey, updated);
         }
-        res.json({ success: true, deleted: true }).status(200);
+        res.json({ success: true, deleted: true, key: currentKey  }).status(200);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
@@ -174,14 +196,14 @@ export class VEWebApp {
         // Set this one as current
         const curCtx: any = storageContext.get(key) || {};
         storageContext.set(key, { ...curCtx, current: true });
-        res.json({ success: true }).status(200);
+        res.json({ success: true , key }).status(200);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
     });
 
     this.app.get(
-      "/api/getUnresolvedParameters/:application/:task",
+      ApiUri.UnresolvedParameters,
       (req, res) => {
         const { application, task } = req.params;
         try {
@@ -216,7 +238,7 @@ export class VEWebApp {
       },
     );
 
-    this.app.get("/api/applications", (req, res) => {
+    this.app.get(ApiUri.Applications, (req, res) => {
       try {
         const applications = storageContext.listApplications();
 

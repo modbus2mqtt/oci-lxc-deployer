@@ -89,6 +89,9 @@ export enum ApiUri {
   SshConfigs = "/api/sshconfigs",
   SshConfig = "/api/sshconfig",
   SshCheck = "/api/ssh/check",
-  VeConfiguration = "/api/proxmox-configuration/:application/:task",
-  VeExecute = "/api/ve/execute"
+  VeConfiguration = "/api/ve-configuration/:application/:task/:veContext",
+  VeExecute = "/api/ve/execute",
+  Applications = "/api/applications",
+  UnresolvedParameters = "/api/getUnresolvedParameters/:application/:task"
+
 }

@@ -6,7 +6,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatRadioModule } from '@angular/material/radio';
-import { ProxmoxConfigurationService } from '../ve-configuration.service';
+import { VeConfigurationService } from '../ve-configuration.service';
 import { ISsh } from '../../shared/types';
 
 
@@ -30,7 +30,7 @@ export class SshConfigPage implements OnInit {
   ssh: SshWithDiagnostics[] = [];
   loading = false;
   error = '';
-  configService = inject(ProxmoxConfigurationService);
+  configService = inject(VeConfigurationService);
   newHost = '';
   newPort = 22;
 

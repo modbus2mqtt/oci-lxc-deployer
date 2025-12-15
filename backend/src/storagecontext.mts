@@ -10,8 +10,9 @@ import {
   storageKey as storageContextKey,
 } from "./backend-types.mjs";
 import { TemplateProcessor } from "./templateprocessor.mjs";
-import { IApplicationWeb } from "./types.mjs";
+import { IApplicationWeb, ISsh } from "./types.mjs";
 import { Context } from "./context.mjs";
+import { Ssh } from "./ssh.mjs";
 
 const baseSchemas: string[] = ["templatelist.schema.json"];
 
@@ -35,6 +36,9 @@ class VEContext implements IVEContext {
   }
   getStorageContext(): StorageContext {
     return StorageContext.getInstance();
+  }
+  getKey(): string {
+    return `ve_${this.host}`;
   }
 }
 export class StorageContext extends Context implements IContext {
@@ -188,12 +192,59 @@ export class StorageContext extends Context implements IContext {
     }
     return null;
   }
-  setVMContext(vmContext: IVMContext): void {
+  setVMContext(vmContext: IVMContext): string {
     const key = `vm_${vmContext.vmid}`;
     this.set(key, new VMContext(vmContext));
+    return key;
   }
-  setVEContext(veContext: IVEContext): void {
+  setVEContext(veContext: IVEContext): string {
     const key = `ve_${veContext.host}`;
     this.set(key, new VEContext(veContext));
+    return key;
+  }
+
+  getVEContextByKey(key: string): IVEContext | null {
+    const value = this.get(key);
+    if (value instanceof VEContext) return value as IVEContext;
+    return null;
+  }
+
+  /** Build ISsh descriptors for all VE contexts using current storage */
+  listSshConfigs(): ISsh[] {
+    const result: ISsh[] = [];
+    const pubCmd = Ssh.getPublicKeyCommand();
+    const install = Ssh.getInstallSshServerCommand();
+    for (const key of this.keys().filter((k) => k.startsWith("ve_"))) {
+      const anyCtx: any = this.get(key);
+      if (anyCtx && typeof anyCtx.host === "string") {
+        const item: ISsh = { host: anyCtx.host } as ISsh;
+        if (typeof anyCtx.port === "number") item.port = anyCtx.port;
+        if (typeof anyCtx.current === "boolean") item.current = anyCtx.current;
+        if (pubCmd) item.publicKeyCommand = pubCmd;
+        item.installSshServer = install;
+        const perm = Ssh.checkSshPermission(item.host, item.port);
+        item.permissionOk = perm.permissionOk;
+        if (perm.stderr) (item as any).stderr = perm.stderr;
+        result.push(item);
+      }
+    }
+    return result;
+  }
+
+  /** Build an ISsh descriptor from the current VE context in StorageContext */
+  getCurrentSsh(): ISsh | null {
+    const ctx = this.getCurrentVEContext();
+    if (!ctx) return null;
+    const pub = Ssh.getPublicKeyCommand();
+    const install = Ssh.getInstallSshServerCommand();
+    const base: ISsh = { host: ctx.host } as ISsh;
+    if (typeof ctx.port === "number") base.port = ctx.port;
+    if (typeof ctx.current === "boolean") base.current = ctx.current;
+    if (pub) base.publicKeyCommand = pub;
+    base.installSshServer = install;
+    const perm = Ssh.checkSshPermission(base.host, base.port);
+    base.permissionOk = perm.permissionOk;
+    if ((perm as any).stderr) (base as any).stderr = (perm as any).stderr;
+    return base;
   }
 }

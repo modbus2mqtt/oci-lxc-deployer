@@ -1,9 +1,11 @@
 
 import { Component, inject, OnInit } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { CommonModule } from '@angular/common';
-import { ProxmoxConfigurationService } from '../ve-configuration.service';
+import { VeConfigurationService } from '../ve-configuration.service';
+import { ErrorDialog } from './error-dialog';
+import { VeConfigurationDialog } from '../ve-configuration-dialog/ve-configuration-dialog';
 import { IApplicationWeb } from '../../shared/types';
 
 interface IApplicationWebIntern extends IApplicationWeb{
@@ -12,7 +14,7 @@ interface IApplicationWebIntern extends IApplicationWeb{
 @Component({
   selector: 'app-applications-list',
   standalone: true,
-    imports: [CommonModule, MatDialogModule],
+    imports: [CommonModule, MatDialogModule, RouterModule],
   templateUrl: './applications-list.html',
   styleUrl: './applications-list.scss',
 })
@@ -21,16 +23,17 @@ export class ApplicationsList implements OnInit {
   applications: IApplicationWebIntern[] = [];
   loading = true;
   error?: string;
-  private proxmoxService = inject(ProxmoxConfigurationService);
+  private proxmoxService = inject(VeConfigurationService);
   private router = inject(Router);
   private dialog = inject(MatDialog);
 
-  openProxmoxConfigDialog(_app: IApplicationWeb) {
-    this.router.navigateByUrl('/ssh-config');
+  openProxmoxConfigDialog(app: IApplicationWebIntern) {
+    this.dialog.open(VeConfigurationDialog, { data: { app } });
   }
-  showErrors(_app: IApplicationWebIntern) {
-    // Non-modal mode: optionally navigate to a dedicated errors page or inline panel.
-    // Currently a no-op to remove MatDialog usage.
+  showErrors(app: IApplicationWebIntern) {
+    if (app.errors && app.errors.length > 0) {
+      this.dialog.open(ErrorDialog, { data: { errors: app.errors }, panelClass: 'error-dialog-panel' });
+    }
   }
 
   ngOnInit(): void {

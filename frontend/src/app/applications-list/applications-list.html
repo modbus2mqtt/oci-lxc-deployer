@@ -44,7 +44,7 @@
 								</ng-template>
 								<!-- Description now in header -->
 				<div class="card-actions">
-					<button type="button" routerLink="/ssh-config" [disabled]="app.errors">Configure</button>
+					<button type="button" (click)="openProxmoxConfigDialog(app)" [disabled]="(app.errors?.length ?? 0) > 0">Install</button>
 				</div>
 			</div>
 		}

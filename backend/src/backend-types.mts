@@ -88,4 +88,5 @@ export interface ITemplateSchema {}
 
 export interface IVEContext extends ISsh {
   getStorageContext(): StorageContext;
+  getKey(): string;
 }
