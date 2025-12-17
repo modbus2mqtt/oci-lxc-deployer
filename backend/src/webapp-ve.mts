@@ -144,11 +144,27 @@ export class WebAppVE {
         
         // Run asynchronously - now non-blocking thanks to async spawn
         exec.run(null).then((result) => {
+          // Always store result (even on error, result contains state for retry)
           if (result) {
             this.restartInfos.set(newRestartKey, result);
+          } else {
+            // Fallback if no result returned
+            this.restartInfos.set(newRestartKey, {
+              lastSuccessfull: -1,
+              inputs: params.map(p => ({ name: p.name, value: p.value })),
+              outputs: [],
+              defaults: [],
+            });
           }
         }).catch((err: Error) => {
           console.error("Execution error:", err.message);
+          // Store minimal restartInfo so user can retry from beginning
+          this.restartInfos.set(newRestartKey, {
+            lastSuccessfull: -1,
+            inputs: params.map(p => ({ name: p.name, value: p.value })),
+            outputs: [],
+            defaults: [],
+          });
         });
       } catch (err: any) {
         res
@@ -162,7 +178,7 @@ export class WebAppVE {
     });
     
     // POST /api/ve/restart/:restartKey/:veContext - Restart execution with stored restartInfo
-    this.app.post(ApiUri.VeRestart, async (req, res) => {
+    this.app.post(ApiUri.VeRestart, express.json(), async (req, res) => {
       const { restartKey, veContext: veContextKey } = req.params;
       
       const restartInfo = this.restartInfos.get(restartKey);
@@ -185,8 +201,23 @@ export class WebAppVE {
       const { application, task } = messageGroup;
       const veCtxToUse = ctx as IVEContext;
       
-      // Simple restart: empty containers, restartInfo has everything needed
-      const exec = new VeExecution([], [], veCtxToUse, new Map());
+      // Reload application to get commands
+      const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
+      const loaded = await templateProcessor.loadApplication(
+        application,
+        task as TaskType,
+        veCtxToUse,
+      );
+      const commands = loaded.commands;
+      const defaults = new Map<string, string | number | boolean>();
+      loaded.parameters.forEach((param) => {
+        if (param.default !== undefined && !defaults.has(param.id)) {
+          defaults.set(param.id, param.default);
+        }
+      });
+      
+      // Create execution with reloaded commands but use restartInfo for state
+      const exec = new VeExecution(commands, [], veCtxToUse, defaults);
       
       // Generate new restartKey
       const newRestartKey = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -211,11 +242,12 @@ export class WebAppVE {
       this.returnResponse<IVeConfigurationResponse>(res, { success: true, restartKey: newRestartKey });
       
       exec.run(restartInfo).then((result) => {
-        if (result) {
-          this.restartInfos.set(newRestartKey, result);
-        }
+        // Always store result (even on error, result contains state for retry)
+        this.restartInfos.set(newRestartKey, result || restartInfo);
       }).catch((err: Error) => {
         console.error("Restart execution error:", err.message);
+        // Even on error, store restartInfo so user can retry
+        this.restartInfos.set(newRestartKey, restartInfo);
       });
     });
   }

@@ -72,6 +72,12 @@ export class ProcessMonitor implements OnInit, OnDestroy {
     }
   }
 
+  hasError(group: ISingleExecuteMessagesResponse): boolean {
+    const hasFinished = group.messages.some(msg => msg.finished);
+    if (hasFinished) return false;
+    return group.messages.some(msg => msg.error || (msg.exitCode !== undefined && msg.exitCode !== 0));
+  }
+
   triggerRestart(group: ISingleExecuteMessagesResponse) {
     if (!group.restartKey) return;
     

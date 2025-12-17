@@ -141,10 +141,12 @@ export class VeConfigurationService {
     return  this.get<IVeExecuteMessagesResponse>(ApiUri.VeExecute);
   }
   
-  restartExecution(restartKey: string): Observable<IVeConfigurationResponse> {
-    const url = ApiUri.VeRestart
-      .replace(':restartKey', encodeURIComponent(restartKey))
-      .replace(':veContext', encodeURIComponent(this.veContextKey || ''));
-    return this.http.post<IVeConfigurationResponse>(url, {});
+  restartExecution(restartKey: string): Observable<IPostVeConfigurationResponse> {
+    if (!this.veContextKey) {
+      return throwError(() => new Error("VE context not set"));
+    }
+    // Note: post() already replaces :veContext, so only replace :restartKey here
+    const url = ApiUri.VeRestart.replace(':restartKey', encodeURIComponent(restartKey));
+    return this.post<IPostVeConfigurationResponse, object>(url, {});
   }
 }

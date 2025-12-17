@@ -53,6 +53,7 @@ export interface IVeExecuteMessage {
   execute_on?: string;
   error?: IJsonError | undefined;
   index?: number;
+  finished?: boolean;
 }
 
 export type ParameterType = "string" | "number" | "boolean" | "enum";

@@ -497,15 +497,38 @@ export class VeExecution extends EventEmitter {
           execute_on: cmd.execute_on,
           index: msgIndex++,
         } as IVeExecuteMessage);
+        // Set restartInfo even on error so restart is possible
+        const vm_id = this.outputs.get("vm_id");
+        rcRestartInfo = {
+          vm_id: vm_id !== undefined ? Number.parseInt(vm_id as string, 10) : undefined,
+          lastSuccessfull: i - 1,
+          inputs: Object.entries(this.inputs).map(([name, value]) => ({ name, value })),
+          outputs: this.outputsRaw && Array.isArray(this.outputsRaw)
+            ? this.outputsRaw.map(({ name, value }) => ({ name, value }))
+            : Array.from(this.outputs.entries()).map(([name, value]) => ({ name, value })),
+          defaults: Array.from(this.defaults.entries()).map(([name, value]) => ({ name, value })),
+        };
         break outerloop;
       }
     }
-    if (
-      restartInfo == undefined &&
-      rcRestartInfo !== undefined &&
-      rcRestartInfo.lastSuccessfull === this.commands.length - 1
-    ) {
-      this.emit("finished", this.buildVmContext());
+    // Check if all commands completed successfully
+    const allSuccessful = rcRestartInfo !== undefined && 
+      rcRestartInfo.lastSuccessfull === this.commands.length - 1;
+    
+    if (allSuccessful) {
+      // Send a final success message
+      this.emit("message", {
+        command: "Completed",
+        execute_on: "ve",
+        exitCode: 0,
+        result: "All commands completed successfully",
+        stderr: "",
+        finished: true,
+      } as IVeExecuteMessage);
+      
+      if (restartInfo == undefined) {
+        this.emit("finished", this.buildVmContext());
+      }
     }
     return rcRestartInfo;
   }

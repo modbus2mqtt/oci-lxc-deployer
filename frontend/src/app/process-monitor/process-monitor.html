@@ -26,7 +26,7 @@
 
 <!-- Shared template for group content -->
 <ng-template #groupContent let-group="group">
-  @if (group.restartKey) {
+  @if (group.restartKey && hasError(group)) {
     <button class="restart-btn" (click)="triggerRestart(group)">
       ↻ Restart {{ group.application }}
     </button>
@@ -43,9 +43,19 @@
     }
   </ul>
   
+  <!-- Success message when all completed -->
+  @for (msg of group.messages; track msg.index) {
+    @if (msg.finished) {
+      <div class="success-block">
+        <span class="success-icon-large">✓</span>
+        <strong>{{ msg.result }}</strong>
+      </div>
+    }
+  }
+  
   <!-- Error displayed prominently -->
   @for (msg of group.messages; track msg.index) {
-    @if (msg.exitCode !== 0) {
+    @if (msg.exitCode !== 0 && !msg.finished) {
       <div class="error-block">
         <div class="error-header">
           <span class="error-icon">✗</span>

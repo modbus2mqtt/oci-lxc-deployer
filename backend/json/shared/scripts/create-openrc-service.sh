@@ -114,8 +114,8 @@ EOF
 chmod +x "/etc/init.d/$SERVICE_NAME"
 
 # Enable and start service
-rc-update add "$SERVICE_NAME" default
-rc-service "$SERVICE_NAME" start
+rc-update add "$SERVICE_NAME" default >&2
+rc-service "$SERVICE_NAME" start >&2
 
 # Output logfile path as JSON
 echo "[{\"id\": \"logfile_path\", \"value\": \"$LOGFILE\"}]"
