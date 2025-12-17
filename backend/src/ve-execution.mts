@@ -93,7 +93,7 @@ export class VeExecution extends EventEmitter {
   protected async runOnVeHost(
     input: string,
     tmplCommand: ICommand,
-    timeoutMs = 10000,
+    timeoutMs = 300000, // 5 minutes default for long-running commands like npm install
     remoteCommand?: string[],
   ): Promise<IVeExecuteMessage> {
     const sshCommand = this.sshCommand;
@@ -117,6 +117,10 @@ export class VeExecution extends EventEmitter {
         "PreferredAuthentications=publickey", // try keys only
         "-o",
         "LogLevel=ERROR", // suppress login banners and info
+        "-o",
+        "ServerAliveInterval=30", // send keepalive every 30s
+        "-o",
+        "ServerAliveCountMax=3", // fail after 3 missed keepalives
         "-T", // disable pseudo-tty to avoid MOTD banners
         "-q", // Suppress SSH diagnostic output
         "-p",
@@ -127,13 +131,32 @@ export class VeExecution extends EventEmitter {
     if (remoteCommand) {
       sshArgs = sshArgs.concat(remoteCommand);
     }
-    const proc = await spawnAsync(sshCommand, sshArgs, {
-      timeout: timeoutMs,
-      input,
-    });
-    const stdout = proc.stdout || "";
-    const stderr = proc.stderr || "";
-    const exitCode = proc.exitCode;
+    // Retry logic for SSH/lxc-attach connection errors (exit 255)
+    const maxRetries = 3;
+    let proc;
+    let retryCount = 0;
+    
+    while (retryCount < maxRetries) {
+      proc = await spawnAsync(sshCommand, sshArgs, {
+        timeout: timeoutMs,
+        input,
+      });
+      
+      // Exit 255 = SSH or lxc-attach connection issue, always retry
+      if (proc.exitCode === 255) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          console.error(`Connection failed with exit 255 (attempt ${retryCount}/${maxRetries}), retrying in 3s...`);
+          await new Promise(resolve => setTimeout(resolve, 3000)); // wait 3s before retry
+          continue;
+        }
+      }
+      break;
+    }
+    
+    const stdout = proc!.stdout || "";
+    const stderr = proc!.stderr || "";
+    const exitCode = proc!.exitCode;
     // Try to parse stdout as JSON and update outputs
     const msg: IVeExecuteMessage = {
       stderr: structuredClone(stderr),
@@ -258,7 +281,7 @@ export class VeExecution extends EventEmitter {
     vm_id: string | number,
     command: string,
     tmplCommand: ICommand,
-    timeoutMs = 10000,
+    timeoutMs = 300000, // 5 minutes default
   ): Promise<IVeExecuteMessage> {
     // Pass command and arguments as array
     let lxcCmd: string[] | undefined = ["lxc-attach", "-n", String(vm_id)];

@@ -18,18 +18,31 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-set -eu
-
-# Install the package globally
+# Install the package globally (ignore exit code, verify with npm list)
 if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
-  npm install -g "$PACKAGE" >&2
+  npm install -g "$PACKAGE" >&2 || true
 else
-  npm install -g "$PACKAGE@$VERSION" >&2
+  npm install -g "$PACKAGE@$VERSION" >&2 || true
 fi
 
-# Output path to node-red's settings.json
-SETTINGS_PATH="/root/.node-red/settings.js"
-echo "{ \"id\": \"settings_path\", \"value\": \"$SETTINGS_PATH\" }"
+# Verify installation succeeded
+if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
+  # Just check if package is installed
+  if ! npm list -g "$PACKAGE" >/dev/null ;then
+    echo "Error: $PACKAGE was not installed" >&2
+    exit 1
+  fi
+else
+  # Check if specific version is installed
+  if ! npm list -g "$PACKAGE@$VERSION" >/dev/null ;then
+    echo "Error: $PACKAGE@$VERSION was not installed" >&2
+    exit 1
+  fi
+fi
+
+echo "Successfully installed $PACKAGE" >&2
+
+#  (no outputs needed)
 
 exit 0
 

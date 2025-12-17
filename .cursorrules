@@ -40,6 +40,7 @@
 - Template variables use `{{ variable }}` syntax
 - stdout must only contain JSON output valid against `backend/schemas/outputs.schema.json`
 - All other output (logs, debug, errors) must go to stderr
+- Never use `2>&1` in scripts under `backend/json/**/scripts/` as it redirects stderr to stdout, violating the JSON-only stdout rule
 
 
 ## Language

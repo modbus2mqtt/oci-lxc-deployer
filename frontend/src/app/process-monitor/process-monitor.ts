@@ -1,5 +1,5 @@
 import { NgZone, OnDestroy, Component, OnInit, inject } from '@angular/core';
-
+import { Router } from '@angular/router';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { CommonModule } from '@angular/common';
@@ -17,7 +17,7 @@ export class ProcessMonitor implements OnInit, OnDestroy {
   messages: IVeExecuteMessagesResponse| undefined;
   private pollInterval?: number;
   private veConfigurationService = inject(VeConfigurationService);
-
+  private router = inject(Router);
   private zone = inject(NgZone);
 
   ngOnInit() {
@@ -37,6 +37,7 @@ export class ProcessMonitor implements OnInit, OnDestroy {
           if (msgs && msgs.length > 0) {
             this.zone.run(() => {
               this.mergeMessages(msgs);
+              this.checkAllFinished();
             });
           }
         },
@@ -45,6 +46,21 @@ export class ProcessMonitor implements OnInit, OnDestroy {
         }
       });
     }, 5000);
+  }
+
+  private checkAllFinished() {
+    if (!this.messages || this.messages.length === 0) return;
+    
+    const allFinished = this.messages.every(group => 
+      group.messages.some(msg => msg.finished)
+    );
+    
+    if (allFinished) {
+      // Navigate to applications list after short delay
+      setTimeout(() => {
+        this.router.navigate(['/applications']);
+      }, 2000);
+    }
   }
 
   private mergeMessages(newMsgs: IVeExecuteMessagesResponse) {
