@@ -29,10 +29,10 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     await helper.cleanup();
   });
 
-  it("should load parameters and commands for modbus2mqtt installation", () => {
+  it("should load parameters and commands for modbus2mqtt installation", async () => {
     const config = helper.createStorageContext();
     const templateProcessor = config.getTemplateProcessor();
-    const result = templateProcessor.loadApplication(
+    const result = await templateProcessor.loadApplication(
       "modbus2mqtt",
       "installation",
       { host: "localhost", port: 22 } as any,
@@ -44,7 +44,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     const paramNames = result.parameters.map((p) => p.id);
     expect(paramNames).toContain("vm_id");
 
-    const unresolved= templateProcessor
+    const unresolved = await templateProcessor
       .getUnresolvedParameters("modbus2mqtt",
       "installation",{ host: "localhost", port: 22 } as any);
     unresolved.forEach((param) => {
@@ -52,14 +52,14 @@ describe("ProxmoxConfiguration.loadApplication", () => {
       });
   });
 
-  it("should throw error if a template file is missing and provide all errors and application object", () => {
+  it("should throw error if a template file is missing and provide all errors and application object", async () => {
     const config = helper.createStorageContext();
 
     try {
       let application = helper.readApplication("modbus2mqtt");
       application.installation = ["nonexistent-template.json"];
       const templateProcessor = config.getTemplateProcessor();
-      templateProcessor.loadApplication(
+      await templateProcessor.loadApplication(
         "modbus2mqtt",
         "installation",
         { host: "localhost", port: 22 } as any,
@@ -81,7 +81,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     }
   });
 
-  it("should throw recursion error for endless nested templates and provide application object", () => {
+  it("should throw recursion error for endless nested templates and provide application object", async () => {
     const config = helper.createStorageContext();
     // Manipuliere die Testdaten, sodass ein Template sich selbst referenziert
     const appName = "modbus2mqtt";
@@ -102,7 +102,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     helper.writeApplication(appName, app);
     try {
       const templateProcessor = config.getTemplateProcessor();
-      templateProcessor.loadApplication(
+      await templateProcessor.loadApplication(
         appName,
         "installation",
         { host: "localhost", port: 22 } as any,
@@ -113,7 +113,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     }
   });
 
-  it("should throw error if a script file is missing and provide application object", () => {
+  it("should throw error if a script file is missing and provide application object", async () => {
     const config = helper.createStorageContext();
     // Write a template that references a non-existent script
     const appName = "modbus2mqtt";
@@ -129,7 +129,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     helper.writeApplication(appName, app);
     try {
       const templateProcessor = config.getTemplateProcessor();
-      templateProcessor.loadApplication(
+      await templateProcessor.loadApplication(
         appName,
         "installation",
         { host: "localhost", port: 22 } as any,
@@ -168,7 +168,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     }
   });
 
-  it("should throw error if a command uses an undefined parameter and provide application object", () => {
+  it("should throw error if a command uses an undefined parameter and provide application object", async () => {
     const config = helper.createStorageContext();
     // Write a template that references a command using an undefined variable
     const appName = "modbus2mqtt";
@@ -184,7 +184,7 @@ describe("ProxmoxConfiguration.loadApplication", () => {
     helper.writeApplication(appName, app);
     try {
       const templateProcessor = config.getTemplateProcessor();
-      templateProcessor.loadApplication(
+      await templateProcessor.loadApplication(
         appName,
         "installation",
         { host: "localhost", port: 22 } as any,

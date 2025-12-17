@@ -103,7 +103,7 @@ describe("VeExecution", () => {
     expect(result).toBe("Value: bar");
   });
 
-  it("should read a script file, replace variables, and execute the replaced content", () => {
+  it("should read a script file, replace variables, and execute the replaced content", async () => {
     const scriptPath = path.join(os.tmpdir(), "testscript.sh");
     fs.writeFileSync(scriptPath, "echo {{ myvar }}");
     class TestExec extends VeExecution {
@@ -128,7 +128,7 @@ describe("VeExecution", () => {
     ];
     const inputs = [{ id: "myvar", value: "replacedValue" }];
     const exec = new TestExec(commands, inputs, dummyVE, new Map());
-    exec.run();
+    await exec.run();
     expect(exec.lastCommand).toBe("echo replacedValue");
     try {
       fs.unlinkSync(scriptPath);
@@ -136,7 +136,7 @@ describe("VeExecution", () => {
     } catch (e: any) {}
   });
 
-  it("should replace variable in command with input value", () => {
+  it("should replace variable in command with input value", async () => {
     class TestExec extends VeExecution {
       protected runOnVeHost(command: string, tmplCommand: ICommand) {
         // Return the replaced value directly as result
@@ -174,10 +174,10 @@ describe("VeExecution", () => {
       }
     }
     const exec2 = new CaptureExec(commands, inputs, dummyVE, new Map());
-    exec2.run();
+    await exec2.run();
     expect(resultValue).toBe("replaced");
   });
-  it("should parse JSON output and fill outputs", () => {
+  it("should parse JSON output and fill outputs", async () => {
     class TestExec extends VeExecution {
       protected runOnVeHost(command: string, tmplCommand: ICommand) {
         // Simuliere JSON-Parsing
@@ -236,13 +236,13 @@ describe("VeExecution", () => {
       { id: "baz", value: 99 },
     ];
     const exec = new TestExec(commands, inputs, dummyVE, new Map());
-    exec.run();
+    await exec.run();
     expect(exec.outputs.get("foo")).toBe("baz");
     expect(exec.outputs.get("baz")).toBe(99);
     expect(exec.outputs.get("vm_id")).toBe(100);
   });
 
-  it("should replace variables from inputs and outputs", () => {
+  it("should replace variables from inputs and outputs", async () => {
     class TestExec extends VeExecution {
       protected runOnVeHost(command: string, tmplCommand: ICommand) {
         try {
@@ -287,7 +287,7 @@ describe("VeExecution", () => {
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
     const exec = new TestExec(commands, inputs, dummyVE, new Map());
-    exec.run();
+    await exec.run();
     expect(exec.outputs.get("foo")).toBe("baz99");
   });
 
@@ -345,7 +345,7 @@ describe("VeExecution", () => {
   //   });
   // });
 
-  it("should return lastSuccessIndex", () => {
+  it("should return lastSuccessIndex", async () => {
     class TestExec extends VeExecution {
       protected runOnVeHost(command: string, tmplCommand: ICommand) {
         return {
@@ -376,12 +376,12 @@ describe("VeExecution", () => {
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
     const exec = new TestExec(commands, inputs, dummyVE, new Map());
-    const result = exec.run();
+    const result = await exec.run();
     expect(typeof result?.lastSuccessfull).toBe("number");
     expect(result?.lastSuccessfull).toBe(commands.length - 1);
   });
 
-  it("should fill IRestartInfo.outputs[0] with parsed JSON result", () => {
+  it("should fill IRestartInfo.outputs[0] with parsed JSON result", async () => {
     class TestExec extends VeExecution {
       protected runOnVeHost(command: string, tmplCommand: ICommand) {
         try {
@@ -412,7 +412,7 @@ describe("VeExecution", () => {
       },
     ];
     const exec = new TestExec(commands, [], dummyVE, new Map());
-    const rc = exec.run();
+    const rc = await exec.run();
     expect(rc).toBeDefined();
     expect(Array.isArray(rc!.outputs)).toBe(true);
     expect(rc!.outputs.length).toBeGreaterThan(0);
@@ -421,7 +421,7 @@ describe("VeExecution", () => {
     expect(first!.value).toBe("bar");
   });
 
-  it("emits finished with IVMContext containing vmid on success", () => {
+  it("emits finished with IVMContext containing vmid on success", async () => {
     class TestExec extends VeExecution {
       protected runOnVeHost(command: string, tmplCommand: ICommand) {
         // Produce outputs including vm_id
@@ -457,13 +457,13 @@ describe("VeExecution", () => {
     exec.on("finished", (ctx: any) => {
       received = ctx;
     });
-    exec.run();
+    await exec.run();
     expect(received).toBeDefined();
     expect(typeof received.vmid).toBe("number");
     expect(received.vmid).toBe(123);
   });
 
-  it("does not emit finished when a command fails", () => {
+  it("does not emit finished when a command fails", async () => {
     class FailingExec extends VeExecution {
       private called = false;
       protected runOnVeHost(command: string, tmplCommand: ICommand) {
@@ -491,7 +491,7 @@ describe("VeExecution", () => {
       finishedCalled = true;
     });
     try {
-      exec.run();
+      await exec.run();
     } catch {}
     expect(finishedCalled).toBe(false);
   });

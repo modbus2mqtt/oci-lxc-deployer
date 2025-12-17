@@ -51,9 +51,9 @@ describe("ProxmoxConfiguration script path resolution", () => {
     await helper.cleanup();
   });
 
-  it("should resolve script path in commands", () => {
+  it("should resolve script path in commands", async () => {
     const templateProcessor = helper.createTemplateProcessor();
-    const result = templateProcessor.loadApplication(
+    const result = await templateProcessor.loadApplication(
       appName,
       "installation",
       { host: "localhost", port: 22 } as any,

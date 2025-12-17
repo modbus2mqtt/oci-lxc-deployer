@@ -66,7 +66,7 @@ describe("ProxmoxExecution shell quoting", () => {
     expect(result?.lastSuccessfull).toBe(0);
   });
 
-  it("should execute a shell script with special characters via runOnLxc (simulated)", () => {
+  it("should execute a shell script with special characters via runOnLxc (simulated)", async () => {
     const script =
       '#!/bin/sh\n\
             echo "$@" >&2\n\
@@ -85,10 +85,10 @@ describe("ProxmoxExecution shell quoting", () => {
       "sh",
     );
     (exec as any).ssh = { host: "localhost", port: 22 };
-    exec.run = function () {
+    exec.run = async function () {
       let lastSuccess = -1;
       try {
-        this.runOnLxc("dummy", command.command!, command, 10000);
+        await this.runOnLxc("dummy", command.command!, command, 10000);
         expect(this.outputs.get("mocked")).toBe(true);
         lastSuccess = 0;
       } catch {
@@ -101,7 +101,7 @@ describe("ProxmoxExecution shell quoting", () => {
         defaults: [],
       };
     };
-    const result = exec.run();
+    const result = await exec.run();
     // Check if the mock script was called and the arguments were logged
 
     expect(result?.lastSuccessfull).toBe(0);

@@ -15,8 +15,8 @@ describe("TemplateProcessor enum handling", () => {
   const tp = storage.getTemplateProcessor();
   const veContext = { host: "localhost", port: 22 } as any;
 
-  it("keeps static enum values unchanged", () => {
-    const loaded = tp.loadApplication(
+  it("keeps static enum values unchanged", async () => {
+    const loaded = await tp.loadApplication(
       "test-enum",
       "installation",
       veContext,
@@ -27,8 +27,8 @@ describe("TemplateProcessor enum handling", () => {
     expect((staticParam as any).enumValues).toEqual(["red", "green", "blue"]);
   });
 
-  it("exposes dynamic enum template reference for UI", () => {
-    const loaded = tp.loadApplication(
+  it("exposes dynamic enum template reference for UI", async () => {
+    const loaded = await tp.loadApplication(
       "test-enum",
       "installation",
       veContext,

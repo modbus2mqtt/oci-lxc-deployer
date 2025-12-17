@@ -20,7 +20,7 @@ describe("VeExecution host: flow", () => {
     StorageContext.setInstance(tmpDir);
   });
 
-  it("calls write-vmids-json.sh and then runs on matching LXC", () => {
+  it("calls write-vmids-json.sh and then runs on matching LXC", async () => {
     const storage = StorageContext.getInstance();
     // Seed a VMContext matching used_vm_ids
     storage.setVMContext({
@@ -84,7 +84,7 @@ describe("VeExecution host: flow", () => {
       }
     }
     const exec = new TestExec([command], [], dummyVE, defaults, "sh");
-    const rc = exec.run();
+    const rc = await exec.run();
     expect(rc?.lastSuccessfull).toBe(0);
     expect(exec.probePath).toBeDefined();
     expect(
@@ -96,7 +96,7 @@ describe("VeExecution host: flow", () => {
     expect(exec.lxcCalledWith.command).toContain("echo 'hello'");
   });
 
-  it("fails when PVE differs between probe and VMContext", () => {
+  it("fails when PVE differs between probe and VMContext", async () => {
     const storage = StorageContext.getInstance();
     storage.setVMContext({
       vmid: 101,
@@ -151,12 +151,12 @@ describe("VeExecution host: flow", () => {
       }
     }
     const exec = new TestExec([command], [], dummyVE, defaults, "sh");
-    const rc = exec.run();
+    const rc = await exec.run();
     expect(rc?.lastSuccessfull).toBeUndefined();
     expect((exec as any).lxcCalled).toBe(false);
   });
 
-  it("fails when VMID differs between probe and VMContext", () => {
+  it("fails when VMID differs between probe and VMContext", async () => {
     const storage = StorageContext.getInstance();
     storage.setVMContext({
       vmid: 999,
@@ -211,12 +211,12 @@ describe("VeExecution host: flow", () => {
       }
     }
     const exec = new TestExec([command], [], dummyVE, defaults, "sh");
-    const rc = exec.run();
+    const rc = await exec.run();
     expect(rc?.lastSuccessfull).toBeUndefined();
     expect((exec as any).lxcCalled).toBe(false);
   });
 
-  it("replaces host command variables using vmctx.data (not outputs)", () => {
+  it("replaces host command variables using vmctx.data (not outputs)", async () => {
     const storage = StorageContext.getInstance();
     storage.setVMContext({
       vmid: 101,
@@ -282,13 +282,13 @@ describe("VeExecution host: flow", () => {
       defaults,
       "sh",
     );
-    const rc = exec.run();
+    const rc = await exec.run();
     expect(rc?.lastSuccessfull).toBe(0);
     expect(exec.captured).toContain("myapp-on-apphost");
     expect(exec.captured).not.toContain("inputApp");
   });
 
-  it("prefers vmctx.data.vm_id over outputs.vm_id", () => {
+  it("prefers vmctx.data.vm_id over outputs.vm_id", async () => {
     const storage = StorageContext.getInstance();
     storage.setVMContext({
       vmid: 101,
@@ -351,7 +351,7 @@ describe("VeExecution host: flow", () => {
 
     const outputs = [{ id: "vm_id", value: "999" }] as any;
     const exec = new TestExec([command], outputs, dummyVE, defaults, "sh");
-    const rc = exec.run();
+    const rc = await exec.run();
     expect(rc?.lastSuccessfull).toBe(0);
     expect(exec.captured).toContain("101");
     expect(exec.captured).not.toContain("999");
