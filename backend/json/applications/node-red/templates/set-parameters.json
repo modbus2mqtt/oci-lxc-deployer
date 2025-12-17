@@ -1,0 +1,23 @@
+{
+  "execute_on": "ve",
+  "name": "Set OS Type",
+  "description": "Set the OS type for Node-RED container",
+  "parameters": [
+    {
+      "id": "ostype",
+      "name": "OS Type",
+      "type": "string",
+      "default": "alpine",
+      "required": false,
+      "description": "Operating system type for the container"
+    }
+  ],
+  "commands": [
+    {
+      "name": "Set OS Type",
+      "command": "echo 'OS type set to {{ ostype }}'",
+      "description": "Set the OS type variable"
+    }
+  ]
+}
+

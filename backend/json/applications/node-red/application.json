@@ -1,0 +1,16 @@
+{
+  "name": "Node-RED",
+  "description": "Node-RED is a flow-based programming tool for wiring together hardware devices, APIs and online services",
+  "icon": "icon.png",
+  "installation": [
+    "set-parameters.json",
+    "010-get-latest-os-template.json",
+    "100-create-lxc.json",
+    "200-start-lxc.json",
+    "210-wait-for-container-ready.json",
+    "330-install-apk-package.json",
+    "install-node-red.json",
+    "350-create-openrc-service.json"
+  ]
+}
+

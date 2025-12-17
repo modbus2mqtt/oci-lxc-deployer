@@ -1,0 +1,47 @@
+{
+  "execute_on": "lxc",
+  "name": "Install Node-RED",
+  "description": "Install Node-RED globally via npm",
+  "parameters": [
+    {
+      "id": "packages",
+      "name": "APK packages",
+      "type": "string",
+      "default": "nodejs npm",
+      "required": false,
+      "description": "APK packages to install (nodejs and npm)"
+    },
+    {
+      "id": "package",
+      "name": "NPM package",
+      "type": "string",
+      "default": "node-red",
+      "required": false,
+      "description": "NPM package name"
+    },
+    {
+      "id": "command",
+      "name": "Service command",
+      "type": "string",
+      "default": "node-red",
+      "required": false,
+      "description": "Command to run as service"
+    },
+    {
+      "id": "command_args",
+      "name": "Command arguments",
+      "type": "string",
+      "default": "--userDir $DATA_DIR",
+      "required": false,
+      "description": "Arguments for node-red command"
+    }
+  ],
+  "commands": [
+    {
+      "name": "Install Node-RED",
+      "command": "npm install -g --unsafe-perm {{ package }}",
+      "description": "Install Node-RED globally"
+    }
+  ]
+}
+

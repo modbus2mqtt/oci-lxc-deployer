@@ -1,5 +1,11 @@
 # LXC Manager Project Rules
 
+## File Locations
+
+- Shared templates: `backend/json/shared/templates/`
+- Application templates: `backend/json/applications/`
+- Scripts: in the corresponding `scripts/` subdirectory of each template
+
 ## Templates
 
 - Templates in `backend/json/shared/templates/` and `backend/json/applications/` must be validated against `backend/schemas/template.schema.json`
