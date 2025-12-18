@@ -129,7 +129,55 @@ async function runExecCommand(
   );
 }
 
+function printHelp() {
+  console.log("LXC Manager - Manage LXC containers and applications");
+  console.log("");
+  console.log("Usage:");
+  console.log("  lxc-manager [command] [options]");
+  console.log("");
+  console.log("Commands:");
+  console.log("  exec <application> <task> <parameters file>");
+  console.log("    Execute a task for a specific application in an LXC container");
+  console.log("");
+  console.log("  (no command)");
+  console.log("    Start the web application server");
+  console.log("");
+  console.log("Options:");
+  console.log("  --local <path>              Path to the local data directory");
+  console.log("                             For exec: default is 'local' in current working directory");
+  console.log("                             For web app: default is 'examples' in current working directory");
+  console.log("                             If --local is specified without a value, uses 'local'");
+  console.log("  --secretsFilePath <path>   Path to the secrets file for encryption/decryption");
+  console.log("  --restartInfoFile <path>   Path to the restart info JSON file (exec command only)");
+  console.log("  --help, -h                 Show this help message");
+  console.log("");
+  console.log("Task Types (for exec command):");
+  VALID_TASK_TYPES.forEach(task => {
+    console.log(`  ${task}`);
+  });
+  console.log("");
+  console.log("Examples:");
+  console.log("  # Start web application");
+  console.log("  lxc-manager");
+  console.log("  lxc-manager --local ./my-local");
+  console.log("");
+  console.log("  # Execute installation task");
+  console.log("  lxc-manager exec node-red installation ./params.json");
+  console.log("  lxc-manager exec node-red installation ./params.json --local ./my-local");
+  console.log("");
+  console.log("  # Execute backup task with secrets");
+  console.log("  lxc-manager exec node-red backup ./backup-params.json --secretsFilePath ./secrets.txt");
+}
+
 async function main() {
+  const argv = process.argv.slice(2);
+  
+  // Check for help flag
+  if (argv.includes("--help") || argv.includes("-h")) {
+    printHelp();
+    process.exit(0);
+  }
+  
   const args = parseArgs();
   
   // If no command, start webapp
@@ -142,9 +190,30 @@ async function main() {
   // Handle commands
   if (args.command === "exec") {
     if (!args.application || !args.task || !args.parametersFile) {
-      console.error(
-        "Usage: lxc-manager exec <application> <task> <parameters file> [--local <path>] [--secretsFilePath <path>] [--restartInfoFile <path>]",
-      );
+      console.error("Usage: lxc-manager exec <application> <task> <parameters file> [options]");
+      console.error("");
+      console.error("Command: exec");
+      console.error("  Execute a task for a specific application in an LXC container.");
+      console.error("");
+      console.error("Arguments:");
+      console.error("  <application>     Name of the application to execute the task for");
+      console.error("  <task>            Task type to execute. Valid values:");
+      VALID_TASK_TYPES.forEach(task => {
+        console.error(`                     - ${task}`);
+      });
+      console.error("  <parameters file> Path to the JSON file containing task parameters");
+      console.error("");
+      console.error("Options:");
+      console.error("  --local <path>              Path to the local data directory");
+      console.error("                             (default: 'local' in current working directory)");
+      console.error("                             If --local is specified without a value, uses 'local'");
+      console.error("  --secretsFilePath <path>   Path to the secrets file for encryption/decryption");
+      console.error("  --restartInfoFile <path>   Path to the restart info JSON file");
+      console.error("");
+      console.error("Examples:");
+      console.error("  lxc-manager exec node-red installation ./params.json");
+      console.error("  lxc-manager exec node-red installation ./params.json --local ./my-local");
+      console.error("  lxc-manager exec node-red backup ./backup-params.json --secretsFilePath ./secrets.txt");
       process.exit(1);
     }
     if (!isValidTaskType(args.task)) {
@@ -163,7 +232,17 @@ async function main() {
     );
   } else {
     console.error(`Unknown command: ${args.command}`);
-    console.error("Available commands: exec");
+    console.error("");
+    console.error("Available commands:");
+    console.error("  exec    Execute a task for a specific application");
+    console.error("");
+    console.error("Usage (start web app):");
+    console.error("  lxc-manager [options]");
+    console.error("");
+    console.error("Options:");
+    console.error("  --local <path>            Path to the local data directory");
+    console.error("                           (default: 'examples' in current working directory)");
+    console.error("  --secretsFilePath <path> Path to the secrets file for encryption/decryption");
     process.exit(1);
   }
 }

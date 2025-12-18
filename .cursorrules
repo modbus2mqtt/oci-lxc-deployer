@@ -2,19 +2,21 @@
 
 ## File Locations
 
-- Shared templates: `backend/json/shared/templates/`
-- Application templates: `backend/json/applications/`
+- Shared templates: `json/shared/templates/`
+- Application templates: `json/applications/`
 - Scripts: in the corresponding `scripts/` subdirectory of each template
+- Schemas: `schemas/`
+- Examples: `local/` (root level) and `backend/local/` (backend-specific examples)
 
 ## Templates
 
-- Templates in `backend/json/shared/templates/` and `backend/json/applications/` must be validated against `backend/schemas/template.schema.json`
-- Template outputs must conform to `backend/schemas/output.template.schema.json` (only `id` and optional `default` allowed)
+- Templates in `json/shared/templates/` and `json/applications/` must be validated against `schemas/template.schema.json`
+- Template outputs must conform to `schemas/output.template.schema.json` (only `id` and optional `default` allowed)
 - Scripts referenced in templates must exist in the corresponding `scripts/` directory
 
 ## Applications
 
-- Application templates must conform to `backend/schemas/application.schema.json`
+- Application templates must conform to `schemas/application.schema.json`
 - Applications can use inheritance via `extends` to reuse other applications
 
 ## Parameters
@@ -30,7 +32,7 @@
 
 ## Schemas
 
-- All JSON schemas are in `backend/schemas/`
+- All JSON schemas are in `schemas/`
 - Use JSON Schema draft-07
 
 ## Shell Scripts
@@ -38,9 +40,9 @@
 - Scripts run inside Alpine Linux LXC containers
 - Use POSIX-compliant `/bin/sh`, not bash
 - Template variables use `{{ variable }}` syntax
-- stdout must only contain JSON output valid against `backend/schemas/outputs.schema.json`
+- stdout must only contain JSON output valid against `schemas/outputs.schema.json`
 - All other output (logs, debug, errors) must go to stderr
-- Never use `2>&1` in scripts under `backend/json/**/scripts/` as it redirects stderr to stdout, violating the JSON-only stdout rule
+- Never use `2>&1` in scripts under `json/**/scripts/` as it redirects stderr to stdout, violating the JSON-only stdout rule
 
 
 ## Language
