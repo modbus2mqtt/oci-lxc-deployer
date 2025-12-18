@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { VeExecution } from "@src/ve-execution.mjs";
-import { ICommand } from "@src/types.mjs";
+import { ICommand, IVeExecuteMessage } from "@src/types.mjs";
 import fs from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -32,7 +32,7 @@ afterAll(() => {
     if (testDir && fs.existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
-  } catch (e: any) {
+  } catch  {
     // Ignore cleanup errors
   }
 });
@@ -134,15 +134,14 @@ describe("VeExecution", () => {
     fs.writeFileSync(scriptPath, "echo {{ myvar }}");
     class TestExec extends VeExecution {
       public lastCommand = "";
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
         this.lastCommand = input;
-        return Promise.resolve({
-          stderr: "",
-          result: input,
-          exitCode: 0,
-          command: tmplCommand.name,
-          index: index++,
-        });
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
       }
     }
     const commands: ICommand[] = [
@@ -153,7 +152,7 @@ describe("VeExecution", () => {
       },
     ];
     const inputs = [{ id: "myvar", value: "replacedValue" }];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map());
+    const exec = new TestExec(commands, inputs, dummyVE, new Map(), "sh");
     await exec.run();
     expect(exec.lastCommand).toBe("echo replacedValue");
     try {
@@ -163,96 +162,59 @@ describe("VeExecution", () => {
   });
 
   it("should replace variable in command with input value", async () => {
+    let resultValue = "";
     class TestExec extends VeExecution {
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
-        // Return the replaced value directly as result
-        return Promise.resolve({
-          stderr: "",
-          result: input,
-          exitCode: 0,
-          command: tmplCommand.name,
-          index: index,
-        });
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        resultValue = input;
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
       }
     }
     const commands: ICommand[] = [
       {
-        command: "{{ somevariable }}",
+        command: "echo {{ somevariable }}",
         name: "test",
         execute_on: "ve",
       },
     ];
     const inputs = [{ id: "somevariable", value: "replaced" }];
-    new TestExec(commands, inputs, dummyVE, new Map());
-    // run() only returns lastSuccessIndex, but we can intercept runOnProxmoxHost
-    // or check outputs. Here we check if the replaced value arrives:
-    let resultValue = "";
-    class CaptureExec extends TestExec {
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
-        resultValue = input;
-        return Promise.resolve({
-          stderr: "",
-          result: input,
-          exitCode: 0,
-          command: tmplCommand.name,
-          index: index++,
-        });
-      }
-    }
-    const exec2 = new CaptureExec(commands, inputs, dummyVE, new Map());
-    await exec2.run();
-    expect(resultValue).toBe("replaced");
+    const exec = new TestExec(commands, inputs, dummyVE, new Map(), "sh");
+    await exec.run();
+    expect(resultValue).toBe("echo replaced");
   });
   it("should parse JSON output and fill outputs", async () => {
     class TestExec extends VeExecution {
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
-        // Simuliere JSON-Parsing
-        try {
-          const json = JSON.parse(
-            input
-              .replace(/^echo /, "")
-              .replace(/^"/, "")
-              .replace(/"$/, ""),
-          );
-          for (const [k, v] of Object.entries(json)) {
-            this.outputs.set(k, v as string | number | boolean);
-          }
-          return Promise.resolve({
-            stderr: "",
-            result: input,
-            exitCode: 0,
-            command: tmplCommand.name,
-            index: index++,
-          });
-        } catch {
-          return Promise.resolve({
-            stderr: "",
-            result: input,
-            exitCode: 0,
-            command: tmplCommand.name,
-            index: index++,
-          });
-        }
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
       }
     }
     const commands: ICommand[] = [
       {
-        command: 'echo "{\"foo\": \"bar\"}"',
+        command: "echo '{\"id\": \"foo\", \"value\": \"bar\"}'",
         name: "test",
         execute_on: "ve",
       },
       {
-        command: 'echo "{\"baz\": 99}"',
+        command: "echo '{\"id\": \"baz\", \"value\": 99}'",
         name: "test",
         execute_on: "ve",
       },
       {
-        command: 'echo "{\"vm_id\": 100}"',
+        command: "echo '{\"id\": \"vm_id\", \"value\": 100}'",
         name: "test",
         execute_on: "ve",
       },
       {
-        command: 'echo "{\"foo\": \"baz\"}"',
+        command: "echo '{\"id\": \"foo\", \"value\": \"baz\"}'",
         name: "test",
         execute_on: "ve",
       },
@@ -261,7 +223,7 @@ describe("VeExecution", () => {
       { id: "foo", value: "inputFoo" },
       { id: "baz", value: 99 },
     ];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map());
+    const exec = new TestExec(commands, inputs, dummyVE, new Map(), "sh");
     await exec.run();
     expect(exec.outputs.get("foo")).toBe("baz");
     expect(exec.outputs.get("baz")).toBe(99);
@@ -270,49 +232,29 @@ describe("VeExecution", () => {
 
   it("should replace variables from inputs and outputs", async () => {
     class TestExec extends VeExecution {
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
-        try {
-          const json = JSON.parse(
-            input
-              .replace(/^echo /, "")
-              .replace(/^"/, "")
-              .replace(/"$/, ""),
-          );
-          for (const [k, v] of Object.entries(json)) {
-            this.outputs.set(k, v as string | number | boolean);
-          }
-          return Promise.resolve({
-            stderr: "",
-            result: input,
-            exitCode: 0,
-            command: tmplCommand.name,
-            index: index++,
-          });
-        } catch {
-          return Promise.resolve({
-            stderr: "",
-            result: input,
-            exitCode: 0,
-            command: tmplCommand.name,
-            index: index++,
-          });
-        }
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
       }
     }
     const commands: ICommand[] = [
       {
-        command: 'echo "{\"foo\": \"bar\"}"',
+        command: "echo '{\"id\": \"foo\", \"value\": \"bar\"}'",
         name: "test",
         execute_on: "ve",
       },
       {
-        command: 'echo "{\"foo\": \"baz99\"}"',
+        command: "echo '{\"id\": \"foo\", \"value\": \"baz99\"}'",
         name: "test",
         execute_on: "ve",
       },
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map());
+    const exec = new TestExec(commands, inputs, dummyVE, new Map(), "sh");
     await exec.run();
     expect(exec.outputs.get("foo")).toBe("baz99");
   });
@@ -373,35 +315,34 @@ describe("VeExecution", () => {
 
   it("should return lastSuccessIndex", async () => {
     class TestExec extends VeExecution {
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
-        return Promise.resolve({
-          stderr: "",
-          result: input,
-          exitCode: 0,
-          command: tmplCommand.name,
-          index: index++,
-        });
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
       }
     }
     const commands: ICommand[] = [
       {
-        command: 'echo "{\"foo\": \"bar\"}"',
+        command: "echo '{\"id\": \"foo\", \"value\": \"bar\"}'",
         name: "test",
         execute_on: "ve",
       },
       {
-        command: 'echo "{\"foo\": \"baz99\"}"',
+        command: "echo '{\"id\": \"foo\", \"value\": \"baz99\"}'",
         name: "test",
         execute_on: "ve",
       },
       {
-        command: 'echo "{\"baz\": 99}"',
+        command: "echo '{\"id\": \"baz\", \"value\": 99}'",
         name: "test",
         execute_on: "ve",
       },
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map());
+    const exec = new TestExec(commands, inputs, dummyVE, new Map(), "sh");
     const result = await exec.run();
     expect(typeof result?.lastSuccessfull).toBe("number");
     expect(result?.lastSuccessfull).toBe(commands.length - 1);
@@ -409,35 +350,23 @@ describe("VeExecution", () => {
 
   it("should fill IRestartInfo.outputs[0] with parsed JSON result", async () => {
     class TestExec extends VeExecution {
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
-        try {
-          const json = JSON.parse(
-            input
-              .replace(/^echo /, "")
-              .replace(/^"/, "")
-              .replace(/"$/, ""),
-          );
-          for (const [k, v] of Object.entries(json)) {
-            this.outputs.set(k, v as string | number | boolean);
-          }
-        } catch {}
-        return Promise.resolve({
-          stderr: "",
-          result: input,
-          exitCode: 0,
-          command: tmplCommand.name,
-          index: index++,
-        });
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
       }
     }
     const commands: ICommand[] = [
       {
-        command: 'echo "{\"foo\": \"bar\"}"',
+        command: "echo '[{\"name\": \"foo\", \"value\": \"bar\"}]'",
         name: "emit-json",
         execute_on: "ve",
       },
     ];
-    const exec = new TestExec(commands, [], dummyVE, new Map());
+    const exec = new TestExec(commands, [], dummyVE, new Map(), "sh");
     const rc = await exec.run();
     expect(rc).toBeDefined();
     expect(Array.isArray(rc!.outputs)).toBe(true);
@@ -449,36 +378,23 @@ describe("VeExecution", () => {
 
   it("emits finished with IVMContext containing vmid on success", async () => {
     class TestExec extends VeExecution {
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
-        // Produce outputs including vm_id
-        try {
-          const json = JSON.parse(
-            input
-              .replace(/^echo /, "")
-              .replace(/^"/, "")
-              .replace(/"$/, ""),
-          );
-          for (const [k, v] of Object.entries(json)) {
-            this.outputs.set(k, v as string | number | boolean);
-          }
-        } catch {}
-        return Promise.resolve({
-          stderr: "",
-          result: input,
-          exitCode: 0,
-          command: tmplCommand.name,
-          index: index++,
-        });
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
       }
     }
     const commands: ICommand[] = [
       {
-        command: 'echo "{\"vm_id\": 123}"',
+        command: "echo '{\"id\": \"vm_id\", \"value\": 123}'",
         name: "emit-vmid",
         execute_on: "ve",
       },
     ];
-    const exec = new TestExec(commands, [], dummyVE, new Map());
+    const exec = new TestExec(commands, [], dummyVE, new Map(), "sh");
     let received: any = undefined;
     exec.on("finished", (ctx: any) => {
       received = ctx;
@@ -492,19 +408,19 @@ describe("VeExecution", () => {
   it("does not emit finished when a command fails", async () => {
     class FailingExec extends VeExecution {
       private called = false;
-      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
+      protected async runOnVeHost(command: string, tmplCommand: ICommand): Promise<IVeExecuteMessage> {
         if (!this.called) {
           this.called = true;
           // Simulate failure by throwing
           throw new Error("simulated failure");
         }
-        return Promise.resolve({
+        return {
           stderr: "",
-          result: input,
+          result: command,
           exitCode: 0,
           command: tmplCommand.name,
           index: index++,
-        });
+        };
       }
     }
     const commands: ICommand[] = [
@@ -561,6 +477,150 @@ describe("VeExecution", () => {
   //     exec.run();
   //   });
   // });
+
+  it("should process local: file paths in outputs and encode file content as base64", async () => {
+    // Create a temporary directory for the test
+    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "ve-execution-local-test-"));
+    const testFileName = "test-binary-file.bin";
+    const testFilePath = path.join(testDir, testFileName);
+    
+    // Create a binary file with all values 0-255
+    const binaryData = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
+    fs.writeFileSync(testFilePath, binaryData);
+
+    // Create a valid storagecontext.json file
+    const storageContextPath = path.join(testDir, "storagecontext.json");
+    fs.writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+
+    // Set StorageContext to use the test directory
+    const secretFilePath = path.join(testDir, "secret.txt");
+    StorageContext.setInstance(testDir, secretFilePath);
+
+    const commands: ICommand[] = [
+      {
+        command: `echo '{"id": "testfile", "value": "local:${testFileName}"}'`,
+        name: "test-local-file",
+        execute_on: "ve",
+      },
+    ];
+
+    class TestExec extends VeExecution {
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        // Use sh -c as remoteCommand to execute locally
+        // sshCommand is "sh", so remoteCommand should be ["-c", input] to pass command as argument
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
+      }
+    }
+
+    // Use "sh" as sshCommand to execute commands locally
+    const exec = new TestExec(commands, [], dummyVE, new Map(), "sh");
+    await exec.run();
+
+    // Verify that the output is base64 encoded
+    const outputValue = exec.outputs.get("testfile");
+    expect(outputValue).toBeDefined();
+    expect(typeof outputValue).toBe("string");
+
+    // Verify that it's valid base64
+    const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+    expect(base64Pattern.test(outputValue as string)).toBe(true);
+
+    // Decode base64 and verify content matches original file
+    const decodedBuffer = Buffer.from(outputValue as string, "base64");
+    expect(decodedBuffer.length).toBe(256);
+    expect(decodedBuffer.equals(binaryData)).toBe(true);
+
+    // Verify each byte matches
+    for (let i = 0; i < 256; i++) {
+      expect(decodedBuffer[i]).toBe(i);
+    }
+
+    // Cleanup
+    try {
+      fs.unlinkSync(testFilePath);
+      fs.rmdirSync(testDir);
+    } catch{
+      // Ignore cleanup errors
+    }
+  });
+
+  it("should process local: file paths in name/value array outputs", async () => {
+    // Create a temporary directory for the test
+    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "ve-execution-local-test2-"));
+    const testFileName = "test-binary-file2.bin";
+    const testFilePath = path.join(testDir, testFileName);
+    
+    // Create a binary file with all values 0-255
+    const binaryData = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
+    fs.writeFileSync(testFilePath, binaryData);
+
+    // Create a valid storagecontext.json file
+    const storageContextPath = path.join(testDir, "storagecontext.json");
+    fs.writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+
+    // Set StorageContext to use the test directory
+    const secretFilePath = path.join(testDir, "secret.txt");
+    StorageContext.setInstance(testDir, secretFilePath);
+
+    const commands: ICommand[] = [
+      {
+        command: `echo '[{"name": "testfile", "value": "local:${testFileName}"}]'`,
+        name: "test-local-file-array",
+        execute_on: "ve",
+      },
+    ];
+
+    class TestExec extends VeExecution {
+      protected async runOnVeHost(
+        input: string,
+        tmplCommand: ICommand,
+        timeoutMs = 300000,
+        remoteCommand?: string[],
+      ): Promise<IVeExecuteMessage> {
+        // Use sh -c as remoteCommand to execute locally
+        // sshCommand is "sh", so remoteCommand should be ["-c", input] to pass command as argument
+        return await super.runOnVeHost("", tmplCommand, timeoutMs, ["-c", input]);
+      }
+    }
+
+    // Use "sh" as sshCommand to execute commands locally
+    const exec = new TestExec(commands, [], dummyVE, new Map(), "sh");
+    await exec.run();
+
+    // Verify that the output is base64 encoded
+    const outputValue = exec.outputs.get("testfile");
+    expect(outputValue).toBeDefined();
+    expect(typeof outputValue).toBe("string");
+
+    // Verify that it's valid base64
+    const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+    expect(base64Pattern.test(outputValue as string)).toBe(true);
+
+    // Decode base64 and verify content matches original file
+    const decodedBuffer = Buffer.from(outputValue as string, "base64");
+    expect(decodedBuffer.length).toBe(256);
+    expect(decodedBuffer.equals(binaryData)).toBe(true);
+
+    // Verify outputsRaw is also set correctly
+    expect(exec.outputsRaw).toBeDefined();
+    expect(Array.isArray(exec.outputsRaw)).toBe(true);
+    expect(exec.outputsRaw!.length).toBe(1);
+    expect(exec.outputsRaw![0].name).toBe("testfile");
+    expect(exec.outputsRaw![0].value).toBe(outputValue);
+
+    // Cleanup
+    try {
+      fs.unlinkSync(testFilePath);
+      fs.rmdirSync(testDir);
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
 
   const sshConfigPath = path.join(process.cwd(), "local", "sshconfig.json");
 
