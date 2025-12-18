@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { ICommand, IVeExecuteMessage } from "@src/types.mjs";
 import fs from "node:fs";
+import path from "node:path";
 import { spawn, SpawnOptionsWithoutStdio } from "node:child_process";
 
 function spawnAsync(
@@ -225,25 +226,29 @@ export class VeExecution extends EventEmitter {
               !("id" in first)
             ) {
               // name/value array: pass through 1:1 to outputsRaw and also map for substitutions
-              this.outputsRaw = outputsJson as {
-                name: string;
-                value: string | number | boolean;
-              }[];
-              for (const nv of this.outputsRaw) {
-                this.outputs.set(nv.name, nv.value);
+              this.outputsRaw = [];
+              for (const nv of outputsJson as { name: string; value: string | number | boolean }[]) {
+                const processedValue = this.processLocalFileValue(nv.value);
+                this.outputsRaw.push({ name: nv.name, value: processedValue });
+                this.outputs.set(nv.name, processedValue);
               }
             } else {
               // Array of outputObject {id, value}
               for (const entry of outputsJson as IOutput[]) {
-                if (entry.value !== undefined)
-                  this.outputs.set(entry.id, entry.value);
+                if (entry.value !== undefined) {
+                  const processedValue = this.processLocalFileValue(entry.value);
+                  this.outputs.set(entry.id, processedValue);
+                }
                 if ((entry as any).default !== undefined)
                   this.defaults.set(entry.id, (entry as any).default as any);
               }
             }
           } else if (typeof outputsJson === "object" && outputsJson !== null) {
             const obj = outputsJson as IOutput;
-            if (obj.value !== undefined) this.outputs.set(obj.id, obj.value);
+            if (obj.value !== undefined) {
+              const processedValue = this.processLocalFileValue(obj.value);
+              this.outputs.set(obj.id, processedValue);
+            }
             if ((obj as any).default !== undefined)
               this.defaults.set(obj.id, (obj as any).default as any);
           }
@@ -575,6 +580,25 @@ export class VeExecution extends EventEmitter {
       data.data[key] = value;
     });
     return new VMContext(data);
+  }
+
+  /**
+   * Processes a value: if it's a string starting with "local:", reads the file and returns base64 encoded content.
+   */
+  private processLocalFileValue(value: string | number | boolean): string | number | boolean {
+    if (typeof value === 'string' && value.startsWith('local:')) {
+      const filePath = value.substring(6); // Remove "local:" prefix
+      const storageContext = StorageContext.getInstance();
+      const localPath = storageContext.getLocalPath();
+      const fullPath = path.join(localPath, filePath);
+      try {
+        const fileContent = fs.readFileSync(fullPath);
+        return fileContent.toString('base64');
+      } catch (err: any) {
+        throw new Error(`Failed to read file ${fullPath}: ${err.message}`);
+      }
+    }
+    return value;
   }
 
   /**

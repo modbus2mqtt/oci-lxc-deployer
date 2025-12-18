@@ -63,10 +63,10 @@ describe("ProxmoxConfiguration script path resolution", () => {
     expect(scriptCmd).toBeDefined();
     expect(scriptCmd!.script).toBe(scriptPath);
 
-    // Also verify shared template from backend/json/shared/templates is picked up
+    // Also verify shared template from json/shared/templates is picked up
     const expectedSharedScript = path.join(
       __dirname,
-      "../json/shared/scripts/get-latest-os-template.sh",
+      "../../json/shared/scripts/get-latest-os-template.sh",
     );
     const sharedCmd = result.commands.find(
       (cmd) => cmd.script === expectedSharedScript,

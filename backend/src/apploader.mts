@@ -58,7 +58,7 @@ export class ApplicationLoader {
       if (fs.existsSync(localPath)) {
         appFile = localPath;
         appPath = path.dirname(localPath);
-      } else if (fs.existsSync(jsonPath)) {
+      } else if (fs.existsSync(this.pathes.jsonPath)) {
         appFile = jsonPath;
         appPath = path.dirname(jsonPath);
       } else {

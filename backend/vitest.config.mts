@@ -8,6 +8,9 @@ export default defineConfig({
       "@tests": path.resolve(__dirname, "tests"),
     },
   },
+  esbuild: {
+    sourcemap: "inline",
+  },
   test: {
     environment: "node",
     globals: true,

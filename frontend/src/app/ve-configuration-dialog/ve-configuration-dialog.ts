@@ -9,6 +9,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
 import { IApplicationWeb, IParameter, IParameterValue } from '../../shared/types';
 import { VeConfigurationService } from '../ve-configuration.service';
 import type { NavigationExtras } from '@angular/router';
@@ -23,7 +25,9 @@ import type { NavigationExtras } from '@angular/router';
     MatInputModule,
     MatSelectModule,
     MatTooltipModule,
-    MatSlideToggleModule
+    MatSlideToggleModule,
+    MatIconModule,
+    MatButtonModule
 ],
   templateUrl: './ve-configuration-dialog.html',
   styleUrl: './ve-configuration-dialog.scss',
@@ -76,6 +80,34 @@ export class VeConfigurationDialog implements OnInit {
 
   getTooltip(param: IParameter): string | undefined {
     return param.description;
+  }
+
+  async onFileSelected(event: Event, paramId: string): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      const file = input.files[0];
+      try {
+        const base64 = await this.readFileAsBase64(file);
+        this.form.get(paramId)?.setValue(base64);
+        this.form.get(paramId)?.markAsTouched();
+      } catch (error) {
+        this.error.set(`Failed to read file: ${error}`);
+      }
+    }
+  }
+
+  private readFileAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.includes(',') ? result.split(',')[1] : result;
+        resolve(base64);
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
   }
 
   save() {

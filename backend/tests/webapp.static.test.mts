@@ -10,6 +10,9 @@ describe("WebApp serves index.html", () => {
   const prevEnv = process.env.LXC_MANAGER_FRONTEND_DIR;
   let tempDir = "";
 
+  let testDir: string;
+  let secretFilePath: string;
+
   beforeAll(() => {
     // Create a temporary static directory with an index.html
     tempDir = mkdtempSync(path.join(tmpdir(), "webapp-static-"));
@@ -19,15 +22,29 @@ describe("WebApp serves index.html", () => {
     );
     // Point frontend dir to tempDir
     process.env.LXC_MANAGER_FRONTEND_DIR = tempDir;
+    
+    // Create a temporary directory for StorageContext
+    testDir = mkdtempSync(path.join(tmpdir(), "webapp-static-storage-"));
+    secretFilePath = path.join(testDir, "secret.txt");
+    
+    // Create a valid storagecontext.json file
+    const storageContextPath = path.join(testDir, "storagecontext.json");
+    writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+    
     // Minimal StorageContext init; paths won't be used for this test route
-    StorageContext.setInstance("local");
+    StorageContext.setInstance(testDir, secretFilePath);
   });
 
   afterAll(() => {
     // Restore env and cleanup temp
     if (prevEnv === undefined) delete process.env.LXC_MANAGER_FRONTEND_DIR;
     else process.env.LXC_MANAGER_FRONTEND_DIR = prevEnv;
-    rmSync(tempDir, { recursive: true, force: true });
+    try {
+      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+      if (testDir) rmSync(testDir, { recursive: true, force: true });
+    } catch (e: any) {
+      // Ignore cleanup errors
+    }
   });
 
   it("GET / returns 200 and HTML", async () => {

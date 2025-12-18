@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { VeExecution } from "@src/ve-execution.mjs";
 import { ICommand } from "@src/types.mjs";
 import { spawnSync } from "child_process";
 import fs from "fs";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import * as path from "path";
 import { StorageContext } from "@src/storagecontext.mjs";
 import { IVEContext } from "@src/backend-types.mjs";
@@ -11,13 +13,35 @@ describe("ProxmoxExecution shell quoting", () => {
   const defaults = new Map<string, string | number | boolean>();
   const inputs: { id: string; value: string | number | boolean }[] = [];
 
+  let testDir: string;
+  let secretFilePath: string;
+
   beforeAll(() => {
-    StorageContext.setInstance("local");
+    // Create a temporary directory for the test
+    testDir = mkdtempSync(path.join(tmpdir(), "ve-execution-shellquote-test-"));
+    secretFilePath = path.join(testDir, "secret.txt");
+    
+    // Create a valid storagecontext.json file
+    const storageContextPath = path.join(testDir, "storagecontext.json");
+    fs.writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+
+    StorageContext.setInstance(testDir, secretFilePath);
     // Write dummy sshconfig.json for local test
-    const dir = path.join(process.cwd(), "local");
+    const dir = path.join(testDir, "local");
     const file = path.join(dir, "sshconfig.json");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, JSON.stringify(dummySSH, null, 2), "utf-8");
+  });
+
+  afterAll(() => {
+    // Cleanup test directory
+    try {
+      if (testDir && fs.existsSync(testDir)) {
+        rmSync(testDir, { recursive: true, force: true });
+      }
+    } catch (e: any) {
+      // Ignore cleanup errors
+    }
   });
 
   it("should execute a shell script with special characters via runOnProxmoxHost", () => {

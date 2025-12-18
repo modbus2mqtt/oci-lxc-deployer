@@ -1,10 +1,36 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import path from "path";
 import fs from "fs";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { StorageContext } from "@src/storagecontext.mjs";
 
-// Initialize StorageContext (schemas + paths) using default 'local'
-StorageContext.setInstance("local");
+let testDir: string;
+let secretFilePath: string;
+
+beforeAll(() => {
+  // Create a temporary directory for the test
+  testDir = mkdtempSync(path.join(tmpdir(), "applications-validation-test-"));
+  secretFilePath = path.join(testDir, "secret.txt");
+  
+  // Create a valid storagecontext.json file
+  const storageContextPath = path.join(testDir, "storagecontext.json");
+  fs.writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+
+  // Initialize StorageContext (schemas + paths) using test directory
+  StorageContext.setInstance(testDir, secretFilePath);
+});
+
+afterAll(() => {
+  // Cleanup test directory
+  try {
+    if (fs.existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  } catch (e: any) {
+    // Ignore cleanup errors
+  }
+});
 
 function findApplicationFiles(root: string): string[] {
   const results: string[] = [];

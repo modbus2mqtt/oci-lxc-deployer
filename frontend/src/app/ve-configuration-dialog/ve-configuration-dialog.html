@@ -42,6 +42,21 @@
 										</mat-form-field>
 										}
 										@case ('string') {
+										@if (param.upload) {
+										<div class="param-field">
+										<mat-form-field appearance="outline">
+										<mat-label>{{ param.name }}</mat-label>
+										<input type="file" #fileInput [id]="'file-' + param.id" (change)="onFileSelected($event, param.id)" style="display: none;" />
+										<input matInput [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" readonly />
+										<button mat-icon-button matSuffix type="button" (click)="fileInput.click()" [matTooltip]="'Select file'" matTooltipPosition="above">
+										<mat-icon>attach_file</mat-icon>
+										</button>
+										@if (param.default !== undefined) {
+										<mat-hint>Default: {{ param.default }}</mat-hint>
+										}
+										</mat-form-field>
+										</div>
+										} @else {
 										<mat-form-field appearance="outline" class="param-field">
 										<mat-label>{{ param.name }}</mat-label>
 										<input matInput [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" />
@@ -49,6 +64,7 @@
 										<mat-hint>Default: {{ param.default }}</mat-hint>
 										}
 										</mat-form-field>
+										}
 										}
 										@case ('number') {
 										<mat-form-field appearance="outline" class="param-field">

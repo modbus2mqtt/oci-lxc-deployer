@@ -1,7 +1,8 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeAll, afterAll } from "vitest";
 import { VeExecution } from "@src/ve-execution.mjs";
 import { ICommand } from "@src/types.mjs";
 import fs from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { IVEContext } from "@src/backend-types.mjs";
@@ -10,7 +11,32 @@ import { StorageContext } from "@src/storagecontext.mjs";
 // New test cases are implemented here using overridable execCommand method.
 let index = 0;
 const dummyVE: IVEContext = { host: "localhost", port: 22 } as IVEContext;
-StorageContext.setInstance("local");
+let testDir: string;
+let secretFilePath: string;
+
+beforeAll(() => {
+  // Create a temporary directory for the test
+  testDir = mkdtempSync(path.join(os.tmpdir(), "ve-execution-test-"));
+  secretFilePath = path.join(testDir, "secret.txt");
+  
+  // Create a valid storagecontext.json file
+  const storageContextPath = path.join(testDir, "storagecontext.json");
+  fs.writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+
+  StorageContext.setInstance(testDir, secretFilePath);
+});
+
+afterAll(() => {
+  // Cleanup test directory
+  try {
+    if (testDir && fs.existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  } catch (e: any) {
+    // Ignore cleanup errors
+  }
+});
+
 describe("VeExecution", () => {
   it("should resolve variables from outputs, inputs, and defaults in all combinations", () => {
     type Combo = {
@@ -108,15 +134,15 @@ describe("VeExecution", () => {
     fs.writeFileSync(scriptPath, "echo {{ myvar }}");
     class TestExec extends VeExecution {
       public lastCommand = "";
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
-        this.lastCommand = command;
-        return {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
+        this.lastCommand = input;
+        return Promise.resolve({
           stderr: "",
-          result: command,
+          result: input,
           exitCode: 0,
           command: tmplCommand.name,
           index: index++,
-        };
+        });
       }
     }
     const commands: ICommand[] = [
@@ -138,15 +164,15 @@ describe("VeExecution", () => {
 
   it("should replace variable in command with input value", async () => {
     class TestExec extends VeExecution {
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
         // Return the replaced value directly as result
-        return {
+        return Promise.resolve({
           stderr: "",
-          result: command,
+          result: input,
           exitCode: 0,
           command: tmplCommand.name,
           index: index,
-        };
+        });
       }
     }
     const commands: ICommand[] = [
@@ -162,15 +188,15 @@ describe("VeExecution", () => {
     // or check outputs. Here we check if the replaced value arrives:
     let resultValue = "";
     class CaptureExec extends TestExec {
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
-        resultValue = command;
-        return {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
+        resultValue = input;
+        return Promise.resolve({
           stderr: "",
-          result: command,
+          result: input,
           exitCode: 0,
           command: tmplCommand.name,
           index: index++,
-        };
+        });
       }
     }
     const exec2 = new CaptureExec(commands, inputs, dummyVE, new Map());
@@ -179,11 +205,11 @@ describe("VeExecution", () => {
   });
   it("should parse JSON output and fill outputs", async () => {
     class TestExec extends VeExecution {
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
         // Simuliere JSON-Parsing
         try {
           const json = JSON.parse(
-            command
+            input
               .replace(/^echo /, "")
               .replace(/^"/, "")
               .replace(/"$/, ""),
@@ -191,21 +217,21 @@ describe("VeExecution", () => {
           for (const [k, v] of Object.entries(json)) {
             this.outputs.set(k, v as string | number | boolean);
           }
-          return {
+          return Promise.resolve({
             stderr: "",
-            result: command,
+            result: input,
             exitCode: 0,
             command: tmplCommand.name,
             index: index++,
-          };
+          });
         } catch {
-          return {
+          return Promise.resolve({
             stderr: "",
-            result: command,
+            result: input,
             exitCode: 0,
             command: tmplCommand.name,
             index: index++,
-          };
+          });
         }
       }
     }
@@ -244,10 +270,10 @@ describe("VeExecution", () => {
 
   it("should replace variables from inputs and outputs", async () => {
     class TestExec extends VeExecution {
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
         try {
           const json = JSON.parse(
-            command
+            input
               .replace(/^echo /, "")
               .replace(/^"/, "")
               .replace(/"$/, ""),
@@ -255,21 +281,21 @@ describe("VeExecution", () => {
           for (const [k, v] of Object.entries(json)) {
             this.outputs.set(k, v as string | number | boolean);
           }
-          return {
+          return Promise.resolve({
             stderr: "",
-            result: command,
+            result: input,
             exitCode: 0,
             command: tmplCommand.name,
             index: index++,
-          };
+          });
         } catch {
-          return {
+          return Promise.resolve({
             stderr: "",
-            result: command,
+            result: input,
             exitCode: 0,
             command: tmplCommand.name,
             index: index++,
-          };
+          });
         }
       }
     }
@@ -347,14 +373,14 @@ describe("VeExecution", () => {
 
   it("should return lastSuccessIndex", async () => {
     class TestExec extends VeExecution {
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
-        return {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
+        return Promise.resolve({
           stderr: "",
-          result: command,
+          result: input,
           exitCode: 0,
           command: tmplCommand.name,
           index: index++,
-        };
+        });
       }
     }
     const commands: ICommand[] = [
@@ -383,10 +409,10 @@ describe("VeExecution", () => {
 
   it("should fill IRestartInfo.outputs[0] with parsed JSON result", async () => {
     class TestExec extends VeExecution {
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
         try {
           const json = JSON.parse(
-            command
+            input
               .replace(/^echo /, "")
               .replace(/^"/, "")
               .replace(/"$/, ""),
@@ -395,13 +421,13 @@ describe("VeExecution", () => {
             this.outputs.set(k, v as string | number | boolean);
           }
         } catch {}
-        return {
+        return Promise.resolve({
           stderr: "",
-          result: command,
+          result: input,
           exitCode: 0,
           command: tmplCommand.name,
           index: index++,
-        };
+        });
       }
     }
     const commands: ICommand[] = [
@@ -423,11 +449,11 @@ describe("VeExecution", () => {
 
   it("emits finished with IVMContext containing vmid on success", async () => {
     class TestExec extends VeExecution {
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
         // Produce outputs including vm_id
         try {
           const json = JSON.parse(
-            command
+            input
               .replace(/^echo /, "")
               .replace(/^"/, "")
               .replace(/"$/, ""),
@@ -436,13 +462,13 @@ describe("VeExecution", () => {
             this.outputs.set(k, v as string | number | boolean);
           }
         } catch {}
-        return {
+        return Promise.resolve({
           stderr: "",
-          result: command,
+          result: input,
           exitCode: 0,
           command: tmplCommand.name,
           index: index++,
-        };
+        });
       }
     }
     const commands: ICommand[] = [
@@ -466,19 +492,19 @@ describe("VeExecution", () => {
   it("does not emit finished when a command fails", async () => {
     class FailingExec extends VeExecution {
       private called = false;
-      protected runOnVeHost(command: string, tmplCommand: ICommand) {
+      protected async runOnVeHost(input: string, tmplCommand: ICommand): Promise<any> {
         if (!this.called) {
           this.called = true;
           // Simulate failure by throwing
           throw new Error("simulated failure");
         }
-        return {
+        return Promise.resolve({
           stderr: "",
-          result: command,
+          result: input,
           exitCode: 0,
           command: tmplCommand.name,
           index: index++,
-        };
+        });
       }
     }
     const commands: ICommand[] = [
@@ -535,6 +561,7 @@ describe("VeExecution", () => {
   //     exec.run();
   //   });
   // });
+
   const sshConfigPath = path.join(process.cwd(), "local", "sshconfig.json");
 
   afterEach(() => {

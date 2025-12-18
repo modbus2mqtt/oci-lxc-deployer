@@ -109,8 +109,25 @@ export class WebAppVE {
             defaults.set(param.id, param.default);
           }
         });
-        // 3. Start ProxmoxExecution
-        const inputs = params.map(p => ({ id: p.name, value: p.value }));
+        // 3. Process parameters: for upload parameters with "local:" prefix, read file and base64 encode
+        const processedParams = await Promise.all(params.map(async (p) => {
+          const paramDef = loaded.parameters.find(param => param.id === p.name);
+          if (paramDef?.upload && typeof p.value === 'string' && p.value.startsWith('local:')) {
+            const filePath = p.value.substring(6); // Remove "local:" prefix
+            const localPath = storageContext.getLocalPath();
+            const fullPath = path.join(localPath, filePath);
+            try {
+              const fileContent = fs.readFileSync(fullPath);
+              const base64Content = fileContent.toString('base64');
+              return { id: p.name, value: base64Content };
+            } catch (err: any) {
+              throw new Error(`Failed to read file ${fullPath}: ${err.message}`);
+            }
+          }
+          return { id: p.name, value: p.value };
+        }));
+        // 4. Start ProxmoxExecution
+        const inputs = processedParams.map(p => ({ id: p.id, value: p.value }));
         const exec = new VeExecution(commands, inputs, veCtxToUse, defaults);
         // Generate restartKey upfront so we can return it immediately
         const newRestartKey = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;

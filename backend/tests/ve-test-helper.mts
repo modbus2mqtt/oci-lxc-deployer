@@ -54,11 +54,11 @@ export class ProxmoxTestHelper {
     this.jsonDir = path.join(this.tempDir, "json");
     this.schemaDir = path.join(this.tempDir, "schema");
     this.localDir = path.join(this.tempDir, "local/json");
-    await fs.copy(path.join(__dirname, "../json"), this.jsonDir);
+    await fs.copy(path.join(__dirname, "../../json"), this.jsonDir);
     await fs.ensureDir(this.schemaDir);
     await fs.ensureDir(this.localDir);
     // Copy real backend schemas so JsonValidator can resolve references
-    const realSchemasDir = path.join(__dirname, "../schemas");
+    const realSchemasDir = path.join(__dirname, "../../schemas");
     const entries = await fs.readdir(realSchemasDir);
     for (const entry of entries) {
       const src = path.join(realSchemasDir, entry);
@@ -147,8 +147,12 @@ export class ProxmoxTestHelper {
   }
 
   createStorageContext(): StorageContext {
-    const storage = new StorageContext(
-      this.localDir);
+    // Create a valid storagecontext.json file
+    const storageContextPath = path.join(this.localDir, "storagecontext.json");
+    if (!fs.existsSync(storageContextPath)) {
+      fs.writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+    }
+    const storage = new StorageContext(this.localDir);
     (StorageContext as any).instance = storage;
     return storage;
   }

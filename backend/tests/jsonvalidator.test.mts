@@ -1,18 +1,43 @@
 import { StorageContext } from "@src/storagecontext.mjs";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { describe, it, expect } from "vitest";
-StorageContext.setInstance("local");
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+let testDir: string;
+let secretFilePath: string;
+
+beforeAll(() => {
+  // Create a temporary directory for the test
+  testDir = mkdtempSync(join(tmpdir(), "jsonvalidator-test-"));
+  secretFilePath = join(testDir, "secret.txt");
+  
+  // Create a valid storagecontext.json file
+  const storageContextPath = join(testDir, "storagecontext.json");
+  writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
+
+  StorageContext.setInstance(testDir, secretFilePath);
+});
+
+afterAll(() => {
+  // Cleanup test directory
+  try {
+    if (testDir && existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  } catch (e: any) {
+    // Ignore cleanup errors
+  }
+});
 
 describe("JsonValidator", () => {
   const appFile = join(
     __dirname,
-    "../json/applications/modbus2mqtt/application.json",
+    "../../json/applications/modbus2mqtt/application.json",
   );
   const sharedTemplate = join(
     __dirname,
-    "../json/shared/templates/010-get-latest-os-template.json",
+    "../../json/shared/templates/010-get-latest-os-template.json",
   );
   const appSchema = "application.schema.json";
   const templateSchema = "template.schema.json";
