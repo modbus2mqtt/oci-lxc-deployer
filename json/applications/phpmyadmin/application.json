@@ -4,12 +4,10 @@
   "icon": "icon.svg",
   "installation": [
     "set-parameters.json",
-    "120-mount-disk-on-host.json",
     "010-get-latest-os-template.json",
     "100-create-configure-lxc.json",
     "200-start-lxc.json",
     "210-wait-for-container-ready.json",
-    "160-bind-multiple-volumes-to-lxc.json",
     "320-enable-community-packages.json",
     "330-install-packages.json",
     "400-configure-lighttpd.json",

@@ -103,8 +103,12 @@ export class VeExecutionSshExecutor {
         },
       });
 
-      // Exit 255 = SSH or lxc-attach connection issue, always retry
-      if (proc.exitCode === VeExecutionConstants.SSH_EXIT_CODE_CONNECTION_ERROR) {
+      // Exit 255 = SSH or lxc-attach connection issue, retry only for real SSH connections
+      // In test environments (sshCommand !== "ssh"), don't retry as there's no real network connection
+      if (
+        proc.exitCode === VeExecutionConstants.SSH_EXIT_CODE_CONNECTION_ERROR &&
+        this.deps.sshCommand === "ssh"
+      ) {
         retryCount++;
         if (retryCount < maxRetries) {
           console.error(

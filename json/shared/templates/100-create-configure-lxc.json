@@ -1,7 +1,7 @@
 {
   "execute_on": "ve",
   "name": "Create and Configure LXC",
-  "description": "Creates LXC container and applies optional configurations (templates 101-199).\n\nThis template creates the container and then applies all optional configuration templates in the correct order. Each optional template will be automatically skipped if its required parameters are missing (via skip_if_all_missing).\n\nIf username is provided, a user will be created on the VE host before the container is created (template 095). This ensures consistent UID/GID mapping between host and container.\n\nIf uid and gid are provided, UID/GID mapping will be automatically configured for unprivileged containers.\n\nTemplates included:\n- 095: Create User on VE Host (if username provided)\n- 100: Create LXC container (with optional UID/GID mapping)\n- 104: Compute Static IPs from prefixes\n- 105: Set Static IP for LXC\n- 106: Update /etc/hosts entries\n- 110: Map Serial Device\n- 120: Mount Disk on Host\n- 121: Mount ZFS Pool on Host\n- 160: Bind Multiple Volumes to LXC\n- 170: Set Environment Variables in LXC",
+  "description": "Creates LXC container and applies optional configurations (templates 101-199).\n\nThis template creates the container and then applies all optional configuration templates in the correct order. Each optional template will be automatically skipped if its required parameters are missing (via skip_if_all_missing).\n\nIf username is provided, a user will be created on the VE host before the container is created (template 095). This ensures consistent UID/GID mapping between host and container.\n\nNote: uid and gid parameters are used for volume permissions only, not for container idmap configuration. The container is created as unprivileged without automatic UID/GID mappings.\n\nTemplates included:\n- 095: Create User on VE Host (if username provided)\n- 100: Create LXC container (unprivileged, no idmap)\n- 104: Compute Static IPs from prefixes\n- 105: Set Static IP for LXC\n- 106: Update /etc/hosts entries\n- 110: Map Serial Device\n- 120: Mount Disk on Host\n- 121: Mount ZFS Pool on Host\n- 160: Bind Multiple Volumes to LXC\n- 170: Set Environment Variables in LXC",
   "parameters": [
     {
       "id": "vm_id",
@@ -75,6 +75,10 @@
   ],
   "outputs": ["vm_id"],
   "commands": [
+    {
+      "name": "Configure subuid/subgid",
+      "script": "configure-subuid-subgid.sh"
+    },
     {
       "name": "Create LXC container",
       "script": "create-lxc-container.sh"

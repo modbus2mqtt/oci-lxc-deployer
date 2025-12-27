@@ -51,6 +51,7 @@ export interface IVMContext {
 export interface IVMInstallContext {
   hostname: string;
   application: string;
+  task: TaskType;
   changedParams: Array<{ name: string; value: string | number | boolean }>;
 }
 export interface IApplicationBase {

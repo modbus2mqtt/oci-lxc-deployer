@@ -54,6 +54,17 @@ if [ -z "$TEMPLATE_PATH" ] || [ "$TEMPLATE_PATH" = "" ]; then
 fi
 
 # Create the container
+# Note: uid and gid parameters are used for volume permissions, not for idmap
+# Proxmox may try to automatically create idmap entries during container creation
+# The error occurs during template extraction, so we cannot prevent it by editing config afterwards
+# Instead, we need to ensure the container is created without triggering automatic idmap
+# We'll create the container and then remove any idmap entries that were created
+CONFIG_FILE="/etc/pve/lxc/${VMID}.conf"
+
+# Create the container
+# Note: The error "newuidmap: uid range [0-65536) -> [100000-165536) not allowed" 
+# occurs because Proxmox tries to use idmap during template extraction.
+# This happens even though we don't want idmap - uid/gid are only for volume permissions.
 pct create "$VMID" "$TEMPLATE_PATH" \
   --rootfs "$ROOTFS" \
   --hostname "{{ hostname }}" \
@@ -64,8 +75,18 @@ pct create "$VMID" "$TEMPLATE_PATH" \
 RC=$? 
 if [ $RC -ne 0 ]; then
   echo "Failed to create LXC container!" >&2
+  echo "Note: If you see 'newuidmap' errors, this may be due to automatic UID/GID mapping." >&2
+  echo "The uid and gid parameters are used for volume permissions only, not for container idmap." >&2
   exit $RC
 fi
+
+# Remove any automatically created idmap entries from the container config
+# uid and gid parameters are used for volume permissions, not for idmap configuration
+if [ -f "$CONFIG_FILE" ]; then
+  # Remove all lxc.idmap lines that Proxmox may have automatically added
+  sed -i '/^lxc\.idmap/d' "$CONFIG_FILE" 2>/dev/null || true
+fi
+
 echo "LXC container $VMID ({{ hostname }}) created." >&2
 
 echo '{ "id": "vm_id", "value": "'$VMID'" }'

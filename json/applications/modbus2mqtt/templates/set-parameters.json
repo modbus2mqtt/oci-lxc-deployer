@@ -21,6 +21,21 @@
       "description": "Username for the Modbus2Mqtt OS"
     }, 
     {
+      "id": "packageurl",
+      "name": "URL of the APK package",
+      "type": "string",
+      "default": "",
+      "required": true,
+      "description": "URL of the APK package to be installed"
+    },
+    {
+      "id": "packagerpubkeyurl",
+      "name": "URL of the public key for verifying the package",
+      "type": "string",
+      "required": true,
+      "description": "URL of the public key for verifying the package"
+    },
+    {
       "id": "storage_selection",
       "name": "Storage Selection",
       "type": "enum",

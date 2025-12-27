@@ -1,32 +1,32 @@
 {
   "execute_on": "lxc",
-  "name": "Download Package",
-  "description": "Install modbus2mqtt on lxc container",
+  "name": "Download/Install APK Package",
+  "description": "Download and install APK package on the LXC container",
   "parameters": [
     {
       "id": "packageurl",
-      "name": "URL of the Modbus2Mqtt package",
+      "name": "URL of the APK package",
       "type": "string",
       "required": true,
-      "description": "URL of the Modbus2Mqtt package to be installed"
+      "description": "URL of the APK package to be installed"
     },
     {
       "id": "packagerpubkeyurl",
-      "name": "Public key URL for verifying the package",
+      "name": "URL of the public key for verifying the package",
       "type": "string",
       "required": true,
-      "description": "Public key for verifying the package"
+      "description": "URL of the public key for verifying the package"
     }
   ],
   "commands": [
     {
       "name": "Download Package",
-      "command": "wget {{ packageurl }} -O packagefile.apk 1>&2",
+      "command": "if [ -z '{{ packageurl }}' ] || [ '{{ packageurl }}' = '' ]; then echo 'Error: packageurl is empty' >&2; exit 1; fi; wget -O packagefile.apk '{{ packageurl }}' >&2 || { echo 'Error: Failed to download package from {{ packageurl }}' >&2; exit 1; }",
       "description": "Download package to the LXC container"
     },
     {
       "name": "Install Package",
-      "command": "apk add --allow-untrusted --key \"$(wget -qO- '{{ packagerpubkeyurl }}')\" ./packagefile.apk 1>&2",
+      "command": "if [ -z '{{ packagerpubkeyurl }}' ] || [ '{{ packagerpubkeyurl }}' = '' ]; then echo 'Error: packagerpubkeyurl is empty' >&2; exit 1; fi; KEY=$(wget -q -O - '{{ packagerpubkeyurl }}' 2>&1) || { echo 'Error: Failed to download public key from {{ packagerpubkeyurl }}' >&2; exit 1; }; apk add --allow-untrusted --key \"$KEY\" ./packagefile.apk >&2 || { echo 'Error: Failed to install package' >&2; exit 1; }",
       "description": "Verify and install package on the LXC container"
     }
   ]

@@ -105,6 +105,7 @@ export enum ApiUri {
   SshCheck = "/api/ssh/check",
   VeConfiguration = "/api/ve-configuration/:application/:task/:veContext",
   VeRestart = "/api/ve/restart/:restartKey/:veContext",
+  VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
   Applications = "/api/applications",
   TemplateDetailsForApplication = "/api/template-details/:application/:task/:veContext",
@@ -147,6 +148,7 @@ export interface IPostSshConfigResponse {
 export interface IPostVeConfigurationResponse {
   success: boolean;
   restartKey?: string;
+  vmInstallKey?: string;
 }
 export type IApplicationsResponse = IApplicationWeb[];
 export interface ISingleExecuteMessagesResponse {
@@ -154,6 +156,7 @@ export interface ISingleExecuteMessagesResponse {
   task: string;
   messages: IVeExecuteMessage[];
   restartKey?: string;
+  vmInstallKey?: string;
 }
 export interface IApplicationResponse {
   application: IApplicationWeb;
@@ -164,4 +167,5 @@ export type IVeExecuteMessagesResponse = ISingleExecuteMessagesResponse[];
 export interface IVeConfigurationResponse {
   success: boolean;
   restartKey?: string;
+  vmInstallKey?: string;
 }

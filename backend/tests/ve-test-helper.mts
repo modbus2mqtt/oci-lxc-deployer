@@ -70,7 +70,12 @@ export class ProxmoxTestHelper {
 
   async cleanup(): Promise<void> {
     if (this.tempDir) {
-      await fs.remove(this.tempDir);
+      try {
+        await fs.remove(this.tempDir);
+      } catch (e: any) {
+        // Ignore cleanup errors (e.g., ENOTEMPTY on Windows/macOS)
+        // The OS will clean up temp directories eventually
+      }
     }
   }
 

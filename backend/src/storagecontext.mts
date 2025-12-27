@@ -13,7 +13,7 @@ import {
   storageKey as storageContextKey,
 } from "./backend-types.mjs";
 import { TemplateProcessor } from "./templateprocessor.mjs";
-import { IApplicationWeb, ISsh } from "./types.mjs";
+import { IApplicationWeb, ISsh, TaskType } from "./types.mjs";
 import { Context } from "./context.mjs";
 import { Ssh } from "./ssh.mjs";
 import { ApplicationLoader } from "./apploader.mjs";
@@ -38,13 +38,15 @@ export class VMInstallContext implements IVMInstallContext {
   constructor(data: IVMInstallContext) {
     this.hostname = data.hostname;
     this.application = data.application;
+    this.task = data.task;
     this.changedParams = data.changedParams;
   }
   public hostname: string;
   public application: string;
+  public task: TaskType;
   public changedParams: Array<{ name: string; value: string | number | boolean }>;
   getKey(): string {
-    return `vminstall_${this.hostname}`;
+    return `vminstall_${this.hostname}_${this.application}`;
   }
 }
 
@@ -188,8 +190,9 @@ export class StorageContext extends Context implements IContext {
     return key;
   }
   setVMInstallContext(vmInstallContext: IVMInstallContext): string {
-    const key = `vminstall_${vmInstallContext.hostname}`;
-    this.set(key, new VMInstallContext(vmInstallContext));
+    const vmInstall = new VMInstallContext(vmInstallContext);
+    const key = vmInstall.getKey();
+    this.set(key, vmInstall);
     return key;
   }
 
@@ -214,9 +217,12 @@ export class StorageContext extends Context implements IContext {
     return null;
   }
 
-  /** Find a VMInstallContext by hostname */
-  getVMInstallContextByHostname(hostname: string): IVMInstallContext | null {
-    const key = `vminstall_${hostname}`;
+  /** Find a VMInstallContext by hostname and application */
+  getVMInstallContextByHostnameAndApplication(
+    hostname: string,
+    application: string,
+  ): IVMInstallContext | null {
+    const key = `vminstall_${hostname}_${application}`;
     const value = this.get(key);
     if (value instanceof VMInstallContext) {
       return value as IVMInstallContext;
