@@ -221,8 +221,19 @@ if pct status "\$VM_ID" 2>&1 | grep -q 'status: running'; then
   sleep 1
   # Create symlink in container to stable path
   HOST_DEVICE_NAME=\$(basename "\$ACTUAL_HOST_DEVICE")
-  if ! lxc-attach -n "\$VM_ID" -- sh -c "ln -sf /dev/\$HOST_DEVICE_NAME \$CONTAINER_DEVICE_PATH 2>/dev/null" 2>&1; then
-    echo "Warning: Failed to create symlink in container" >&2
+  
+  # Check if CONTAINER_DEVICE_PATH is the same as ACTUAL_HOST_DEVICE (no symlink needed)
+  if [ "\$CONTAINER_DEVICE_PATH" = "\$ACTUAL_HOST_DEVICE" ]; then
+    echo "Debug: CONTAINER_DEVICE_PATH equals ACTUAL_HOST_DEVICE, skipping symlink creation" >&2
+  # Check if CONTAINER_DEVICE_PATH doesn't start with /dev/ (invalid path)
+  elif [ "\$(echo "\$CONTAINER_DEVICE_PATH" | cut -c1-5)" != "/dev/" ]; then
+    echo "Warning: CONTAINER_DEVICE_PATH does not start with /dev/, skipping symlink creation" >&2
+    echo "Debug: CONTAINER_DEVICE_PATH=\$CONTAINER_DEVICE_PATH, ACTUAL_HOST_DEVICE=\$ACTUAL_HOST_DEVICE" >&2
+  else
+    # Create symlink only if target and source are different
+    if ! lxc-attach -n "\$VM_ID" -- sh -c "ln -sf /dev/\$HOST_DEVICE_NAME \$CONTAINER_DEVICE_PATH 2>/dev/null" 2>&1; then
+      echo "Warning: Failed to create symlink in container" >&2
+    fi
   fi
 fi
 
