@@ -268,7 +268,36 @@ export class WebAppVeRouteHandlers {
    * Handles GET /api/ve/execute/:veContext
    */
   handleGetMessages(): IVeExecuteMessagesResponse {
-    return this.messageManager.messages;
+    const storageContext = StorageContext.getInstance();
+    // Add vmInstallKey to each message group if it exists
+    const messages = this.messageManager.messages.map((group) => {
+      // If vmInstallKey is already set, keep it
+      if (group.vmInstallKey) {
+        return group;
+      }
+      // Try to find vmInstallContext by looking up VE contexts
+      // We need to find the hostname from any VE context
+      for (const key of storageContext.keys().filter((k) => k.startsWith("ve_"))) {
+        const veContext = storageContext.getVEContextByKey(key.replace("ve_", ""));
+        if (veContext) {
+          const hostname = typeof veContext.host === "string" 
+            ? veContext.host 
+            : (veContext.host as any)?.host || "unknown";
+          const vmInstallContext = storageContext.getVMInstallContextByHostnameAndApplication(
+            hostname,
+            group.application,
+          );
+          if (vmInstallContext) {
+            const vmInstallKey = `vminstall_${hostname}_${group.application}`;
+            // Update the group with vmInstallKey
+            group.vmInstallKey = vmInstallKey;
+            break;
+          }
+        }
+      }
+      return group;
+    });
+    return messages;
   }
 
   /**
@@ -487,6 +516,11 @@ export class WebAppVeRouteHandlers {
       this.restartManager,
       fallbackRestartInfo,
     );
+
+    // Set vmInstallKey in message group if it exists
+    if (vmInstallKey) {
+      this.messageManager.setVmInstallKeyForGroup(installCtx.application, installCtx.task, vmInstallKey);
+    }
 
     return { 
       success: true, 

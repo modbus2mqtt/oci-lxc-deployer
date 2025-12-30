@@ -55,6 +55,69 @@ else
   exit 1
 fi
 
+# Always ensure user and group exist (even if service already exists)
+# Create group if specified and doesn't exist
+if [ -n "$GROUP_NAME" ]; then
+  if ! getent group "$GROUP_NAME" >/dev/null 2>&1; then
+    if [ "$USE_OPENRC" = "true" ]; then
+      addgroup "$GROUP_NAME"
+    else
+      groupadd "$GROUP_NAME"
+    fi
+  fi
+  USER_GROUP="$GROUP_NAME"
+else
+  USER_GROUP="$USERNAME"
+  if ! getent group "$USER_GROUP" >/dev/null 2>&1; then
+    if [ "$USE_OPENRC" = "true" ]; then
+      addgroup "$USER_GROUP"
+    else
+      groupadd "$USER_GROUP"
+    fi
+  fi
+fi
+
+# Create user if doesn't exist (always check, even if service exists)
+if ! id -u "$USERNAME" >/dev/null 2>&1; then
+  if [ "$USE_OPENRC" = "true" ]; then
+    if [ -n "$USER_ID" ]; then
+      adduser -D -h "$HOME_DIR" -s /sbin/nologin -G "$USER_GROUP" -u "$USER_ID" "$USERNAME"
+    else
+      adduser -D -h "$HOME_DIR" -s /sbin/nologin -G "$USER_GROUP" "$USERNAME"
+    fi
+  else
+    if [ -n "$USER_ID" ]; then
+      useradd -r -d "$HOME_DIR" -s /usr/sbin/nologin -g "$USER_GROUP" -u "$USER_ID" "$USERNAME"
+    else
+      useradd -r -d "$HOME_DIR" -s /usr/sbin/nologin -g "$USER_GROUP" "$USERNAME"
+    fi
+  fi
+fi
+
+# Create directories (always ensure they exist with correct ownership)
+mkdir -p "$HOME_DIR" "$DATA_DIR" "$SECURE_DIR"
+chown "$USERNAME:$USER_GROUP" "$HOME_DIR" "$DATA_DIR"
+chown "$USERNAME:$USER_GROUP" "$SECURE_DIR"
+chmod 700 "$SECURE_DIR"
+
+# Create log file (always ensure it exists with correct ownership)
+touch "$LOGFILE"
+chown "$USERNAME:$USER_GROUP" "$LOGFILE"
+
+# Set ownership for owned_paths (always ensure correct ownership)
+if [ -n "$OWNED_PATHS" ]; then
+  for path in $OWNED_PATHS; do
+    if [ -e "$path" ]; then
+      chown "$USERNAME:$USER_GROUP" "$path"
+      chmod u+rw "$path"
+    else
+      mkdir -p "$path"
+      chown "$USERNAME:$USER_GROUP" "$path"
+      chmod u+rwx "$path"
+    fi
+  done
+fi
+
 # Check if service already exists
 SERVICE_EXISTS=false
 if [ "$USE_OPENRC" = "true" ]; then
@@ -69,67 +132,6 @@ fi
 
 # If service doesn't exist, create it
 if [ "$SERVICE_EXISTS" = "false" ]; then
-  # Create group if specified and doesn't exist
-  if [ -n "$GROUP_NAME" ]; then
-    if ! getent group "$GROUP_NAME" >/dev/null 2>&1; then
-      if [ "$USE_OPENRC" = "true" ]; then
-        addgroup "$GROUP_NAME"
-      else
-        groupadd "$GROUP_NAME"
-      fi
-    fi
-    USER_GROUP="$GROUP_NAME"
-  else
-    USER_GROUP="$USERNAME"
-    if ! getent group "$USER_GROUP" >/dev/null 2>&1; then
-      if [ "$USE_OPENRC" = "true" ]; then
-        addgroup "$USER_GROUP"
-      else
-        groupadd "$USER_GROUP"
-      fi
-    fi
-  fi
-
-  # Create user if doesn't exist
-  if ! id -u "$USERNAME" >/dev/null 2>&1; then
-    if [ "$USE_OPENRC" = "true" ]; then
-      if [ -n "$USER_ID" ]; then
-        adduser -D -h "$HOME_DIR" -s /sbin/nologin -G "$USER_GROUP" -u "$USER_ID" "$USERNAME"
-      else
-        adduser -D -h "$HOME_DIR" -s /sbin/nologin -G "$USER_GROUP" "$USERNAME"
-      fi
-    else
-      if [ -n "$USER_ID" ]; then
-        useradd -r -d "$HOME_DIR" -s /usr/sbin/nologin -g "$USER_GROUP" -u "$USER_ID" "$USERNAME"
-      else
-        useradd -r -d "$HOME_DIR" -s /usr/sbin/nologin -g "$USER_GROUP" "$USERNAME"
-      fi
-    fi
-  fi
-
-  # Create directories
-  mkdir -p "$HOME_DIR" "$DATA_DIR" "$SECURE_DIR"
-  chown "$USERNAME:$USER_GROUP" "$HOME_DIR" "$DATA_DIR"
-  chown "$USERNAME:$USER_GROUP" "$SECURE_DIR"
-  chmod 700 "$SECURE_DIR"
-
-  # Create log file
-  touch "$LOGFILE"
-  chown "$USERNAME:$USER_GROUP" "$LOGFILE"
-
-  # Set ownership for owned_paths
-  if [ -n "$OWNED_PATHS" ]; then
-    for path in $OWNED_PATHS; do
-      if [ -e "$path" ]; then
-        chown "$USERNAME:$USER_GROUP" "$path"
-        chmod u+rw "$path"
-      else
-        mkdir -p "$path"
-        chown "$USERNAME:$USER_GROUP" "$path"
-        chmod u+rwx "$path"
-      fi
-    done
-  fi
 
   # Find command path
   COMMAND_PATH=$(command -v "$COMMAND" 2>/dev/null || echo "/usr/bin/$COMMAND")
@@ -221,7 +223,32 @@ else
 fi
 
 # Verify that service is running
-if ! $SERVICE_STATUS_CMD "$SERVICE_NAME" >/dev/null 2>&1; then
+SERVICE_RUNNING=false
+if [ "$USE_OPENRC" = "true" ]; then
+  # For OpenRC, check if process is running (more reliable than rc-service status)
+  # Check PID file first, then fall back to process check
+  PIDFILE="/run/${SERVICE_NAME}.pid"
+  if [ -f "$PIDFILE" ]; then
+    PID=$(cat "$PIDFILE" 2>/dev/null || echo "")
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+      SERVICE_RUNNING=true
+    fi
+  fi
+  # If PID file check failed, check if process is running by command name
+  if [ "$SERVICE_RUNNING" = "false" ]; then
+    # Check if the command process is running (exclude grep itself)
+    if ps aux | grep -v "grep" | grep -q "$COMMAND"; then
+      SERVICE_RUNNING=true
+    fi
+  fi
+else
+  # For systemd, use is-active which is more reliable than status
+  if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    SERVICE_RUNNING=true
+  fi
+fi
+
+if [ "$SERVICE_RUNNING" = "false" ]; then
   echo "Error: $SERVICE_NAME service failed to start" >&2
   # Try to get more information about the failure
   if [ -f "/var/log/$SERVICE_NAME.log" ]; then

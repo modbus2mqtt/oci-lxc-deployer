@@ -218,5 +218,17 @@ export class WebAppVeMessageManager {
   findMessageGroupByRestartKey(restartKey: string): ISingleExecuteMessagesResponse | undefined {
     return this.messages.find((g) => g.restartKey === restartKey);
   }
+
+  /**
+   * Sets vmInstallKey for a message group by application and task.
+   */
+  setVmInstallKeyForGroup(application: string, task: string, vmInstallKey: string): void {
+    const group = this.messages.find(
+      (g) => g.application === application && g.task === task,
+    );
+    if (group) {
+      group.vmInstallKey = vmInstallKey;
+    }
+  }
 }
 

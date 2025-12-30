@@ -55,6 +55,9 @@
           "id": "group",
           "value": ""
         },
+        { "id": "username",
+          "value": "node-red"
+        },
         {
           "id": "http_port",
           "value": "{{http_port}}"

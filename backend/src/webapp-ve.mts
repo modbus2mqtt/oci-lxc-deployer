@@ -115,6 +115,10 @@ export class WebAppVE {
         req.body,
       );
       if (result.success && result.restartKey) {
+        // Set vmInstallKey in message group if it exists
+        if (vmInstallKey) {
+          this.messageManager.setVmInstallKeyForGroup(application, task, vmInstallKey);
+        }
         const response: IVeConfigurationResponse = { 
           success: true, 
           restartKey: result.restartKey,
