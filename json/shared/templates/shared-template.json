@@ -1,0 +1,14 @@
+{
+  "name": "Shared Template",
+  "description": "A shared template that may be skipped",
+  "execute_on": "lxc",
+  "skip_if_all_missing": [
+    "missing_param"
+  ],
+  "commands": [
+    {
+      "name": "shared-command",
+      "script": "shared-script.sh"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import { ApplicationLoader } from "./apploader.mjs";
 import { IReadApplicationOptions } from "./apploader.mjs";
 import { TaskType } from "./types.mjs";
 import { VEConfigurationError, VELoadApplicationError, IVEContext } from "./backend-types.mjs";
+import { TemplatePathResolver } from "./template-path-resolver.mjs";
 
 function findTemplateDirs(dir: string): string[] {
   let results: string[] = [];
@@ -325,29 +326,15 @@ export async function validateAllJson(): Promise<void> {
           } else {
             // Fallback: manually check templates if VE context creation failed
             // Build template and script paths
-            const templatePathes = readOpts.applicationHierarchy.map((appDir) =>
-              path.join(appDir, "templates")
+            const templatePathes = TemplatePathResolver.buildTemplatePathes(
+              readOpts.applicationHierarchy,
+              { jsonPath, localPath, schemaPath: schemasDir },
             );
-            templatePathes.push(path.join(localPath, "shared", "templates"));
-            templatePathes.push(path.join(jsonPath, "shared", "templates"));
-            
-            const scriptPathes = readOpts.applicationHierarchy.map((appDir) =>
-              path.join(appDir, "scripts")
-            );
-            scriptPathes.push(path.join(localPath, "shared", "scripts"));
-            scriptPathes.push(path.join(jsonPath, "shared", "scripts"));
             
             // Check each template exists
             for (const tmpl of taskEntry.templates) {
               const tmplName = typeof tmpl === "string" ? tmpl : tmpl.name;
-              let tmplFound = false;
-              for (const basePath of templatePathes) {
-                const candidate = path.join(basePath, tmplName);
-                if (fs.existsSync(candidate)) {
-                  tmplFound = true;
-                  break;
-                }
-              }
+              const tmplFound = TemplatePathResolver.findInPathes(templatePathes, tmplName) !== undefined;
               if (!tmplFound) {
                 hasError = true;
                 console.error(`✖ Template not found: ${tmplName} (in application ${appName}, task ${task})`);

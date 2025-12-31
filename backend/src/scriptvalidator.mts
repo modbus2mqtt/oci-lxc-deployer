@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { JsonError } from "./jsonvalidator.mjs";
 import { IResolvedParam } from "./backend-types.mjs";
+import { TemplatePathResolver } from "./template-path-resolver.mjs";
 
 export class ScriptValidator {
   /**
@@ -17,18 +18,7 @@ export class ScriptValidator {
     }
     return Array.from(vars);
   }
-  private findInPathes(pathes: string[], name: string) {
-    // Suche in allen templatePathes nach der ersten existierenden Template-Datei
-    let tmplPath: string | undefined = undefined;
-    for (const basePath of pathes) {
-      const candidate = path.join(basePath, name);
-      if (fs.existsSync(candidate)) {
-        tmplPath = candidate;
-        break;
-      }
-    }
-    return tmplPath;
-  }
+  // Removed findInPathes - now using TemplatePathResolver.findInPathes
   /**
    * Checks if the script exists and if all variables are defined as parameters.
    */
@@ -50,7 +40,7 @@ export class ScriptValidator {
       );
       return;
     }
-    const scriptPath = this.findInPathes(scriptPathes || [], cmd.script);
+    const scriptPath = TemplatePathResolver.findInPathes(scriptPathes || [], cmd.script);
     if (!scriptPath) {
       errors.push(
         new JsonError(
@@ -127,7 +117,7 @@ export class ScriptValidator {
       return;
     }
 
-    const libraryPath = this.findInPathes(scriptPathes, libraryName);
+    const libraryPath = TemplatePathResolver.findInPathes(scriptPathes, libraryName);
     if (!libraryPath) {
       errors.push(
         new JsonError(

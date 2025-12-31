@@ -7,6 +7,7 @@ import {
   IResolvedParam,
   VEConfigurationError,
   VELoadApplicationError,
+  IApplication,
 } from "@src/backend-types.mjs";
 import {
   TaskType,
@@ -21,6 +22,7 @@ import fs from "fs";
 import { ScriptValidator } from "@src/scriptvalidator.mjs";
 import { StorageContext } from "./storagecontext.mjs";
 import { VeExecution } from "./ve-execution.mjs";
+import { TemplatePathResolver } from "./template-path-resolver.mjs";
 export interface ITemplateReference {
   name: string;
   before?: string[];
@@ -42,15 +44,33 @@ interface IProcessTemplateOpts {
   webuiTemplates: string[];
   veContext?: IVEContext;
   sshCommand: string | undefined;
+  processedTemplates?: Map<string, IProcessedTemplate>;  // NEU: Sammelt Template-Informationen
+  templateReferences?: Map<string, Set<string>>;  // NEU: Template-Referenzen (template -> referenzierte Templates)
 }
 export interface IParameterWithTemplate extends IParameter {
   template: string;
 }
+export interface IProcessedTemplate {
+  name: string;              // Template-Name (ohne .json)
+  path: string;              // Vollständiger Pfad zur Template-Datei
+  isShared: boolean;         // true = shared template, false = app-specific
+  skipped: boolean;          // true = alle Commands geskippt
+  conditional: boolean;       // true = skip_if_all_missing oder optional
+  referencedBy?: string[];    // Templates, die diesen Template referenzieren
+  references?: string[];      // Templates, die von diesem Template referenziert werden
+  templateData?: ITemplate;   // NEU: Vollständige Template-Daten (validiert)
+  capabilities?: string[];    // NEU: Extrahierte Capabilities aus Script-Headern
+  resolvedScriptPaths?: Map<string, string>;  // NEU: script name -> full path
+  usedByApplications?: string[];  // NEU: Applications, die diesen Template verwenden
+}
+
 export interface ITemplateProcessorLoadResult {
   commands: ICommand[];
   parameters: IParameterWithTemplate[];
   resolvedParams: IResolvedParam[];
   webuiTemplates: string[];
+  application?: IApplication;  // Vollständige Application-Daten (inkl. Parent)
+  processedTemplates?: IProcessedTemplate[];  // Liste aller verarbeiteten Templates
 }
 export class TemplateProcessor extends EventEmitter {
   resolvedParams: IResolvedParam[] = [];
@@ -125,23 +145,22 @@ export class TemplateProcessor extends EventEmitter {
         }
       }
     }
-    const templatePathes = readOpts.applicationHierarchy.map((appDir) =>
-      path.join(appDir, "templates"),
+    const templatePathes = TemplatePathResolver.buildTemplatePathes(
+      readOpts.applicationHierarchy,
+      this.pathes,
     );
-    const scriptPathes = readOpts.applicationHierarchy.map((appDir) =>
-      path.join(appDir, "scripts"),
+    const scriptPathes = TemplatePathResolver.buildScriptPathes(
+      readOpts.applicationHierarchy,
+      this.pathes,
     );
-    templatePathes.push(
-      path.join(this.pathes.localPath, "shared", "templates"),
-    );
-    templatePathes.push(path.join(this.pathes.jsonPath, "shared", "templates"));
-    scriptPathes.push(path.join(this.pathes.localPath, "shared", "scripts"));
-    scriptPathes.push(path.join(this.pathes.jsonPath, "shared", "scripts"));
     // 5. Process each template
     const errors: IJsonError[] = [];
     let outParameters: IParameterWithTemplate[] = [];
     let outCommands: ICommand[] = [];
     let webuiTemplates: string[] = [];
+    const processedTemplates = new Map<string, IProcessedTemplate>();
+    const templateReferences = new Map<string, Set<string>>();  // template -> set of referenced templates
+    
     for (const tmpl of templates) {
       let ptOpts: IProcessTemplateOpts = {
         application: applicationName,
@@ -158,8 +177,36 @@ export class TemplateProcessor extends EventEmitter {
         webuiTemplates,
         veContext,
         sshCommand,
+        processedTemplates,
+        templateReferences,
       };
       await this.#processTemplate(ptOpts);
+    }
+    
+    // Build referencedBy map (reverse of templateReferences)
+    const referencedBy = new Map<string, Set<string>>();
+    for (const [templateName, refs] of templateReferences.entries()) {
+      for (const ref of refs) {
+        if (!referencedBy.has(ref)) {
+          referencedBy.set(ref, new Set());
+        }
+        referencedBy.get(ref)!.add(templateName);
+      }
+    }
+    
+    // Convert processedTemplates Map to Array and add referencedBy/references
+    const processedTemplatesArray: IProcessedTemplate[] = [];
+    for (const [templateName, templateInfo] of processedTemplates.entries()) {
+      const result: IProcessedTemplate = {
+        ...templateInfo,
+      };
+      if (referencedBy.has(templateName)) {
+        result.referencedBy = Array.from(referencedBy.get(templateName)!);
+      }
+      if (templateReferences.has(templateName)) {
+        result.references = Array.from(templateReferences.get(templateName)!);
+      }
+      processedTemplatesArray.push(result);
     }
     // Save resolvedParams for getUnresolvedParameters
     this.resolvedParams = resolvedParams;
@@ -181,6 +228,8 @@ export class TemplateProcessor extends EventEmitter {
       commands: outCommands,
       resolvedParams: resolvedParams,
       webuiTemplates: webuiTemplates,
+      application: application,
+      processedTemplates: processedTemplatesArray,
     };
   }
   /**
@@ -260,10 +309,11 @@ export class TemplateProcessor extends EventEmitter {
       );
       return;
     }
-    opts.visitedTemplates.add(this.extractTemplateName(opts.template));
-    const tmplPath = this.findInPathes(
+    const templateName = this.extractTemplateName(opts.template);
+    opts.visitedTemplates.add(templateName);
+    const tmplPath = TemplatePathResolver.findInPathes(
       opts.templatePathes,
-      this.extractTemplateName(opts.template),
+      templateName,
     );
     if (!tmplPath) {
       const msg =
@@ -346,6 +396,26 @@ export class TemplateProcessor extends EventEmitter {
       tmplData,
       opts.resolvedParams,
     );
+    
+    // Determine if template is conditional (skip_if_all_missing or optional)
+    const isConditional = (tmplData.skip_if_all_missing && tmplData.skip_if_all_missing.length > 0) ||
+                          tmplData.optional === true;
+    
+    // Determine if template is shared or app-specific
+    const sharedTemplatesPath = path.join(this.pathes.jsonPath, "shared", "templates");
+    const isSharedTemplate = tmplPath.startsWith(sharedTemplatesPath);
+    
+    // Store template information
+    if (opts.processedTemplates) {
+      const normalizedName = TemplatePathResolver.normalizeTemplateName(templateName);
+      opts.processedTemplates.set(normalizedName, {
+        name: normalizedName,
+        path: tmplPath,
+        isShared: isSharedTemplate,
+        skipped: shouldSkip,
+        conditional: isConditional,
+      });
+    }
     
     if (shouldSkip) {
       // Replace all commands with "skipped" commands that always exit with 0
@@ -492,10 +562,20 @@ export class TemplateProcessor extends EventEmitter {
         cmd.name = `${tmplData.name || "unnamed-template"}`;
       }
       if (cmd.template !== undefined) {
+        // Track template reference
+        if (opts.templateReferences) {
+          const currentTemplateName = TemplatePathResolver.normalizeTemplateName(templateName);
+          const referencedTemplateName = TemplatePathResolver.normalizeTemplateName(cmd.template);
+          if (!opts.templateReferences.has(currentTemplateName)) {
+            opts.templateReferences.set(currentTemplateName, new Set());
+          }
+          opts.templateReferences.get(currentTemplateName)!.add(referencedTemplateName);
+        }
+        
         await this.#processTemplate({
           ...opts,
           template: cmd.template,
-          parentTemplate: this.extractTemplateName(opts.template),
+          parentTemplate: templateName,
         });
       } else if (cmd.script !== undefined) {
         const scriptValidator = new ScriptValidator();
@@ -509,7 +589,7 @@ export class TemplateProcessor extends EventEmitter {
           opts.parentTemplate,
           opts.scriptPathes,
         );
-        const scriptPath = this.findInPathes(opts.scriptPathes, cmd.script);
+        const scriptPath = TemplatePathResolver.findInPathes(opts.scriptPathes, cmd.script);
         
         // Validate and resolve library path if specified
         const commandWithLibrary: ICommand = {
@@ -526,7 +606,7 @@ export class TemplateProcessor extends EventEmitter {
             opts.parentTemplate,
             opts.scriptPathes,
           );
-          const libraryPath = this.findInPathes(opts.scriptPathes, cmd.library);
+          const libraryPath = TemplatePathResolver.findInPathes(opts.scriptPathes, cmd.library);
           if (!libraryPath) {
             opts.errors.push(
               new JsonError(
@@ -562,18 +642,61 @@ export class TemplateProcessor extends EventEmitter {
       }
     }
   }
-  findInPathes(pathes: string[], name: string) {
-    // Search all templatePathes for the first existing template file
-    let tmplPath: string | undefined = undefined;
-    for (const basePath of pathes) {
-      const candidate = path.join(basePath, name);
-      if (fs.existsSync(candidate)) {
-        tmplPath = candidate;
-        break;
+  /**
+   * Extracts capabilities from script header comments.
+   * Similar to extractCapabilitiesFromScriptHeader in documentation-generator.
+   */
+  #extractCapabilitiesFromScriptHeader(scriptPath: string): string[] {
+    const capabilities: string[] = [];
+    
+    try {
+      const scriptContent = fs.readFileSync(scriptPath, "utf-8");
+      const lines = scriptContent.split("\n");
+      
+      // Look for "This script" section in header comments
+      let inHeader = false;
+      let foundThisScript = false;
+      
+      for (let i = 0; i < lines.length && i < 50; i++) {
+        const line = lines[i]?.trim() || "";
+        
+        // Start of header (after shebang)
+        if (line.startsWith("#") && !line.startsWith("#!/")) {
+          inHeader = true;
+        }
+        
+        // Look for "This script" or "This library" line
+        if (inHeader && (line.includes("This script") || line.includes("This library"))) {
+          foundThisScript = true;
+        }
+        
+        // Look for numbered list of capabilities (e.g., "# 1. Validates...", "2. Creates...")
+        if (foundThisScript && inHeader) {
+          // Match lines like "# 1. Validates..." or "1. Validates..."
+          const numberedMatch = line.match(/^#*\s*\d+\.\s+(.+)/);
+          if (numberedMatch && numberedMatch[1]) {
+            let capability = numberedMatch[1].trim();
+            // Remove leading # if present
+            capability = capability.replace(/^#+\s*/, "").trim();
+            if (capability.length > 0) {
+              capabilities.push(capability);
+            }
+          }
+        }
+        
+        // Stop at first non-comment line after header
+        if (inHeader && !line.startsWith("#") && line.length > 0 && !line.startsWith("exec >&2")) {
+          break;
+        }
       }
+    } catch {
+      // Ignore errors reading script
     }
-    return tmplPath;
+    
+    return capabilities;
   }
+
+  // Removed findInPathes - now using TemplatePathResolver.findInPathes
   async getUnresolvedParameters(
     application: string,
     task: TaskType,
