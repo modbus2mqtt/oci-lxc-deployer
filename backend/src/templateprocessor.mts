@@ -351,6 +351,19 @@ export class TemplateProcessor extends EventEmitter {
       // Note: outputs on template level are no longer supported
       // All outputs should be defined on command level
       // Properties commands will be handled directly in the resolvedParams section below
+      
+      // Validate execute_on: required if template has executable commands (script, command, template)
+      // Optional if template only has properties commands
+      const hasExecutableCommands = tmplData.commands?.some(
+        (cmd) => cmd.script !== undefined || cmd.command !== undefined || cmd.template !== undefined
+      ) ?? false;
+      if (hasExecutableCommands && !tmplData.execute_on) {
+        opts.errors.push(
+          new JsonError(
+            `Template "${this.extractTemplateName(opts.template)}" has executable commands (script, command, or template) but is missing required "execute_on" property.`,
+          ),
+        );
+      }
     } catch (e: any) {
       opts.errors.push(e);
       this.emit("message", {
@@ -394,12 +407,13 @@ export class TemplateProcessor extends EventEmitter {
     
     if (shouldSkip) {
       // Replace all commands with "skipped" commands that always exit with 0
+      // Only set execute_on if template has it (properties-only templates don't need it)
       for (const cmd of tmplData.commands ?? []) {
         const skippedCommand: ICommand = {
           name: `${cmd.name || tmplData.name || "unnamed-template"} (skipped)`,
           command: "exit 0",
           description: `Skipped: all required parameters missing`,
-          execute_on: tmplData.execute_on,
+          ...(tmplData.execute_on && { execute_on: tmplData.execute_on }),
         };
         opts.commands.push(skippedCommand);
       }
@@ -611,34 +625,6 @@ export class TemplateProcessor extends EventEmitter {
       }
     }
     
-    // Check if template defines a parameter and also sets it as output
-    // This is only OK if:
-    // 1. Another template has already set it as output (resolved), OR
-    // 2. The parameter is optional (required: false or not set)
-    //    In this case, the parameter can be provided by the user, or the script can generate it as output
-    if (tmplData.parameters) {
-      for (const param of tmplData.parameters) {
-        // Check if this parameter ID is also set as output in this template
-        if (allOutputIds.has(param.id)) {
-          // Parameter is defined and also set as output in the same template
-          // Check if it was already resolved by another template
-          const wasAlreadyResolved = opts.resolvedParams.some(
-            (p) => p.id === param.id && p.template !== currentTemplateName
-          );
-          // Check if parameter is optional (required: false or not set)
-          const isOptional = param.required !== true;
-          
-          if (!wasAlreadyResolved && !isOptional) {
-            // This is an error: template defines required parameter and sets it as output, but no other template set it first
-            opts.errors.push(
-              new JsonError(
-                `Template "${currentTemplateName}" defines required parameter "${param.id}" and also sets it as output. This is only allowed if another template sets "${param.id}" as output first, or if the parameter is optional.`,
-              ),
-            );
-          }
-        }
-      }
-    }
     // Add all parameters (no duplicates)
     // Only add parameters if template is NOT skipped
     for (const param of tmplData.parameters ?? []) {
@@ -767,7 +753,7 @@ export class TemplateProcessor extends EventEmitter {
         const commandWithLibrary: ICommand = {
           ...cmd,
           script: scriptPath || cmd.script,
-          execute_on: tmplData.execute_on,
+          ...(tmplData.execute_on && { execute_on: tmplData.execute_on }),
         };
         
         if (cmd.library !== undefined) {
@@ -803,16 +789,17 @@ export class TemplateProcessor extends EventEmitter {
         );
         const commandToAdd: ICommand = {
           ...cmd,
-          execute_on: tmplData.execute_on,
+          ...(tmplData.execute_on && { execute_on: tmplData.execute_on }),
         };
         opts.commands.push(commandToAdd);
       } else {
         // Handle properties-only commands or other command types
         // Ensure name is set (should already be set above, but ensure it's preserved)
+        // Properties-only commands don't need execute_on (they don't execute anything)
         const commandToAdd: ICommand = {
           ...cmd,
           name: cmd.name || tmplData.name || "unnamed-template",
-          execute_on: tmplData.execute_on,
+          ...(tmplData.execute_on && { execute_on: tmplData.execute_on }),
         };
         opts.commands.push(commandToAdd);
       }

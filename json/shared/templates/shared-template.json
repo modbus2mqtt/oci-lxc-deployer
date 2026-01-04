@@ -1,5 +1,4 @@
 {
-  "execute_on": "lxc",
   "name": "Shared Template",
   "description": "A shared template that may be skipped",
   "skip_if_all_missing": [

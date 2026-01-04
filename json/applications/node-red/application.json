@@ -8,6 +8,7 @@
     "100-create-configure-lxc.json",
     "200-start-lxc.json",
     "210-wait-for-container-ready.json",
+    "305-set-pkg-mirror.json",
     "330-install-packages.json",
     "340-install-node-application.json",
     "350-create-enable-service.json"

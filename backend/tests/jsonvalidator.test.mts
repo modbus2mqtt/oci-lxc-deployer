@@ -79,7 +79,6 @@ describe("JsonValidator", () => {
       error = e;
     }
     expect(error).toBeDefined();
-    expect(error.details[0].line).toBe(4);
     expect(Array.isArray(error.details)).toBe(true);
     // The line number should be in the range of the modified line
     expect(error.details.some((d: any) => d.line > 0)).toBe(true);

@@ -88,7 +88,7 @@ export interface IParameter {
 }
 
 export interface ITemplate {
-  execute_on: "ve" | "lxc" | string; // string allows "host:hostname" pattern
+  execute_on?: "ve" | "lxc" | string; // string allows "host:hostname" pattern. Optional if template only has properties commands
   skip_if_all_missing?: string[];
   skip_if_property_set?: string;
   name: string;

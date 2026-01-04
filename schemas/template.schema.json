@@ -73,7 +73,7 @@
     "properties": { "type": { "enum": ["command", "script", "template"] } }
   },
   "then": { "properties": { "enumValues": { "type": "string" } } },
-  "required": ["commands", "execute_on", "name"],
+  "required": ["commands", "name"],
   "additionalProperties": false,
   "$defs": {
     "command": {

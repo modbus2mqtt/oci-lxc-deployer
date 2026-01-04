@@ -1,5 +1,4 @@
 {
-  "execute_on": "ve",
   "name": "Modbus2Mqtt Parameters",
   "description": "Set application-specific parameters for Modbus2Mqtt",
   "parameters": [
@@ -11,22 +10,7 @@
       "required": true,
       "description": "Hostname for the Modbus2Mqtt OS"
     },
-    
-    {
-      "id": "packageurl",
-      "name": "URL of the APK package",
-      "type": "string",
-      "default": "",
-      "required": true,
-      "description": "URL of the APK package to be installed"
-    },
-    {
-      "id": "packagerpubkeyurl",
-      "name": "URL of the public key for verifying the package",
-      "type": "string",
-      "required": true,
-      "description": "URL of the public key for verifying the package"
-    },
+
     {
       "id": "usb_bus_device",
       "name": "USB Serial Port",
@@ -40,6 +24,9 @@
     {
       "properties": [
         { "id": "ostype", "value": "alpine" },
+        { "id": "command", "value": "modbus2mqtt" },
+        { "id": "package", "value": "modbus2mqtt" },
+        { "id": "owned_paths", "value": "/var/log/modbus2mqtt" },
         { "id": "volumes", "value": "data=/data\nconfig=/config\nssl=/ssl" },
         { "id": "packages", "value": "nodejs npm git openrc" }
       ]

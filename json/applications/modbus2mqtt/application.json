@@ -1,15 +1,11 @@
 {
   "name": "Modbus2Mqtt Gateway",
   "description": "Modbus2Mqtt Gateway from Modbus RTU/TCP to MQTT and vice versa",
+  "extends": "node-red",
   "installation": [
-    "set-parameters.json",
-    "010-get-latest-os-template.json",
-    "100-create-configure-lxc.json",
-    "200-start-lxc.json",
-    "210-wait-for-container-ready.json",
-    "set-download-url.json",
-    "310-create-user.json",
-    "305-set-pkg-mirror.json",
-    "300-download-and-install-apk-package.json"
+    {
+      "name": "110-map-serial.json",
+      "after": "100-create-configure-lxc.json"
+    }
   ]
 }
