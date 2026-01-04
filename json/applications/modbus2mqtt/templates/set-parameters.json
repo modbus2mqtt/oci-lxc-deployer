@@ -26,7 +26,7 @@
         { "id": "ostype", "value": "alpine" },
         { "id": "command", "value": "modbus2mqtt" },
         { "id": "package", "value": "modbus2mqtt" },
-        { "id": "owned_paths", "value": "/var/log/modbus2mqtt" },
+        { "id": "owned_paths", "value": "" }, 
         { "id": "volumes", "value": "data=/data\nconfig=/config\nssl=/ssl" },
         { "id": "packages", "value": "nodejs npm git openrc" }
       ]

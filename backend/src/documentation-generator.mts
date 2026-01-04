@@ -28,9 +28,9 @@ export class DocumentationGenerator {
     this.jsonPath = jsonPath;
     this.localPath = localPath;
     this.schemaPath = schemaPath;
-    // Default htmlPath is html/ in project root
+    // Default htmlPath is docs/generated/ in project root
     const projectRoot = path.resolve(path.dirname(jsonPath));
-    this.htmlPath = htmlPath || path.join(projectRoot, "html");
+    this.htmlPath = htmlPath || path.join(projectRoot, "docs", "generated");
 
     // Initialize helper classes
     const configuredPathes: IConfiguredPathes = {

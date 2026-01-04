@@ -20,7 +20,7 @@ export class TemplateDocumentGenerator {
 
   constructor(
     templatesDir: string = path.join("json", "shared", "templates"),
-    docsDir: string = "docs",
+    docsDir: string = path.join("docs", "generated"),
     schemaPath: string = path.join("schemas", "shared.application.schema.json"),
   ) {
     this.templatesDir = templatesDir;
