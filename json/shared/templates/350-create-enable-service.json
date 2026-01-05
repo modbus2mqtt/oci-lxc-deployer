@@ -40,7 +40,8 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional group name (will be created if not exists)"
+      "description": "Optional group name (will be created if not exists)",
+      "advanced": true
     },
     {
       "id": "owned_paths",

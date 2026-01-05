@@ -28,7 +28,9 @@
         { "id": "package", "value": "modbus2mqtt" },
         { "id": "owned_paths", "value": "" }, 
         { "id": "volumes", "value": "data=/data\nconfig=/config\nssl=/ssl" },
-        { "id": "packages", "value": "nodejs npm git openrc" }
+        { "id": "packages", "value": "nodejs npm git openrc" },
+        { "id": "command_args", "value": "-c /config -d /data -s /ssl" }
+       
       ]
     }
   ]
