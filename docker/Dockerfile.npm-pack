@@ -19,10 +19,11 @@ ENV NODE_ENV=production
 COPY ${NPM_TARBALL} /tmp/app.tgz
 
 # Install the application globally from the tarball and create a non-root user
+# Use fixed UID/GID 1000:1000 for easier volume permission management
 RUN set -eux; \
     npm install -g /tmp/app.tgz --omit=dev; \
     rm /tmp/app.tgz; \
-    addgroup -S lxc && adduser -S -G lxc lxc; \
+    addgroup -S -g 1000 lxc && adduser -S -u 1000 -G lxc lxc; \
     mkdir -p /home/lxc && chown -R lxc:lxc /home/lxc; \
     npm cache clean --force
 
