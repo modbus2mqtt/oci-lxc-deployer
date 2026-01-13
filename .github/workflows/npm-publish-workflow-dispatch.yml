@@ -37,7 +37,7 @@ jobs:
             version="$(npm version ${{ inputs.version_number }} | sed -e 's/^v//g' )"
             git push --follow-tags
           else
-            version="$(node -p "require('./package.json').version")"
+            version="$(node -e "import('fs').then(fs => { const pkg = JSON.parse(fs.readFileSync('./package.json', 'utf-8')); console.log(pkg.version); })")"
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           # Check if this is a major or minor release (patch number is 0)
