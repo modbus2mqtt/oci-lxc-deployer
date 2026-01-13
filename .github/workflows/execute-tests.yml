@@ -1,22 +1,24 @@
-name: Integration Tests
+name: Run All Tests
 
 on:
   workflow_dispatch:
-  schedule:
-    # Run integration tests daily at 2 AM UTC
-    - cron: '0 2 * * *'
   push:
     branches:
       - main
     paths:
-      - 'backend/tests/integration/**/*.test.mts'
-      - 'backend/src/framework-from-image.mts'
-      - 'json/shared/scripts/get-oci-image-annotations.py'
+      - 'backend/tests/**/*.test.mts'
+      - 'backend/src/**/*.mts'
+      - 'json/shared/scripts/**/*.py'
+  pull_request:
+    paths:
+      - 'backend/tests/**/*.test.mts'
+      - 'backend/src/**/*.mts'
+      - 'json/shared/scripts/**/*.py'
 
 jobs:
-  integration-tests:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     
     steps:
       - name: Checkout code
@@ -38,9 +40,9 @@ jobs:
         working-directory: ./backend
         run: npm ci
       
-      - name: Run integration tests
+      - name: Run all tests
         working-directory: ./backend
-        run: npm run test:integration
+        run: npm run test:all
         env:
           CI: true
       
@@ -48,7 +50,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-test-results
+          name: test-results
           path: backend/coverage/
           retention-days: 7
 
