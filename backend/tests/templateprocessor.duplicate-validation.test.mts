@@ -20,13 +20,11 @@ describe("TemplateProcessor duplicate validation", () => {
     testDir = mkdtempSync(path.join(tmpdir(), "templateprocessor-duplicate-test-"));
     secretFilePath = path.join(testDir, "secret.txt");
 
-    // StorageContext uses rootDirname which is "../../" relative to backend/src
-    // So jsonPath will be <repo-root>/json, not in testDir
-    // We need to create the application in the actual json directory
     const __filename = new URL(import.meta.url).pathname;
     const backendDir = path.dirname(__filename);
     const repoRoot = path.join(backendDir, "../..");
-    const jsonDir = path.join(repoRoot, "json");
+    const jsonDir = path.join(testDir, "json");
+    const schemaDir = path.join(repoRoot, "schemas");
     const applicationsDir = path.join(jsonDir, "applications");
     const testAppDir = path.join(applicationsDir, "test-duplicate-app");
     const templatesDir = path.join(testAppDir, "templates");
@@ -43,24 +41,21 @@ describe("TemplateProcessor duplicate validation", () => {
     } catch {
       // Ignore if not initialized
     }
-    PersistenceManager.initialize(testDir, storageContextPath, secretFilePath);
+    // Initialize with isolated json/schema paths
+    PersistenceManager.initialize(
+      testDir,
+      storageContextPath,
+      secretFilePath,
+      false,
+      jsonDir,
+      schemaDir,
+    );
     const pm = PersistenceManager.getInstance();
     contextManager = pm.getContextManager();
     tp = contextManager.getTemplateProcessor();
   });
 
   afterAll(() => {
-    // Cleanup: Remove test application directory
-    const __filename = new URL(import.meta.url).pathname;
-    const backendDir = path.dirname(__filename);
-    const repoRoot = path.join(backendDir, "../..");
-    const jsonDir = path.join(repoRoot, "json");
-    const testAppDir = path.join(jsonDir, "applications", "test-duplicate-app");
-    try {
-      rmSync(testAppDir, { recursive: true, force: true });
-    } catch (e) {
-      // Ignore cleanup errors
-    }
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch (e) {
@@ -69,10 +64,7 @@ describe("TemplateProcessor duplicate validation", () => {
   });
 
   it("should detect duplicate templates in the same task", async () => {
-    const __filename = new URL(import.meta.url).pathname;
-    const backendDir = path.dirname(__filename);
-    const repoRoot = path.join(backendDir, "../..");
-    const jsonDir = path.join(repoRoot, "json");
+    const jsonDir = path.join(testDir, "json");
     const testAppDir = path.join(jsonDir, "applications", "test-duplicate-app");
     const templatesDir = path.join(testAppDir, "templates");
 
@@ -155,10 +147,7 @@ describe("TemplateProcessor duplicate validation", () => {
   });
 
   it("should detect duplicate output IDs from different templates in the same task", async () => {
-    const __filename = new URL(import.meta.url).pathname;
-    const backendDir = path.dirname(__filename);
-    const repoRoot = path.join(backendDir, "../..");
-    const jsonDir = path.join(repoRoot, "json");
+    const jsonDir = path.join(testDir, "json");
     const testAppDir = path.join(jsonDir, "applications", "test-duplicate-app");
     const templatesDir = path.join(testAppDir, "templates");
 

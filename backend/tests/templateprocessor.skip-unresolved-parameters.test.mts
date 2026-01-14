@@ -18,13 +18,13 @@ describe("TemplateProcessor - Parameters from skipped templates should not appea
     testDir = mkdtempSync(path.join(tmpdir(), "templateprocessor-skip-unresolved-params-test-"));
     secretFilePath = path.join(testDir, "secret.txt");
 
-    // StorageContext uses rootDirname which is "../../" relative to backend/src
-    // So jsonPath will be <repo-root>/json, not in testDir
-    // We need to create the application in the actual json directory
+    // Use an isolated json directory inside the temp testDir to avoid
+    // mutating the repository json and to prevent cross-test races in CI
     const __filename = new URL(import.meta.url).pathname;
     const backendDir = path.dirname(__filename);
     const repoRoot = path.join(backendDir, "../..");
-    const jsonDir = path.join(repoRoot, "json");
+    const jsonDir = path.join(testDir, "json");
+    const schemaDir = path.join(repoRoot, "schemas");
     const applicationsDir = path.join(jsonDir, "applications");
     const testAppDir = path.join(applicationsDir, "test-skip-unresolved-app");
     const templatesDir = path.join(testAppDir, "templates");
@@ -124,7 +124,15 @@ describe("TemplateProcessor - Parameters from skipped templates should not appea
     } catch {
       // Ignore if not initialized
     }
-    PersistenceManager.initialize(testDir, storageContextPath, secretFilePath);
+    // Initialize with isolated json/schema paths
+    PersistenceManager.initialize(
+      testDir,
+      storageContextPath,
+      secretFilePath,
+      false,
+      jsonDir,
+      schemaDir,
+    );
     const pm = PersistenceManager.getInstance();
     contextManager = pm.getContextManager();
     tp = contextManager.getTemplateProcessor();
@@ -134,13 +142,6 @@ describe("TemplateProcessor - Parameters from skipped templates should not appea
     try {
       if (testDir && require("fs").existsSync(testDir)) {
         rmSync(testDir, { recursive: true, force: true });
-      }
-      const __filename = new URL(import.meta.url).pathname;
-      const backendDir = path.dirname(__filename);
-      const repoRoot = path.join(backendDir, "../..");
-      const testAppDir = path.join(repoRoot, "json", "applications", "test-skip-unresolved-app");
-      if (require("fs").existsSync(testAppDir)) {
-        rmSync(testAppDir, { recursive: true, force: true });
       }
     } catch {
       // Ignore cleanup errors
@@ -183,11 +184,7 @@ describe("TemplateProcessor - Parameters from skipped templates should not appea
 
   it("should include parameters from skipped templates when skip_if_property_set variable is NOT set", async () => {
     // Create a separate application for this test
-    const __filename = new URL(import.meta.url).pathname;
-    const backendDir = path.dirname(__filename);
-    const repoRoot = path.join(backendDir, "../..");
-    const jsonDir = path.join(repoRoot, "json");
-    const applicationsDir = path.join(jsonDir, "applications");
+    const applicationsDir = path.join(testDir, "json", "applications");
     const testAppDir2 = path.join(applicationsDir, "test-skip-unresolved-app-2");
     const templatesDir2 = path.join(testAppDir2, "templates");
     
