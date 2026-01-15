@@ -289,7 +289,7 @@ oci_outputs=$(execute_script_from_github \
   "registry_password=" \
   "platform=linux/amd64")
 
-IFS=',' read -r ostype application_id resolved_oci_image <<EOF
+IFS=',' read -r ostype application_id application_name resolved_oci_image <<EOF
 $oci_outputs
 EOF
 
@@ -314,6 +314,9 @@ vm_id=$(execute_script_from_github \
   "memory=${memory}" \
   "bridge=${bridge}" \
   "hostname=${hostname}" \
+  "application_id=${application_id}" \
+  "application_name=${application_name}" \
+  "oci_image=${resolved_oci_image}" \
   "ostype=${ostype}")
 
 if [ -z "$vm_id" ]; then
