@@ -1,38 +1,26 @@
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "fs";
+import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createTestEnvironment, type TestEnvironment } from "./test-environment.mjs";
 
-let testDir: string;
-let secretFilePath: string;
+let env: TestEnvironment;
 
 beforeAll(() => {
-  // Create a temporary directory for the test
-  testDir = mkdtempSync(join(tmpdir(), "jsonvalidator-test-"));
-  secretFilePath = join(testDir, "secret.txt");
-
-  // Create a valid storagecontext.json file
-  const storageContextPath = join(testDir, "storagecontext.json");
-  writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
-
-  // Close existing instance if any
-  try {
-    PersistenceManager.getInstance().close();
-  } catch {
-    // Ignore if not initialized
-  }
-  PersistenceManager.initialize(testDir, storageContextPath, secretFilePath);
+  env = createTestEnvironment(import.meta.url, {
+    // This test validates files by absolute path; no json copying required
+    jsonIncludePatterns: [],
+    // Schemas are stable and are read from repo directly (default)
+  });
+  env.initPersistence();
 });
 
 afterAll(() => {
-  // Cleanup test directory
   try {
-    if (testDir && existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
-  } catch (e: any) {
-    // Ignore cleanup errors
+    env.cleanup();
+  } catch {
+    // ignore cleanup errors
   }
 });
 

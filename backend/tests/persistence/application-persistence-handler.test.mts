@@ -16,9 +16,10 @@ import {
   IReadApplicationOptions,
   VEConfigurationError,
 } from "@src/backend-types.mjs";
+import { createTestEnvironment, type TestEnvironment } from "../test-environment.mjs";
 
 describe("ApplicationPersistenceHandler", () => {
-  let testDir: string;
+  let env: TestEnvironment;
   let jsonPath: string;
   let localPath: string;
   let schemaPath: string;
@@ -26,15 +27,12 @@ describe("ApplicationPersistenceHandler", () => {
   let jsonValidator: JsonValidator;
 
   beforeEach(() => {
-    // Setup temporäre Verzeichnisse
-    testDir = mkdtempSync(path.join(tmpdir(), "app-handler-test-"));
-    jsonPath = path.join(testDir, "json");
-    localPath = path.join(testDir, "local");
-    schemaPath = path.join(__dirname, "../../../schemas"); // Use real schemas from root
-
-    // Verzeichnisse erstellen
-    mkdirSync(jsonPath, { recursive: true });
-    mkdirSync(localPath, { recursive: true });
+    env = createTestEnvironment(import.meta.url, {
+      jsonIncludePatterns: [],
+    });
+    jsonPath = env.jsonDir;
+    localPath = env.localDir;
+    schemaPath = env.schemaDir;
 
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
@@ -49,8 +47,7 @@ describe("ApplicationPersistenceHandler", () => {
   });
 
   afterEach(() => {
-    // Cleanup
-    rmSync(testDir, { recursive: true, force: true });
+    env?.cleanup();
   });
 
   function writeJson(filePath: string, data: any): void {

@@ -9,18 +9,16 @@
     @for (it of installations; track it) {
       <div class="installed-card">
         <div class="card-header">
-          @if (it.application.iconContent) {
-            <div class="icon-wrapper">
-              <img [src]="'data:' + (it.application.iconType || 'image/png') + ';base64,' + it.application.iconContent" [alt]="it.application.name + ' Icon'" />
-            </div>
-          }
           <div class="header-info">
-            <h2>{{ it.application.name }}</h2>
-            <p class="sub">Host: <b>{{ it.hostname }}</b> • Task: <b>{{ it.task }}</b></p>
+            <h2>CT {{ it.vm_id }}</h2>
+            <p class="sub">
+              @if (it.hostname) { Host: <b>{{ it.hostname }}</b> • }
+              OCI: <b>{{ it.oci_image }}</b>
+            </p>
           </div>
         </div>
         <div class="card-actions">
-          <button type="button" (click)="copyUpgrade(it)">Copy Upgrade</button>
+          <button type="button" (click)="goToMonitor()">Monitor</button>
         </div>
       </div>
     }

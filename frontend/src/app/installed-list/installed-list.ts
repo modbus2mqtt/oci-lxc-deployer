@@ -3,7 +3,7 @@ import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { VeConfigurationService } from '../ve-configuration.service';
-import { IInstallationEntry } from '../../shared/types';
+import { IManagedOciContainer } from '../../shared/types';
 
 @Component({
   selector: 'app-installed-list',
@@ -13,7 +13,7 @@ import { IInstallationEntry } from '../../shared/types';
   styleUrl: './installed-list.scss',
 })
 export class InstalledList implements OnInit {
-  installations: IInstallationEntry[] = [];
+  installations: IManagedOciContainer[] = [];
   loading = true;
   error?: string;
   private svc = inject(VeConfigurationService);
@@ -32,14 +32,7 @@ export class InstalledList implements OnInit {
     });
   }
 
-  copyUpgrade(entry: IInstallationEntry) {
-    this.svc.restartInstallation(entry.vmInstallKey).subscribe({
-      next: () => {
-        this.router.navigate(['/monitor']);
-      },
-      error: () => {
-        // Global handler in service already alerts and navigates
-      }
-    });
+  goToMonitor() {
+    this.router.navigate(['/monitor']);
   }
 }

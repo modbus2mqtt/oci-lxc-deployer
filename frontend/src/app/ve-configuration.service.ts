@@ -93,7 +93,7 @@ export class VeConfigurationService {
   }
   getInstallations(): Observable<IInstallationsResponse> {
     VeConfigurationService.setRouter(this.router);
-    return this.http.get<IInstallationsResponse>(ApiUri.Installations);
+    return this.get<IInstallationsResponse>(ApiUri.Installations);
   }
 
   getUnresolvedParameters(application: string, task: string): Observable<IUnresolvedParametersResponse> {

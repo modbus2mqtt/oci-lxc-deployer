@@ -38,6 +38,8 @@ export type TaskType =
   | "uninstall"
   | "update"
   | "upgrade"
+  | "copy-upgrade"
+  | "copy-rollback"
   | "webui";
 // Generated from template.schema.json
 export interface IOutputObject {
@@ -117,7 +119,8 @@ export enum ApiUri {
   VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
   Applications = "/api/applications",
-  Installations = "/api/installations",
+  Installations = "/api/installations/:veContext",
+  VeCopyUpgrade = "/api/ve/copy-upgrade/:application/:veContext",
   TemplateDetailsForApplication = "/api/template-details/:application/:task/:veContext",
   UnresolvedParameters = "/api/unresolved-parameters/:application/:task/:veContext",
   FrameworkNames = "/api/framework-names",
@@ -179,21 +182,14 @@ export interface IApplicationResponse {
   parameters: IParameter[];
 }
 
-export interface IInstallationEntry {
-  application: IApplicationWeb;
-  vmInstallKey: string;
-  hostname: string;
-  task: TaskType;
+export interface IManagedOciContainer {
+  vm_id: number;
+  hostname?: string;
+  oci_image: string;
+  icon?: string;
 }
 
-export interface IInstallationEntry {
-  application: IApplicationWeb;
-  vmInstallKey: string;
-  hostname: string;
-  task: TaskType;
-}
-
-export type IInstallationsResponse = IInstallationEntry[];
+export type IInstallationsResponse = IManagedOciContainer[];
 
 export type IVeExecuteMessagesResponse = ISingleExecuteMessagesResponse[];
 export interface IVeConfigurationResponse {

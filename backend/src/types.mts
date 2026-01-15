@@ -38,6 +38,8 @@ export type TaskType =
   | "uninstall"
   | "update"
   | "upgrade"
+  | "copy-upgrade"
+  | "copy-rollback"
   | "webui";
 // Generated from template.schema.json
 export interface IOutputObject {
@@ -117,13 +119,15 @@ export enum ApiUri {
   VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
   Applications = "/api/applications",
-  Installations = "/api/installations",
+  Installations = "/api/installations/:veContext",
   TemplateDetailsForApplication = "/api/template-details/:application/:task/:veContext",
   UnresolvedParameters = "/api/unresolved-parameters/:application/:task/:veContext",
   FrameworkNames = "/api/framework-names",
   FrameworkParameters = "/api/framework-parameters/:frameworkId",
   FrameworkCreateApplication = "/api/framework-create-application",
   FrameworkFromImage = "/api/framework-from-image",
+
+  VeCopyUpgrade = "/api/ve/copy-upgrade/:application/:veContext",
 }
 
 // Response interfaces for all backend endpoints (frontend mirror)
@@ -179,21 +183,30 @@ export interface IApplicationResponse {
   parameters: IParameter[];
 }
 
-export interface IInstallationEntry {
-  application: IApplicationWeb;
-  vmInstallKey: string;
-  hostname: string;
-  task: TaskType;
+export interface IManagedOciContainer {
+  vm_id: number;
+  hostname?: string;
+  oci_image: string;
+  icon?: string;
 }
 
-export interface IInstallationEntry {
-  application: IApplicationWeb;
-  vmInstallKey: string;
-  hostname: string;
-  task: TaskType;
-}
+export type IInstallationsResponse = IManagedOciContainer[];
 
-export type IInstallationsResponse = IInstallationEntry[];
+export interface IPostVeCopyUpgradeBody {
+  oci_image: string;
+  source_vm_id: number;
+  vm_id?: number;
+  disk_size?: string;
+  bridge?: string;
+  memory?: number;
+
+  // Optional OCI download/import knobs (mirrors 011-get-oci-image.json)
+  storage?: string;
+  registry_username?: string;
+  registry_password?: string;
+  registry_token?: string;
+  platform?: string;
+}
 
 export type IVeExecuteMessagesResponse = ISingleExecuteMessagesResponse[];
 export interface IVeConfigurationResponse {

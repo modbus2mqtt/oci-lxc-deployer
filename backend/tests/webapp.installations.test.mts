@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { VEWebApp } from "@src/webapp.mjs";
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
-import { ApiUri, TaskType } from "@src/types.mjs";
+import { ApiUri } from "@src/types.mjs";
+import { createTestEnvironment, type TestEnvironment } from "./test-environment.mjs";
 
 function mkTmpDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -16,77 +16,124 @@ function mkDirs(root: string, ...dirs: string[]): void {
   for (const d of dirs) fs.mkdirSync(path.join(root, d), { recursive: true });
 }
 
+function listFilesRecursive(root: string): string[] {
+  const out: string[] = [];
+  const entries = fs.readdirSync(root, { withFileTypes: true });
+  for (const ent of entries) {
+    const full = path.join(root, ent.name);
+    if (ent.isDirectory()) {
+      out.push(...listFilesRecursive(full));
+    } else if (ent.isFile()) {
+      out.push(full);
+    }
+  }
+  return out.sort();
+}
+
 describe("WebApp Installations API", () => {
   let app: express.Application;
-  let tmpLocal: string;
-  let tmpJson: string;
-  let tmpSchemas: string;
+  let env: TestEnvironment;
+  let tmpPve: string;
+  const veContextKey = "ve_testhost";
 
   beforeEach(() => {
-    tmpLocal = mkTmpDir("lxc-local-");
-    tmpJson = mkTmpDir("lxc-json-");
-    tmpSchemas = mkTmpDir("lxc-schemas-");
-    // Ensure json/schemas dirs exist but stay empty (no project json usage)
-    mkDirs(tmpJson);
-    mkDirs(tmpSchemas);
+    // Ensure VeExecution runs locally (no SSH) for this test
+    process.env.LXC_MANAGER_TEST_MODE = "true";
 
-    const storageContextFile = path.join(tmpLocal, "storagecontext.json");
-    const secretFile = path.join(tmpLocal, "secret.txt");
+    env = createTestEnvironment(import.meta.url, {
+      // Provide required script for /api/installations via json/ (no manual copying)
+      jsonIncludePatterns: [".*list-managed-oci-containers.*"],
+      // Schemas are read from repo directly by default (no copying)
+    });
+    tmpPve = mkTmpDir("lxc-pve-");
 
-    // Reset singleton between tests
-    try { PersistenceManager.getInstance().close(); } catch {}
+    const { ctx } = env.initPersistence();
+    // Create VE context used by installations scan
+    ctx.setVEContext({
+      host: "testhost",
+      port: 22,
+      current: true,
+    } as any);
 
-    // Initialize with dedicated local/json/schemas paths
-    PersistenceManager.initialize(
-      tmpLocal,
-      storageContextFile,
-      secretFile,
-      true,
-      tmpJson,
-      tmpSchemas,
+    // Create fake /etc/pve/lxc directory structure and configs
+    const lxcDir = path.join(tmpPve, "lxc");
+    mkDirs(tmpPve, "lxc");
+
+    // managed + oci -> should be returned
+    fs.writeFileSync(
+      path.join(lxcDir, "101.conf"),
+      [
+        "hostname: cont-101",
+        "description: <!-- lxc-manager:managed -->\\n<!-- lxc-manager:oci-image docker://alpine:3.19 -->\\nOCI image: docker://alpine:3.19",
+      ].join("\n"),
+      "utf-8",
+    );
+    // managed but NOT oci -> should be ignored
+    fs.writeFileSync(
+      path.join(lxcDir, "102.conf"),
+      [
+        "hostname: cont-102",
+        "description: <!-- lxc-manager:managed -->\\nLXC template: local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst",
+      ].join("\n"),
+      "utf-8",
+    );
+    // oci but NOT managed -> should be ignored
+    fs.writeFileSync(
+      path.join(lxcDir, "103.conf"),
+      [
+        "hostname: cont-103",
+        "description: <!-- lxc-manager:oci-image docker://debian:bookworm -->",
+      ].join("\n"),
+      "utf-8",
+    );
+    // managed + oci (fallback visible line only) -> should be returned
+    fs.writeFileSync(
+      path.join(lxcDir, "104.conf"),
+      [
+        "hostname: cont-104",
+        "description: <!-- lxc-manager:managed -->\\nOCI image: ghcr.io/example/app:1.2.3",
+      ].join("\n"),
+      "utf-8",
     );
 
-    const ctx = PersistenceManager.getInstance().getContextManager();
-    // Seed two VMInstall contexts, without touching json dir
-    ctx.setVMInstallContext({
-      hostname: "cont-01",
-      application: "app-alpha",
-      task: "installation" as TaskType,
-      changedParams: [],
-    });
-    ctx.setVMInstallContext({
-      hostname: "cont-02",
-      application: "app-beta",
-      task: "installation" as TaskType,
-      changedParams: [],
-    });
+    // Point scan logic to our fake dir in tests
+    process.env.LXC_MANAGER_PVE_LXC_DIR = lxcDir;
 
     app = new VEWebApp(ctx as any).app;
   });
 
-  it("returns two installations without errors and does not modify json dir", async () => {
-    // json dir should remain empty (no files written)
-    const jsonFilesBefore = fs.readdirSync(tmpJson);
-    expect(jsonFilesBefore.length).toBe(0);
+  afterEach(() => {
+    try {
+      env.cleanup();
+    } catch {
+      // ignore
+    }
+  });
 
-    const res = await request(app).get(ApiUri.Installations);
+  it("returns managed OCI containers and does not modify json dir", async () => {
+    // json dir should not be modified by the request (no files written)
+    const jsonFilesBefore = listFilesRecursive(env.jsonDir);
+
+    const url = ApiUri.Installations.replace(":veContext", veContextKey);
+    const res = await request(app).get(url);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body.length).toBe(2);
 
+    // Sorted by vm_id
+    expect(res.body[0].vm_id).toBe(101);
+    expect(res.body[1].vm_id).toBe(104);
+
     // Validate shape of entries
     for (const entry of res.body) {
-      expect(typeof entry.vmInstallKey).toBe("string");
-      expect(entry.vmInstallKey.startsWith("vminstall_")).toBe(true);
-      expect(typeof entry.hostname).toBe("string");
-      expect(typeof entry.task).toBe("string");
-      // application fallback when app metadata not present
-      expect(entry.application && typeof entry.application.id).toBe("string");
-      expect(entry.application && typeof entry.application.name).toBe("string");
+      expect(typeof entry.vm_id).toBe("number");
+      expect(typeof entry.oci_image).toBe("string");
+      // Icon is currently empty string (placeholder for later notes parsing)
+      expect(entry.icon).toBe("");
     }
 
     // Still no json written afterwards
-    const jsonFilesAfter = fs.readdirSync(tmpJson);
-    expect(jsonFilesAfter.length).toBe(0);
+    const jsonFilesAfter = listFilesRecursive(env.jsonDir);
+    expect(jsonFilesAfter).toEqual(jsonFilesBefore);
   });
 });

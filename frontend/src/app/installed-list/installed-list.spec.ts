@@ -10,19 +10,18 @@ import type { IInstallationsResponse } from '../../shared/types';
 class MockVeConfigurationService {
   getInstallations = vi.fn(() => of<IInstallationsResponse>([
     {
-      application: { id: 'app-alpha', name: 'App Alpha', description: '' },
-      vmInstallKey: 'vminstall_cont-01_app-alpha',
+      vm_id: 101,
       hostname: 'cont-01',
-      task: 'installation',
+      oci_image: 'ghcr.io/acme/app-alpha:1.2.3',
+      icon: '',
     },
     {
-      application: { id: 'app-beta', name: 'App Beta', description: '' },
-      vmInstallKey: 'vminstall_cont-02_app-beta',
+      vm_id: 104,
       hostname: 'cont-02',
-      task: 'installation',
+      oci_image: 'ghcr.io/acme/app-beta:4.5.6',
+      icon: '',
     },
   ]));
-  restartInstallation = vi.fn(() => of({ success: true } ));
 }
 
 describe('InstalledList component (vitest)', () => {
@@ -42,7 +41,7 @@ describe('InstalledList component (vitest)', () => {
     vi.spyOn(router, 'navigate');
   });
 
-  it('lädt zwei Installationen und löst Copy Upgrade aus', async () => {
+  it('lädt zwei Installationen und rendert zwei Karten', async () => {
     const fixture = TestBed.createComponent(InstalledList);
     fixture.detectChanges();
 
@@ -50,20 +49,13 @@ describe('InstalledList component (vitest)', () => {
     expect(svc.getInstallations).toHaveBeenCalledTimes(1);
 
     const el: HTMLElement = fixture.nativeElement as HTMLElement;
-    // Suche Buttons „Copy Upgrade“
+    // Suche Buttons
     const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>('.card-actions button'));
     expect(buttons.length).toBe(2);
 
-    // Klicke den ersten Button
+    // Optional: Navigation zum Monitor wurde angestoßen
     buttons[0].click();
     fixture.detectChanges();
-
-    // Validierung: Es ist „etwas“ passiert
-    // - Service-Aufruf mit dem passenden vmInstallKey
-    expect(svc.restartInstallation).toHaveBeenCalledTimes(1);
-    expect(svc.restartInstallation).toHaveBeenCalledWith('vminstall_cont-01_app-alpha');
-
-    // Optional: Navigation zum Monitor wurde angestoßen
     expect(router.navigate).toHaveBeenCalledWith(['/monitor']);
   });
 });

@@ -1,7 +1,5 @@
 import path from "node:path";
-import os from "node:os";
-import { fileURLToPath } from "node:url";
-import fs, { mkdtempSync, rmSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync } from "node:fs";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { FrameworkLoader } from "@src/frameworkloader.mjs";
@@ -9,105 +7,38 @@ import { ContextManager } from "@src/context-manager.mjs";
 import { IPostFrameworkCreateApplicationBody } from "@src/types.mjs";
 import { IApplication } from "@src/backend-types.mjs";
 import { ITemplate } from "@src/types.mjs";
+import { createTestEnvironment, type TestEnvironment } from "./test-environment.mjs";
 
 describe("FrameworkLoader.createApplicationFromFramework", () => {
-  let tempDir: string;
-  let tempJsonDir: string;
-  let repoRoot: string;
+  let env: TestEnvironment;
   let contextManager: ContextManager;
   let loader: FrameworkLoader;
+  let pm: PersistenceManager;
 
   beforeEach(() => {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    repoRoot = path.resolve(__dirname, "..", "..");
-    tempDir = mkdtempSync(path.join(os.tmpdir(), "lxc-fw-create-"));
-    tempJsonDir = mkdtempSync(path.join(os.tmpdir(), "lxc-fw-json-"));
-    const storageContextFile = path.join(tempDir, "storagecontext.json");
-    const secretFile = path.join(tempDir, "secret.txt");
-
-    // Copy required framework and application to temp json directory
-    const realJsonPath = path.join(repoRoot, "json");
-    const frameworksDir = path.join(tempJsonDir, "frameworks");
-    const applicationsDir = path.join(tempJsonDir, "applications");
-    mkdirSync(frameworksDir, { recursive: true });
-    mkdirSync(applicationsDir, { recursive: true });
-
-    // Copy npm-nodejs framework
-    const npmFrameworkSource = path.join(realJsonPath, "frameworks", "npm-nodejs.json");
-    if (existsSync(npmFrameworkSource)) {
-      copyFileSync(npmFrameworkSource, path.join(frameworksDir, "npm-nodejs.json"));
-    }
-
-    // Copy npm-nodejs application (base application for the framework)
-    const npmAppSource = path.join(realJsonPath, "applications", "npm-nodejs");
-    const npmAppDest = path.join(applicationsDir, "npm-nodejs");
-    if (existsSync(npmAppSource)) {
-      // Copy entire directory recursively
-      copyDirectoryRecursive(npmAppSource, npmAppDest);
-    }
-
-    // Copy shared directory (templates and scripts) - npm-nodejs application references these
-    const sharedSource = path.join(realJsonPath, "shared");
-    const sharedDest = path.join(tempJsonDir, "shared");
-    if (existsSync(sharedSource)) {
-      copyDirectoryRecursive(sharedSource, sharedDest);
-    }
-
-    // Close existing instance if any
-    try {
-      PersistenceManager.getInstance().close();
-    } catch {
-      // Ignore if not initialized
-    }
-    PersistenceManager.initialize(
-      tempDir,
-      storageContextFile,
-      secretFile,
-      false, // Disable cache for tests
-      tempJsonDir, // Use test jsonPath
-      path.join(repoRoot, "schemas"), // Use test schemaPath
-    );
-    const pm = PersistenceManager.getInstance();
-    contextManager = pm.getContextManager();
+    env = createTestEnvironment(import.meta.url, {
+      jsonIncludePatterns: [
+        "^frameworks/npm-nodejs\\.json$",
+        "^applications/npm-nodejs/.*",
+        "^shared/.*",
+      ],
+    });
+    const init = env.initPersistence({ enableCache: false });
+    pm = init.pm;
+    contextManager = init.ctx;
     loader = new FrameworkLoader(
       {
-        localPath: tempDir,
-        jsonPath: tempJsonDir,
-        schemaPath: path.join(repoRoot, "schemas"),
+        localPath: env.localDir,
+        jsonPath: env.jsonDir,
+        schemaPath: env.schemaDir,
       },
       contextManager,
       pm.getPersistence(),
     );
   });
 
-  function copyDirectoryRecursive(src: string, dest: string): void {
-    if (!existsSync(dest)) {
-      mkdirSync(dest, { recursive: true });
-    }
-    const entries = fs.readdirSync(src, { withFileTypes: true });
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name);
-      const destPath = path.join(dest, entry.name);
-      if (entry.isDirectory()) {
-        copyDirectoryRecursive(srcPath, destPath);
-      } else {
-        copyFileSync(srcPath, destPath);
-      }
-    }
-  }
-
   afterEach(() => {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
-    try {
-      rmSync(tempJsonDir, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
+    env.cleanup();
   });
 
   it("creates a valid application from framework", async () => {
@@ -135,10 +66,10 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
     expect(applicationId).toBe("test-app");
 
     // Verify application.json exists and is valid
-    const appJsonPath = path.join(tempDir, "applications", "test-app", "application.json");
+    const appJsonPath = path.join(env.localDir, "applications", "test-app", "application.json");
     expect(existsSync(appJsonPath)).toBe(true);
 
-    const validator = PersistenceManager.getInstance().getJsonValidator();
+    const validator = pm.getJsonValidator();
     // Read and validate the application.json file
     // Note: The file should NOT contain 'id' - it's added when reading via persistence
     const appDataRaw = JSON.parse(fs.readFileSync(appJsonPath, "utf-8"));
@@ -161,7 +92,7 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
     }
 
     // Verify parameters template exists and is valid
-    const setParamsPath = path.join(tempDir, "applications", "test-app", "templates", "test-app-parameters.json");
+    const setParamsPath = path.join(env.localDir, "applications", "test-app", "templates", "test-app-parameters.json");
     expect(existsSync(setParamsPath)).toBe(true);
 
     const templateData = validator.serializeJsonFileWithSchema(setParamsPath, "template.schema.json") as ITemplate;
@@ -172,10 +103,10 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
 
   it("throws error if application already exists in localPath", async () => {
     // Create existing application directory
-    const existingAppDir = path.join(tempDir, "applications", "existing-app");
+    const existingAppDir = path.join(env.localDir, "applications", "existing-app");
     const existingAppJson = path.join(existingAppDir, "application.json");
-    require("fs").mkdirSync(existingAppDir, { recursive: true });
-    require("fs").writeFileSync(existingAppJson, JSON.stringify({ name: "Existing" }));
+    mkdirSync(existingAppDir, { recursive: true });
+    fs.writeFileSync(existingAppJson, JSON.stringify({ name: "Existing" }));
 
     const request: IPostFrameworkCreateApplicationBody = {
       frameworkId: "npm-nodejs",
@@ -192,7 +123,7 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
 
   it("throws error if application already exists in jsonPath", async () => {
     // Create application in temp json directory to test the check
-    const existingAppDir = path.join(tempJsonDir, "applications", "existing-json-app");
+    const existingAppDir = path.join(env.jsonDir, "applications", "existing-json-app");
     const existingAppJson = path.join(existingAppDir, "application.json");
     mkdirSync(existingAppDir, { recursive: true });
     fs.writeFileSync(existingAppJson, JSON.stringify({ name: "Existing JSON App" }));

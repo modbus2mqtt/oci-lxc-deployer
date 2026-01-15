@@ -438,5 +438,83 @@ describe("WebAppVE API", () => {
       expect(response.body.error).toContain("VE context not found");
     });
   });
+
+  describe("POST /api/ve/copy-upgrade/:application/:veContext", () => {
+    it("should start upgrade task and return restartKey (no vmInstallKey)", async () => {
+      // Create application directory first
+      const appDir = path.join(helper.jsonDir, "applications", "testapp");
+      fs.mkdirSync(appDir, { recursive: true });
+      const templatesDir = path.join(appDir, "templates");
+      fs.mkdirSync(templatesDir, { recursive: true });
+
+      helper.writeApplication("testapp", {
+        name: "Test App",
+        description: "Test application",
+        installation: [],
+        "copy-upgrade": ["copy-upgrade.json"],
+      });
+
+      helper.writeTemplate("testapp", "copy-upgrade.json", {
+        execute_on: "ve",
+        name: "Copy-Upgrade",
+        description: "Copy-upgrade test template",
+        parameters: [
+          {
+            id: "oci_image",
+            name: "OCI Image",
+            type: "string",
+            required: true,
+            description: "OCI image reference",
+          },
+          {
+            id: "source_vm_id",
+            name: "Source VM ID",
+            type: "number",
+            required: true,
+            description: "Source container ID",
+          },
+        ],
+        commands: [
+          {
+            name: "Emit vm_id",
+            command: "echo '[{\"id\":\"vm_id\",\"value\":123}]'",
+          },
+        ],
+      });
+
+      const url = ApiUri.VeCopyUpgrade
+        .replace(":application", "testapp")
+        .replace(":veContext", veContextKey);
+
+      const response = await request(app)
+        .post(url)
+        .send({
+          oci_image: "docker://alpine:3.19",
+          source_vm_id: 101,
+        });
+
+      if (response.status !== 200) {
+        throw new Error(
+          `VeCopyUpgrade failed: status=${response.status} body=${JSON.stringify(response.body)}`,
+        );
+      }
+
+      expect(response.body.success).toBe(true);
+      expect(typeof response.body.restartKey).toBe("string");
+      expect(response.body.vmInstallKey).toBeUndefined();
+    });
+
+    it("should reject missing fields", async () => {
+      const url = ApiUri.VeCopyUpgrade
+        .replace(":application", "testapp")
+        .replace(":veContext", veContextKey);
+
+      await request(app).post(url).send({}).expect(400);
+      await request(app)
+        .post(url)
+        .send({ oci_image: "docker://alpine:3.19" })
+        .expect(400);
+    });
+  });
 });
 

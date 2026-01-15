@@ -19,6 +19,14 @@
       "description": "Path to the LXC template (e.g. local:vztmpl/alpine-3.19-default_20231107_amd64.tar.xz). Auto-selected by installer for Alpine. Must be provided by 010-get-latest-os-template.json template."
     },
     {
+      "id": "oci_image",
+      "name": "OCI Image",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "Optional: OCI image reference used to create the container (e.g. docker://mariadb:11.0.2). If provided, it will be written into the Proxmox notes (description) as an identifiable line."
+    },
+    {
       "id": "disk_size",
       "name": "Disk size",
       "type": "string",

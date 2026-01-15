@@ -7,6 +7,21 @@ import { TemplatePathResolver } from "./template-path-resolver.mjs";
 
 export class ScriptValidator {
   /**
+   * Built-in template variables provided by runtime (not user parameters).
+   * These are injected via defaults/context and therefore must be allowed here.
+   */
+  private isBuiltInVariable(v: string): boolean {
+    // Keep this list intentionally small and explicit.
+    return (
+      v === "application" ||
+      v === "application_id" ||
+      v === "application_name" ||
+      v === "task" ||
+      v === "task_type"
+    );
+  }
+
+  /**
    * Extracts all {{ var }} placeholders from a string.
    */
   private extractTemplateVariables(str: string): string[] {
@@ -54,6 +69,7 @@ export class ScriptValidator {
       const scriptContent = fs.readFileSync(scriptPath, "utf-8");
       const vars = this.extractTemplateVariables(scriptContent);
       for (const v of vars) {
+        if (this.isBuiltInVariable(v)) continue;
         if (
           !parameters.some((p) => p.id === v) &&
           !resolvedParams.some((rp) => rp.id === v)
@@ -84,6 +100,7 @@ export class ScriptValidator {
     if (cmd.command) {
       const vars = this.extractTemplateVariables(cmd.command);
       for (const v of vars) {
+        if (this.isBuiltInVariable(v)) continue;
         if (
           !parameters.some((p) => p.id === v) &&
           !resolvedParams.some((rp) => rp.id === v)

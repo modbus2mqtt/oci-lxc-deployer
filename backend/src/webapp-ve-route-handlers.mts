@@ -210,6 +210,20 @@ export class WebAppVeRouteHandlers {
       );
       const commands = loaded.commands;
       const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);
+
+      // Built-in context variables (available to scripts as {{ application_id }}, etc.)
+      // Do not require any template parameters.
+      defaults.set("application", application);
+      defaults.set("application_id", application);
+      defaults.set(
+        "application_name",
+        (loaded.application && typeof (loaded.application as any).name === "string")
+          ? String((loaded.application as any).name)
+          : application,
+      );
+      defaults.set("task", task);
+      defaults.set("task_type", task);
+
       const contextManager = PersistenceManager.getInstance().getContextManager();
       // Process parameters: for upload parameters with "local:" prefix, read file and base64 encode
       const processedParams = await this.parameterProcessor.processParameters(
