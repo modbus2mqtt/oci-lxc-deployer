@@ -31,6 +31,11 @@ export class VeExecutionSshExecutor {
     } else if (deps.sshCommand !== undefined) {
       // Backward compatibility: derive from sshCommand
       this.executionMode = deps.sshCommand === "ssh" ? ExecutionMode.PRODUCTION : ExecutionMode.TEST;
+    } else if (deps.veContext) {
+      // If a VE context is present we almost certainly want to execute on the remote VE host.
+      // This prevents running host-specific listing scripts (lsusb/lsblk/...) on the local dev machine.
+      // Tests can still force local execution by passing executionMode=TEST.
+      this.executionMode = ExecutionMode.PRODUCTION;
     } else {
       // Auto-detect from environment
       this.executionMode = determineExecutionMode();

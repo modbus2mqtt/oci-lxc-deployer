@@ -62,8 +62,8 @@
   "commands": [
     {
       "name": "Map Audio Device",
-      "script": "map-audio-device.sh",
-      "library": "usb-device-common.sh"
+      "script": "map-audio-device.py",
+      "library": "map_device_lib.py"
     }
   ]
 }

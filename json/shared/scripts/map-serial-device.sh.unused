@@ -1,0 +1,476 @@
+#!/bin/sh
+# Map serial device to LXC container
+#
+# This script maps a USB serial device to an LXC container by:
+# 1. Validating and parsing USB bus:device parameters
+# 2. Finding and validating the tty device on the host
+# 3. Updating LXC container configuration with device mapping
+# 4. Setting the host device group to dialout (gid 20)
+# 5. Emitting warnings if prerequisites for dialout(20) are not met
+#
+# Required:
+#   - vm_id: LXC container ID (from context)
+#   - One of:
+#     - host_device_path: Stable host path (e.g. /dev/serial/by-id/...), preferred if available
+#     - usb_bus_device: USB device in format bus:device (legacy fallback)
+#
+# Optional:
+#   - uid: Container user ID (default: 0)
+#   - gid: Container group ID (default: 20 / dialout)
+#   - mapped_uid: Host UID to apply to the device
+#   - mapped_gid: Host GID to apply to the device
+#   - container_device_path: Path in container (default: /dev/ttyUSB0)
+#
+# Library: usb-device-common.sh (automatically prepended)
+#
+# Output: JSON to stdout (errors to stderr)
+exec >&2
+
+# Store function definition in variable for use in main script and replug script
+UPDATE_LXC_CONFIG_FUNCTION=$(cat <<'FUNCTION_EOF'
+# Function to update LXC config for serial device mapping
+# Parameters: config_file, host_device, container_uid, container_gid
+update_lxc_config_for_serial_device() {
+  CONFIG_FILE="$1"
+  HOST_DEVICE="$2"
+  CONTAINER_UID="$3"
+  CONTAINER_GID="$4"
+  
+  if [ -z "$CONFIG_FILE" ] || [ -z "$HOST_DEVICE" ]; then
+    echo "Error: update_lxc_config_for_serial_device requires config_file and host_device" >&2
+    return 1
+  fi
+  
+  # Remove existing dev0 entry
+  sed -i '/^dev0:/d' "$CONFIG_FILE"
+  
+  # Add cgroup allow for the device
+  STAT_OUTPUT=$(stat -c "%t %T" "$HOST_DEVICE" 2>/dev/null || echo "")
+  if [ -n "$STAT_OUTPUT" ]; then
+    MAJOR=$((0x$(echo "$STAT_OUTPUT" | awk '{print $1}')))
+    MINOR=$((0x$(echo "$STAT_OUTPUT" | awk '{print $2}')))
+    # Remove old cgroup allow entry
+    sed -i "/^lxc.cgroup2.devices.allow = c $MAJOR:$MINOR/d" "$CONFIG_FILE"
+    # Add new cgroup allow entry
+    echo "lxc.cgroup2.devices.allow = c $MAJOR:$MINOR rwm" >> "$CONFIG_FILE"
+  fi
+  
+  # Add dev0 mapping (without mp=, as it's not supported)
+  echo "dev0: $HOST_DEVICE,uid=$CONTAINER_UID,gid=$CONTAINER_GID,mode=0664" >> "$CONFIG_FILE"
+}
+FUNCTION_EOF
+)
+
+# Define function in main script from variable
+eval "$UPDATE_LXC_CONFIG_FUNCTION"
+
+# Global variables (shared between functions)
+CONTAINER_DEVICE_PATH=""
+CONTAINER_UID=""
+CONTAINER_GID=""
+MAPPED_UID=""
+MAPPED_GID=""
+USB_BUS_PATH=""
+HOST_DEVICE_PATH_INPUT=""
+MAP_USB_BUS_DIRECTORY=""
+INSTALL_REPLUG_WATCHER=""
+REPLUG_WATCHER_INTERVAL_SECONDS=""
+ACTUAL_HOST_DEVICE=""
+VENDOR_ID=""
+PRODUCT_ID=""
+
+# Function to validate and parse input parameters
+validate_and_parse_parameters() {
+  MAP_USB_BUS_DIRECTORY_RAW="{{ map_usb_bus_directory }}"
+  case "$MAP_USB_BUS_DIRECTORY_RAW" in
+    1|true|TRUE|yes|YES|on|ON)
+      MAP_USB_BUS_DIRECTORY="true"
+      ;;
+    *)
+      MAP_USB_BUS_DIRECTORY=""
+      ;;
+  esac
+
+  INSTALL_REPLUG_WATCHER_RAW="{{ install_replug_watcher }}"
+  case "$INSTALL_REPLUG_WATCHER_RAW" in
+    1|true|TRUE|yes|YES|on|ON)
+      INSTALL_REPLUG_WATCHER="true"
+      ;;
+    *)
+      INSTALL_REPLUG_WATCHER=""
+      ;;
+  esac
+
+  INTERVAL_RAW="{{ replug_watcher_interval_seconds }}"
+  if echo "$INTERVAL_RAW" | grep -qE '^[0-9]+$'; then
+    REPLUG_WATCHER_INTERVAL_SECONDS="$INTERVAL_RAW"
+  else
+    REPLUG_WATCHER_INTERVAL_SECONDS="2"
+  fi
+
+  HOST_DEVICE_PATH_INPUT_RAW="{{ host_device_path }}"
+  if [ -n "$HOST_DEVICE_PATH_INPUT_RAW" ] && [ "$HOST_DEVICE_PATH_INPUT_RAW" != "" ] && [ "$HOST_DEVICE_PATH_INPUT_RAW" != "NOT_DEFINED" ]; then
+    HOST_DEVICE_PATH_INPUT="$HOST_DEVICE_PATH_INPUT_RAW"
+  fi
+
+  if [ -z "$HOST_DEVICE_PATH_INPUT" ] && [ -z "$MAP_USB_BUS_DIRECTORY" ]; then
+    # Fallback: require usb_bus_device
+    if [ -z "{{ usb_bus_device }}" ] || [ "{{ usb_bus_device }}" = "" ]; then
+      echo "Error: Either host_device_path or usb_bus_device must be provided." >&2
+      return 1
+    fi
+
+    # Parse USB bus:device using library function
+    if ! parse_usb_bus_device "{{ usb_bus_device }}"; then
+      return 1
+    fi
+  fi
+
+  # Get container UID/GID
+  UID_VALUE="{{ uid }}"
+  GID_VALUE="{{ gid }}"
+  CONTAINER_UID="${UID_VALUE:-0}"
+  if [ -n "$GID_VALUE" ] && [ "$GID_VALUE" != "" ]; then
+    CONTAINER_GID="$GID_VALUE"
+  else
+    # Debian: dialout
+    CONTAINER_GID="20"
+  fi
+
+  # Optional host-side mapped IDs
+  MAPPED_UID_VALUE="{{ mapped_uid }}"
+  MAPPED_GID_VALUE="{{ mapped_gid }}"
+  if [ -n "$MAPPED_UID_VALUE" ] && [ "$MAPPED_UID_VALUE" != "" ] && [ "$MAPPED_UID_VALUE" != "NOT_DEFINED" ]; then
+    MAPPED_UID="$MAPPED_UID_VALUE"
+  fi
+  if [ -n "$MAPPED_GID_VALUE" ] && [ "$MAPPED_GID_VALUE" != "" ] && [ "$MAPPED_GID_VALUE" != "NOT_DEFINED" ]; then
+    MAPPED_GID="$MAPPED_GID_VALUE"
+  fi
+
+  # Determine container device path
+  CONTAINER_DEVICE_PATH_PARAM="{{ container_device_path }}"
+  if [ -n "$CONTAINER_DEVICE_PATH_PARAM" ] && [ "$CONTAINER_DEVICE_PATH_PARAM" != "" ]; then
+    CONTAINER_DEVICE_PATH="$CONTAINER_DEVICE_PATH_PARAM"
+  else
+    if [ -n "$INSTALL_REPLUG_WATCHER" ]; then
+      # Prefer a non-tty name to make it explicit that consumers should not rely on /dev/ttyUSB*
+      CONTAINER_DEVICE_PATH="/dev/serial-by-id"
+    else
+      # Default to /dev/ttyUSB0 for stability
+      CONTAINER_DEVICE_PATH="/dev/ttyUSB0"
+    fi
+  fi
+
+  # Keep container path simple: our bind mount uses create=file, and we do not create directories via LXC.
+  if echo "$CONTAINER_DEVICE_PATH" | grep -qE '^/dev/.+/.+'; then
+    echo "Warning: container_device_path=$CONTAINER_DEVICE_PATH contains subdirectories; falling back to /dev/serial-by-id." >&2
+    CONTAINER_DEVICE_PATH="/dev/serial-by-id"
+  fi
+
+  if [ -n "$INSTALL_REPLUG_WATCHER" ] && [ -z "$HOST_DEVICE_PATH_INPUT" ]; then
+    echo "Error: install_replug_watcher=true requires host_device_path (e.g. /dev/serial/by-id/...)." >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# Function to find and validate USB devices
+find_and_validate_devices() {
+  if [ -n "$MAP_USB_BUS_DIRECTORY" ]; then
+    # Directory mapping mode: no stable single node required for mapping.
+    # If usb_bus_device is provided we can still resolve a tty for dialout warnings.
+    if [ -n "{{ usb_bus_device }}" ] && [ "{{ usb_bus_device }}" != "" ]; then
+      if parse_usb_bus_device "{{ usb_bus_device }}"; then
+        ACTUAL_HOST_DEVICE=$(find_tty_device "$USB_BUS" "$USB_DEVICE")
+      fi
+    fi
+    return 0
+  fi
+
+  if [ -n "$HOST_DEVICE_PATH_INPUT" ]; then
+    # Preferred: stable device path (e.g., /dev/serial/by-id/...).
+    # Resolve for permission checks.
+    ACTUAL_HOST_DEVICE=$(resolve_symlink "$HOST_DEVICE_PATH_INPUT")
+    if [ -z "$ACTUAL_HOST_DEVICE" ] || [ ! -e "$ACTUAL_HOST_DEVICE" ]; then
+      echo "Error: host_device_path does not exist: $HOST_DEVICE_PATH_INPUT" >&2
+      return 1
+    fi
+    if [ ! -c "$ACTUAL_HOST_DEVICE" ]; then
+      echo "Error: host_device_path does not resolve to a character device: $HOST_DEVICE_PATH_INPUT -> $ACTUAL_HOST_DEVICE" >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  # Legacy path: identify by usb bus:device
+  # Check if device is already mapped to another running container
+  if is_usb_device_mapped_in_running_containers "$USB_BUS" "$USB_DEVICE"; then
+    echo "Warning: USB device ${USB_BUS}:${USB_DEVICE} is already mapped to a running container." >&2
+    echo "Warning: Mapping the same device to multiple containers may cause conflicts." >&2
+  fi
+  
+  # Get USB bus path using library function
+  USB_BUS_PATH=$(get_usb_bus_path "$USB_BUS" "$USB_DEVICE")
+  if [ -z "$USB_BUS_PATH" ] || [ ! -e "$USB_BUS_PATH" ]; then
+    echo "Error: USB bus path $USB_BUS_PATH does not exist" >&2
+    echo "Debug: USB_BUS=$USB_BUS, USB_DEVICE=$USB_DEVICE" >&2
+    return 1
+  fi
+
+  # Find tty device using library function (used for warnings/permissions)
+  ACTUAL_HOST_DEVICE=$(find_tty_device "$USB_BUS" "$USB_DEVICE")
+  if [ -z "$ACTUAL_HOST_DEVICE" ] || [ ! -e "$ACTUAL_HOST_DEVICE" ]; then
+    echo "Error: Could not find tty device for USB bus $USB_BUS device $USB_DEVICE" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# Ensure a wildcard cgroup allow entry exists (idempotent)
+add_cgroup_allow_wildcard() {
+  CONFIG_FILE="$1"
+  RULE="$2"
+  grep -q "^lxc.cgroup2.devices.allow = $RULE" "$CONFIG_FILE" 2>/dev/null && return 0
+  echo "lxc.cgroup2.devices.allow = $RULE" >> "$CONFIG_FILE"
+  return 0
+}
+
+install_replug_watcher() {
+  [ -n "$INSTALL_REPLUG_WATCHER" ] || return 0
+  [ -n "$HOST_DEVICE_PATH_INPUT" ] || return 1
+
+  VM_ID="{{ vm_id }}"
+  WATCHER_NAME="lxc-serial-rebind-${VM_ID}"
+  SCRIPT_PATH="/usr/local/bin/${WATCHER_NAME}.sh"
+  SERVICE_PATH="/etc/systemd/system/${WATCHER_NAME}.service"
+  TIMER_PATH="/etc/systemd/system/${WATCHER_NAME}.timer"
+
+  cat > "$SCRIPT_PATH" <<'EOF'
+#!/bin/sh
+set -eu
+
+VM_ID="$1"
+HOST_BY_ID="$2"
+CONTAINER_TARGET="$3"
+INTERVAL="$4"
+
+get_pid() {
+  if command -v pct >/dev/null 2>&1; then
+    pct pid "$VM_ID" 2>/dev/null || true
+  else
+    echo ""
+  fi
+}
+
+resolve() {
+  if command -v readlink >/dev/null 2>&1; then
+    readlink -f "$HOST_BY_ID" 2>/dev/null || true
+  else
+    echo ""
+  fi
+}
+
+ensure_bound() {
+  PID="$1"
+  SRC="$2"
+  DST="$3"
+
+  nsenter -t "$PID" -m -- sh -c "[ -e '$DST' ] || : > '$DST'" 2>/dev/null || true
+
+  CURRENT_SRC=$(nsenter -t "$PID" -m -- sh -c "findmnt -n -o SOURCE --target '$DST' 2>/dev/null || true" 2>/dev/null || true)
+  if [ "$CURRENT_SRC" != "$SRC" ]; then
+    nsenter -t "$PID" -m -- sh -c "umount -l '$DST' 2>/dev/null || true" 2>/dev/null || true
+    nsenter -t "$PID" -m -- sh -c "mount --bind '$SRC' '$DST'" 2>/dev/null || true
+  fi
+}
+
+while :; do
+  PID=$(get_pid)
+  if [ -n "$PID" ] && [ "$PID" != "0" ]; then
+    SRC=$(resolve)
+    if [ -n "$SRC" ] && [ -e "$SRC" ]; then
+      ensure_bound "$PID" "$SRC" "$CONTAINER_TARGET"
+    fi
+  fi
+  sleep "$INTERVAL" || sleep 2
+done
+EOF
+
+  chmod +x "$SCRIPT_PATH" || true
+
+  cat > "$SERVICE_PATH" <<EOF
+[Unit]
+Description=Rebind USB serial device into LXC container ${VM_ID} (no udev)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${SCRIPT_PATH} ${VM_ID} ${HOST_DEVICE_PATH_INPUT} ${CONTAINER_DEVICE_PATH} ${REPLUG_WATCHER_INTERVAL_SECONDS}
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > "$TIMER_PATH" <<EOF
+[Unit]
+Description=Start ${WATCHER_NAME} on boot
+
+[Timer]
+OnBootSec=5
+Unit=${WATCHER_NAME}.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >&2 || true
+    systemctl enable "${WATCHER_NAME}.timer" >&2 || true
+    systemctl start "${WATCHER_NAME}.timer" >&2 || true
+    systemctl start "${WATCHER_NAME}.service" >&2 || true
+  fi
+
+  return 0
+}
+
+# Function to setup LXC container mapping
+setup_lxc_mapping() {
+  CONFIG_FILE="/etc/pve/lxc/{{ vm_id }}.conf"
+
+  # Check container is stopped using library function
+  if ! check_container_stopped "{{ vm_id }}"; then
+    echo "Error: Container {{ vm_id }} is running. Please stop it before mapping devices." >&2
+    return 1
+  fi
+
+  # Remove existing entries (mp0 is legacy, keep for compatibility)
+  sed -i '/^mp0:/d' "$CONFIG_FILE"
+
+  # Clear legacy mappings that could conflict
+  sed -i '/^dev0:/d' "$CONFIG_FILE"
+  sed -i "/lxc.mount.entry.*dev\/bus\/usb/d" "$CONFIG_FILE"
+
+  if [ -n "$MAP_USB_BUS_DIRECTORY" ]; then
+    # Replug-friendly mapping: bind-mount whole USB bus directory.
+    # Note: consumers must work with /dev/bus/usb (not /dev/ttyUSB*).
+    add_cgroup_allow_wildcard "$CONFIG_FILE" "c 189:* rwm"
+    echo "lxc.mount.entry = /dev/bus/usb dev/bus/usb none bind,optional,create=dir" >> "$CONFIG_FILE"
+    return 0
+  fi
+
+  if [ -n "$HOST_DEVICE_PATH_INPUT" ]; then
+    # Stable mapping: mount the host device (often a /dev/serial/by-id symlink) into the container
+    # at a fixed container path (default /dev/ttyUSB0). This survives replug after container restart.
+    CONTAINER_RELATIVE=$(echo "$CONTAINER_DEVICE_PATH" | sed 's|^/||')
+    HOST_SOURCE="$HOST_DEVICE_PATH_INPUT"
+
+    # Remove any previous mount entry targeting the same container path
+    sed -i "\\|lxc.mount.entry = .* ${CONTAINER_RELATIVE} .*bind.*|d" "$CONFIG_FILE"
+
+    # Add cgroup allow based on the resolved current char device
+    add_cgroup_allow "$CONFIG_FILE" "$ACTUAL_HOST_DEVICE" || true
+
+    echo "lxc.mount.entry = $HOST_SOURCE $CONTAINER_RELATIVE none bind,optional,create=file,uid=$CONTAINER_UID,gid=$CONTAINER_GID,mode=0664" >> "$CONFIG_FILE"
+
+    # If we want replug without restart, allow ttyUSB majors broadly and install watcher.
+    if [ -n "$INSTALL_REPLUG_WATCHER" ]; then
+      add_cgroup_allow_wildcard "$CONFIG_FILE" "c 188:* rwm"
+      install_replug_watcher || true
+    fi
+
+    return 0
+  fi
+
+  # Legacy mapping: Map USB bus device using library function
+  # This is not handled by udev, so must be done here
+  map_usb_bus_device "$CONFIG_FILE" "$USB_BUS_PATH" "$CONTAINER_UID" "$CONTAINER_GID"
+
+  return 0
+}
+
+# Returns 0 if the container config contains a 1:1 GID mapping for 20 (dialout)
+has_1to1_dialout_gid_mapping() {
+  CONFIG_FILE="/etc/pve/lxc/{{ vm_id }}.conf"
+  [ -f "$CONFIG_FILE" ] || return 1
+  # Match both "lxc.idmap: g 20 20 1" and "lxc.idmap = g 20 20 1" variants
+  grep -Eq '^lxc\.idmap([[:space:]]*[:=])[[:space:]]*g[[:space:]]+20[[:space:]]+20[[:space:]]+1([[:space:]]+|$)' "$CONFIG_FILE"
+}
+
+# Emit a warning if the current host device node does not look like root:dialout with group access.
+warn_if_host_dialout_permissions_unexpected() {
+  DEVICE="$1"
+  [ -e "$DEVICE" ] || return 0
+
+  HOST_GID=$(stat -c "%g" "$DEVICE" 2>/dev/null || echo "")
+  HOST_MODE=$(stat -c "%a" "$DEVICE" 2>/dev/null || echo "")
+
+  if [ "$HOST_GID" != "20" ]; then
+    echo "Warning: Host device $DEVICE has gid=$HOST_GID (expected 20/dialout)." >&2
+    echo "Warning: With gid=20 + 1:1 mapping, host should typically expose tty device as root:dialout." >&2
+  fi
+
+  # Expect group read+write (660/664/666 etc). We do a coarse check based on last two digits.
+  # If stat output is unexpected, don't fail.
+  if [ -n "$HOST_MODE" ]; then
+    MODE_LAST_TWO=$(echo "$HOST_MODE" | tail -c 3)
+    GROUP_DIGIT=$(echo "$MODE_LAST_TWO" | cut -c 1)
+    # group digit: 0..7 ; we need write(2) and read(4) => 6 or 7
+    if [ "$GROUP_DIGIT" != "6" ] && [ "$GROUP_DIGIT" != "7" ]; then
+      echo "Warning: Host device $DEVICE mode=$HOST_MODE does not grant group rw (expected 66x/67x)." >&2
+    fi
+  fi
+}
+
+# Best-effort: ensure the host device node belongs to dialout (gid 20).
+# This script runs as root on the Proxmox host.
+set_host_device_group_to_dialout() {
+  DEVICE="$1"
+  [ -e "$DEVICE" ] || return 0
+
+  if command -v getent >/dev/null 2>&1 && getent group dialout >/dev/null 2>&1; then
+    chgrp dialout "$DEVICE" 2>/dev/null || true
+  else
+    # Fallback: numeric gid
+    chgrp 20 "$DEVICE" 2>/dev/null || true
+  fi
+}
+
+
+
+# Main execution
+main() {
+  # Validate and parse parameters
+  if ! validate_and_parse_parameters; then
+    exit 1
+  fi
+
+  # Find and validate devices
+  if ! find_and_validate_devices; then
+    exit 1
+  fi
+
+  # Setup LXC container mapping
+  if ! setup_lxc_mapping; then
+    exit 1
+  fi
+
+  # Host-side: ensure device group is dialout (best-effort)
+  if [ "$CONTAINER_GID" = "20" ]; then
+    if [ -n "$ACTUAL_HOST_DEVICE" ] && [ -e "$ACTUAL_HOST_DEVICE" ]; then
+      set_host_device_group_to_dialout "$ACTUAL_HOST_DEVICE"
+      warn_if_host_dialout_permissions_unexpected "$ACTUAL_HOST_DEVICE"
+    fi
+  else
+    echo "Warning: gid=$CONTAINER_GID is not 20 (dialout); not changing host device group." >&2
+  fi
+
+  
+  exit 0
+}
+
+# Run main function
+main

@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""Importable variant of the device mapping library.
+
+This file duplicates the content of map-device-lib.py.unused but uses an import-friendly
+module name (underscores instead of hyphens).
+
+The template system can prepend this file as "library" to scripts executed via stdin.
+"""
+
+import os
+import re
+import stat
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Tuple
+
+
+def eprint(*args: object) -> None:
+    print(*args, file=os.sys.stderr)
+
+
+def _run(
+    argv: List[str],
+    *,
+    check: bool = False,
+    capture: bool = True,
+    text: bool = True,
+    input_str: Optional[str] = None,
+) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        argv,
+        check=check,
+        capture_output=capture,
+        text=text,
+        input=input_str,
+    )
+
+
+def require_root() -> None:
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        raise SystemExit("Error: This script must run as root.")
+
+
+def tmpl_str(value: str) -> Optional[str]:
+    v = (value or "").strip()
+    if v == "" or v == "NOT_DEFINED":
+        return None
+    return v
+
+
+def tmpl_bool(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
+def tmpl_int(value: str, default: int) -> int:
+    v = (value or "").strip()
+    if re.fullmatch(r"[0-9]+", v or ""):
+        return int(v)
+    return default
+
+
+@dataclass(frozen=True)
+class UsbBusDevice:
+    bus: int
+    device: int
+
+
+def parse_usb_bus_device(value: str) -> UsbBusDevice:
+    raw = (value or "").strip()
+    m = re.fullmatch(r"(\d+):(\d+)", raw)
+    if not m:
+        raise ValueError("usb_bus_device must be in format bus:device (e.g., 1:3)")
+    return UsbBusDevice(bus=int(m.group(1)), device=int(m.group(2)))
+
+
+def get_usb_bus_path(bus: int, device: int) -> str:
+    return f"/dev/bus/usb/{bus:03d}/{device:03d}"
+
+
+def resolve_symlink(path: str) -> str:
+    try:
+        return os.path.realpath(path)
+    except Exception:
+        return path
+
+
+def detect_vm_type(vm_id: str) -> str:
+    if os.path.exists(f"/etc/pve/lxc/{vm_id}.conf"):
+        return "lxc"
+    if os.path.exists(f"/etc/pve/qemu-server/{vm_id}.conf"):
+        return "qemu"
+    return "unknown"
+
+
+def check_vm_stopped(vm_id: str, vm_type: str) -> bool:
+    if vm_type == "lxc":
+        proc = _run(["pct", "status", vm_id], check=False)
+        return "status: running" not in (proc.stdout or "")
+    if vm_type == "qemu":
+        proc = _run(["qm", "status", vm_id], check=False)
+        return "status: running" not in (proc.stdout or "")
+    return False
+
+
+def pct_pid(vm_id: str) -> Optional[str]:
+    proc = _run(["pct", "pid", vm_id], check=False)
+    pid = (proc.stdout or "").strip()
+    if pid == "" or pid == "0":
+        return None
+    return pid
+
+
+def stat_chr_major_minor(path: str) -> Optional[Tuple[int, int]]:
+    try:
+        st = os.stat(path)
+        if not stat.S_ISCHR(st.st_mode):
+            return None
+        major = os.major(st.st_rdev)
+        minor = os.minor(st.st_rdev)
+        return major, minor
+    except Exception:
+        return None
+
+
+def read_text(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def write_text_atomic(path: str, content: str, mode: Optional[int] = None) -> None:
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def remove_lines_matching(content: str, patterns: Iterable[re.Pattern]) -> str:
+    out_lines: List[str] = []
+    for line in content.splitlines(True):
+        if any(p.search(line) for p in patterns):
+            continue
+        out_lines.append(line)
+    return "".join(out_lines)
+
+
+def ensure_line(content: str, line: str) -> str:
+    needle = line.rstrip("\n")
+    for existing in content.splitlines():
+        if existing.strip() == needle.strip():
+            return content
+    if not content.endswith("\n"):
+        content += "\n"
+    return content + needle + "\n"
+
+
+def udev_properties_for_devnode(devnode: str) -> Dict[str, str]:
+    proc = _run(["udevadm", "info", f"--name={devnode}", "--query=property"], check=False)
+    props: Dict[str, str] = {}
+    for line in (proc.stdout or "").splitlines():
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        props[k.strip()] = v.strip()
+    return props
+
+
+@dataclass(frozen=True)
+class UdevMatch:
+    subsystem: str
+    vendor_id: Optional[str]
+    model_id: Optional[str]
+    serial_short: Optional[str]
+
+
+def udev_match_for_tty(devnode: str) -> UdevMatch:
+    props = udev_properties_for_devnode(devnode)
+    return UdevMatch(
+        subsystem="tty",
+        vendor_id=props.get("ID_VENDOR_ID"),
+        model_id=props.get("ID_MODEL_ID"),
+        serial_short=props.get("ID_SERIAL_SHORT"),
+    )
+
+
+def render_udev_rule_lines(match: UdevMatch, systemd_unit: str) -> List[str]:
+    if not match.vendor_id or not match.model_id:
+        raise ValueError("Unable to determine ID_VENDOR_ID/ID_MODEL_ID via udevadm")
+
+    def env_eq(key: str, value: str) -> str:
+        # IMPORTANT: Avoid literal double-curly-brace markers in source because the template engine
+        # would treat it as a mustache variable when this library is prepended.
+        return 'ENV' + '{' + key + '}' + '=="' + value + '"'
+
+    def env_append(key: str, value: str) -> str:
+        return 'ENV' + '{' + key + '}' + '+="' + value + '"'
+
+    clauses = [
+        f'SUBSYSTEM=="{match.subsystem}"',
+        env_eq("ID_VENDOR_ID", match.vendor_id.lower()),
+        env_eq("ID_MODEL_ID", match.model_id.lower()),
+    ]
+    if match.serial_short:
+        clauses.append(env_eq("ID_SERIAL_SHORT", match.serial_short))
+
+    clauses += [
+        'ACTION=="add"',
+        'TAG+="systemd"',
+        env_append("SYSTEMD_WANTS", systemd_unit),
+    ]
+
+    return [", ".join(clauses) + "\n"]
+
+
+def shutil_which(cmd: str) -> Optional[str]:
+    for p in os.environ.get("PATH", "").split(":"):
+        full = os.path.join(p, cmd)
+        if os.path.isfile(full) and os.access(full, os.X_OK):
+            return full
+    return None
+
+
+def systemctl(*args: str) -> None:
+    if not shutil_which("systemctl"):
+        return
+    _run(["systemctl", *args], check=False, capture=True)
+
+
+def udev_reload_rules() -> None:
+    if not shutil_which("udevadm"):
+        return
+    _run(["udevadm", "control", "--reload-rules"], check=False)
+
+
+def best_effort_chgrp_dialout(path: str) -> None:
+    if shutil_which("chgrp"):
+        _run(["chgrp", "dialout", path], check=False)
+    else:
+        try:
+            os.chown(path, -1, 20)
+        except Exception:
+            pass
+
+
+def best_effort_chmod_group_rw(path: str) -> None:
+    try:
+        st = os.stat(path)
+        os.chmod(path, st.st_mode | 0o060)
+    except Exception:
+        pass
+
+
+def find_usb_ids_for_devnode(devnode: str) -> Tuple[Optional[str], Optional[str]]:
+    props = udev_properties_for_devnode(devnode)
+    vendor = props.get("ID_VENDOR_ID")
+    model = props.get("ID_MODEL_ID")
+    if vendor:
+        vendor = vendor.lower()
+    if model:
+        model = model.lower()
+    return vendor, model

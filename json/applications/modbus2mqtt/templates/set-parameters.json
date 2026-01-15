@@ -12,12 +12,12 @@
     },
 
     {
-      "id": "usb_bus_device",
+      "id": "host_device_path",
       "name": "USB Serial Port",
       "type": "enum",
       "required": false,
       "enumValuesTemplate": "list-host-usb-serial-ports.json",
-      "description": "Select USB serial port to map to the container. Format: bus:device (e.g., 1:3). The port will be mapped as /dev/ttyUSB0 in the container."
+      "description": "Select USB serial port to map to the container using a stable /dev/serial/by-id/* path. The port will be mapped as /dev/ttyUSB0 in the container."
     }
   ],
   "commands": [

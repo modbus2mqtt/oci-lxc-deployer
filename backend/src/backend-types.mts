@@ -1,7 +1,9 @@
+import { ContextManager } from "./context-manager.mjs";
 import { JsonError } from "./jsonvalidator.mjs";
+import { StorageContext } from "./storagecontext.mjs";
 // StorageContext import removed to avoid circular dependency
 // Use type-only import if needed: import type { StorageContext } from "./storagecontext.mjs";
-import { ICommand, IJsonError, IParameter, ISsh, TaskType } from "./types.mjs";
+import { IJsonError, ISsh, TaskType } from "./types.mjs";
 
 export class VEConfigurationError extends JsonError {
   constructor(message: string, application: string, details?: IJsonError[]) {
@@ -10,7 +12,7 @@ export class VEConfigurationError extends JsonError {
     this.filename = application;
   }
 }
-import { IApplicationBase, ITemplate } from "./types.mjs";
+import { IApplicationBase } from "./types.mjs";
 
 export interface IResolvedParam {
   id: string;
@@ -87,6 +89,6 @@ export interface ITemplateSchema {}
 
 // Use any to avoid circular dependency - will be resolved when StorageContext is fully migrated
 export interface IVEContext extends ISsh {
-  getStorageContext(): any; // StorageContext | ContextManager
+  getStorageContext():  StorageContext | ContextManager
   getKey(): string;
 }

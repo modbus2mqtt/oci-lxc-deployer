@@ -55,7 +55,7 @@
       "name": "UID",
       "type": "string",
       "default": "0",
-      "description": "UID for permissions; default 0.",
+      "description": "",
       "advanced": true
     },
     {
@@ -63,7 +63,6 @@
       "name": "GID",
       "type": "string",
       "default": "0",
-      "description": "GID for permissions; default 0.",
       "advanced": true
     },
     {
@@ -71,7 +70,6 @@
       "name": "Mapped UID (Host)",
       "type": "string",
       "default": "",
-      "description": "Host UID for unprivileged containers (optional).",
       "advanced": true
     },
     {
@@ -79,8 +77,7 @@
       "name": "Mapped GID (Host)",
       "type": "string",
       "default": "",
-      "description": "Host GID for unprivileged containers (optional).",
-      "advanced": true
+       "advanced": true
     }
   ],
   "commands": [

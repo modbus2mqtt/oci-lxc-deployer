@@ -2,44 +2,47 @@
   "execute_on": "ve",
   "name": "Map Serial Device",
   "description": "Map serial device to VM",
-  "skip_if_all_missing": ["usb_bus_device"],
+  "skip_if_all_missing": ["host_device_path"],
   "parameters": [
     {
-      "id": "usb_bus_device",
-      "name": "USB Bus:Device",
+      "id": "host_device_path",
+      "name": "USB Serial Port",
+      "type": "enum",
+      "required": false,
+      "enumValuesTemplate": "list-host-usb-serial-ports.json"
+    },
+    {
+      "id": "install_replug_watcher",
+      "name": "Live Replug (Host-Installation)",
       "type": "string",
-      "required": true,
-      "description": "USB bus and device number in format bus:device (e.g., 1:3 for /dev/bus/usb/001/003)"
+      "default": "true",
+      "advanced": true
     },
     {
       "id": "vm_id",
       "name": "ID of the VM",
       "type": "string",
-      "required": true,
-      "description": "ID of the VM to which the USB device will be assigned"
+      "required": true
     },
     {
       "id": "uid",
       "name": "UID",
       "type": "string",
       "default": "0",
-      "advanced": true,
-      "description": "Optional: UID of the user in the container who should have access to the serial device. Default is 0 (root)."
+      "advanced": true
     },
     {
       "id": "gid",
       "name": "GID",
       "type": "string",
-      "default": "0",
-      "advanced": true,
-      "description": "Optional: GID of the group in the container who should have access to the serial device. Default is 0 (root)."
+      "default": "20",
+      "advanced": true
     },
     {
       "id": "mapped_uid",
       "name": "Mapped UID (Host)",
       "type": "string",
       "default": "",
-      "description": "Optional: The actual UID to use on the host device for unprivileged containers with 1:1 UID mapping. If not provided, defaults to uid parameter. Typically set by setup-lxc-uid-mapping.py (102) output.",
       "advanced": true
     },
     {
@@ -47,23 +50,22 @@
       "name": "Mapped GID (Host)",
       "type": "string",
       "default": "",
-      "description": "Optional: The actual GID to use on the host device for unprivileged containers with 1:1 GID mapping. If not provided, defaults to gid parameter. Typically set by setup-lxc-uid-mapping.py (102) output.",
       "advanced": true
     },
     {
       "id": "container_device_path",
       "name": "Container Device Path",
       "type": "string",
+      "default": "/dev/ttyUSB0",
       "required": false,
-      "advanced": true,
-      "description": "Optional: Container device path (default: /dev/ttyUSB0). The device will always be available at this path in the container, regardless of the host device path."
+      "advanced": true
     }
   ],
   "commands": [
     {
       "name": "Map Serial Device",
-      "script": "map-serial-device.sh",
-      "library": "usb-device-common.sh"
+      "script": "map-serial-device.py",
+      "library": "map_device_lib.py"
     }
   ]
 }

@@ -7,7 +7,6 @@ import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-
 // Initialize Angular testing environment for TestBed
 try {
   getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  // eslint-disable-next-line no-console
   console.log('[vitest-setup] Angular TestBed initialized');
 } catch {
   // ignore if already initialized by another test file

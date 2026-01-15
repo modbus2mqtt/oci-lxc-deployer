@@ -9,14 +9,18 @@ describe("setup-lxc-uid-mapping.py", () => {
   let subuidPath: string;
   let subgidPath: string;
   let configDir: string;
-  let scriptPath: string;
+  let uidScriptPath: string;
+  let gidScriptPath: string;
+  let commonModulePath: string;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "uid-mapping-test-"));
     subuidPath = path.join(tempDir, "subuid");
     subgidPath = path.join(tempDir, "subgid");
     configDir = path.join(tempDir, "lxc");
-    scriptPath = path.join(__dirname, "../../json/shared/scripts/setup-lxc-uid-mapping.py");
+    uidScriptPath = path.join(__dirname, "../../json/shared/scripts/setup-lxc-uid-mapping.py");
+    gidScriptPath = path.join(__dirname, "../../json/shared/scripts/setup-lxc-gid-mapping.py");
+    commonModulePath = path.join(__dirname, "../../json/shared/scripts/setup_lxc_idmap_common.py");
     await fs.ensureDir(configDir);
   });
 
@@ -26,25 +30,57 @@ describe("setup-lxc-uid-mapping.py", () => {
     }
   });
 
-  function runScript(uid: string, gid: string, vmId?: string): { stdout: string; stderr: string; exitCode: number } {
-    // Read script content and replace template variables (like execute_script_from_github does)
-    let scriptContent = fs.readFileSync(scriptPath, "utf-8");
+  function runUidScript(uid: string, vmId?: string): { stdout: string; stderr: string; exitCode: number } {
+    let scriptContent = fs.readFileSync(uidScriptPath, "utf-8");
     scriptContent = scriptContent
       .replace(/\{\{\s*uid\s*\}\}/g, uid)
-      .replace(/\{\{\s*gid\s*\}\}/g, gid)
-      .replace(/\{\{\s*vm_id\s*\}\}/g, vmId || "");
+      .replace(/\{\{\s*vm_id\s*\}\}/g, vmId || "")
+      // In case the template contains gid placeholders in comments/legacy text
+      .replace(/\{\{\s*gid\s*\}\}/g, "0");
 
-    // Set environment variables for mock paths
+    const commonModule = fs.readFileSync(commonModulePath, "utf-8");
+    const combined = `${commonModule}\n\n${scriptContent}`;
+
     const env = {
       ...process.env,
       MOCK_SUBUID_PATH: subuidPath,
-      MOCK_SUBGID_PATH: subgidPath,
       MOCK_CONFIG_DIR: configDir,
+      PYTHONPATH: tempDir,
     };
 
-    // Execute the modified script via stdin
     const result = spawnSync("python3", [], {
-      input: scriptContent,
+      input: combined,
+      env,
+      encoding: "utf-8",
+      timeout: 5000,
+    });
+
+    return {
+      stdout: result.stdout || "",
+      stderr: result.stderr || "",
+      exitCode: result.status || 0,
+    };
+  }
+
+  function runGidScript(gid: string, vmId?: string): { stdout: string; stderr: string; exitCode: number } {
+    let scriptContent = fs.readFileSync(gidScriptPath, "utf-8");
+    scriptContent = scriptContent
+      .replace(/\{\{\s*gid\s*\}\}/g, gid)
+      .replace(/\{\{\s*vm_id\s*\}\}/g, vmId || "")
+      .replace(/\{\{\s*uid\s*\}\}/g, "0");
+
+    const commonModule = fs.readFileSync(commonModulePath, "utf-8");
+    const combined = `${commonModule}\n\n${scriptContent}`;
+
+    const env = {
+      ...process.env,
+      MOCK_SUBGID_PATH: subgidPath,
+      MOCK_CONFIG_DIR: configDir,
+      PYTHONPATH: tempDir,
+    };
+
+    const result = spawnSync("python3", [], {
+      input: combined,
       env,
       encoding: "utf-8",
       timeout: 5000,
@@ -58,9 +94,11 @@ describe("setup-lxc-uid-mapping.py", () => {
   }
 
   it("should configure single UID mapping correctly", () => {
-    const result = runScript("1000", "1000", "100");
+    const resultUid = runUidScript("1000", "100");
+    const resultGid = runGidScript("1000", "100");
 
-    expect(result.exitCode).toBe(0);
+    expect(resultUid.exitCode).toBe(0);
+    expect(resultGid.exitCode).toBe(0);
 
     // Check /etc/subuid
     const subuidContent = fs.readFileSync(subuidPath, "utf-8");
@@ -89,12 +127,16 @@ describe("setup-lxc-uid-mapping.py", () => {
 
   it("should add second UID without duplicating existing entries", () => {
     // First run: UID 1000
-    let result = runScript("1000", "1000", "100");
-    expect(result.exitCode).toBe(0);
+    let resultUid = runUidScript("1000", "100");
+    let resultGid = runGidScript("1000", "100");
+    expect(resultUid.exitCode).toBe(0);
+    expect(resultGid.exitCode).toBe(0);
 
     // Second run: UID 1000,2000
-    result = runScript("1000,2000", "1000,2000", "100");
-    expect(result.exitCode).toBe(0);
+    resultUid = runUidScript("1000,2000", "100");
+    resultGid = runGidScript("1000,2000", "100");
+    expect(resultUid.exitCode).toBe(0);
+    expect(resultGid.exitCode).toBe(0);
 
     // Check subuid - should have both UIDs but no duplicates
     const subuidContent = fs.readFileSync(subuidPath, "utf-8");
@@ -126,8 +168,10 @@ describe("setup-lxc-uid-mapping.py", () => {
   });
 
   it("should handle multiple comma-separated UIDs", () => {
-    const result = runScript("1000,1001,2000", "1000,1001,2000", "101");
-    expect(result.exitCode).toBe(0);
+    const resultUid = runUidScript("1000,1001,2000", "101");
+    const resultGid = runGidScript("1000,1001,2000", "101");
+    expect(resultUid.exitCode).toBe(0);
+    expect(resultGid.exitCode).toBe(0);
 
     const configPath = path.join(configDir, "101.conf");
     const configContent = fs.readFileSync(configPath, "utf-8");
@@ -142,8 +186,10 @@ describe("setup-lxc-uid-mapping.py", () => {
   });
 
   it("should work without vm_id (only update subuid/subgid)", () => {
-    const result = runScript("1000", "1000");
-    expect(result.exitCode).toBe(0);
+    const resultUid = runUidScript("1000");
+    const resultGid = runGidScript("1000");
+    expect(resultUid.exitCode).toBe(0);
+    expect(resultGid.exitCode).toBe(0);
 
     // Files should exist
     expect(fs.existsSync(subuidPath)).toBe(true);
@@ -166,8 +212,10 @@ rootfs: local-lvm:vm-102-disk-0,size=8G
 `;
     fs.writeFileSync(configPath, existingConfig);
 
-    const result = runScript("1000", "1000", "102");
-    expect(result.exitCode).toBe(0);
+    const resultUid = runUidScript("1000", "102");
+    const resultGid = runGidScript("1000", "102");
+    expect(resultUid.exitCode).toBe(0);
+    expect(resultGid.exitCode).toBe(0);
 
     const configContent = fs.readFileSync(configPath, "utf-8");
     

@@ -39,6 +39,16 @@ execute_script_from_github() {
 
   script_content=$(curl -fsSL "$raw_url" | sed $sed_args)
 
+  # Some Python scripts depend on shared helpers but are still executed via stdin.
+  # Prepend the helper library explicitly when needed.
+  case "$path" in
+    json/shared/scripts/setup-lxc-uid-mapping.py|json/shared/scripts/setup-lxc-gid-mapping.py)
+      lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/json/shared/scripts/setup_lxc_idmap_common.py"
+      lib_content=$(curl -fsSL "$lib_url")
+      script_content=$(printf '%s\n\n%s' "$lib_content" "$script_content")
+      ;;
+  esac
+
   if [ "$output_id" = "-" ]; then
     printf '%s' "$script_content" | $interpreter
     return $?
@@ -277,12 +287,10 @@ mapped_uid=$(execute_script_from_github \
   "json/shared/scripts/setup-lxc-uid-mapping.py" \
   "mapped_uid" \
   "uid=${LXC_UID}" \
-  "gid=${LXC_GID}" \
   "vm_id=${vm_id}" || echo "")
 mapped_gid=$(execute_script_from_github \
-  "json/shared/scripts/setup-lxc-uid-mapping.py" \
+  "json/shared/scripts/setup-lxc-gid-mapping.py" \
   "mapped_gid" \
-  "uid=${LXC_UID}" \
   "gid=${LXC_GID}" \
   "vm_id=${vm_id}" || echo "")
 

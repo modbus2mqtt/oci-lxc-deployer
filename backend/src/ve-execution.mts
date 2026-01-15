@@ -319,8 +319,8 @@ export class VeExecution extends EventEmitter {
     
     // For LXC execution in production, we need: ssh host lxc-attach -n vm_id -- interpreter < script
     // But since we're using stdin, we need to handle this differently
-    // The lxcCmd already contains lxc-attach args, we need to append interpreter if available
-    let finalLxcCmd = [...lxcCmd, "--"];
+    // The lxcCmd already contains the "--" terminator; append interpreter after it.
+    let finalLxcCmd = [...lxcCmd];
     if (interpreter) {
       finalLxcCmd.push(...interpreter);
     } else {

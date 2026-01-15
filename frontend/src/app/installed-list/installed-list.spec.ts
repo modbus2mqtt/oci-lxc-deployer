@@ -13,16 +13,16 @@ class MockVeConfigurationService {
       application: { id: 'app-alpha', name: 'App Alpha', description: '' },
       vmInstallKey: 'vminstall_cont-01_app-alpha',
       hostname: 'cont-01',
-      task: 'installation' as any,
+      task: 'installation',
     },
     {
       application: { id: 'app-beta', name: 'App Beta', description: '' },
       vmInstallKey: 'vminstall_cont-02_app-beta',
       hostname: 'cont-02',
-      task: 'installation' as any,
+      task: 'installation',
     },
   ]));
-  restartInstallation = vi.fn(() => of({ success: true } as any));
+  restartInstallation = vi.fn(() => of({ success: true } ));
 }
 
 describe('InstalledList component (vitest)', () => {

@@ -7,6 +7,7 @@ import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
 import { WebAppVeExecutionSetup } from "./webapp-ve-execution-setup.mjs";
 import { JsonError } from "./jsonvalidator.mjs";
+import { determineExecutionMode, ExecutionMode } from "./ve-execution-constants.mjs";
 
 /**
  * Route handler logic for VE configuration endpoints.
@@ -180,11 +181,9 @@ export class WebAppVeRouteHandlers {
       const veCtxToUse: IVEContext = ctx as IVEContext;
       const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
 
-      // Determine sshCommand: use "sh" in test environments (when NODE_ENV is test or when explicitly set)
-      // Otherwise use "ssh" for real connections
-      const sshCommand = process.env.NODE_ENV === "test" || process.env.LXC_MANAGER_TEST_MODE === "true" 
-        ? "sh" 
-        : "ssh";
+      // Determine execution mode: TEST executes locally, PRODUCTION executes via SSH to VE host.
+      const executionMode = determineExecutionMode();
+      const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
       
       // Use changedParams if provided (even if empty), otherwise fall back to params
       // This allows restarting installation with only changed parameters
@@ -206,7 +205,7 @@ export class WebAppVeRouteHandlers {
         application,
         task as TaskType,
         veCtxToUse,
-        sshCommand,
+        executionMode,
         initialInputs, // Pass initialInputs so skip_if_all_missing can check user inputs
       );
       const commands = loaded.commands;
@@ -321,10 +320,8 @@ export class WebAppVeRouteHandlers {
     const { application, task } = messageGroup;
     const veCtxToUse = ctx as IVEContext;
 
-    // Determine sshCommand: use "sh" in test environments
-    const sshCommand = process.env.NODE_ENV === "test" || process.env.LXC_MANAGER_TEST_MODE === "true" 
-      ? "sh" 
-      : "ssh";
+    const executionMode = determineExecutionMode();
+    const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
     
     // Reload application to get commands
     const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
@@ -342,7 +339,7 @@ export class WebAppVeRouteHandlers {
         application,
         task as TaskType,
         veCtxToUse,
-        sshCommand,
+        executionMode,
         initialInputs,
       );
     } catch (err: any) {
@@ -439,10 +436,8 @@ export class WebAppVeRouteHandlers {
     const veCtxToUse = ctx as IVEContext;
     const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
 
-    // Determine sshCommand: use "sh" in test environments
-    const sshCommand = process.env.NODE_ENV === "test" || process.env.LXC_MANAGER_TEST_MODE === "true" 
-      ? "sh" 
-      : "ssh";
+    const executionMode = determineExecutionMode();
+    const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
     
     // Prepare initialInputs for loadApplication (for skip_if_all_missing checks)
     const initialInputs = installCtx.changedParams
@@ -459,7 +454,7 @@ export class WebAppVeRouteHandlers {
         installCtx.application,
         installCtx.task,
         veCtxToUse,
-        sshCommand,
+        executionMode,
         initialInputs, // Pass initialInputs so skip_if_all_missing can check user inputs
       );
     } catch (err: any) {

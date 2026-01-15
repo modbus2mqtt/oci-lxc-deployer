@@ -1,3 +1,31 @@
+## UID
+
+- **Bedeutung**: Container-UID, die die gemounteten Verzeichnisse besitzen sollen.
+- **Standard**: `0` (root).
+- **Unprivileged Container**: Das Script mappt diese Container-UID automatisch auf die passende Host-UID.
+  - Wenn `lxc.idmap` vorhanden ist, wird darüber gemappt.
+  - Sonst wird der Proxmox-Standard verwendet: `host_uid = 100000 + uid`.
+- **Override**: Wenn `mapped_uid` gesetzt ist, wird dieser Wert als Host-UID verwendet.
+
+## GID
+
+- **Bedeutung**: Container-GID, die die gemounteten Verzeichnisse besitzen sollen.
+- **Standard**: `0` (root).
+- **Beispiel**: `20` für `root:dialout`.
+- **Unprivileged Container**: Das Script mappt diese Container-GID automatisch auf die passende Host-GID.
+  - Wenn `lxc.idmap` vorhanden ist, wird darüber gemappt.
+  - Sonst wird der Proxmox-Standard verwendet: `host_gid = 100000 + gid`.
+- **Override**: Wenn `mapped_gid` gesetzt ist, wird dieser Wert als Host-GID verwendet.
+
+## Mapped UID (Host)
+
+Optional: explizite Host-UID, die auf dem Host per `chown` gesetzt wird.
+Nur nötig, wenn du eine spezielle `lxc.idmap`/1:1-Mapping-Konfiguration nutzt oder bewusst vom Standard abweichen willst.
+
+## Mapped GID (Host)
+
+Optional: explizite Host-GID, die auf dem Host per `chown` gesetzt wird.
+Nur nötig, wenn du eine spezielle `lxc.idmap`/1:1-Mapping-Konfiguration nutzt oder bewusst vom Standard abweichen willst.
 # Bind Multiple Volumes to LXC
 
 Template documentation for binding multiple host directories to an LXC container.

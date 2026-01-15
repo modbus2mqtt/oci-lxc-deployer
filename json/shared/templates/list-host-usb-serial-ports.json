@@ -1,7 +1,7 @@
 {
   "execute_on": "ve",
   "name": "List Host USB Serial Ports",
-  "description": "List all USB serial ports available on the VE host. The name is built from lsusb output, showing vendor and product information (e.g., 'ID 1a86:7523 QinHeng Electronics CH340 serial converter').",
+  "description": "List all USB serial ports available on the VE host. Returns stable /dev/serial/by-id/* paths so devices can be selected by USB serial number.",
   "commands": [
     {
       "name": "List USB Serial Ports",

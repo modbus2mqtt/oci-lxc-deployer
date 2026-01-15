@@ -36,14 +36,12 @@ fi
 # If this is a ZFS pool, exit successfully (handled by mount-zfs-pool.sh)
 if echo "$STORAGE_SELECTION" | grep -q "^zfs:"; then
   echo "Storage selection is a ZFS pool, skipping disk mount (handled by mount-zfs-pool.sh)" >&2
-  # Output empty host_mountpoint as it will be set by mount-zfs-pool.sh
-  echo '[{ "id": "host_mountpoint", "value": ""}]' >&2
   exit 0
 fi
 
 # Parse storage selection: must be uuid:...
 if ! echo "$STORAGE_SELECTION" | grep -q "^uuid:"; then
-  echo "Error: Invalid storage selection format. Must start with 'uuid:' or 'zfs:'" >&2
+  echo "Error: Invalid storage selection format($STORAGE_SELECTION). Must start with 'uuid:' or 'zfs:'" >&2
   exit 1
 fi
 

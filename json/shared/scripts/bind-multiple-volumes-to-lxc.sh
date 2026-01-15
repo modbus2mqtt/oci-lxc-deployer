@@ -48,13 +48,76 @@ if [ -z "$BASE_PATH" ] || [ "$BASE_PATH" = "" ]; then
   BASE_PATH="volumes"
 fi
 
-# Use mapped UID/GID if provided, otherwise fall back to uid/gid parameters
+# Read container config once (used for idmap/unprivileged detection)
+PCT_CONFIG=$(pct config "$VMID" 2>/dev/null || true)
+
+is_number() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Map a container UID/GID to host UID/GID using lxc.idmap ranges (if present).
+# Prints mapped host id or empty string.
+map_id_via_idmap() {
+  _kind="$1" # u or g
+  _cid="$2"  # container id
+  echo "$PCT_CONFIG" | awk -v kind="$_kind" -v cid="$_cid" '
+    $1 ~ /^lxc\.idmap[:=]$/ {
+      # Format: lxc.idmap: u 0 100000 65536
+      k=$2; c=$3+0; h=$4+0; l=$5+0;
+      if (k==kind && cid>=c && cid < (c+l)) {
+        print h + (cid - c);
+        exit 0;
+      }
+    }
+    END { }
+  '
+}
+
+# Detect unprivileged container
+IS_UNPRIV=0
+if echo "$PCT_CONFIG" | grep -aqE '^unprivileged:\s*1\s*$'; then
+  IS_UNPRIV=1
+fi
+
+# Compute effective host-side UID/GID for ownership.
+# If mapped_uid/mapped_gid are set explicitly, they win.
+# Otherwise:
+# - if lxc.idmap exists, map via it
+# - else if unprivileged: default Proxmox shift 100000+ID
+# - else: use container UID/GID directly
+EFFECTIVE_UID="$UID_VALUE"
+EFFECTIVE_GID="$GID_VALUE"
+
 if [ -n "$MAPPED_UID" ] && [ "$MAPPED_UID" != "" ]; then
-  UID_VALUE="$MAPPED_UID"
+  EFFECTIVE_UID="$MAPPED_UID"
+elif is_number "$UID_VALUE"; then
+  MID=$(map_id_via_idmap u "$UID_VALUE")
+  if [ -n "$MID" ]; then
+    EFFECTIVE_UID="$MID"
+  elif [ "$IS_UNPRIV" -eq 1 ]; then
+    EFFECTIVE_UID=$((100000 + UID_VALUE))
+  fi
 fi
+
 if [ -n "$MAPPED_GID" ] && [ "$MAPPED_GID" != "" ]; then
-  GID_VALUE="$MAPPED_GID"
+  EFFECTIVE_GID="$MAPPED_GID"
+elif is_number "$GID_VALUE"; then
+  MID=$(map_id_via_idmap g "$GID_VALUE")
+  if [ -n "$MID" ]; then
+    EFFECTIVE_GID="$MID"
+  elif [ "$IS_UNPRIV" -eq 1 ]; then
+    EFFECTIVE_GID=$((100000 + GID_VALUE))
+  fi
 fi
+
+echo "bind-multiple-volumes-to-lxc: vm_id=$VMID unprivileged=$IS_UNPRIV uid=$UID_VALUE gid=$GID_VALUE host_uid=$EFFECTIVE_UID host_gid=$EFFECTIVE_GID" >&2
+
+# Backward compatible variables (older code below expects UID_VALUE/GID_VALUE)
+UID_VALUE="$EFFECTIVE_UID"
+GID_VALUE="$EFFECTIVE_GID"
 
 # Construct the full host path: <host_mountpoint>/<base_path>/<hostname>
 # If host_mountpoint is not set, use /mnt/<base_path>/<hostname>
@@ -207,13 +270,11 @@ while IFS= read -r line <&3; do
     mkdir -p "$SOURCE_PATH" >&2
   fi
   
-  # Set permissions on the source directory if uid/gid are provided
-  # For unprivileged containers with 1:1 UID mapping (via setup-lxc-uid-mapping.py),
-  # the container UID maps directly to the host UID (no offset calculation needed).
-  # UID_VALUE should already contain the correct host UID from mapped_uid parameter.
+  # Set ownership/permissions on the host source directory.
+  # IMPORTANT: For unprivileged containers, host ownership must use mapped host IDs;
+  # otherwise ownership shows up as "nobody" inside the container.
   if [ -n "$UID_VALUE" ] && [ -n "$GID_VALUE" ] && [ "$UID_VALUE" != "" ] && [ "$GID_VALUE" != "" ]; then
     # Set ownership recursively with the provided UID/GID
-    # For 1:1 mapping: Container UID N → Host UID N (direct mapping)
     if chown -R "$UID_VALUE:$GID_VALUE" "$SOURCE_PATH" 2>/dev/null; then
       echo "Set ownership of $SOURCE_PATH (recursively) to $UID_VALUE:$GID_VALUE" >&2
     else

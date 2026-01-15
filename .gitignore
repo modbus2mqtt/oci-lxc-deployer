@@ -31,3 +31,7 @@ test-results/
 **/secret.txt
 **/storagecontext.json
 docker/lxc-manager.tgz
+**/__pycache__/*
+
+
+**/.unused

@@ -82,8 +82,14 @@
       "outputs": ["vm_id"]
     },    
     {
-      "name": "Setup UID/GID mapping",
-      "script": "setup-lxc-uid-mapping.py"
+      "name": "Setup UID mapping",
+      "script": "setup-lxc-uid-mapping.py",
+      "library": "setup_lxc_idmap_common.py"
+    },
+    {
+      "name": "Setup GID mapping",
+      "script": "setup-lxc-gid-mapping.py",
+      "library": "setup_lxc_idmap_common.py"
     },
     {
       "name": "Compute Static IPs",

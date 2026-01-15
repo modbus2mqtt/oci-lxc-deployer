@@ -28,7 +28,8 @@
                     "type": "object",
                     "properties": {
                       "name": { "type": "string" },
-                      "value": { "type": ["string", "number", "boolean"] }
+                      "value": { "type": ["string", "number", "boolean"] },
+                      "description": { "type": "string" }
                     },
                     "required": ["name", "value"],
                     "additionalProperties": false
@@ -57,7 +58,8 @@
         "type": "object",
         "properties": {
           "name": { "type": "string" },
-          "value": { "type": ["string", "number", "boolean"] }
+          "value": { "type": ["string", "number", "boolean"] },
+          "description": { "type": "string" }
         },
         "required": ["name", "value"],
         "additionalProperties": false

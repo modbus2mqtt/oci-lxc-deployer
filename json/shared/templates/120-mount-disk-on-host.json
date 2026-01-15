@@ -2,7 +2,6 @@
   "name": "Mount Disk on Host",
   "description": "Mounts a block device (by UUID) on the Proxmox host.\n\nThis template only mounts the device on the host. To bind mount it into a container, use the bind-host template afterwards.\n\nThis template can be called independently and is safe to call multiple times (idempotent).",
   "execute_on": "ve",
-  "skip_if_all_missing": ["usb_bus_device"],
   "skip_if_property_set": "skip_mount_disk_on_host",
   "parameters": [
     {
