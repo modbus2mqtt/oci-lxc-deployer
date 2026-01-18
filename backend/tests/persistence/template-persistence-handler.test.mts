@@ -155,8 +155,7 @@ describe("TemplatePersistenceHandler", () => {
       const templateFile = path.join(templatesDir, "invalid.json");
       writeFileSync(templateFile, "{ invalid json }");
 
-      const result = handler.loadTemplate(templateFile);
-      expect(result).toBeNull();
+      expect(() => handler.loadTemplate(templateFile)).toThrow();
     });
   });
 
@@ -190,7 +189,7 @@ describe("TemplatePersistenceHandler", () => {
       const templateFile = path.join(templatesDir, "deletetemplate.json");
       writeJson(templateFile, {
         name: "Delete Template",
-        commands: [],
+        commands: [{ name: "test", command: "echo test" }],
       });
 
       handler.deleteTemplate("deletetemplate", true);
@@ -206,7 +205,7 @@ describe("TemplatePersistenceHandler", () => {
       const templateFile = path.join(templatesDir, "cachedtemplate.json");
       writeJson(templateFile, {
         name: "Cached Template",
-        commands: [],
+        commands: [{ name: "test", command: "echo test" }],
       });
 
       handler.loadTemplate(templateFile);
@@ -231,7 +230,7 @@ describe("TemplatePersistenceHandler", () => {
       const templateFile = path.join(templatesDir, "testtemplate.json");
       writeJson(templateFile, {
         name: "Test Template",
-        commands: [],
+        commands: [{ name: "test", command: "echo test" }],
       });
 
       handler.loadTemplate(templateFile);

@@ -10,7 +10,7 @@
 #   - vm_id: LXC container ID (from context)
 #   - hostname: Container hostname (from context)
 #   - ostype: Operating system type (from context)
-#   - storage: Storage name (optional, auto-selected if not provided)
+#   - rootfs_storage: Storage name (optional, auto-selected if not provided)
 #
 # Output: JSON to stdout (errors to stderr)
 # Note: Do NOT use exec >&2 here, as it redirects ALL stdout to stderr, including JSON output
@@ -18,11 +18,20 @@
 # Auto-select the best storage for LXC rootfs
 # Prefer local-zfs if available, otherwise use storage with most free space (supports rootdir)
 
-# First, check if local-zfs exists and supports rootdir
+# First, check if rootfs_storage is provided
+ROOTFS_STORAGE="{{ rootfs_storage }}"
 PREFERRED_STORAGE=""
-if pvesm list "local-zfs" --content rootdir 2>/dev/null | grep -q .; then
-  PREFERRED_STORAGE="local-zfs"
-  echo "Using preferred storage: local-zfs" >&2
+if [ -n "$ROOTFS_STORAGE" ] && [ "$ROOTFS_STORAGE" != "NOT_DEFINED" ]; then
+  PREFERRED_STORAGE="$ROOTFS_STORAGE"
+  echo "Using selected rootfs storage: $PREFERRED_STORAGE" >&2
+fi
+
+# If not set, check if local-zfs exists and supports rootdir
+if [ -z "$PREFERRED_STORAGE" ]; then
+  if pvesm list "local-zfs" --content rootdir 2>/dev/null | grep -q .; then
+    PREFERRED_STORAGE="local-zfs"
+    echo "Using preferred storage: local-zfs" >&2
+  fi
 fi
 
 # If local-zfs is not available, find storage with most free space

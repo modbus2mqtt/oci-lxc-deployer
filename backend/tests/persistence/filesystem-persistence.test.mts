@@ -131,7 +131,7 @@ describe("FileSystemPersistence (Integration)", () => {
       const templateFile = path.join(templatesDir, "testtemplate.json");
       writeJson(templateFile, {
         name: "Test Template",
-        commands: [],
+        commands: [{ name: "test", command: "echo test" }],
       });
 
       // Populate caches

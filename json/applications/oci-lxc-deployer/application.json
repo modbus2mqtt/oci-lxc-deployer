@@ -9,12 +9,6 @@
       "before": "011-get-oci-image.json"
     }
   ],
-  "copy-upgrade": [
-    {
-      "name": "011-get-oci-image.json",
-      "before": "220-copy-upgrade-oci-lxc.json"
-    }
-  ],
   "url": "https://github.com/modbus2mqtt/oci-lxc-deployer",
   "documentation": "https://github.com/modbus2mqtt/oci-lxc-deployer/blob/main/README.md",
   "source": "https://github.com/modbus2mqtt/oci-lxc-deployer",

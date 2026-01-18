@@ -25,7 +25,11 @@ export function registerApplicationRoutes(
     try {
       const application: string = req.params.application;
       const task: string = req.params.task;
+      const taskKey: string = req.params.task;
       const veContextKey: string = req.params.veContext;
+      if (!taskKey) {
+        return res.status(400).json({ success: false, error: "Missing task" });
+      }
       const ctx = storageContext.getVEContextByKey(veContextKey);
       if (!ctx) {
         return res
@@ -35,7 +39,7 @@ export function registerApplicationRoutes(
       const templateProcessor = storageContext.getTemplateProcessor();
       const unresolved = await templateProcessor.getUnresolvedParameters(
         application,
-        task as TaskType,
+        "installation" as TaskType,
         ctx,
       );
       returnResponse<IUnresolvedParametersResponse>(res, {

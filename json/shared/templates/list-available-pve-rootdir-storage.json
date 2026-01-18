@@ -1,0 +1,12 @@
+{
+  "execute_on": "ve",
+  "name": "List Available Rootdir Storage",
+  "description": "List Proxmox storage IDs that support LXC rootdir volumes.",
+  "commands": [
+    {
+      "name": "List Rootdir Storage",
+      "script": "list-available-pve-rootdir-storage.sh",
+      "outputs": ["enumValues"]
+    }
+  ]
+}

@@ -190,4 +190,8 @@ export class ProcessMonitor implements OnInit, OnDestroy {
     });
   }
 
+  close(): void {
+    window.history.back();
+  }
+
 }

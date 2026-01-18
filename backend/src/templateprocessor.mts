@@ -46,6 +46,7 @@ interface IProcessTemplateOpts {
   executionMode?: ExecutionMode;  // Execution mode for VeExecution
   processedTemplates?: Map<string, IProcessedTemplate>;  // NEW: Collects template information
   templateReferences?: Map<string, Set<string>>;  // NEW: Template references (template -> referenced templates)
+  outputSources?: Map<string, { template: string; kind: "outputs" | "properties" }>; // NEW: Output provenance
 }
 export interface IParameterWithTemplate extends IParameter {
   template: string;
@@ -64,6 +65,46 @@ export interface IProcessedTemplate {
   usedByApplications?: string[];  // NEW: Applications that use this template
 }
 
+export interface ITemplateTraceEntry {
+  name: string;
+  path: string;
+  origin:
+    | "application-local"
+    | "application-json"
+    | "shared-local"
+    | "shared-json"
+    | "unknown";
+  isShared: boolean;
+  skipped: boolean;
+  conditional: boolean;
+}
+
+export interface IParameterTraceEntry {
+  id: string;
+  name: string;
+  required?: boolean;
+  default?: string | number | boolean;
+  template?: string;
+  templatename?: string;
+  source:
+    | "user_input"
+    | "template_output"
+    | "template_properties"
+    | "default"
+    | "missing";
+  sourceTemplate?: string;
+  sourceKind?: "outputs" | "properties";
+}
+
+export interface ITemplateTraceInfo {
+  application: string;
+  task: TaskType;
+  localDir: string;
+  jsonDir: string;
+  appLocalDir?: string;
+  appJsonDir?: string;
+}
+
 export interface ITemplateProcessorLoadResult {
   commands: ICommand[];
   parameters: IParameterWithTemplate[];
@@ -71,6 +112,9 @@ export interface ITemplateProcessorLoadResult {
   webuiTemplates: string[];
   application?: IApplication;  // Full application data (incl. parent)
   processedTemplates?: IProcessedTemplate[];  // List of all processed templates
+  templateTrace?: ITemplateTraceEntry[];
+  parameterTrace?: IParameterTraceEntry[];
+  traceInfo?: ITemplateTraceInfo;
 }
 export class TemplateProcessor extends EventEmitter {
   resolvedParams: IResolvedParam[] = [];
@@ -156,6 +200,7 @@ export class TemplateProcessor extends EventEmitter {
     let webuiTemplates: string[] = [];
     const processedTemplates = new Map<string, IProcessedTemplate>();
     const templateReferences = new Map<string, Set<string>>();  // template -> set of referenced templates
+    const outputSources = new Map<string, { template: string; kind: "outputs" | "properties" }>();
     
     for (const tmpl of templates) {
       let ptOpts: IProcessTemplateOpts = {
@@ -174,6 +219,7 @@ export class TemplateProcessor extends EventEmitter {
         executionMode: executionMode !== undefined ? executionMode : determineExecutionMode(),
         processedTemplates,
         templateReferences,
+        outputSources,
       };
       if (veContext !== undefined) {
         ptOpts.veContext = veContext;
@@ -206,6 +252,90 @@ export class TemplateProcessor extends EventEmitter {
       }
       processedTemplatesArray.push(result);
     }
+
+    const templateTrace: ITemplateTraceEntry[] = processedTemplatesArray.map((templateInfo) => {
+      const isLocal = templateInfo.path.startsWith(this.pathes.localPath);
+      const isJson = templateInfo.path.startsWith(this.pathes.jsonPath);
+      const origin: ITemplateTraceEntry["origin"] = templateInfo.isShared
+        ? (isLocal ? "shared-local" : isJson ? "shared-json" : "unknown")
+        : (isLocal ? "application-local" : isJson ? "application-json" : "unknown");
+
+      return {
+        name: templateInfo.name,
+        path: templateInfo.path,
+        origin,
+        isShared: templateInfo.isShared,
+        skipped: templateInfo.skipped,
+        conditional: templateInfo.conditional,
+      };
+    });
+
+    const parameterTrace: IParameterTraceEntry[] = outParameters.map((param) => {
+      const resolved = resolvedParams.find((rp) => rp.id === param.id);
+      const hasDefault = param.default !== undefined && param.default !== null && param.default !== "";
+
+      if (resolved) {
+        if (resolved.template === "user_input") {
+          return {
+            id: param.id,
+            name: param.name,
+            required: param.required,
+            default: param.default,
+            template: param.template,
+            templatename: param.templatename,
+            source: "user_input",
+            sourceTemplate: resolved.template,
+          };
+        }
+
+        const sourceInfo = outputSources.get(param.id);
+        const kind = sourceInfo?.kind;
+        return {
+          id: param.id,
+          name: param.name,
+          required: param.required,
+          default: param.default,
+          template: param.template,
+          templatename: param.templatename,
+          source: kind === "properties" ? "template_properties" : "template_output",
+          sourceTemplate: sourceInfo?.template ?? resolved.template,
+          sourceKind: kind,
+        };
+      }
+
+      if (hasDefault) {
+        return {
+          id: param.id,
+          name: param.name,
+          required: param.required,
+          default: param.default,
+          template: param.template,
+          templatename: param.templatename,
+          source: "default",
+        };
+      }
+
+      return {
+        id: param.id,
+        name: param.name,
+        required: param.required,
+        default: param.default,
+        template: param.template,
+        templatename: param.templatename,
+        source: "missing",
+      };
+    });
+
+    const appLocalDir = path.join(this.pathes.localPath, "applications", applicationName);
+    const appJsonDir = path.join(this.pathes.jsonPath, "applications", applicationName);
+    const traceInfo: ITemplateTraceInfo = {
+      application: applicationName,
+      task,
+      localDir: this.pathes.localPath,
+      jsonDir: this.pathes.jsonPath,
+      ...(fs.existsSync(appLocalDir) ? { appLocalDir } : {}),
+      ...(fs.existsSync(appJsonDir) ? { appJsonDir } : {}),
+    };
     // Save resolvedParams for getUnresolvedParameters
     this.resolvedParams = resolvedParams;
     if (errors.length > 0) {
@@ -235,6 +365,9 @@ export class TemplateProcessor extends EventEmitter {
       webuiTemplates: webuiTemplates,
       application: application,
       processedTemplates: processedTemplatesArray,
+      templateTrace,
+      parameterTrace,
+      traceInfo,
     };
   }
   /**
@@ -588,6 +721,8 @@ export class TemplateProcessor extends EventEmitter {
     
     // Collect all outputs from all commands (including properties commands)
     const allOutputIds = new Set<string>();
+    const outputIdsFromOutputs = new Set<string>();
+    const outputIdsFromProperties = new Set<string>();
     const duplicateIds = new Set<string>();
     const seenIds = new Set<string>();
     
@@ -601,6 +736,7 @@ export class TemplateProcessor extends EventEmitter {
           } else {
             seenIds.add(id);
             allOutputIds.add(id);
+            outputIdsFromOutputs.add(id);
           }
         }
       }
@@ -635,6 +771,7 @@ export class TemplateProcessor extends EventEmitter {
           } else {
             seenIds.add(propId);
             allOutputIds.add(propId);
+            outputIdsFromProperties.add(propId);
           }
         }
       }
@@ -666,6 +803,12 @@ export class TemplateProcessor extends EventEmitter {
           id: outputId,
           template: currentTemplateName,
         });
+        if (opts.outputSources) {
+          opts.outputSources.set(outputId, {
+            template: currentTemplateName,
+            kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+          });
+        }
       } else {
         // Output ID already set by another template - check if this is a real conflict
         const conflictingTemplate = existing.template;
@@ -677,6 +820,12 @@ export class TemplateProcessor extends EventEmitter {
               id: outputId,
               template: currentTemplateName,
             };
+          }
+          if (opts.outputSources) {
+            opts.outputSources.set(outputId, {
+              template: currentTemplateName,
+              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+            });
           }
           continue;
         }
@@ -748,6 +897,12 @@ export class TemplateProcessor extends EventEmitter {
               template: currentTemplateName,
             };
           }
+          if (opts.outputSources) {
+            opts.outputSources.set(outputId, {
+              template: currentTemplateName,
+              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+            });
+          }
         } else if (isConditional || conflictingTemplateIsConditional) {
           // If at least one template is conditional, it's not a real conflict
           // because in practice only one will execute (the other will be skipped)
@@ -759,6 +914,12 @@ export class TemplateProcessor extends EventEmitter {
               id: outputId,
               template: currentTemplateName,
             };
+          }
+          if (opts.outputSources) {
+            opts.outputSources.set(outputId, {
+              template: currentTemplateName,
+              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+            });
           }
         } else {
           // Both templates are non-conditional and both set the output - this is a real conflict

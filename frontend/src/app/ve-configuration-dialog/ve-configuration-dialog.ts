@@ -34,13 +34,14 @@ export class VeConfigurationDialog implements OnInit {
   public dialogRef: MatDialogRef<VeConfigurationDialog> = inject(MatDialogRef<VeConfigurationDialog>);
   private errorHandler: ErrorHandlerService = inject(ErrorHandlerService);
   private fb: FormBuilder = inject(FormBuilder);
-  public data = inject(MAT_DIALOG_DATA) as { app: IApplicationWeb };
+  public data = inject(MAT_DIALOG_DATA) as { app: IApplicationWeb; task?: string };
+  private task = this.data.task ?? (globalThis.crypto?.randomUUID?.() ?? String(Date.now()));
   constructor(  ) {
     this.form = this.fb.group({});
   }
   ngOnInit(): void {
     // For demo purposes: use 'installation' as the default task, can be extended
-    this.configService.getUnresolvedParameters(this.data.app.id, 'installation').subscribe({
+    this.configService.getUnresolvedParameters(this.data.app.id, this.task).subscribe({
       next: (res) => {
         this.unresolvedParameters = res.unresolvedParameters;
         // Group parameters by template
@@ -137,6 +138,20 @@ export class VeConfigurationDialog implements OnInit {
 
   hasAdvancedParams(): boolean {
     return this.unresolvedParameters.some(p => p.advanced);
+  }
+
+  get missingRequiredParams(): IParameter[] {
+    return this.unresolvedParameters.filter((p) =>
+      p.required === true && (p.default === undefined || p.default === null || p.default === ''),
+    );
+  }
+
+  get showMissingRequiredHint(): boolean {
+    return this.missingRequiredParams.length > 0;
+  }
+
+  get taskKey(): string {
+    return this.task;
   }
 
 

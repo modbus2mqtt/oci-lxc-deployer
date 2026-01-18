@@ -90,6 +90,33 @@ form {
   }
 }
 
+.missing-required-hint {
+  width: calc(100% - 2rem);
+  margin: 0 1rem 1rem 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #f2c94c;
+  background: #fff7e0;
+  color: #6b4f00;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px 0 #0001;
+  font-size: 0.95rem;
+}
+
+.missing-required-text {
+  margin-top: 0.35rem;
+}
+
+.missing-required-list {
+  margin-top: 0.35rem;
+  font-weight: 600;
+}
+
+.missing-required-task {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
 .mat-mdc-dialog-content {
   min-width: 320px;
   display: flex;

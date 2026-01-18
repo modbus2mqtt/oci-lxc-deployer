@@ -73,7 +73,8 @@ export class WebAppVE {
       { application: string; task: string; veContext: string },
       IPostVeConfigurationBody
     >(ApiUri.VeConfiguration, async (req, res) => {
-      const { application, task, veContext: veContextKey } = req.params;
+      const { application, veContext: veContextKey } = req.params;
+      const task: TaskType = "installation";
       
       // Set vmInstallContext in ContextManager if changedParams are provided
       // Update existing context with new changedParams if context exists
