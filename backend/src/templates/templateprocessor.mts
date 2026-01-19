@@ -21,7 +21,7 @@ import { ApplicationLoader } from "@src/apploader.mjs";
 import { ScriptValidator } from "@src/scriptvalidator.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { ITemplatePersistence, IApplicationPersistence } from "../persistence/interfaces.mjs";
-import { FileSystemRepositories, type TemplateRef, type ScriptRef, type MarkdownRef } from "../persistence/repositories.mjs";
+import { FileSystemRepositories, type TemplateRef, type ScriptRef, type MarkdownRef, type IRepositories } from "../persistence/repositories.mjs";
 import { VeExecution } from "../ve-execution/ve-execution.mjs";
 import { ExecutionMode, determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
 // ITemplateReference moved to backend-types.mts
@@ -120,13 +120,13 @@ export class TemplateProcessor extends EventEmitter {
     string,
     (string | { name: string; value: string | number | boolean })[] | null
   >();
-  private repositories: FileSystemRepositories;
+  private repositories: IRepositories;
   resolvedParams: IResolvedParam[] = [];
   constructor(
     private pathes: IConfiguredPathes,
     private storageContext: ContextManager,
     private persistence: IApplicationPersistence & ITemplatePersistence,
-    repositories?: FileSystemRepositories,
+    repositories?: IRepositories,
   ) {
     super();
     this.repositories = repositories ?? new FileSystemRepositories(this.pathes, this.persistence);

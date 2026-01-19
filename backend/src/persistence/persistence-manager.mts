@@ -13,7 +13,7 @@ import {
 import { ApplicationService } from "../services/application-service.mjs";
 import { FrameworkService } from "../services/framework-service.mjs";
 import { ContextManager } from "../context-manager.mjs";
-import { FileSystemRepositories } from "./repositories.mjs";
+import { FileSystemRepositories, type IRepositories } from "./repositories.mjs";
 
 const baseSchemas: string[] = ["templatelist.schema.json"];
 
@@ -39,7 +39,7 @@ export class PersistenceManager {
   private applicationService: ApplicationService;
   private frameworkService: FrameworkService;
   private contextManager: ContextManager;
-  private repositories: FileSystemRepositories;
+  private repositories: IRepositories;
 
   private constructor(
     localPath: string,
@@ -48,6 +48,7 @@ export class PersistenceManager {
     enableCache: boolean = true,
     jsonPath?: string,
     schemaPath?: string,
+    repositories?: IRepositories,
   ) {
     // Create paths (same logic as StorageContext)
     // persistence-manager.mts is in backend/src/persistence/
@@ -87,7 +88,7 @@ export class PersistenceManager {
       this.persistence,
     );
 
-    this.repositories = new FileSystemRepositories(this.pathes, this.persistence);
+    this.repositories = repositories ?? new FileSystemRepositories(this.pathes, this.persistence);
   }
 
   private assertBasePathsExist(pathes: IConfiguredPathes): void {
@@ -115,6 +116,7 @@ export class PersistenceManager {
     enableCache: boolean = true,
     jsonPath?: string,
     schemaPath?: string,
+    repositories?: IRepositories,
   ): PersistenceManager {
     if (PersistenceManager.instance) {
       // Close existing instance (useful for tests)
@@ -127,6 +129,7 @@ export class PersistenceManager {
       enableCache,
       jsonPath,
       schemaPath,
+      repositories,
     );
     return PersistenceManager.instance;
   }
@@ -170,7 +173,7 @@ export class PersistenceManager {
     return this.contextManager;
   }
 
-  getRepositories(): FileSystemRepositories {
+  getRepositories(): IRepositories {
     return this.repositories;
   }
 

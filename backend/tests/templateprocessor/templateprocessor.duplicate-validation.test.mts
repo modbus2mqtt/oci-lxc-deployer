@@ -136,7 +136,6 @@ describe("TemplateProcessor duplicate validation", () => {
         }
       ]
     };
-    persistenceHelper.writeJsonSync(Volume.JsonApplications, "test-duplicate-app/templates/set-db-params-a.json", templateA);
 
     // Create set-db-params-b.json - also sets db_user, db_password, db_name (duplicate IDs)
     const templateB = {
@@ -161,7 +160,16 @@ describe("TemplateProcessor duplicate validation", () => {
         }
       ]
     };
-    persistenceHelper.writeJsonSync(Volume.JsonApplications, "test-duplicate-app/templates/set-db-params-b.json", templateB);
+    persistenceHelper.writeJsonSync(
+      Volume.JsonApplications,
+      "test-duplicate-app/templates/set-db-params-a.json",
+      templateA,
+    );
+    persistenceHelper.writeJsonSync(
+      Volume.JsonApplications,
+      "test-duplicate-app/templates/set-db-params-b.json",
+      templateB,
+    );
 
     // Try to load the application - should throw error about duplicate output IDs
     // The error is thrown during template processing, so it's a VEConfigurationError

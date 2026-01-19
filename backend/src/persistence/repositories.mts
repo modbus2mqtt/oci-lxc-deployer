@@ -57,6 +57,185 @@ export interface IResourceRepository {
   getLocalResource(ref: LocalResourceRef): Buffer | null;
 }
 
+export interface IRepositories
+  extends IApplicationRepository,
+    ITemplateRepository,
+    IResourceRepository {}
+
+export interface InMemoryRepositoriesOptions {
+  applications?: Map<string, IApplication>;
+  templates?: Map<string, ITemplate>; // application templates keyed by `${appId}:${templateName}`
+  sharedTemplates?: Map<string, ITemplate>; // keyed by templateName
+  scripts?: Map<string, string>; // application scripts keyed by `${appId}:${scriptName}`
+  sharedScripts?: Map<string, string>; // keyed by scriptName
+  markdown?: Map<string, string>; // application markdown keyed by `${appId}:${templateName}`
+  sharedMarkdown?: Map<string, string>; // keyed by templateName
+  localResources?: Map<string, Buffer>; // keyed by resource path
+  origin?: "local" | "json";
+}
+
+export class InMemoryRepositories
+  implements IApplicationRepository, ITemplateRepository, IResourceRepository
+{
+  private applications: Map<string, IApplication>;
+  private templates: Map<string, ITemplate>;
+  private sharedTemplates: Map<string, ITemplate>;
+  private scripts: Map<string, string>;
+  private sharedScripts: Map<string, string>;
+  private markdown: Map<string, string>;
+  private sharedMarkdown: Map<string, string>;
+  private localResources: Map<string, Buffer>;
+  private origin: "local" | "json";
+
+  constructor(options: InMemoryRepositoriesOptions = {}) {
+    this.applications = options.applications ?? new Map();
+    this.templates = options.templates ?? new Map();
+    this.sharedTemplates = options.sharedTemplates ?? new Map();
+    this.scripts = options.scripts ?? new Map();
+    this.sharedScripts = options.sharedScripts ?? new Map();
+    this.markdown = options.markdown ?? new Map();
+    this.sharedMarkdown = options.sharedMarkdown ?? new Map();
+    this.localResources = options.localResources ?? new Map();
+    this.origin = options.origin ?? "json";
+  }
+
+  listApplications(): IApplicationWeb[] {
+    const result: IApplicationWeb[] = [];
+    for (const [id, app] of this.applications) {
+      result.push({
+        id,
+        name: app.name ?? id,
+        description: app.description ?? "",
+        icon: app.icon,
+        iconContent: app.iconContent,
+        iconType: app.iconType,
+        ...(app.errors && app.errors.length > 0
+          ? { errors: app.errors.map((e) => ({ message: e, name: "Error", details: undefined })) }
+          : {}),
+      });
+    }
+    return result;
+  }
+
+  getApplicationIcon(applicationId: string): { iconContent: string; iconType: string } | null {
+    const app = this.applications.get(applicationId);
+    if (!app || !app.iconContent || !app.iconType) return null;
+    return { iconContent: app.iconContent, iconType: app.iconType };
+  }
+
+  getApplication(applicationId: string): IApplication {
+    const app = this.applications.get(applicationId);
+    if (!app) {
+      throw new Error(`Application not found: ${applicationId}`);
+    }
+    return app;
+  }
+
+  resolveTemplateRef(applicationId: string, templateName: string): TemplateRef | null {
+    const normalized = TemplatePathResolver.normalizeTemplateName(templateName);
+    const appKey = `${applicationId}:${normalized}`;
+    if (this.templates.has(appKey)) {
+      return {
+        name: normalized,
+        scope: "application",
+        applicationId,
+        origin: this.origin,
+      };
+    }
+    if (this.sharedTemplates.has(normalized)) {
+      return {
+        name: normalized,
+        scope: "shared",
+        origin: this.origin,
+      };
+    }
+    return null;
+  }
+
+  getTemplate(ref: TemplateRef): ITemplate | null {
+    const key = ref.scope === "shared"
+      ? ref.name
+      : `${ref.applicationId}:${ref.name}`;
+    return ref.scope === "shared"
+      ? this.sharedTemplates.get(key) ?? null
+      : this.templates.get(key) ?? null;
+  }
+
+  getScript(ref: ScriptRef): string | null {
+    if (ref.scope === "shared") {
+      return this.sharedScripts.get(ref.name) ?? null;
+    }
+    const key = `${ref.applicationId}:${ref.name}`;
+    return this.scripts.get(key) ?? null;
+  }
+
+  resolveScriptPath(): string | null {
+    return null;
+  }
+
+  resolveLibraryPath(): string | null {
+    return null;
+  }
+
+  getMarkdown(ref: MarkdownRef): string | null {
+    if (ref.scope === "shared") {
+      return this.sharedMarkdown.get(ref.templateName) ?? null;
+    }
+    const key = `${ref.applicationId}:${ref.templateName}`;
+    return this.markdown.get(key) ?? null;
+  }
+
+  getMarkdownSection(ref: MarkdownRef, sectionName: string): string | null {
+    const content = this.getMarkdown(ref);
+    if (!content) return null;
+    return InMemoryRepositories.extractSectionFromContent(content, sectionName);
+  }
+
+  getLocalResource(ref: LocalResourceRef): Buffer | null {
+    return this.localResources.get(ref.path) ?? null;
+  }
+
+  private static extractSectionFromContent(content: string, sectionName: string): string | null {
+    const normalizeHeadingName = (name: string): string => {
+      let s = name.trim().toLowerCase();
+      s = s.replace(/\s*\{#.*\}\s*$/, "");
+      s = s.replace(/:+\s*$/, "");
+      s = s.replace(/^`+|`+$/g, "");
+      s = s.replace(/\s+/g, " ");
+      return s;
+    };
+
+    const lines = content.split(/\r?\n/);
+    const normalizedSectionName = normalizeHeadingName(sectionName);
+    let inSection = false;
+    const sectionContent: string[] = [];
+
+    for (const line of lines) {
+      const headingMatch = line.match(/^##\s+(.+)$/);
+      if (headingMatch) {
+        const headingName = normalizeHeadingName(headingMatch[1]!);
+        if (headingName === normalizedSectionName) {
+          inSection = true;
+          continue;
+        } else if (inSection) {
+          break;
+        }
+      } else if (inSection) {
+        sectionContent.push(line);
+      }
+    }
+
+    if (sectionContent.length === 0) return null;
+    while (sectionContent.length > 0 && sectionContent[0]!.trim() === "") {
+      sectionContent.shift();
+    }
+    while (sectionContent.length > 0 && sectionContent[sectionContent.length - 1]!.trim() === "") {
+      sectionContent.pop();
+    }
+    return sectionContent.length > 0 ? sectionContent.join("\n") : null;
+  }
+}
+
 export class FileSystemRepositories implements IApplicationRepository, ITemplateRepository, IResourceRepository {
   constructor(
     private pathes: IConfiguredPathes,
