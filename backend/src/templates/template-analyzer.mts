@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { TemplateProcessor } from "../templateprocessor.mjs";
+import { TemplateProcessor } from "./templateprocessor.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { DocumentationPathResolver } from "../documentation-path-resolver.mjs";
 import { TemplatePathResolver } from "./template-path-resolver.mjs";

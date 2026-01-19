@@ -520,7 +520,9 @@ export class TemplateProcessor extends EventEmitter {
     const markdownRef: MarkdownRef = {
       templateName: this.normalizeTemplateName(ref.name),
       scope: ref.scope,
-      applicationId: ref.applicationId!,
+      ...(ref.applicationId !== undefined
+        ? { applicationId: ref.applicationId }
+        : {}),
     };
     return this.repositories.getMarkdownSection(markdownRef, sectionName);
   }
