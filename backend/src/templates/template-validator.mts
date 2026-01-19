@@ -85,6 +85,8 @@ export class TemplateValidator {
       }
     }
 
+    const enumTasks: Array<Promise<void>> = [];
+
     for (const param of tmplData.parameters ?? []) {
       if (!opts.parameters.some((p) => p.id === param.id)) {
         let description = param.description;
@@ -116,29 +118,43 @@ export class TemplateValidator {
           templatename: tmplData.name || this.extractTemplateName(opts.template),
         };
 
+        opts.parameters.push(pparm);
+
         if (param.type === "enum" && (param as any).enumValuesTemplate) {
           const enumTmplName = (param as any).enumValuesTemplate;
           opts.webuiTemplates?.push(enumTmplName);
-          const enumValues = await this.resolveEnumValuesTemplate(enumTmplName, opts);
-          if (Array.isArray(enumValues) && enumValues.length > 0) {
-            pparm.enumValues = enumValues;
-            if (enumValues.length === 1 && pparm.default === undefined) {
-              const singleValue = enumValues[0];
-              if (typeof singleValue === "string") {
-                pparm.default = singleValue;
-              } else if (
-                typeof singleValue === "object" &&
-                singleValue !== null &&
-                "value" in singleValue
-              ) {
-                pparm.default = (singleValue as any).value;
+          enumTasks.push(
+            (async () => {
+              if (process.env.ENUM_TRACE === "1") {
+                const templateNameToLog = this.extractTemplateName(opts.template);
+                console.info(
+                  `[enum-trace] request template=${templateNameToLog} param=${param.id} enumTemplate=${enumTmplName}`,
+                );
               }
-            }
-          }
+              const enumValues = await this.resolveEnumValuesTemplate(enumTmplName, opts);
+              if (Array.isArray(enumValues) && enumValues.length > 0) {
+                pparm.enumValues = enumValues;
+                if (enumValues.length === 1 && pparm.default === undefined) {
+                  const singleValue = enumValues[0];
+                  if (typeof singleValue === "string") {
+                    pparm.default = singleValue;
+                  } else if (
+                    typeof singleValue === "object" &&
+                    singleValue !== null &&
+                    "value" in singleValue
+                  ) {
+                    pparm.default = (singleValue as any).value;
+                  }
+                }
+              }
+            })(),
+          );
         }
-
-        opts.parameters.push(pparm);
       }
+    }
+
+    if (enumTasks.length > 0) {
+      await Promise.all(enumTasks);
     }
   }
 }

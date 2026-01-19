@@ -72,6 +72,14 @@ export class VeExecutionSshExecutor {
         "-o",
         "LogLevel=ERROR", // suppress login banners and info
         "-o",
+        "ConnectTimeout=5", // fail fast on unreachable hosts
+        "-o",
+        "ControlMaster=auto", // reuse SSH connections
+        "-o",
+        "ControlPersist=60", // keep master connection alive
+        "-o",
+        "ControlPath=/tmp/lxc-manager-ssh-%r@%h:%p", // shared control socket
+        "-o",
         "ServerAliveInterval=30", // send keepalive every 30s
         "-o",
         "ServerAliveCountMax=3", // fail after 3 missed keepalives

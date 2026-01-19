@@ -109,7 +109,7 @@ export function registerApplicationRoutes(
         ctx,
         undefined,
         params,
-        body.refresh === true,
+        false,
       );
 
       const enumValues = loaded.parameters

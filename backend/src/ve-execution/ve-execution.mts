@@ -242,6 +242,7 @@ export class VeExecution extends EventEmitter {
     tmplCommand: ICommand,
     timeoutMs?: number,
   ): Promise<IVeExecuteMessage> {
+    const startedAt = process.hrtime.bigint();
     // Use provided timeout or fall back to scriptTimeoutMs
     const actualTimeout = timeoutMs !== undefined ? timeoutMs : this.scriptTimeoutMs;
     
@@ -252,50 +253,58 @@ export class VeExecution extends EventEmitter {
     // Extract interpreter from command if available (set by loadCommandContent from shebang)
     const interpreter = (tmplCommand as any)._interpreter;
     
-    const { stdout, stderr, exitCode } = await this.executeSshCommand(
-      input,
-      tmplCommand,
-      actualTimeout,
-      uniqueMarker,
-      interpreter,
-    );
-
-    const msg = this.sshExecutor.createMessageFromResult(input, tmplCommand, stdout, stderr, exitCode);
-
     try {
-      if (stdout.trim().length === 0) {
-        const result = this.sshExecutor.handleEmptyOutput(msg, tmplCommand, exitCode, stderr, this);
-        if (result) return result;
-      } else {
-        // Parse and update outputs
-        this.outputProcessor.parseAndUpdateOutputs(stdout, tmplCommand, uniqueMarker);
-        // Check if outputsRaw was updated
-        const outputsRawResult = this.outputProcessor.getOutputsRawResult();
-        if (outputsRawResult) {
-          this.outputsRaw = outputsRawResult;
+      const { stdout, stderr, exitCode } = await this.executeSshCommand(
+        input,
+        tmplCommand,
+        actualTimeout,
+        uniqueMarker,
+        interpreter,
+      );
+
+      const msg = this.sshExecutor.createMessageFromResult(input, tmplCommand, stdout, stderr, exitCode);
+
+      try {
+        if (stdout.trim().length === 0) {
+          const result = this.sshExecutor.handleEmptyOutput(msg, tmplCommand, exitCode, stderr, this);
+          if (result) return result;
+        } else {
+          // Parse and update outputs
+          this.outputProcessor.parseAndUpdateOutputs(stdout, tmplCommand, uniqueMarker);
+          // Check if outputsRaw was updated
+          const outputsRawResult = this.outputProcessor.getOutputsRawResult();
+          if (outputsRawResult) {
+            this.outputsRaw = outputsRawResult;
+          }
         }
+      } catch (e: any) {
+        msg.index = getNextMessageIndex();
+        // If e is already a JsonError, preserve its details; otherwise create a new one
+        if (e instanceof JsonError) {
+          msg.error = e;
+        } else {
+          msg.error = new JsonError(e.message);
+        }
+        msg.exitCode = -1;
+        msg.partial = false;
+        this.emit("message", msg);
+        throw new Error("An error occurred during command execution.");
       }
-    } catch (e: any) {
-      msg.index = getNextMessageIndex();
-      // If e is already a JsonError, preserve its details; otherwise create a new one
-      if (e instanceof JsonError) {
-        msg.error = e;
-      } else {
-        msg.error = new JsonError(e.message);
-      }
-      msg.exitCode = -1;
+      if (exitCode !== 0) {
+        throw new Error(
+          `Command "${tmplCommand.name}" failed with exit code ${exitCode}: ${stderr}`,
+        );
+      } else msg.index = getNextMessageIndex();
       msg.partial = false;
       this.emit("message", msg);
-      throw new Error("An error occurred during command execution.");
+      return msg;
+    } finally {
+      if (process.env.CACHE_TRACE === "1") {
+        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        const templateName = String(tmplCommand?.name ?? "unknown");
+        console.info(`[runOnVeHost] ${durationMs.toFixed(1)}ms template=${templateName}`);
+      }
     }
-    if (exitCode !== 0) {
-      throw new Error(
-        `Command "${tmplCommand.name}" failed with exit code ${exitCode}: ${stderr}`,
-      );
-    } else msg.index = getNextMessageIndex();
-    msg.partial = false;
-    this.emit("message", msg);
-    return msg;
   }
 
   /**

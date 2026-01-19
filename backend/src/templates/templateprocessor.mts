@@ -30,6 +30,7 @@ import { TemplateTraceBuilder } from "./template-trace-builder.mjs";
 import { EnumValuesResolver } from "./enum-values-resolver.mjs";
 import { TemplateValidator } from "./template-validator.mjs";
 import { TemplateOutputProcessor } from "./template-output-processor.mjs";
+import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 
 export type {
   IProcessTemplateOpts,
@@ -225,9 +226,14 @@ export class TemplateProcessor extends EventEmitter {
     enumTemplate: string,
     opts: IProcessTemplateOpts,
   ): Promise<(string | { name: string; value: string | number | boolean })[] | null | undefined> {
+    const resolved = this.resolver.resolveTemplate(opts.application, enumTemplate);
+    const executeOn = resolved?.template?.execute_on;
     return this.enumValuesResolver.resolveEnumValuesTemplate(
       enumTemplate,
-      opts,
+      {
+        ...opts,
+        ...(executeOn ? { enumValuesExecuteOn: executeOn } : {}),
+      },
       (innerOpts) => this.#processTemplate(innerOpts),
       (message) => this.emit("message", message),
     );
@@ -478,37 +484,33 @@ export class TemplateProcessor extends EventEmitter {
     task: TaskType,
     veContext?: IVEContext,
   ): Promise<IParameter[]> {
-    const originalValidator = this.validator;
-    this.validator = new TemplateValidator(
-      this.resolver.resolveMarkdownSection.bind(this.resolver),
-      async () => undefined,
-      this.resolver.extractTemplateName.bind(this.resolver),
-      this.resolver.normalizeTemplateName.bind(this.resolver),
+    const loaded = await this.loadApplication(
+      application,
+      task,
+      veContext,
+      undefined,
+      undefined,
+      true,
     );
-
-    try {
-      const loaded = await this.loadApplication(application, task, veContext);
-      if (loaded.parameterTrace && loaded.parameterTrace.length > 0) {
-        const traceById = new Map(
-          loaded.parameterTrace.map((entry) => [entry.id, entry]),
-        );
-        return loaded.parameters.filter((param) => {
-          const trace = traceById.get(param.id);
-          return trace ? trace.source === "missing" : true;
-        });
-      }
-
-      // Fallback: Only parameters whose id is not in resolvedParams.param
-      return loaded.parameters.filter(
-        (param) =>
-          undefined ==
-          loaded.resolvedParams.find(
-            (rp) => rp.id == param.id && rp.template != param.template,
-          ),
+    if (loaded.parameterTrace && loaded.parameterTrace.length > 0) {
+      const traceById = new Map(
+        loaded.parameterTrace.map((entry) => [entry.id, entry]),
       );
-    } finally {
-      this.validator = originalValidator;
+      return loaded.parameters.filter((param) => {
+        if (param.type === "enum") return true;
+        const trace = traceById.get(param.id);
+        return trace ? trace.source === "missing" : true;
+      });
     }
+
+    // Fallback: Only parameters whose id is not in resolvedParams.param
+    return loaded.parameters.filter(
+      (param) =>
+        undefined ==
+        loaded.resolvedParams.find(
+          (rp) => rp.id == param.id && rp.template != param.template,
+        ),
+    );
   }
 
   async getParameters(
@@ -518,5 +520,52 @@ export class TemplateProcessor extends EventEmitter {
   ): Promise<IParameter[]> {
     const loaded = await this.loadApplication(application, task, veContext);
     return loaded.parameters;
+  }
+
+  async warmupEnumValuesForVeContext(
+    veContext: IVEContext,
+    enumTemplates: string[],
+    executionMode?: ExecutionMode,
+  ): Promise<void> {
+    if (!veContext || enumTemplates.length === 0) return;
+    const pm = PersistenceManager.getInstance();
+    const allApps = pm.getApplicationService().getAllAppNames();
+    const appId = allApps.keys().next().value as string | undefined;
+    if (!appId) return;
+
+    const errors: IJsonError[] = [];
+    const tasks = Array.from(new Set(enumTemplates)).map(async (enumTemplate) => {
+      try {
+        const resolved = this.resolver.resolveTemplate(appId, enumTemplate);
+        const executeOn = resolved?.template?.execute_on;
+        const opts: IProcessTemplateOpts = {
+          application: appId,
+          template: enumTemplate,
+          templatename: enumTemplate,
+          resolvedParams: [],
+          visitedTemplates: new Set<string>(),
+          parameters: [],
+          commands: [],
+          errors,
+          requestedIn: "enum-warmup",
+          webuiTemplates: [],
+          executionMode: executionMode !== undefined ? executionMode : determineExecutionMode(),
+          veContext,
+          ...(executeOn ? { enumValuesExecuteOn: executeOn } : {}),
+          processedTemplates: new Map(),
+          templateReferences: new Map(),
+          outputSources: new Map(),
+        };
+        await this.enumValuesResolver.resolveEnumValuesTemplate(
+          enumTemplate,
+          opts,
+          (innerOpts) => this.#processTemplate(innerOpts),
+          (message) => this.emit("message", message),
+        );
+      } catch {
+        // Ignore warmup errors
+      }
+    });
+    await Promise.all(tasks);
   }
 }

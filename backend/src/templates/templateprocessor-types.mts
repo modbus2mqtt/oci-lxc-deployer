@@ -27,6 +27,7 @@ export interface IProcessTemplateOpts {
   veContext?: IVEContext;
   executionMode?: import("../ve-execution/ve-execution-constants.mjs").ExecutionMode; // Execution mode for VeExecution
   enumValueInputs?: { id: string; value: IParameterValue }[];
+  enumValuesExecuteOn?: string;
   enumValuesRefresh?: boolean;
   processedTemplates?: Map<string, IProcessedTemplate>; // Collects template information
   templateReferences?: Map<string, Set<string>>; // Template references (template -> referenced templates)

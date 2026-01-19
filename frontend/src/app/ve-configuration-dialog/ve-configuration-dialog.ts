@@ -77,8 +77,14 @@ export class VeConfigurationDialog implements OnInit {
   }
 
   private loadEnumValues(): void {
-    const params = this.unresolvedParameters
-      .filter((p) => p.type === 'enum')
+    const enumParams = this.unresolvedParameters.filter((p) => p.type === 'enum');
+    if (enumParams.length === 0) return;
+    const allEnumsPresent = enumParams.every(
+      (p) => Array.isArray(p.enumValues) && p.enumValues.length > 0,
+    );
+    if (allEnumsPresent) return;
+
+    const params = enumParams
       .map((p) => ({
         id: p.id,
         value: this.form.get(p.id)?.value as IParameterValue,
