@@ -5,7 +5,7 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialog } from '@angu
 
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { IApplicationWeb, IParameter, IParameterValue } from '../../shared/types';
+import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse } from '../../shared/types';
 import { VeConfigurationService, VeConfigurationParam } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { ParameterGroupComponent } from './parameter-group.component';
@@ -31,6 +31,7 @@ export class VeConfigurationDialog implements OnInit {
   hasError = signal(false);
   showAdvanced = signal(false);
   private initialValues = new Map<string, IParameterValue>();
+  private enumRefreshAttempted = false;
   private configService: VeConfigurationService = inject(VeConfigurationService);
   public dialogRef: MatDialogRef<VeConfigurationDialog> = inject(MatDialogRef<VeConfigurationDialog>);
   private errorHandler: ErrorHandlerService = inject(ErrorHandlerService);
@@ -64,12 +65,70 @@ export class VeConfigurationDialog implements OnInit {
         }
         this.form.markAllAsTouched();
         this.loading.set(false);
+        this.loadEnumValues();
       },
       error: (err: unknown) => {
         this.errorHandler.handleError('Failed to load parameters', err);
         this.loading.set(false);
         this.hasError.set(true);
         // Note: Dialog remains open so user can see the error and close manually
+      }
+    });
+  }
+
+  private loadEnumValues(): void {
+    const params = this.unresolvedParameters
+      .filter((p) => p.type === 'enum')
+      .map((p) => ({
+        id: p.id,
+        value: this.form.get(p.id)?.value as IParameterValue,
+      }))
+      .filter((p) => p.value !== null && p.value !== undefined && p.value !== '');
+
+    this.configService.postEnumValues(this.data.app.id, this.task, params).subscribe({
+      next: (res: IEnumValuesResponse) => {
+        for (const entry of res.enumValues) {
+          const param = this.unresolvedParameters.find((p) => p.id === entry.id);
+          if (!param) continue;
+          param.enumValues = entry.enumValues;
+          if (entry.default !== undefined) {
+            param.default = entry.default;
+            const control = this.form.get(entry.id);
+            if (control && (control.value === '' || control.value === null || control.value === undefined)) {
+              control.setValue(entry.default);
+              this.initialValues.set(entry.id, entry.default as IParameterValue);
+            }
+          }
+        }
+        const missingEnums = this.unresolvedParameters.filter(
+          (p) => p.type === 'enum' && (!p.enumValues || p.enumValues.length === 0),
+        );
+        if (missingEnums.length > 0 && !this.enumRefreshAttempted) {
+          this.enumRefreshAttempted = true;
+          this.configService.postEnumValues(this.data.app.id, this.task, params, true).subscribe({
+            next: (retryRes: IEnumValuesResponse) => {
+              for (const entry of retryRes.enumValues) {
+                const param = this.unresolvedParameters.find((p) => p.id === entry.id);
+                if (!param) continue;
+                param.enumValues = entry.enumValues;
+                if (entry.default !== undefined) {
+                  param.default = entry.default;
+                  const control = this.form.get(entry.id);
+                  if (control && (control.value === '' || control.value === null || control.value === undefined)) {
+                    control.setValue(entry.default);
+                    this.initialValues.set(entry.id, entry.default as IParameterValue);
+                  }
+                }
+              }
+            },
+            error: (err: unknown) => {
+              this.errorHandler.handleError('Failed to refresh enum values', err);
+            }
+          });
+        }
+      },
+      error: (err: unknown) => {
+        this.errorHandler.handleError('Failed to load enum values', err);
       }
     });
   }

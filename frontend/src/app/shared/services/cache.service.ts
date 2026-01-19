@@ -2,7 +2,7 @@ import { Injectable, signal, inject } from '@angular/core';
 import { VeConfigurationService } from '../../ve-configuration.service';
 import { IFrameworkName } from '../../../shared/types';
 import { Observable, of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { catchError, map, tap } from 'rxjs/operators';
 
 export interface CacheData {
   frameworks: IFrameworkName[];

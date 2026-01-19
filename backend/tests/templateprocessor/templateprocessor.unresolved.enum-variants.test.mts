@@ -257,7 +257,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
     const unresolvedIds = unresolved.map((p: IParameter) => p.id);
     expect(unresolvedIds).toContain("enum_zero");
     expect(unresolvedIds).toContain("enum_many");
-    expect(unresolvedIds).not.toContain("enum_one");
+    expect(unresolvedIds).toContain("enum_one");
   });
 
   it("enum variants without veContext remain unresolved", async () => {

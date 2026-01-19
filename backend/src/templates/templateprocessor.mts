@@ -478,25 +478,37 @@ export class TemplateProcessor extends EventEmitter {
     task: TaskType,
     veContext?: IVEContext,
   ): Promise<IParameter[]> {
-    const loaded = await this.loadApplication(application, task, veContext);
-    if (loaded.parameterTrace && loaded.parameterTrace.length > 0) {
-      const traceById = new Map(
-        loaded.parameterTrace.map((entry) => [entry.id, entry]),
-      );
-      return loaded.parameters.filter((param) => {
-        const trace = traceById.get(param.id);
-        return trace ? trace.source === "missing" : true;
-      });
-    }
-
-    // Fallback: Only parameters whose id is not in resolvedParams.param
-    return loaded.parameters.filter(
-      (param) =>
-        undefined ==
-        loaded.resolvedParams.find(
-          (rp) => rp.id == param.id && rp.template != param.template,
-        ),
+    const originalValidator = this.validator;
+    this.validator = new TemplateValidator(
+      this.resolver.resolveMarkdownSection.bind(this.resolver),
+      async () => undefined,
+      this.resolver.extractTemplateName.bind(this.resolver),
+      this.resolver.normalizeTemplateName.bind(this.resolver),
     );
+
+    try {
+      const loaded = await this.loadApplication(application, task, veContext);
+      if (loaded.parameterTrace && loaded.parameterTrace.length > 0) {
+        const traceById = new Map(
+          loaded.parameterTrace.map((entry) => [entry.id, entry]),
+        );
+        return loaded.parameters.filter((param) => {
+          const trace = traceById.get(param.id);
+          return trace ? trace.source === "missing" : true;
+        });
+      }
+
+      // Fallback: Only parameters whose id is not in resolvedParams.param
+      return loaded.parameters.filter(
+        (param) =>
+          undefined ==
+          loaded.resolvedParams.find(
+            (rp) => rp.id == param.id && rp.template != param.template,
+          ),
+      );
+    } finally {
+      this.validator = originalValidator;
+    }
   }
 
   async getParameters(

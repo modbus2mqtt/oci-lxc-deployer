@@ -1,6 +1,6 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody } from '../shared/types';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -89,6 +89,16 @@ export class VeConfigurationService {
       .replace(":task", encodeURIComponent(task));
     const url = this.veContextKey ? base.replace(":veContext", this.veContextKey) : base;
     return this.http.get<ITemplateProcessorLoadResult>(url);
+  }
+
+  postEnumValues(application: string, task: string, params?: { id: string; value: IParameterValue }[], refresh?: boolean): Observable<IEnumValuesResponse> {
+    const url = ApiUri.EnumValues
+      .replace(':application', encodeURIComponent(application))
+      .replace(':task', encodeURIComponent(task));
+    const body: IPostEnumValuesBody = {};
+    if (params && params.length > 0) body.params = params;
+    if (refresh === true) body.refresh = true;
+    return this.post<IEnumValuesResponse, IPostEnumValuesBody>(url, body);
   }
 
   getSshConfigs(): Observable<ISshConfigsResponse> {

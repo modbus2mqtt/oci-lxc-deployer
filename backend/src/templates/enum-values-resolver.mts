@@ -93,7 +93,9 @@ export class EnumValuesResolver {
           rc && Array.isArray(rc.outputs) && rc.outputs.length > 0
             ? rc.outputs
             : null;
-        EnumValuesResolver.enumValuesCache.set(cacheKey, values);
+        if (values !== null) {
+          EnumValuesResolver.enumValuesCache.set(cacheKey, values);
+        }
         return values;
       } catch (e: any) {
         if (opts.enumValuesRefresh && cached !== undefined) {
