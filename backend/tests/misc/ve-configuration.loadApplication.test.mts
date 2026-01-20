@@ -202,7 +202,28 @@ describe("ProxmoxConfiguration.loadApplication", () => {
       );
     } catch (err: any) {
       // Validation error is acceptable here when parameter is missing
-      expect(err.message).toMatch(/missing_param|no such parameter/i);
+      const pattern = /missing_param|no such parameter/i;
+      if (err instanceof VEConfigurationError && Array.isArray(err.details)) {
+        const detailMessages = err.details.map((d: any) => d.passed_message || d.message || "");
+        const hasMatch = detailMessages.some((m: string) => pattern.test(m));
+        expect(hasMatch).toBe(true);
+      } else {
+        let matched = false;
+        if (typeof err.message === "string") {
+          matched = pattern.test(err.message);
+          if (!matched) {
+            try {
+              const parsed = JSON.parse(err.message);
+              if (Array.isArray(parsed)) {
+                matched = parsed.some((d: any) => pattern.test(String(d.passed_message || d.message || d)));
+              }
+            } catch {
+              // ignore JSON parse errors
+            }
+          }
+        }
+        expect(matched).toBe(true);
+      }
     }
   });
 
