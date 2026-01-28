@@ -1,0 +1,29 @@
+{
+  "execute_on": "ve",
+  "name": "Extract Volumes from Compose",
+  "description": "Extract volume mappings from Docker Compose file and convert them to LXC volume format. Relative paths (./data) are converted to volumes/<project>/data format.",
+  "parameters": [
+    {
+      "id": "compose_file",
+      "name": "Docker Compose File",
+      "type": "string",
+      "upload": true,
+      "required": true,
+      "description": "Docker Compose YAML file (upload)"
+    },
+    {
+      "id": "compose_project",
+      "name": "Compose Project Name",
+      "type": "string",
+      "default": "",
+      "description": "Project name for Docker Compose (used for named volumes). Defaults to hostname if not provided."
+    }
+  ],
+  "commands": [
+    {
+      "script": "extract-volumes-from-compose.py",
+      "description": "Extract volumes from Docker Compose file and convert to LXC format",
+      "outputs": ["volumes", "compose_project"]
+    }
+  ]
+}

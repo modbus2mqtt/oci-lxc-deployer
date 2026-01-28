@@ -1,0 +1,19 @@
+<!-- FALSCH (verursacht den Fehler): -->
+<mat-form-field>
+  <input matInput ... />
+  <mat-hint align="start">Hint 1</mat-hint>
+  <mat-hint align="start">Hint 2</mat-hint>  <!-- FEHLER: Doppeltes align="start" -->
+</mat-form-field>
+
+<!-- RICHTIG: -->
+<mat-form-field>
+  <input matInput ... />
+  <mat-hint align="start">Combined hint text</mat-hint>  <!-- Nur ein Hint pro align -->
+</mat-form-field>
+
+<!-- ODER mit unterschiedlichen align-Werten: -->
+<mat-form-field>
+  <input matInput ... />
+  <mat-hint align="start">Left hint</mat-hint>
+  <mat-hint align="end">Right hint</mat-hint>  <!-- OK: unterschiedliche align-Werte -->
+</mat-form-field>

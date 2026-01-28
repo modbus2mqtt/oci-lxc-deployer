@@ -82,16 +82,34 @@ export class FrameworkLoader {
     const propertyIds = (frameworkData.properties || []).map((p) =>
       typeof p === "string" ? p : p.id,
     );
+    const isDockerCompose = framework === 'docker-compose' || frameworkData.extends === 'docker-compose';
     const result: IParameter[] = [];
     for (const propId of propertyIds) {
       const match = loaded.find((p) => p.id === propId);
       if (match) {
         // Clone parameter and apply framework-specific rules:
         // - remove 'advanced'
-        // - force required: true
+        // - set required based on framework-specific rules
         const cloned: IParameter = { ...match };
         delete (cloned as any).advanced;
-        cloned.required = true;
+        
+        // Special handling for docker-compose framework:
+        // - hostname should be optional (Application ID can be used as default)
+        // - compose_project should be optional
+        if (isDockerCompose) {
+          if (propId === 'hostname') {
+            cloned.required = false; // Optional - Application ID can be used as default
+          } else if (propId === 'compose_project') {
+            cloned.required = false; // Force optional for docker-compose
+          } else {
+            // For other parameters, keep original required value or default to true
+            cloned.required = match.required !== undefined ? match.required : true;
+          }
+        } else {
+          // For other frameworks, force required: true (original behavior)
+          cloned.required = true;
+        }
+        
         result.push(cloned);
       }
     }
@@ -165,7 +183,11 @@ export class FrameworkLoader {
       const paramDef = allParameters.find((p) => p.id === propId);
       const paramValue = paramValuesMap.get(propId);
 
-      if (isDefault && paramDef) {
+      // Special handling for docker-compose framework: ensure hostname is always added as parameter
+      // even if it's not marked as default, so it can be used with Application ID as default
+      const shouldAddAsParameter = isDefault || (framework.id === 'docker-compose' && propId === 'hostname' && paramDef);
+
+      if (shouldAddAsParameter && paramDef) {
         // Create parameter entry
         const param: IParameter = {
           ...paramDef,
@@ -175,8 +197,31 @@ export class FrameworkLoader {
         } else if (paramDef.default !== undefined) {
           param.default = paramDef.default;
         }
+        
+        // Special handling for docker-compose framework:
+        // - hostname should be optional (Application ID can be used as default)
+        // - compose_project should always be optional
+        if (framework.id === 'docker-compose') {
+          if (propId === 'hostname') {
+            param.required = false; // Optional - Application ID can be used as default
+            // If hostname is not provided, use Application ID as default
+            if (paramValue === undefined && paramDef.default === undefined) {
+              param.default = request.applicationId;
+            }
+          } else if (propId === 'compose_project') {
+            param.required = false;
+          }
+        }
+        
         templateParameters.push(param);
       } else if (paramValue !== undefined) {
+        // For docker-compose framework: volumes is output by 310-extract-volumes-from-compose.json,
+        // so don't set it as property in set-parameters.json to avoid conflicts
+        if (framework.id === 'docker-compose' && propId === 'volumes') {
+          // Skip volumes - it will be set by 310-extract-volumes-from-compose.json template
+          continue;
+        }
+        
         // Create property/output entry
         templateProperties.push({
           id: propId,
@@ -185,7 +230,69 @@ export class FrameworkLoader {
       }
     }
 
-    // Create set-parameters.json template
+    // For docker-compose framework: ensure compose_file and env_file are included
+    // These are base64-encoded file contents that need to be written to set-parameters.json
+    const composeFileValue = paramValuesMap.get('compose_file');
+    const envFileValue = paramValuesMap.get('env_file');
+    
+    // Ensure compose_file is in properties (even if not in framework.properties)
+    if (composeFileValue && typeof composeFileValue === 'string') {
+      const composeFileIndex = templateProperties.findIndex(p => p.id === 'compose_file');
+      if (composeFileIndex >= 0 && templateProperties[composeFileIndex]) {
+        templateProperties[composeFileIndex].value = composeFileValue;
+      } else {
+        templateProperties.push({ id: 'compose_file', value: composeFileValue });
+      }
+      
+      // Also ensure it's in parameters if not already there
+      const composeParamIndex = templateParameters.findIndex(p => p.id === 'compose_file');
+      if (composeParamIndex < 0) {
+        const composeParamDef = allParameters.find((p) => p.id === 'compose_file');
+        if (composeParamDef) {
+          templateParameters.push({
+            ...composeParamDef,
+            default: composeFileValue,
+          });
+        }
+      }
+    }
+    
+    // Ensure env_file is in properties (even if not in framework.properties)
+    if (envFileValue && typeof envFileValue === 'string') {
+      const envFileIndex = templateProperties.findIndex(p => p.id === 'env_file');
+      if (envFileIndex >= 0 && templateProperties[envFileIndex]) {
+        templateProperties[envFileIndex].value = envFileValue;
+      } else {
+        templateProperties.push({ id: 'env_file', value: envFileValue });
+      }
+      
+      // Also ensure it's in parameters if not already there
+      const envParamIndex = templateParameters.findIndex(p => p.id === 'env_file');
+      if (envParamIndex < 0) {
+        const envParamDef = allParameters.find((p) => p.id === 'env_file');
+        if (envParamDef) {
+          templateParameters.push({
+            ...envParamDef,
+            default: envFileValue,
+          });
+        }
+      }
+    }
+
+    // For docker-compose framework: ensure hostname is set as property if not provided
+    // Use Application ID as default so it can be passed to templates
+    if (framework.id === 'docker-compose') {
+      const hostnameValue = paramValuesMap.get('hostname');
+      if (hostnameValue === undefined) {
+        // hostname not provided, use Application ID as default
+        const hostnamePropIndex = templateProperties.findIndex(p => p.id === 'hostname');
+        if (hostnamePropIndex < 0) {
+          templateProperties.push({ id: 'hostname', value: request.applicationId });
+        }
+      }
+    }
+
+    // Create <application-id>-parameters.json template
     const setParametersTemplate = {
       execute_on: "ve",
       name: "Set Parameters",
@@ -199,7 +306,7 @@ export class FrameworkLoader {
       ],
     };
 
-    // Determine template name to prepend: derive from application-id or use set-parameters.json
+    // Determine template name: <application-id>-parameters.json
     const prependTemplateName = `${request.applicationId}-parameters.json`;
 
     // Write the prepend template using persistence

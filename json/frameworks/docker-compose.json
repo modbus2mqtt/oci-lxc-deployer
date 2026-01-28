@@ -1,0 +1,16 @@
+{
+  "name": "Docker Compose",
+  "extends": "docker-compose",
+  "properties": [
+    "hostname",
+    "compose_file",
+    "env_file",
+    "compose_project",
+    "volumes",
+    "ostype",
+    "compose_services",
+    "compose_ports",
+    "compose_images",
+    "compose_networks"
+  ]
+}

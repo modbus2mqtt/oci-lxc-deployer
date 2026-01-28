@@ -23,6 +23,7 @@
     "build": "tsc --project tsconfig.production.json && tsc-alias -p tsconfig.production.json",
     "postbuild": "chmod +x ./dist/oci-lxc-deployer.mjs",
     "lint:all": "eslint \"src/**/*.{ts,mts,cts}\" \"tests/**/*.{ts,mts,cts}\"",
+    "lint:fix": "eslint \"src/**/*.{ts,mts,cts}\" \"tests/**/*.{ts,mts,cts}\" --fix",
     "prettier": "prettier --write ."
   },
   "keywords": [],

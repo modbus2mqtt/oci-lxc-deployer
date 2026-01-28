@@ -16,7 +16,8 @@
       />
     </div>
 
-    <div class="trace-table-wrapper" *ngIf="filteredParameters.length > 0; else noParams">
+    @if (filteredParameters.length > 0) {
+    <div class="trace-table-wrapper">
       <table class="trace-table">
         <thead>
           <tr>
@@ -28,25 +29,27 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let param of filteredParameters">
+          @for (param of filteredParameters; track param.id) {
+          <tr>
             <td>{{ param.id }}</td>
             <td>{{ param.required ? 'Yes' : 'No' }}</td>
             <td>{{ sourceLabel(param) }}</td>
             <td>{{ sourceTemplateLabel(param) }}</td>
             <td>{{ usedInLabel(param) }}</td>
           </tr>
+          }
         </tbody>
       </table>
     </div>
-
-    <ng-template #noParams>
-      <div class="trace-empty">No parameters available for this filter.</div>
-    </ng-template>
+    } @else {
+    <div class="trace-empty">No parameters available for this filter.</div>
+    }
   </section>
 
   <section class="trace-section">
     <h3>Templates</h3>
-    <div class="trace-table-wrapper" *ngIf="templateTrace.length > 0; else noTemplates">
+    @if (templateTrace.length > 0) {
+    <div class="trace-table-wrapper">
       <table class="trace-table">
         <thead>
           <tr>
@@ -59,7 +62,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let template of templateTrace">
+          @for (template of templateTrace; track template) {
+          <tr>
             <td>{{ template.name }}</td>
             <td>{{ template.path }}</td>
             <td>{{ template.origin }}</td>
@@ -67,13 +71,13 @@
             <td>{{ template.skipped ? 'Yes' : 'No' }}</td>
             <td>{{ template.conditional ? 'Yes' : 'No' }}</td>
           </tr>
+          }
         </tbody>
       </table>
     </div>
-
-    <ng-template #noTemplates>
-      <div class="trace-empty">No template trace information available.</div>
-    </ng-template>
+    } @else {
+    <div class="trace-empty">No template trace information available.</div>
+    }
   </section>
 </div>
 

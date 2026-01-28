@@ -1,7 +1,7 @@
 import { IVEContext } from "@src/backend-types.mjs";
 import { ContextManager } from "@src/context-manager.mjs";
 import { StorageContext } from "@src/storagecontext.mjs";
-import { IPostVeConfigurationBody, IParameter, TaskType } from "@src/types.mjs";
+import { IPostVeConfigurationBody, IParameter, IParameterValue, TaskType } from "@src/types.mjs";
 import fs from "fs";
 import path from "path";
 
@@ -41,7 +41,18 @@ export class WebAppVeParameterProcessor {
             );
           }
         }
-        return { id: p.name, value: p.value };
+        
+        // Extract base64 content if value has file metadata format: file:filename:content:base64content
+        // This handles cases where the frontend sends the format (shouldn't happen, but for robustness)
+        let processedValue: IParameterValue = p.value;
+        if (typeof p.value === "string" && paramDef?.upload) {
+          const fileMetadataMatch = p.value.match(/^file:([^:]+):content:(.+)$/);
+          if (fileMetadataMatch && fileMetadataMatch[2]) {
+            processedValue = fileMetadataMatch[2]; // Extract only the base64 content
+          }
+        }
+        
+        return { id: p.name, value: processedValue };
       }),
     );
   }

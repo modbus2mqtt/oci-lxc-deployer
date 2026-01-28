@@ -1,0 +1,19 @@
+{
+  "name": "Docker Compose Example",
+  "extends": "docker-compose",
+  "description": "Example application using Docker Compose framework",
+  "installation": [
+    "set-parameters.json",
+    "010-get-latest-os-template.json",
+    "095-check-kernel-modules.json",
+    "096-load-kernel-modules.json",
+    "100-create-configure-lxc.json",
+    "101-configure-lxc-for-docker.json",
+    "200-start-lxc.json",
+    "300-install-docker-rootless.json",
+    "310-extract-volumes-from-compose.json",
+    "160-bind-multiple-volumes-to-lxc.json",
+    "320-upload-docker-compose-files.json",
+    "330-start-docker-compose.json"
+  ]
+}

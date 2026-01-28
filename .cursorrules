@@ -49,4 +49,97 @@
 - All files must use English for file content, variable names, keys, strings, and outputs. Descriptions, comments, and documentation inside files must also be in English.
 - German may only be used in user-facing chat, or in translation resources specifically intended for UI localization.
 
+## Testing and Quality Assurance
+
+After making significant changes to frontend or backend code:
+
+**Import resolution issues**: Follow this escalation path:
+1. **First attempt**: Try to manually correct the import path based on file structure analysis
+2. **Second attempt**: Delete the problematic import lines, then run `npm run lint:fix` in the project directory (frontend or backend). The linter can now detect unresolved imports and may suggest fixes. Note: ESLint `--fix` automatically writes fixes to files (no `--write` flag needed). ESLint `--fix` can fix import style issues (e.g., consistent-type-imports) but may not resolve path errors.
+3. **Final step**: If import paths still fail to resolve, ask the user to use the IDE's "Quick Fix" feature (usually triggered by hovering over the error or using Cmd/Ctrl+.) to automatically generate the correct import paths. The IDE's Quick Fix uses TypeScript's language server and provides the correct relative paths that work with the build system
+
+1. **Run Tests**: Execute `npm run test` in the project directory (frontend or backend) to catch errors early
+   - Frontend: Runs Vitest tests for Angular components and services
+   - Backend: Runs Vitest tests for Node.js modules and services
+   - Fix any failing tests before proceeding
+
+2. **Run Linter**: Execute `npm run lint` or `npm run lint:all` in the project directory to check code quality
+   - Fix linting errors and warnings
+   - Use `npm run lint:fix` to automatically fix auto-fixable issues (ESLint `--fix` automatically writes changes to files)
+   - Ensure code follows project style guidelines
+
+3. **Run Build**: Execute `npm run build` in the project directory to verify the project compiles successfully
+   - Frontend: Verifies Angular compilation and production build
+   - Backend: Verifies TypeScript compilation and module resolution
+   - This ensures TypeScript compilation errors are caught early
+   - Verifies that all imports and dependencies are correct
+   - Checks that the production build works without errors
+   - Fix any build errors before proceeding
+
+4. **Review Test Coverage**: 
+   - **Pragmatic approach**: Focus on critical business logic and user flows, not coverage percentages
+   - **What to test:**
+     - Services/modules with complex logic (parsing, data transformation, error handling)
+     - Frontend: Components with user interactions (forms, file uploads, service selection)
+     - Backend: Critical business logic (framework loading, template processing, validation)
+     - Critical user flows (e.g., create application flow, docker-compose setup flow)
+     - Error cases and edge cases (invalid inputs, empty data, null values)
+   - **What NOT to test:**
+     - Trivial getters/setters
+     - Frontend: Simple template bindings without business logic
+     - Frontend: Pure presentation components without logic
+     - Browser APIs (FileReader, etc.) - focus on the logic that uses them
+     - Backend: Simple data structures without transformation logic
+   - **Test structure:**
+     - Services/modules: 3-5 tests per critical method (happy path, edge case, error case)
+     - Frontend components: 2-4 tests per critical flow (main flow, error handling)
+     - Backend modules: 2-4 tests per critical function (main flow, error handling)
+   - **When writing tests:**
+     - Identify 3-5 critical flows per component/service/module
+     - Write tests only for these flows
+     - Use descriptive test names that explain what is being tested
+     - Follow existing test patterns:
+       - Frontend: See `installed-list.vitest.spec.ts` or `docker-compose-step.component.vitest.spec.ts`
+       - Backend: See `frameworkloader.createApplication.test.mts` or similar test files
+     - **ALWAYS run tests after creating them**: Execute `npm run test` in the project directory to verify tests pass
+     - **All tests must pass**: Fix any failing tests before considering the work complete. If tests fail due to import or configuration issues, resolve them immediately.
+
+   - **When tests fail:**
+     - Fix the test if it's still relevant
+     - Remove the test if functionality changed and test is no longer needed
+
+5. **Automated Testing**: Ensure all automated tests pass before considering the work complete
+   - Unit tests for components, services, and modules
+   - Integration tests for component/module interactions
+   - E2E tests for critical user flows (if applicable, primarily frontend)
+
+**When to run these checks:**
+- After creating new components, services, or modules
+- After modifying component logic, templates, services, or backend modules
+- After refactoring existing code
+- After adding new features or functionality
+- Before committing significant changes
+
+**Execution Order:**
+1. Run linter first (`npm run lint` or `npm run lint:all`) to catch style and code quality issues
+2. Run auto-fix (`npm run lint:fix`) to automatically fix auto-fixable linting issues
+3. Run build (`npm run build`) to ensure compilation succeeds
+4. Run tests (`npm run test`) to verify functionality
+5. Review and write additional tests as needed
+
+**Test Writing Guidelines:**
+- **Frontend (Angular)**:
+  - Write tests for new components using Angular testing utilities (TestBed)
+  - Test component inputs, outputs, and event handlers
+  - Test service methods and their interactions
+  - Test form validation and user interactions
+- **Backend (Node.js/TypeScript)**:
+  - Write tests for new modules and services using Vitest
+  - Test module exports and function behavior
+  - Test error handling and edge cases
+  - Test integration with external dependencies (use mocks when appropriate)
+- **General**:
+  - Use descriptive test names that explain what is being tested
+  - Follow the existing test patterns in the project
+
 

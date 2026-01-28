@@ -151,19 +151,29 @@ export class VeConfigurationDialog implements OnInit {
     
     for (const [paramId, currentValue] of Object.entries(this.form.value) as [string, IParameterValue][]) {
       const initialValue = this.initialValues.get(paramId);
+      
+      // Extract base64 content if value has file metadata format: file:filename:content:base64content
+      let processedValue: IParameterValue = currentValue;
+      if (typeof currentValue === 'string' && currentValue.match(/^file:[^:]+:content:(.+)$/)) {
+        const match = currentValue.match(/^file:[^:]+:content:(.+)$/);
+        if (match) {
+          processedValue = match[1]; // Extract only the base64 content
+        }
+      }
+      
       // Check if value has changed (compare with initial value)
-      const hasChanged = initialValue !== currentValue && 
-                        (currentValue !== null && currentValue !== undefined && currentValue !== '');
+      const hasChanged = initialValue !== processedValue && 
+                        (processedValue !== null && processedValue !== undefined && processedValue !== '');
       
       if (hasChanged) {
         // Collect changed parameters for vmInstallContext
-        if (currentValue !== null && currentValue !== undefined && currentValue !== '') {
-          changedParams.push({ name: paramId, value: currentValue as IParameterValue });
-          params.push({ name: paramId, value: currentValue as IParameterValue });
+        if (processedValue !== null && processedValue !== undefined && processedValue !== '') {
+          changedParams.push({ name: paramId, value: processedValue });
+          params.push({ name: paramId, value: processedValue });
         }
-      } else if (currentValue !== null && currentValue !== undefined && currentValue !== '') {
+      } else if (processedValue !== null && processedValue !== undefined && processedValue !== '') {
         // Include unchanged values that are not empty (for required fields)
-        params.push({ name: paramId, value: currentValue as IParameterValue });
+        params.push({ name: paramId, value: processedValue });
       }
     }
     

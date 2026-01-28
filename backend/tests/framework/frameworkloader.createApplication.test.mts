@@ -142,13 +142,15 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
       parameterValues: [],
     };
 
-    expect(await loader.createApplicationFromFramework(request)).rejects.toThrow(
+    await expect(loader.createApplicationFromFramework(request)).rejects.toThrow(
       "already exists at",
     );
   });
 
-  it("throws error if application already exists in jsonPath", async () => {
-    // Create application in temp json directory to test the check
+  it("allows creating application even if it exists in jsonPath (only localPath is checked)", async () => {
+    // Create application in temp json directory
+    // Note: The frameworkloader only checks localPath, not jsonPath
+    // This allows creating local applications even if the same ID exists in json directory
     persistenceHelper.writeJsonSync(
       Volume.JsonApplications,
       "existing-json-app/application.json",
@@ -160,12 +162,32 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
       applicationId: "existing-json-app",
       name: "Test Application",
       description: "A test application",
-      parameterValues: [],
+      parameterValues: [
+        { id: "hostname", value: "existing-json-app" },
+        { id: "ostype", value: "alpine" },
+        { id: "packages", value: "nodejs npm" },
+        { id: "command", value: "test-command" },
+        { id: "command_args", value: "--test" },
+        { id: "package", value: "test-package" },
+        { id: "owned_paths", value: "" },
+        { id: "uid", value: "" },
+        { id: "group", value: "" },
+        { id: "username", value: "testuser" },
+        { id: "volumes", value: "data=test" },
+      ],
     };
 
-    await expect(loader.createApplicationFromFramework(request)).rejects.toThrow(
-      "already exists at",
-    );
+    // Should succeed because jsonPath is not checked, only localPath
+    const applicationId = await loader.createApplicationFromFramework(request);
+    expect(applicationId).toBe("existing-json-app");
+    
+    // Verify it was created in localPath
+    expect(() =>
+      persistenceHelper.readTextSync(
+        Volume.LocalRoot,
+        "applications/existing-json-app/application.json",
+      ),
+    ).not.toThrow();
   });
 
   it("throws error for invalid framework", async () => {
