@@ -81,7 +81,7 @@ export class CreateApplication implements OnInit, OnDestroy {
   private lastAnnotationsResponse: IPostFrameworkFromImageResponse | null = null;
 
   // OCI framework install mode
-  ociInstallMode = signal<'image' | 'compose'>('image');
+  ociInstallMode = signal<'image' | 'compose'>('compose');
 
   // Step 2: Application properties
   appPropertiesForm: FormGroup = this.fb.group({
@@ -200,7 +200,7 @@ export class CreateApplication implements OnInit, OnDestroy {
     
     this.parsedComposeData.set(null);
     this.selectedServiceName.set('');
-    this.ociInstallMode.set('image');
+    this.ociInstallMode.set('compose');
     
     if (this.selectedFramework) {
       this.loadParameters(frameworkId);
@@ -225,6 +225,8 @@ export class CreateApplication implements OnInit, OnDestroy {
     this.selectedServiceName.set(serviceName ?? '');
     if (this.isOciComposeMode()) {
       this.updateImageFromCompose();
+      this.updateInitialCommandFromCompose();
+      this.updateUserFromCompose();
       this.fillEnvsForSelectedService(); // Update envs when service changes
     }
     this.updateEnvFileRequirement();
@@ -308,6 +310,8 @@ export class CreateApplication implements OnInit, OnDestroy {
           const first = parsed.services[0].name;
           this.selectedServiceName.set(first);
           this.updateImageFromCompose();
+          this.updateInitialCommandFromCompose();
+          this.updateUserFromCompose();
         }
 
         this.updateEnvFileRequirement();
@@ -739,6 +743,8 @@ The system will automatically fetch metadata from the image and pre-fill applica
     if (this.isOciComposeMode() && parsed.services.length > 0) {
       this.selectedServiceName.set(parsed.services[0].name);
       this.updateImageFromCompose();
+      this.updateInitialCommandFromCompose();
+      this.updateUserFromCompose();
       this.fillEnvsForSelectedService();
     }
 
@@ -939,6 +945,62 @@ The system will automatically fetch metadata from the image and pre-fill applica
     this.updateOciImageParameter(imageRef);
   }
 
+  private updateInitialCommandFromCompose(): void {
+    if (!this.isOciComposeMode()) return;
+
+    const data = this.parsedComposeData();
+    if (!data) return;
+
+    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
+    if (!serviceName) return;
+
+    const service = data.services.find((s: ComposeService) => s.name === serviceName);
+    const command = service?.config?.['command'];
+    
+    let cmdStr = '';
+    if (Array.isArray(command)) {
+      cmdStr = command.join(' ');
+    } else if (typeof command === 'string') {
+      cmdStr = command;
+    }
+
+    if (cmdStr && this.parameterForm.get('initial_command')) {
+       this.parameterForm.patchValue({ initial_command: cmdStr }, { emitEvent: false });
+    }
+  }
+
+  private updateUserFromCompose(): void {
+    if (!this.isOciComposeMode()) return;
+
+    const data = this.parsedComposeData();
+    if (!data) return;
+
+    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
+    if (!serviceName) return;
+
+    const service = data.services.find((s: ComposeService) => s.name === serviceName);
+    const user = service?.config?.['user'];
+    
+    if (typeof user === 'string' || typeof user === 'number') {
+        const userStr = String(user);
+        const parts = userStr.split(':');
+        
+        // Map first part to uid
+        if (parts.length > 0 && parts[0].trim()) {
+             if (this.parameterForm.get('uid')) {
+                 this.parameterForm.patchValue({ uid: parts[0].trim() }, { emitEvent: false });
+             }
+        }
+        
+        // Map second part to gid
+        if (parts.length > 1 && parts[1].trim()) {
+             if (this.parameterForm.get('gid')) {
+                 this.parameterForm.patchValue({ gid: parts[1].trim() }, { emitEvent: false });
+             }
+        }
+    }
+  }
+
   private setComposeFileRequired(required: boolean): void {
     const ctrl = this.parameterForm.get('compose_file');
     if (!ctrl) return;
@@ -1008,14 +1070,9 @@ The system will automatically fetch metadata from the image and pre-fill applica
       else lines.push(`${key}=${envValue ?? ''}`);
     }
 
-    if (lines.length > 0) {
-      const envsCtrl = this.parameterForm.get('envs');
-      if (envsCtrl) {
-        const currentValue = envsCtrl.value;
-        if (!currentValue || String(currentValue).trim() === '') {
-          envsCtrl.patchValue(lines.join('\n'), { emitEvent: false });
-        }
-      }
+    const envsCtrl = this.parameterForm.get('envs');
+    if (envsCtrl) {
+      envsCtrl.patchValue(lines.join('\n'), { emitEvent: false });
     }
   }
 

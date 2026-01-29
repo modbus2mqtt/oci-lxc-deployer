@@ -15,17 +15,6 @@
             }
           </mat-select>
         </mat-form-field>
-
-        @if (selectedFramework) {
-          <mat-card class="selected-framework-card">
-            <mat-card-content>
-              <h3>Selected Framework</h3>
-              <p><strong>Name:</strong> {{ selectedFramework.name }}</p>
-              <p><strong>ID:</strong> {{ selectedFramework.id }}</p>
-            </mat-card-content>
-          </mat-card>
-        }
-
         @if (isOciImageFramework()) {
           <mat-card class="selected-framework-card">
             <mat-card-content>
@@ -175,20 +164,6 @@
         @if (loadingParameters()) {
           <p>Loading parameters...</p>
         } @else {
-          @if ((isDockerComposeFramework() || isOciComposeMode()) && envFileConfigured()) {
-            <mat-card class="env-summary-card">
-              <mat-card-header>
-                <mat-card-title>Environment Variables</mat-card-title>
-              </mat-card-header>
-              <mat-card-content>
-                <p><strong>Umgebungsvariablen in .env gesetzt</strong> ({{ envVarKeys().length }} Variablen)</p>
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Environment Variables in .env</mat-label>
-                  <textarea matInput readonly [value]="envVarKeysText()" rows="6"></textarea>
-                </mat-form-field>
-              </mat-card-content>
-            </mat-card>
-          }
 
           @if (hasAdvancedParams()) {
             <div class="advanced-toggle">
@@ -215,7 +190,7 @@
       <div class="step-actions">
         <button mat-button matStepperPrevious>Back</button>
         <button mat-button (click)="cancel()">Cancel</button>
-        <button mat-raised-button color="primary" matStepperNext [disabled]="!canProceedToStep4()">Next</button>
+        <button mat-raised-button color="primary" matStepperNext>Next</button>
       </div>
     </mat-step>
 
@@ -298,6 +273,16 @@
             <p>App Name: {{ appPropertiesForm.get('name')?.value }}</p>
           </mat-card-content>
         </mat-card>
+      </div>
+      <div class="step-actions">
+        <button mat-button matStepperPrevious>Back</button>
+        <button mat-raised-button color="primary" (click)="createApplication()" [disabled]="creating()">
+          @if (creating()) {
+            Creating...
+          } @else {
+            Create Application
+          }
+        </button>
       </div>
     </mat-step>
   </mat-stepper>

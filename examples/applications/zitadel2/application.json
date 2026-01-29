@@ -1,0 +1,16 @@
+{
+  "name": "Zitadel",
+  "description": "ZITADEL - Identity infrastructure, simplified for you.",
+  "extends": "oci-image",
+  "icon": "icon.png",
+  "installation": [
+    {
+      "name": "zitadel2-parameters.json",
+      "before": "011-get-oci-image.json"
+    }
+  ],
+  "url": "https://github.com/zitadel/zitadel",
+  "documentation": "https://zitadel.com/docs",
+  "source": "https://github.com/zitadel/zitadel",
+  "vendor": "ZITADEL"
+}

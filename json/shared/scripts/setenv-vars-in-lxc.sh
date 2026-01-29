@@ -37,9 +37,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
   exit 1
 fi
 
-# Remove existing environment variable entries (lines starting with #ENV:)
+# Remove existing environment variable entries (lines starting with lxc.environment:)
 if [ -f "$CONFIG_FILE" ]; then
-  sed -i '/^#ENV:/d' "$CONFIG_FILE" >&2
+  sed -i '/^lxc.environment:/d' "$CONFIG_FILE" >&2
 fi
 
 # Use a temporary file to avoid subshell issues
@@ -60,9 +60,8 @@ while IFS= read -r line <&3; do
   [ -z "$ENV_KEY" ] && continue
   [ -z "$ENV_VALUE" ] && continue
   
-  # Add as comment in config file (format: #ENV:KEY=VALUE)
-  # This allows the variables to be read later if needed
-  echo "#ENV:$ENV_KEY=$ENV_VALUE" >> "$CONFIG_FILE" 2>&1
+  # Add as LXC environment configuration (format: lxc.environment: KEY=VALUE)
+  echo "lxc.environment: $ENV_KEY=$ENV_VALUE" >> "$CONFIG_FILE" 2>&1
   echo "Set environment variable $ENV_KEY=$ENV_VALUE for container $VMID" >&2
   ENV_COUNT=$((ENV_COUNT + 1))
 done 3< "$TMPFILE"

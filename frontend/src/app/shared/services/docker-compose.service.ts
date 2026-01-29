@@ -12,6 +12,8 @@ export interface ComposeProperties {
   images?: string;
   networks?: string;
   volumes?: string;
+  command?: string;
+  user?: string;
 }
 
 export interface ParsedComposeData {
@@ -622,6 +624,38 @@ export class DockerComposeService {
     
     if (uniqueVolumes.length > 0) {
       properties.volumes = uniqueVolumes.join('\n');
+    }
+
+    const commands: string[] = [];
+    for (const [serviceName, serviceConfig] of Object.entries(services)) {
+      const service = serviceConfig as Record<string, unknown>;
+      const command = service['command'];
+      if (command) {
+        let cmdStr = '';
+        if (Array.isArray(command)) {
+          cmdStr = command.join(' ');
+        } else if (typeof command === 'string') {
+          cmdStr = command;
+        }
+        if (cmdStr) {
+          commands.push(`${serviceName}: ${cmdStr}`);
+        }
+      }
+    }
+    if (commands.length > 0) {
+      properties.command = commands.join('\n');
+    }
+
+    const users: string[] = [];
+    for (const [serviceName, serviceConfig] of Object.entries(services)) {
+      const service = serviceConfig as Record<string, unknown>;
+      const user = service['user'];
+      if (user) {
+        users.push(`${serviceName}: ${user}`);
+      }
+    }
+    if (users.length > 0) {
+      properties.user = users.join('\n');
     }
     
     return properties;
