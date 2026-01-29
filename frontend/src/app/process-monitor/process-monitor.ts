@@ -1,5 +1,5 @@
 import { NgZone, OnDestroy, Component, OnInit, inject } from '@angular/core';
-import { Router, RouterLink, ActivatedRoute } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
@@ -12,7 +12,7 @@ import { StderrDialogComponent } from './stderr-dialog.component';
 @Component({
   selector: 'app-process-monitor',
   standalone: true,
-  imports: [CommonModule, MatExpansionModule, MatIconModule, MatButtonModule, RouterLink],
+  imports: [CommonModule, MatExpansionModule, MatIconModule, MatButtonModule],
   templateUrl: './process-monitor.html',
   styleUrl: './process-monitor.scss',
 })
@@ -188,6 +188,10 @@ export class ProcessMonitor implements OnInit, OnDestroy {
         exitCode: msg.exitCode
       }
     });
+  }
+
+  close(): void {
+    window.history.back();
   }
 
 }

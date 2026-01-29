@@ -47,7 +47,7 @@
 						<mat-form-field appearance="outline">
 						<mat-label>{{ param.name }}</mat-label>
 						<input type="file" #fileInput [id]="'file-' + param.id" (change)="onFileSelected($event, param.id)" style="display: none;" />
-						<input matInput [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" readonly />
+						<input matInput [value]="getDisplayValue(param.id)" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" readonly (focus)="$event.target.blur()" />
 						<button mat-icon-button matSuffix type="button" (click)="fileInput.click()" [matTooltip]="'Select file'" matTooltipPosition="above">
 						<mat-icon>attach_file</mat-icon>
 						</button>
@@ -62,6 +62,37 @@
 						</mat-form-field>
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
+						}
+						@if (param.id === 'compose_file' && composeProperties()) {
+							<mat-card class="compose-properties-card">
+								<mat-card-header>
+									<mat-card-title>Extracted Compose Properties</mat-card-title>
+								</mat-card-header>
+								<mat-card-content>
+									@if (composeProperties()?.services) {
+										<div class="compose-property">
+											<strong>Services:</strong> {{ composeProperties()?.services }}
+										</div>
+									}
+									@if (composeProperties()?.ports) {
+										<div class="compose-property">
+											<strong>Port Mappings:</strong>
+											<pre>{{ composeProperties()?.ports }}</pre>
+										</div>
+									}
+									@if (composeProperties()?.images) {
+										<div class="compose-property">
+											<strong>Images:</strong>
+											<pre>{{ composeProperties()?.images }}</pre>
+										</div>
+									}
+									@if (composeProperties()?.networks) {
+										<div class="compose-property">
+											<strong>Networks:</strong> {{ composeProperties()?.networks }}
+										</div>
+									}
+								</mat-card-content>
+							</mat-card>
 						}
 						</div>
 						} @else {

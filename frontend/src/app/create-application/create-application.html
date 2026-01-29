@@ -1,6 +1,6 @@
-<div class="create-application-container">
+<!-- Step 3: Parameters -->
+ <div class="create-application-container">
   <h1>Create Application from Framework</h1>
-
   <mat-stepper #stepper linear (selectionChange)="onStepChange($event)">
     <!-- Step 1: Select Framework -->
     <mat-step [editable]="true">
@@ -16,10 +16,6 @@
           </mat-select>
         </mat-form-field>
 
-        @if (loadingFrameworks()) {
-          <p>Loading frameworks...</p>
-        }
-
         @if (selectedFramework) {
           <mat-card class="selected-framework-card">
             <mat-card-content>
@@ -31,45 +27,49 @@
         }
 
         @if (isOciImageFramework()) {
-          <mat-form-field appearance="outline" class="full-width">
-            <mat-label>OCI Image Reference</mat-label>
-            <input 
-              matInput 
-              [value]="imageReference()" 
-              (input)="onImageReferenceInput($event)"
-              placeholder="e.g., mariadb:latest or ghcr.io/home-assistant/home-assistant:latest"
-            />
-            <mat-icon matSuffix [matTooltip]="getImageReferenceTooltip()">info</mat-icon>
-            <mat-hint>
-              @if (loadingImageAnnotations()) {
-                <span>Checking image and fetching annotations...</span>
-              } @else if (imageError()) {
-                <span class="error-text">Error: {{ imageError() }}</span>
-              } @else if (imageAnnotationsReceived()) {
-                <span class="success-text">✓ Image found, annotations loaded</span>
-              } @else {
-                <span>Enter Docker Hub or GitHub Container Registry image reference</span>
-              }
-            </mat-hint>
-            @if (imageError() && imageError()!.includes('not found')) {
-              <mat-error>Image not found. Please check the image reference.</mat-error>
-            }
-          </mat-form-field>
-          
-          <div class="image-reference-help">
-            <p><strong>Image Reference Format:</strong></p>
-            <ul>
-              <li><strong>Docker Hub:</strong> <code>image:tag</code> or <code>owner/image:tag</code> (e.g., <code>mariadb:latest</code>, <code>nodered/node-red:latest</code>)</li>
-              <li><strong>GitHub Container Registry:</strong> <code>ghcr.io/owner/image:tag</code> (e.g., <code>ghcr.io/home-assistant/home-assistant:latest</code>)</li>
-              <li><strong>Tag:</strong> Optional, defaults to <code>latest</code> if not specified</li>
-            </ul>
-            <p>The system will automatically fetch metadata (URL, documentation, source, vendor, description) from the image annotations and pre-fill the application properties in the next step.</p>
-          </div>
+          <mat-card class="selected-framework-card">
+            <mat-card-content>
+              <h3>OCI Install Mode</h3>
+              <mat-button-toggle-group
+                [value]="ociInstallMode()"
+                (change)="setOciInstallMode($event.value)"
+                aria-label="OCI install mode"
+              >
+                <mat-button-toggle value="image">OCI Image</mat-button-toggle>
+                <mat-button-toggle value="compose">docker-compose.yml + .env</mat-button-toggle>
+              </mat-button-toggle-group>
+            </mat-card-content>
+          </mat-card>
+
+          @if (ociInstallMode() === 'image') {
+            <app-oci-image-step
+              [parameterForm]="parameterForm"
+              [imageReference]="imageReference"
+              [loadingImageAnnotations]="loadingImageAnnotations"
+              [imageError]="imageError"
+              [imageAnnotationsReceived]="imageAnnotationsReceived"
+              (imageReferenceChange)="onImageReferenceChange($event)"
+              (annotationsReceived)="onAnnotationsReceived($event)"
+            ></app-oci-image-step>
+          } @else {
+            <app-compose-env-selector
+              [parameterForm]="parameterForm"
+              [mode]="'single'"
+              [services]="composeServices"
+              [selectedServiceName]="selectedServiceName"
+              [requiredEnvVars]="requiredEnvVars"
+              [missingEnvVars]="missingEnvVars"
+              [composeProperties]="composeProperties"
+              (composeFileSelected)="onComposeFileSelected($event)"
+              (envFileSelected)="onEnvFileSelected($event)"
+              (serviceSelected)="onServiceSelected($event)"
+            ></app-compose-env-selector>
+          }
         }
       </div>
       <div class="step-actions">
         <button mat-button (click)="cancel()">Cancel</button>
-        <button mat-raised-button color="primary" matStepperNext [disabled]="!canProceedToStep2()">Next</button>
+        <button mat-raised-button color="primary" matStepperNext>Next</button>
       </div>
     </mat-step>
 
@@ -78,6 +78,7 @@
       <ng-template matStepLabel>Application Properties</ng-template>
       <div class="step-content">
         <form [formGroup]="appPropertiesForm">
+          <!-- Name, ID, Description (already tested - OK) -->
           <mat-form-field appearance="outline" class="full-width">
             <mat-label>Application Name</mat-label>
             <input matInput formControlName="name" required />
@@ -89,7 +90,7 @@
           <mat-form-field appearance="outline" class="full-width">
             <mat-label>Application ID</mat-label>
             <input matInput formControlName="applicationId" required (input)="onApplicationIdInput($event)" />
-            <mat-hint>Lowercase letters, numbers, and hyphens only (e.g., my-app)</mat-hint>
+            <mat-hint>Lowercase letters, numbers, and hyphens only</mat-hint>
             @if (appPropertiesForm.get('applicationId')?.hasError('required') && appPropertiesForm.get('applicationId')?.touched) {
               <mat-error>Application ID is required</mat-error>
             }
@@ -97,13 +98,10 @@
               <mat-error>Only lowercase letters, numbers, and hyphens are allowed</mat-error>
             }
             @if (appPropertiesForm.get('applicationId')?.hasError('applicationIdTaken') && appPropertiesForm.get('applicationId')?.touched) {
-              <mat-error>Application ID already exists. Please choose a different ID.</mat-error>
+              <mat-error>Application ID already exists</mat-error>
             }
             @if (appPropertiesForm.get('applicationId')?.pending) {
-              <mat-hint>Checking availability...</mat-hint>
-            }
-            @if (applicationIdError()) {
-              <mat-error>{{ applicationIdError() }}</mat-error>
+              <mat-hint align="end">Checking availability...</mat-hint>
             }
           </mat-form-field>
 
@@ -119,25 +117,22 @@
           <mat-form-field appearance="outline" class="full-width">
             <mat-label>URL</mat-label>
             <input matInput formControlName="url" />
-            <mat-hint>Optional: Link to more information about the application</mat-hint>
+            <mat-hint>Optional: Link to more information</mat-hint>
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="full-width">
             <mat-label>Documentation URL</mat-label>
             <input matInput formControlName="documentation" />
-            <mat-hint>Optional: Link to application documentation</mat-hint>
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="full-width">
             <mat-label>Source URL</mat-label>
             <input matInput formControlName="source" />
-            <mat-hint>Optional: Link to source code repository</mat-hint>
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="full-width">
             <mat-label>Vendor</mat-label>
             <input matInput formControlName="vendor" />
-            <mat-hint>Optional: Vendor or organization name</mat-hint>
           </mat-form-field>
 
           <!-- Icon Upload -->
@@ -159,33 +154,42 @@
                 (change)="onIconFileSelected($event)"
                 style="display: none;"
               />
-              <button
-                type="button"
-                mat-stroked-button
-                (click)="openIconFileDialog()"
-              >
+              <button type="button" mat-stroked-button (click)="openIconFileDialog()">
                 <mat-icon>upload</mat-icon>
                 {{ iconPreview() ? 'Change Icon' : 'Upload Icon' }}
               </button>
-              <span class="icon-hint">Max 1MB, PNG, JPG, or SVG recommended</span>
             </div>
           </div>
         </form>
       </div>
       <div class="step-actions">
         <button mat-button matStepperPrevious>Back</button>
-        <button mat-button (click)="cancel()">Cancel</button>
-        <button mat-raised-button color="primary" matStepperNext [disabled]="!canProceedToStep3()">Next</button>
+        <button mat-raised-button color="primary" matStepperNext>Next</button>
       </div>
     </mat-step>
 
-    <!-- Step 3: Parameters -->
+    <!-- Step 3/4: Parameters -->
     <mat-step [stepControl]="parameterForm" [editable]="true">
       <ng-template matStepLabel>Configure Parameters</ng-template>
       <div class="step-content">
         @if (loadingParameters()) {
           <p>Loading parameters...</p>
         } @else {
+          @if ((isDockerComposeFramework() || isOciComposeMode()) && envFileConfigured()) {
+            <mat-card class="env-summary-card">
+              <mat-card-header>
+                <mat-card-title>Environment Variables</mat-card-title>
+              </mat-card-header>
+              <mat-card-content>
+                <p><strong>Umgebungsvariablen in .env gesetzt</strong> ({{ envVarKeys().length }} Variablen)</p>
+                <mat-form-field appearance="outline" class="full-width">
+                  <mat-label>Environment Variables in .env</mat-label>
+                  <textarea matInput readonly [value]="envVarKeysText()" rows="6"></textarea>
+                </mat-form-field>
+              </mat-card-content>
+            </mat-card>
+          }
+
           @if (hasAdvancedParams()) {
             <div class="advanced-toggle">
               <button mat-button (click)="toggleAdvanced()">
@@ -215,10 +219,61 @@
       </div>
     </mat-step>
 
-    <!-- Step 4: Summary and Create -->
-    <mat-step [editable]="false">
-      <ng-template matStepLabel>Summary</ng-template>
-      <div class="step-content">
+    <!-- Step 4: Summary -->
+    <mat-step label="Summary">
+      <div class="summary-step">
+        <h2>Review Your Configuration</h2>
+        
+        <!-- Application Properties Summary -->
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>Application Properties</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <dl class="summary-list">
+              <dt>Name:</dt>
+              <dd>{{ appPropertiesForm.get('name')?.value }}</dd>
+              
+              <dt>Application ID:</dt>
+              <dd>{{ appPropertiesForm.get('applicationId')?.value }}</dd>
+              
+              <dt>Description:</dt>
+              <dd>{{ appPropertiesForm.get('description')?.value }}</dd>
+              
+              @if (appPropertiesForm.get('url')?.value) {
+                <dt>URL:</dt>
+                <dd>{{ appPropertiesForm.get('url')?.value }}</dd>
+              }
+              
+              @if (appPropertiesForm.get('documentation')?.value) {
+                <dt>Documentation:</dt>
+                <dd>{{ appPropertiesForm.get('documentation')?.value }}</dd>
+              }
+              
+              @if (appPropertiesForm.get('source')?.value) {
+                <dt>Source:</dt>
+                <dd>{{ appPropertiesForm.get('source')?.value }}</dd>
+              }
+              
+              @if (appPropertiesForm.get('vendor')?.value) {
+                <dt>Vendor:</dt>
+                <dd>{{ appPropertiesForm.get('vendor')?.value }}</dd>
+              }
+            </dl>
+          </mat-card-content>
+        </mat-card>
+        
+        <!-- Parameters Summary -->
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>Configuration Parameters</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <!-- ...existing code... -->
+          </mat-card-content>
+        </mat-card>
+        
+        <!-- Error Display and Action Buttons -->
         @if (createError()) {
           <mat-card class="error-card">
             <mat-card-header>
@@ -227,7 +282,6 @@
             <mat-card-content>
               <p class="error-message">{{ createError() }}</p>
               @if (createErrorStep() !== null) {
-                <p class="error-hint">Please correct the issue and try again.</p>
                 <button mat-stroked-button color="primary" (click)="navigateToErrorStep()">
                   Go to Step {{ (createErrorStep() ?? 0) + 1 }} to Fix
                 </button>
@@ -240,53 +294,10 @@
             <mat-card-title>Application Summary</mat-card-title>
           </mat-card-header>
           <mat-card-content>
-            <div class="summary-section">
-              <h3>Framework</h3>
-              <p><strong>Name:</strong> {{ selectedFramework?.name }}</p>
-              <p><strong>ID:</strong> {{ selectedFramework?.id }}</p>
-            </div>
-
-            <div class="summary-section">
-              <h3>Application Properties</h3>
-              <p><strong>Name:</strong> {{ appPropertiesForm.get('name')?.value }}</p>
-              <p><strong>ID:</strong> {{ appPropertiesForm.get('applicationId')?.value }}</p>
-              <p><strong>Description:</strong> {{ appPropertiesForm.get('description')?.value }}</p>
-            </div>
-
-            <div class="summary-section">
-              <h3>Parameters</h3>
-              @if (parameters.length === 0) {
-                <p>No parameters configured</p>
-              } @else {
-                <ul>
-                  @for (param of parameters; track param.id) {
-                    @if (parameterForm.get(param.id)?.value !== null && parameterForm.get(param.id)?.value !== undefined && parameterForm.get(param.id)?.value !== '') {
-                      <li>
-                        <strong>{{ param.name }}:</strong>
-                        @if (param.secure) {
-                          <span>***</span>
-                        } @else {
-                          <span>{{ parameterForm.get(param.id)?.value }}</span>
-                        }
-                      </li>
-                    }
-                  }
-                </ul>
-              }
-            </div>
+            <p>Framework: {{ selectedFramework?.name }}</p>
+            <p>App Name: {{ appPropertiesForm.get('name')?.value }}</p>
           </mat-card-content>
         </mat-card>
-      </div>
-      <div class="step-actions">
-        <button mat-button matStepperPrevious>Back</button>
-        <button mat-button (click)="cancel()">Cancel</button>
-        <button mat-raised-button color="primary" (click)="createApplication()" [disabled]="creating()">
-          @if (creating()) {
-            Creating...
-          } @else {
-            Create Application
-          }
-        </button>
       </div>
     </mat-step>
   </mat-stepper>

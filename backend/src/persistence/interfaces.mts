@@ -1,11 +1,9 @@
 import {
   IApplication,
-  IConfiguredPathes,
   IReadApplicationOptions,
   VEConfigurationError,
 } from "../backend-types.mjs";
 import { IFramework, ITemplate, IApplicationWeb } from "../types.mjs";
-import { JsonValidator } from "../jsonvalidator.mjs";
 
 /**
  * Base interface for all persistence implementations
@@ -31,6 +29,13 @@ export interface IApplicationPersistence extends IPersistence {
    * Local applications override json applications with the same name
    */
   getAllAppNames(): Map<string, string>;
+
+  /**
+   * Returns only local application names mapped to their paths
+   * Used for validation when creating new applications - allows creating
+   * local applications even if the same ID exists in json directory
+   */
+  getLocalAppNames(): Map<string, string>;
 
   /**
    * Returns list of applications for frontend display

@@ -14,7 +14,7 @@ export class ErrorHandlerService {
    * @param showDialog Whether to automatically show the error dialog (default: true)
    * @returns Array of IJsonError objects
    */
-  handleError(prefix: string, err: unknown, showDialog: boolean = true): IJsonError[] {
+  handleError(prefix: string, err: unknown, showDialog = true): IJsonError[] {
     const errors = this.convertErrorToJsonErrors(prefix, err);
     if (showDialog) {
       this.showErrorDialog(errors);
@@ -85,6 +85,7 @@ export class ErrorHandlerService {
         if (serializedError && typeof serializedError === 'object') {
           const name = ((serializedError as Record<string, unknown>)['name'] as string) || 'Error';
           const message = ((serializedError as Record<string, unknown>)['message'] as string) || '';
+      
           const details = (serializedError as Record<string, unknown>)['details'];
           
           const convertedDetails: IJsonError[] | undefined = this.convertDetailsArray(details);
@@ -191,34 +192,40 @@ export class ErrorHandlerService {
     if (!details) {
       return undefined;
     }
-    
-    if (!Array.isArray(details)) {
-      return undefined;
-    }
-    
-    if (details.length === 0) {
-      return undefined;
-    }
-    
-    return details.map((d: unknown) => {
-      if (!d || typeof d !== 'object') {
+
+    const convertOne = (detail: unknown): IJsonError => {
+      if (!detail || typeof detail !== 'object') {
         return {
           name: 'Error',
-          message: String(d),
+          message: String(detail),
           details: undefined
         } as IJsonError;
       }
-      
-      const detailObj = d as Record<string, unknown>;
+
+      const detailObj = detail as Record<string, unknown>;
       const nestedDetails = detailObj['details'];
-      
+
       return {
-        name: (detailObj['name'] as string) || undefined,
+        name: (detailObj['name'] as string) || 'Error',
         message: (detailObj['message'] as string) || JSON.stringify(detailObj),
         line: detailObj['line'] as number | undefined,
         details: this.convertDetailsArray(nestedDetails)
       } as IJsonError;
-    });
+    };
+
+    if (Array.isArray(details)) {
+      if (details.length === 0) {
+        return undefined;
+      }
+      return details.map(convertOne);
+    }
+
+    // Handle single detail object by wrapping it
+    if (typeof details === 'object') {
+      return [convertOne(details)];
+    }
+
+    return undefined;
   }
 }
 

@@ -8,7 +8,8 @@
       "anyOf": [
         { "const": "ve" },
         { "const": "lxc" },
-        { "type": "string", "pattern": "^host:.*$" }
+        { "type": "string", "pattern": "^host:.*$" },
+        { "type": "string", "pattern": "^application:.*$" }
       ]
     },
     "skip_if_all_missing": {
@@ -41,6 +42,7 @@
           "multiline": { "type": "boolean", "default": false },
           "upload": { "type": "boolean", "default": false },
           "required": { "type": "boolean", "default": false },
+          "validatePattern": { "type": "string", "default": false },
           "secure": { "type": "boolean", "default": false },
           "advanced": { "type": "boolean", "default": false },
           "default": { "type": ["string", "number", "boolean"] }

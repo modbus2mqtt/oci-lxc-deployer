@@ -1,13 +1,11 @@
 import { IApplicationDefaults, IFramework } from "./types.mjs";
 import { IVEContext } from "./backend-types.mjs";
 import { IOciImageAnnotations } from "./types.mjs";
-import { ExecutionMode, determineExecutionMode } from "./ve-execution-constants.mjs";
-import { VeExecutionSshExecutor, SshExecutorDependencies } from "./ve-execution-ssh-executor.mjs";
-import { VeExecutionMessageEmitter } from "./ve-execution-message-emitter.mjs";
+import { ExecutionMode, determineExecutionMode } from "./ve-execution/ve-execution-constants.mjs";
+import { VeExecutionSshExecutor, SshExecutorDependencies } from "./ve-execution/ve-execution-ssh-executor.mjs";
+import { VeExecutionMessageEmitter } from "./ve-execution/ve-execution-message-emitter.mjs";
 import { OutputProcessor } from "./output-processor.mjs";
 import { EventEmitter } from "events";
-import path from "path";
-import fs from "fs";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
 
 export class FrameworkFromImage {
@@ -29,12 +27,12 @@ export class FrameworkFromImage {
     tag: string = "latest",
     executionMode?: ExecutionMode,
   ): Promise<IOciImageAnnotations> {
-    const scriptPath = this.getScriptPath();
+    const scriptContent = this.getScriptContent();
     const mode = executionMode ?? determineExecutionMode();
     
     // Execute via SSH or locally based on execution mode
     // Script will be read from file system, template variables replaced, and executed via stdin
-    const annotations = await this.executeOnVeHost(veContext, scriptPath, image, tag, mode);
+    const annotations = await this.executeOnVeHost(veContext, scriptContent, image, tag, mode);
     
     return annotations;
   }
@@ -46,21 +44,13 @@ export class FrameworkFromImage {
    */
   private static async executeOnVeHost(
     veContext: IVEContext,
-    scriptPath: string,
+    scriptContent: string,
     image: string,
     tag: string,
     executionMode: ExecutionMode,
   ): Promise<IOciImageAnnotations> {
     const interpreter = ["python3"];
     const timeoutMs = 60000; // 60 seconds
-    
-    // Read script content from file system
-    let scriptContent: string;
-    try {
-      scriptContent = fs.readFileSync(scriptPath, "utf-8");
-    } catch (e) {
-      throw new Error(`Failed to read script ${scriptPath}: ${e}`);
-    }
     
     // Replace template variables in script content: {{ image }}, {{ tag }}, {{ platform }}
     // We need to replace them in the argparse default values or in variable assignments
@@ -104,6 +94,7 @@ export class FrameworkFromImage {
     // Create a dummy command object for executeWithRetry
     const dummyCommand = {
       script: "get-oci-image-annotations.py",
+      scriptContent,
     } as any;
     
     // Execute script via stdin (like templateprocessor does)
@@ -150,13 +141,16 @@ export class FrameworkFromImage {
    * Gets the path to the get-oci-image-annotations.py script.
    * Uses jsonPath from PersistenceManager, which can be configured during initialization.
    */
-  private static getScriptPath(): string {
-    const jsonPath = PersistenceManager.getInstance().getPathes().jsonPath;
-    const scriptPath = path.join(
-      jsonPath,
-      "shared/scripts/get-oci-image-annotations.py",
-    );
-    return scriptPath;
+  private static getScriptContent(): string {
+    const repositories = PersistenceManager.getInstance().getRepositories();
+    const scriptContent = repositories.getScript({
+      name: "get-oci-image-annotations.py",
+      scope: "shared",
+    });
+    if (!scriptContent) {
+      throw new Error("get-oci-image-annotations.py not found in shared scripts");
+    }
+    return scriptContent;
   }
 
   /**

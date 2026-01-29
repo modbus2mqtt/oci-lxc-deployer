@@ -8,7 +8,11 @@
     "200-start-lxc.json",
     "210-wait-for-container-ready.json",
     "305-set-pkg-mirror.json"
+  ],
+  "copy-upgrade": [
+    "220-copy-upgrade-oci-lxc.json"
   ]
+
 }
 
 

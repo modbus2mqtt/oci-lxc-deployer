@@ -26,13 +26,27 @@ export class InstalledList implements OnInit {
         this.loading = false;
       },
       error: () => {
-        this.error = 'Fehler beim Laden der Installationen';
+        this.error = 'Error loading installations';
         this.loading = false;
       }
     });
   }
 
-  goToMonitor() {
-    this.router.navigate(['/monitor']);
+  goToMonitor(installation: IManagedOciContainer) {
+    const application = installation.application_id || 'oci-lxc-deployer';
+    this.svc.postVeCopyUpgrade(application, {
+      source_vm_id: installation.vm_id,
+      oci_image: installation.oci_image,
+      application_id: installation.application_id,
+      application_name: installation.application_name,
+      version: installation.version,
+    }).subscribe({
+      next: () => {
+        this.router.navigate(['/monitor']);
+      },
+      error: () => {
+        this.error = 'Error starting upgrade copy';
+      },
+    });
   }
 }

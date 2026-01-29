@@ -1,0 +1,105 @@
+import { IResolvedParam, IApplication } from "@src/backend-types.mjs";
+import {
+  TaskType,
+  ITemplate,
+  ICommand,
+  IParameter,
+  IJsonError,
+  IParameterValue,
+} from "@src/types.mjs";
+import { IVEContext } from "@src/backend-types.mjs";
+import { ITemplateReference } from "../backend-types.mjs";
+import { type TemplateRef } from "../persistence/repositories.mjs";
+
+export interface IProcessTemplateOpts {
+  application: string;
+  template: ITemplateReference | string;
+  templatename: string;
+  resolvedParams: IResolvedParam[];
+  parameters: IParameterWithTemplate[];
+  commands: ICommand[];
+  visitedTemplates?: Set<string>;
+  errors?: IJsonError[];
+  requestedIn?: string | undefined;
+  parentTemplate?: string | undefined;
+  webuiTemplates: string[];
+  templateRef?: TemplateRef;
+  veContext?: IVEContext;
+  executionMode?: import("../ve-execution/ve-execution-constants.mjs").ExecutionMode; // Execution mode for VeExecution
+  enumValueInputs?: { id: string; value: IParameterValue }[];
+  enumValuesExecuteOn?: string;
+  enumValuesRefresh?: boolean;
+  processedTemplates?: Map<string, IProcessedTemplate>; // Collects template information
+  templateReferences?: Map<string, Set<string>>; // Template references (template -> referenced templates)
+  outputSources?: Map<string, { template: string; kind: "outputs" | "properties" }>; // Output provenance
+}
+
+export interface IParameterWithTemplate extends IParameter {
+  template: string;
+}
+
+export interface IProcessedTemplate {
+  name: string; // Template name (without .json)
+  path: string; // Full path to the template file
+  isShared: boolean; // true = shared template, false = app-specific
+  skipped: boolean; // true = all commands skipped
+  conditional: boolean; // true = skip_if_all_missing or skip_if_property_set
+  referencedBy?: string[]; // Templates that reference this template
+  references?: string[]; // Templates referenced by this template
+  templateData?: ITemplate; // Full template data (validated)
+  capabilities?: string[]; // Extracted capabilities from script headers
+  resolvedScriptPaths?: Map<string, string>; // script name -> full path
+  usedByApplications?: string[]; // Applications that use this template
+}
+
+export interface ITemplateTraceEntry {
+  name: string;
+  path: string;
+  origin:
+    | "application-local"
+    | "application-json"
+    | "shared-local"
+    | "shared-json"
+    | "unknown";
+  isShared: boolean;
+  skipped: boolean;
+  conditional: boolean;
+}
+
+export interface IParameterTraceEntry {
+  id: string;
+  name: string;
+  required?: boolean;
+  default?: string | number | boolean;
+  template?: string;
+  templatename?: string;
+  source:
+    | "user_input"
+    | "template_output"
+    | "template_properties"
+    | "default"
+    | "missing";
+  sourceTemplate?: string;
+  sourceKind?: "outputs" | "properties";
+}
+
+export interface ITemplateTraceInfo {
+  application: string;
+  task: TaskType;
+  localDir: string;
+  jsonDir: string;
+  appLocalDir?: string;
+  appJsonDir?: string;
+}
+
+export interface ITemplateProcessorLoadResult {
+  commands: ICommand[];
+  parameters: IParameterWithTemplate[];
+  resolvedParams: IResolvedParam[];
+  webuiTemplates: string[];
+  application?: IApplication; // Full application data (incl. parent)
+  processedTemplates?: IProcessedTemplate[]; // List of all processed templates
+  templateTrace?: ITemplateTraceEntry[];
+  parameterTrace?: IParameterTraceEntry[];
+  traceInfo?: ITemplateTraceInfo;
+}

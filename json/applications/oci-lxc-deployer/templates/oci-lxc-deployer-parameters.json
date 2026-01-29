@@ -26,6 +26,10 @@
         {
           "id": "volumes",
           "value": "config=/config\nsecure/secure,700"
+        },
+        {
+          "id": "volume_backup",
+          "value": "true"
         }
       ]
     }

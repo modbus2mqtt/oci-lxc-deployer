@@ -1,0 +1,12 @@
+{
+  "name": "test23",
+  "description": "test23",
+  "extends": "docker-compose",
+  "icon": "icon.png",
+  "installation": [
+    {
+      "name": "test23-parameters.json",
+      "before": "set-parameters.json"
+    }
+  ]
+}

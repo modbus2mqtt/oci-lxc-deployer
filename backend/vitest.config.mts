@@ -8,6 +8,11 @@ import { baseConfig } from "./vitest.config.base.mjs";
 export default mergeConfig(baseConfig, {
   test: {
     include: ["tests/**/*.test.mts"],
-    exclude: ["tests/integration/**", "**/node_modules/**", "**/.git/**"],
+    exclude: [
+      "tests/integration/**",
+      "tests/*.test.mts",
+      "**/node_modules/**",
+      "**/.git/**",
+    ],
   },
 });

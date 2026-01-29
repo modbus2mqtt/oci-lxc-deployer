@@ -134,3 +134,51 @@
   }
 }
 
+.compose-properties-card {
+  width: 100%;
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+  background: #e8f5e9;
+  border-left: 4px solid #4caf50;
+  
+  mat-card-header {
+    padding-bottom: 0.5rem;
+  }
+  
+  mat-card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #2e7d32;
+  }
+  
+  mat-card-content {
+    padding-top: 0.5rem;
+  }
+  
+  .compose-property {
+    margin-bottom: 0.75rem;
+    
+    &:last-child {
+      margin-bottom: 0;
+    }
+    
+    strong {
+      display: block;
+      margin-bottom: 0.25rem;
+      color: #1b5e20;
+      font-size: 0.875rem;
+    }
+    
+    pre {
+      margin: 0.25rem 0 0 0;
+      padding: 0.5rem;
+      background: #fff;
+      border: 1px solid #c8e6c9;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-x: auto;
+    }
+  }
+}

@@ -62,7 +62,7 @@ export interface IReadApplicationOptions {
   applicationHierarchy: string[];
   application?: IApplication;
   appPath?: string;
-  error: VEConfigurationError;
+  error: IJsonError;
   taskTemplates: {
     task: string;
     templates: (ITemplateReference | string)[];

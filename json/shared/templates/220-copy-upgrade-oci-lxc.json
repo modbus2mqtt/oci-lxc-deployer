@@ -1,8 +1,30 @@
 {
   "execute_on": "ve",
-  "name": "Copy-Upgrade LXC from OCI Image",
-  "description": "Downloads an OCI image, creates a new LXC container from it, then copies relevant configuration from an existing oci-lxc-deployer managed container (mappings/devices/bind mounts) while keeping the new rootfs. Finally starts the new container and waits for readiness.\n\nFlow:\n- 011: Download OCI image and import to Proxmox storage\n- 220: Create new container + merge config from source\n- 200: Start container\n- 210: Wait for readiness",
+  "name": "Copy-Upgrade LXC",
+  "description": "Creates a new LXC container from a previously downloaded OCI image, then copies relevant configuration from an existing oci-lxc-deployer managed container (mappings/devices/bind mounts) while keeping the new rootfs. Finally starts the new container and waits for readiness.\n\nFlow:\n- 011: Download OCI image and import to Proxmox storage (run separately before this template)\n- 220: Create new container + merge config from source\n- 230: Stop source & start target\n- 210: Wait for readiness",
   "parameters": [
+    {
+      "id": "oci_image",
+      "name": "OCI Image",
+      "type": "string",
+      "required": true,
+      "description": "OCI image reference used to create the target container (from 011-get-oci-image.json)."
+    },
+    {
+      "id": "template_path",
+      "name": "Template Path",
+      "type": "string",
+      "required": true,
+      "description": "Path to the downloaded OCI template (from 011-get-oci-image.json)."
+    },
+    {
+      "id": "ostype",
+      "name": "OS Type",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "Optional OS type from the downloaded OCI image (from 011-get-oci-image.json)."
+    },
     {
       "id": "source_vm_id",
       "name": "Source VM ID",
@@ -45,17 +67,13 @@
   ],
   "commands": [
     {
-      "name": "Get OCI Image",
-      "template": "011-get-oci-image.json"
-    },
-    {
-      "name": "Copy-Upgrade: Create & Merge Config",
+      "name": "Create & Merge Config",
       "script": "copy-upgrade-oci-lxc.sh",
       "outputs": ["vm_id"]
     },
     {
       "name": "Start LXC",
-      "template": "200-start-lxc.json"
+      "template": "230-copy-upgrade-start.json"
     },
     {
       "name": "Wait for Container Ready",

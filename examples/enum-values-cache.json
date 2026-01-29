@@ -1,0 +1,66 @@
+{
+  "ve_pve1.cluster::list-enum-values::[]": [
+    {
+      "name": "eth0",
+      "value": "eth0"
+    },
+    {
+      "name": "eth1",
+      "value": "eth1"
+    }
+  ],
+  "ve_pve1.cluster::list-host-usb-serial-ports::[]": [
+    {
+      "name": "CH340 serial converter",
+      "value": "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    },
+    {
+      "name": "SONOFF Zigbee 3.0 USB Dongle Plus V2",
+      "value": "/dev/serial/by-id/usb-ITEAD_SONOFF_Zigbee_3.0_USB_Dongle_Plus_V2_20221202171948-if00"
+    }
+  ],
+  "ve_pve1.cluster::list-available-storage::[]": [
+    {
+      "name": "ZFS Pool: rpool (220G)",
+      "value": "zfs:rpool"
+    }
+  ],
+  "ve_pve1.cluster::list-available-pve-rootdir-storage::[]": [
+    {
+      "name": "local-zfs (zfspool, 216962156 free)",
+      "value": "local-zfs"
+    }
+  ],
+  "ve_pve1.cluster::ve::list-enum-values::[]": [
+    {
+      "name": "eth0",
+      "value": "eth0"
+    },
+    {
+      "name": "eth1",
+      "value": "eth1"
+    }
+  ],
+  "ve_pve1.cluster::ve::list-host-usb-serial-ports::[]": [
+    {
+      "name": "CH340 serial converter",
+      "value": "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    },
+    {
+      "name": "SONOFF Zigbee 3.0 USB Dongle Plus V2",
+      "value": "/dev/serial/by-id/usb-ITEAD_SONOFF_Zigbee_3.0_USB_Dongle_Plus_V2_20221202171948-if00"
+    }
+  ],
+  "ve_pve1.cluster::ve::list-available-storage::[]": [
+    {
+      "name": "ZFS Pool: rpool (220G)",
+      "value": "zfs:rpool"
+    }
+  ],
+  "ve_pve1.cluster::ve::list-available-pve-rootdir-storage::[]": [
+    {
+      "name": "local-zfs (zfspool, 216962040 free)",
+      "value": "local-zfs"
+    }
+  ]
+}

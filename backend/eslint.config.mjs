@@ -2,6 +2,10 @@ import vitestPlugin from "eslint-plugin-vitest";
 import prettierConfig from "eslint-config-prettier";
 
 export default [
+  // Ignore build outputs
+  {
+    ignores: ["dist/**"],
+  },
   // Vitest rules for test files
   {
     files: ["tests/**/*.mts"],
@@ -33,7 +37,7 @@ export default [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: "module",
-        project: "./tsconfig.json",
+        project: "./tsconfig.eslint.json",
       },
     },
     plugins: {

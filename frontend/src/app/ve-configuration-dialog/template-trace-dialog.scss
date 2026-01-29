@@ -1,0 +1,56 @@
+.trace-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.trace-section h3 {
+  margin: 0 0 8px;
+}
+
+.trace-hint {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.trace-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.trace-filter input {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  font-size: 0.95rem;
+}
+
+.trace-table-wrapper {
+  overflow-x: auto;
+}
+
+.trace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.trace-table th,
+.trace-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.trace-table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+.trace-empty {
+  padding: 12px 0;
+  color: #6b7280;
+}

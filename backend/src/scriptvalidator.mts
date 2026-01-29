@@ -1,9 +1,8 @@
 import { ICommand, IJsonError, IParameter } from "@src/types.mjs";
 import fs from "fs";
-import path from "path";
 import { JsonError } from "./jsonvalidator.mjs";
 import { IResolvedParam } from "./backend-types.mjs";
-import { TemplatePathResolver } from "./template-path-resolver.mjs";
+import { TemplatePathResolver } from "./templates/template-path-resolver.mjs";
 
 export class ScriptValidator {
   /**
@@ -23,9 +22,14 @@ export class ScriptValidator {
 
   /**
    * Extracts all {{ var }} placeholders from a string.
+   * Only extracts valid variable names (alphanumeric, underscore, hyphen, dot).
+   * Ignores patterns with quotes or other invalid characters to avoid false positives.
    */
   private extractTemplateVariables(str: string): string[] {
-    const regex = /{{ *([^}\ ]+) *}}/g;
+    // Match {{ var }} but only capture valid variable names
+    // Valid variable names: alphanumeric, underscore, hyphen, dot
+    // This avoids false positives from shell patterns like *"{{"*"}}"*
+    const regex = /{{ *([a-zA-Z0-9_.-]+) *}}/g;
     const vars = new Set<string>();
     let match;
     while ((match = regex.exec(str)) !== null) {
@@ -83,6 +87,52 @@ export class ScriptValidator {
       }
     } catch (e) {
       errors.push(new JsonError(`Failed to read script ${cmd.script}: ${e}`));
+    }
+  }
+
+  /**
+   * Validates a script using its content (no FS access).
+   */
+  validateScriptContent(
+    cmd: ICommand,
+    application: string,
+    errors: IJsonError[],
+    parameters: IParameter[],
+    resolvedParams: IResolvedParam[],
+    scriptContent: string | null,
+    requestedIn?: string,
+    parentTemplate?: string,
+  ): void {
+    if (cmd.script === undefined) {
+      errors.push(
+        new JsonError(
+          `Script command missing 'script' property (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+        ),
+      );
+      return;
+    }
+    if (!scriptContent) {
+      errors.push(
+        new JsonError(
+          `Script file not found: ${cmd.script} (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+        ),
+      );
+      return;
+    }
+
+    const vars = this.extractTemplateVariables(scriptContent);
+    for (const v of vars) {
+      if (this.isBuiltInVariable(v)) continue;
+      if (
+        !parameters.some((p) => p.id === v) &&
+        !resolvedParams.some((rp) => rp.id === v)
+      ) {
+        errors.push(
+          new JsonError(
+            `Script ${cmd.script} uses variable '{{ ${v} }}' but no such parameter is defined (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+          ),
+        );
+      }
     }
   }
 
@@ -157,6 +207,35 @@ export class ScriptValidator {
       }
     } catch (e) {
       errors.push(new JsonError(`Failed to read library ${libraryName}: ${e}`));
+    }
+  }
+
+  /**
+   * Validates a library using its content (no FS access).
+   */
+  validateLibraryContent(
+    libraryName: string,
+    errors: IJsonError[],
+    libraryContent: string | null,
+    requestedIn?: string,
+    parentTemplate?: string,
+  ): void {
+    if (!libraryContent) {
+      errors.push(
+        new JsonError(
+          `Library file not found: ${libraryName} (requested in: ${requestedIn ?? "unknown"}${parentTemplate ? ", parent template: " + parentTemplate : ""})`,
+        ),
+      );
+      return;
+    }
+
+    const vars = this.extractTemplateVariables(libraryContent);
+    if (vars.length > 0) {
+      errors.push(
+        new JsonError(
+          `Library ${libraryName} contains template variables ({{ ${vars.join(", ")}} }), which is not allowed. Libraries should only contain function definitions without template variables.`,
+        ),
+      );
     }
   }
 }

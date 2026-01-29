@@ -67,6 +67,27 @@ export class ApplicationPersistenceHandler {
     return result;
   }
 
+  /**
+   * Returns only local application names mapped to their paths
+   * Used for validation when creating new applications - allows creating
+   * local applications even if the same ID exists in json directory
+   */
+  getLocalAppNames(): Map<string, string> {
+    if (!this.enableCache) {
+      // Cache disabled: always scan fresh
+      return this.scanApplicationsDir(this.pathes.localPath);
+    }
+
+    // Local: Aus Cache (wird durch fs.watch invalidiert)
+    if (this.appNamesCache.local === null) {
+      this.appNamesCache.local = this.scanApplicationsDir(
+        this.pathes.localPath,
+      );
+    }
+
+    return new Map(this.appNamesCache.local);
+  }
+
   listApplicationsForFrontend(): IApplicationWeb[] {
     if (!this.enableCache) {
       // Cache disabled: always build fresh
@@ -424,7 +445,34 @@ export class ApplicationPersistenceHandler {
       }
     }
 
-    return null;
+    const fallbackSvg = this.generateFallbackIconSvg(applicationName);
+    return {
+      iconContent: Buffer.from(fallbackSvg, "utf-8").toString("base64"),
+      iconType: "image/svg+xml",
+    };
+  }
+
+  private generateFallbackIconSvg(seed: string): string {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    const hue2 = (hue + 45) % 360;
+    const bg = `hsl(${hue}, 65%, 45%)`;
+    const fg = `hsl(${hue2}, 70%, 75%)`;
+    const size = 96;
+    const pad = 12;
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size / 3;
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`,
+      `<rect width="${size}" height="${size}" rx="18" ry="18" fill="${bg}"/>`,
+      `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fg}"/>`,
+      `<rect x="${pad}" y="${pad}" width="${size - pad * 2}" height="${size - pad * 2}" rx="14" ry="14" fill="none" stroke="${fg}" stroke-width="6"/>`,
+      `</svg>`,
+    ].join("");
   }
 
   writeApplication(applicationName: string, application: IApplication): void {
@@ -517,6 +565,7 @@ export class ApplicationPersistenceHandler {
       "restore",
       "uninstall",
       "update",
+      "upgrade",
       "copy-upgrade",
       "copy-rollback",
       "webui",

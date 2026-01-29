@@ -2,13 +2,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
-import { VEConfigurationError, IApplication, IVEContext, IConfiguredPathes } from "./backend-types.mjs";
-import { TemplateProcessor, type IProcessedTemplate } from "./templateprocessor.mjs";
+import { IApplication, IVEContext, IConfiguredPathes } from "./backend-types.mjs";
+import { TemplateProcessor, type IProcessedTemplate } from "./templates/templateprocessor.mjs";
 import { ITemplateReference } from "./backend-types.mjs";
 import { DocumentationPathResolver } from "./documentation-path-resolver.mjs";
-import { TemplateAnalyzer } from "./template-analyzer.mjs";
+import { TemplateAnalyzer } from "./templates/template-analyzer.mjs";
 import { ApplicationDocumentGenerator } from "./application-document-generator.mjs";
-import { TemplateDocumentGenerator } from "./template-document-generator.mjs";
+import { TemplateDocumentGenerator } from "./templates/template-document-generator.mjs";
 import type { ICommand, TaskType, ITemplate } from "./types.mjs";
 
 /**
@@ -68,6 +68,7 @@ export class DocumentationGenerator {
 
     // Map to collect which applications use which templates
     const templateUsageMap = new Map<string, Set<string>>();  // template name -> set of app names
+    void templateUsageMap;
 
     if (applicationName) {
       const appPath = allApps.get(applicationName);
@@ -97,6 +98,7 @@ export class DocumentationGenerator {
    * Updates usedByApplications for all templates based on collected usage information.
    */
   private updateTemplateUsageInformation(templateUsageMap: Map<string, Set<string>>): void {
+    void templateUsageMap;
     // This method can be used to update template usage information if needed
     // Currently, the information is collected during generateApplicationDocumentation
     // and used directly when generating template documentation
@@ -344,7 +346,7 @@ export class DocumentationGenerator {
             // Read template to find referenced templates
             const templateData = this.pathResolver.loadTemplate(templateName, appPath);
             if (templateData) {
-              const { TemplatePathResolver } = await import("./template-path-resolver.mjs");
+              const { TemplatePathResolver } = await import("./templates/template-path-resolver.mjs");
               const referencedTemplates = TemplatePathResolver.extractTemplateReferences(templateData as any);
               for (const refTemplateName of referencedTemplates) {
                 await processTemplateRecursively(refTemplateName);

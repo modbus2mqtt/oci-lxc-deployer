@@ -23,7 +23,7 @@ export class App implements OnInit {
   private cacheService = inject(CacheService);
   
   sshConfigs: ISsh[] = [];
-  currentHost: string = '';
+  currentHost = '';
   
   ngOnInit(): void {
     // Preload cache in background for faster UI loading

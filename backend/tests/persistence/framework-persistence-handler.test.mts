@@ -1,18 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs, {
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-  readFileSync,
-} from "fs";
-import { tmpdir } from "os";
+import { mkdirSync, existsSync, rmSync } from "fs";
 import path from "path";
 import { FrameworkPersistenceHandler } from "@src/persistence/framework-persistence-handler.mjs";
 import { JsonValidator } from "@src/jsonvalidator.mjs";
 import { VEConfigurationError } from "@src/backend-types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../test-environment.mjs";
+import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FrameworkPersistenceHandler", () => {
   let env: TestEnvironment;
@@ -21,6 +14,7 @@ describe("FrameworkPersistenceHandler", () => {
   let schemaPath: string;
   let handler: FrameworkPersistenceHandler;
   let jsonValidator: JsonValidator;
+  let persistenceHelper: TestPersistenceHelper;
 
   beforeEach(() => {
     env = createTestEnvironment(import.meta.url, {
@@ -29,6 +23,12 @@ describe("FrameworkPersistenceHandler", () => {
     jsonPath = env.jsonDir;
     localPath = env.localDir;
     schemaPath = env.schemaDir;
+    persistenceHelper = new TestPersistenceHelper({
+      repoRoot: env.repoRoot,
+      localRoot: env.localDir,
+      jsonRoot: env.jsonDir,
+      schemasRoot: env.schemaDir,
+    });
 
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
@@ -46,10 +46,6 @@ describe("FrameworkPersistenceHandler", () => {
     env?.cleanup();
   });
 
-  function writeJson(filePath: string, data: any): void {
-    mkdirSync(path.dirname(filePath), { recursive: true });
-    writeFileSync(filePath, JSON.stringify(data, null, 2));
-  }
 
   describe("getAllFrameworkNames()", () => {
     it("should return empty map when no frameworks exist", () => {
@@ -59,9 +55,9 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should find frameworks in json directory", () => {
       // Setup: Framework erstellen
-      const frameworksDir = path.join(jsonPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.JsonFrameworks);
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "testframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "testframework.json", {
         id: "testframework",
         name: "Test Framework",
         extends: "base",
@@ -75,9 +71,9 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should find frameworks in local directory", () => {
       // Setup: Framework erstellen
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "localframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/localframework.json", {
         id: "localframework",
         name: "Local Framework",
         extends: "base",
@@ -91,21 +87,20 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should prefer local over json when same name exists", () => {
       // Setup: Framework in beiden Verzeichnissen
-      const jsonFrameworkFile = path.join(jsonPath, "frameworks", "duplicate.json");
-      const localFrameworkFile = path.join(
-        localPath,
-        "frameworks",
-        "duplicate.json",
+      const jsonFrameworkFile = persistenceHelper.resolve(Volume.JsonFrameworks, "duplicate.json");
+      const localFrameworkFile = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks/duplicate.json",
       );
       mkdirSync(path.dirname(jsonFrameworkFile), { recursive: true });
       mkdirSync(path.dirname(localFrameworkFile), { recursive: true });
-      writeJson(jsonFrameworkFile, {
+      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "duplicate.json", {
         id: "duplicate",
         name: "JSON Framework",
         extends: "base",
         properties: [],
       });
-      writeJson(localFrameworkFile, {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/duplicate.json", {
         id: "duplicate",
         name: "Local Framework",
         extends: "base",
@@ -124,7 +119,7 @@ describe("FrameworkPersistenceHandler", () => {
       // Framework hinzufügen NACH erstem Aufruf
       const frameworksDir = path.join(jsonPath, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "newframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "newframework.json", {
         id: "newframework",
         name: "New Framework",
         extends: "base",
@@ -141,9 +136,9 @@ describe("FrameworkPersistenceHandler", () => {
   describe("readFramework()", () => {
     it("should read framework from json directory", () => {
       // Setup: Framework erstellen (minimal valid framework)
-      const frameworksDir = path.join(jsonPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.JsonFrameworks);
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "testframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "testframework.json", {
         id: "testframework",
         name: "Test Framework",
         extends: "base",
@@ -168,9 +163,9 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should read framework from local directory", () => {
       // Setup: Framework erstellen
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "localframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/localframework.json", {
         id: "localframework",
         name: "Local Framework",
         extends: "base",
@@ -192,10 +187,9 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should cache local frameworks", () => {
       // Setup: Framework in local erstellen
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      const frameworkFile = path.join(frameworksDir, "cachedframework.json");
-      writeJson(frameworkFile, {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/cachedframework.json", {
         id: "cachedframework",
         name: "Cached Framework",
         extends: "base",
@@ -233,24 +227,23 @@ describe("FrameworkPersistenceHandler", () => {
       handler.writeFramework("newframework", framework as any);
 
       // Verify file exists
-      const frameworkFile = path.join(
-        localPath,
-        "frameworks",
-        "newframework.json",
+      const frameworkFile = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks/newframework.json",
       );
       expect(existsSync(frameworkFile)).toBe(true);
 
       // Verify content
-      const content = JSON.parse(readFileSync(frameworkFile, "utf-8"));
+      const content = persistenceHelper.readJsonSync(Volume.LocalRoot, "frameworks/newframework.json") as any;
       expect(content.name).toBe("New Framework");
     });
 
     it("should delete framework from local directory", () => {
       // Setup: Framework erstellen
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
       const frameworkFile = path.join(frameworksDir, "deleteframework.json");
-      writeJson(frameworkFile, {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/deleteframework.json", {
         id: "deleteframework",
         name: "Delete Framework",
         extends: "base",
@@ -267,9 +260,9 @@ describe("FrameworkPersistenceHandler", () => {
   describe("invalidateFrameworkCache()", () => {
     it("should invalidate framework cache", () => {
       // Setup: Framework in local erstellen
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "testframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
         id: "testframework",
         name: "Test Framework",
         extends: "base",

@@ -119,10 +119,12 @@ export enum ApiUri {
   VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
   Applications = "/api/applications",
+  LocalApplicationIds = "/api/applications/local/ids",
   Installations = "/api/installations/:veContext",
   VeCopyUpgrade = "/api/ve/copy-upgrade/:application/:veContext",
   TemplateDetailsForApplication = "/api/template-details/:application/:task/:veContext",
   UnresolvedParameters = "/api/unresolved-parameters/:application/:task/:veContext",
+  EnumValues = "/api/enum-values/:application/:task/:veContext",
   FrameworkNames = "/api/framework-names",
   FrameworkParameters = "/api/framework-parameters/:frameworkId",
   FrameworkCreateApplication = "/api/framework-create-application",
@@ -132,6 +134,60 @@ export enum ApiUri {
 // Response interfaces for all backend endpoints (frontend mirror)
 export interface IUnresolvedParametersResponse {
   unresolvedParameters: IParameter[];
+}
+export interface IEnumValuesEntry {
+  id: string;
+  enumValues: (string | { name: string; value: string | number | boolean })[];
+  default?: string | number | boolean;
+}
+export interface IEnumValuesResponse {
+  enumValues: IEnumValuesEntry[];
+}
+
+export interface ITemplateTraceEntry {
+  name: string;
+  path: string;
+  origin:
+    | "application-local"
+    | "application-json"
+    | "shared-local"
+    | "shared-json"
+    | "unknown";
+  isShared: boolean;
+  skipped: boolean;
+  conditional: boolean;
+}
+
+export interface IParameterTraceEntry {
+  id: string;
+  name: string;
+  required?: boolean;
+  default?: string | number | boolean;
+  template?: string;
+  templatename?: string;
+  source:
+    | "user_input"
+    | "template_output"
+    | "template_properties"
+    | "default"
+    | "missing";
+  sourceTemplate?: string;
+  sourceKind?: "outputs" | "properties";
+}
+
+export interface ITemplateTraceInfo {
+  application: string;
+  task: TaskType;
+  localDir: string;
+  jsonDir: string;
+  appLocalDir?: string;
+  appJsonDir?: string;
+}
+
+export interface ITemplateProcessorLoadResult {
+  templateTrace?: ITemplateTraceEntry[];
+  parameterTrace?: IParameterTraceEntry[];
+  traceInfo?: ITemplateTraceInfo;
 }
 export interface ISshConfigsResponse {
   sshs: ISsh[];
@@ -160,6 +216,26 @@ export interface IPostVeConfigurationBody {
   outputs?: { id: string; value: IParameterValue }[];
   changedParams?: { name: string; value: IParameterValue }[];
 }
+export interface IPostEnumValuesBody {
+  params?: { id: string; value: IParameterValue }[];
+  refresh?: boolean;
+}
+export interface IPostVeCopyUpgradeBody {
+  oci_image: string;
+  source_vm_id: number;
+  vm_id?: number;
+  disk_size?: string;
+  bridge?: string;
+  memory?: number;
+  storage?: string;
+  registry_username?: string;
+  registry_password?: string;
+  registry_token?: string;
+  platform?: string;
+  application_id?: string;
+  application_name?: string;
+  version?: string;
+}
 export interface IPostSshConfigResponse {
   success: boolean;
   key?: string;
@@ -187,6 +263,10 @@ export interface IManagedOciContainer {
   hostname?: string;
   oci_image: string;
   icon?: string;
+  application_id?: string;
+  application_name?: string;
+  version?: string;
+  status?: string;
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];

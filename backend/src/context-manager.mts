@@ -7,7 +7,7 @@ import {
   IVMInstallContext,
   storageKey as storageContextKey,
 } from "./backend-types.mjs";
-import { TemplateProcessor } from "./templateprocessor.mjs";
+import { TemplateProcessor } from "./templates/templateprocessor.mjs";
 import { ISsh, TaskType } from "./types.mjs";
 import { Context } from "./context.mjs";
 import { Ssh } from "./ssh.mjs";

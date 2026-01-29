@@ -1,12 +1,13 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IInstallationsResponse } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody } from '../shared/types';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
 import { IApplicationWeb, IParameterValue } from '../shared/types';
+import { ErrorHandlerService } from './shared/services/error-handler.service';
 
 
 
@@ -18,6 +19,7 @@ export interface VeConfigurationParam { name: string; value: IParameterValue }
 export class VeConfigurationService {
   private http = inject(HttpClient);
   private router = inject(Router);
+  private errorHandler = inject(ErrorHandlerService);
   private veContextKey?: string;
   // Explicit initializer: call early (e.g., AppComponent.ngOnInit or APP_INITIALIZER)
   initVeContext(): Observable<ISsh[]> {
@@ -26,35 +28,14 @@ export class VeConfigurationService {
     );
   }
 
-  private static _router: Router;
-  static setRouter(router: Router) {
-    VeConfigurationService._router = router;
-  }
-  static handleError(err: Error & { error: {error?: string; serializedError?: unknown};errors?: Error; status?: number; message?: string }) {
+  private handleError(err: Error & { error: {error?: string; serializedError?: unknown};errors?: Error; status?: number; message?: string }) {
     // Log serializedError to console if available
     if (err?.error && typeof err.error === 'object' && 'serializedError' in err.error) {
       console.error('Serialized Error:', err.error.serializedError);
     }
-    
-    let msg = '';
-    if (err?.errors && Array.isArray(err.errors) && err.errors.length > 0) {
-      msg = err.errors.join('\n');
-    } else if (err?.errors instanceof Error) {
-      msg = err.errors.message;
-    } else if (err?.error )
-    {
-      msg = err.error.error || JSON.stringify(err.error);
-    } else if (err?.message) {
-      msg = err.message;
-    } else if (err?.status) {
-      msg = `Http Error status code: ${err.status}`;
-    } else {
-      msg = 'Unknown error';
-    }
-    alert(msg);
-    if (VeConfigurationService._router) {
-      VeConfigurationService._router.navigate(['/']);
-    }
+
+    this.errorHandler.handleError('Request failed', err, true);
+    this.router.navigate(['/']);
     return throwError(() => err);
   }
   // Track VE context key returned by backend so we can append it to future calls when required
@@ -69,7 +50,7 @@ export class VeConfigurationService {
   }
   post <T, U>(url:string, body:U):Observable<T> {
     return this.http.post<T>(this.veContextKey? url.replace(":veContext", this.veContextKey) : url, body).pipe(
-      catchError(VeConfigurationService.handleError)
+      catchError((err) => this.handleError(err))
     )
   }
   
@@ -80,7 +61,7 @@ export class VeConfigurationService {
   
   get<T>(url:string):Observable<T> {
     return this.http.get<T>(this.veContextKey? url.replace(":veContext", this.veContextKey) : url).pipe(
-      catchError(VeConfigurationService.handleError)
+      catchError((err) => this.handleError(err))
     )
   }
 
@@ -88,11 +69,13 @@ export class VeConfigurationService {
     return this.veContextKey;
   }
   getApplications(): Observable<IApplicationWeb[]> {
-    VeConfigurationService.setRouter(this.router);
     return this.http.get<IApplicationsResponse>(ApiUri.Applications);
   }
+
+  getLocalApplicationIds(): Observable<string[]> {
+    return this.http.get<string[]>(ApiUri.LocalApplicationIds);
+  }
   getInstallations(): Observable<IInstallationsResponse> {
-    VeConfigurationService.setRouter(this.router);
     return this.get<IInstallationsResponse>(ApiUri.Installations);
   }
 
@@ -102,6 +85,24 @@ export class VeConfigurationService {
       .replace(":task", encodeURIComponent(task));
     const url = this.veContextKey ? base.replace(":veContext", this.veContextKey) : base;
     return this.http.get<IUnresolvedParametersResponse>(url);
+  }
+
+  getTemplateTrace(application: string, task: string): Observable<ITemplateProcessorLoadResult> {
+    const base = ApiUri.TemplateDetailsForApplication
+      .replace(":application", encodeURIComponent(application))
+      .replace(":task", encodeURIComponent(task));
+    const url = this.veContextKey ? base.replace(":veContext", this.veContextKey) : base;
+    return this.http.get<ITemplateProcessorLoadResult>(url);
+  }
+
+  postEnumValues(application: string, task: string, params?: { id: string; value: IParameterValue }[], refresh?: boolean): Observable<IEnumValuesResponse> {
+    const url = ApiUri.EnumValues
+      .replace(':application', encodeURIComponent(application))
+      .replace(':task', encodeURIComponent(task));
+    const body: IPostEnumValuesBody = {};
+    if (params && params.length > 0) body.params = params;
+    if (refresh === true) body.refresh = true;
+    return this.post<IEnumValuesResponse, IPostEnumValuesBody>(url, body);
   }
 
   getSshConfigs(): Observable<ISshConfigsResponse> {
@@ -136,10 +137,15 @@ export class VeConfigurationService {
     );
   }
 
+  postVeCopyUpgrade(application: string, body: IPostVeCopyUpgradeBody): Observable<IVeConfigurationResponse> {
+    const url = ApiUri.VeCopyUpgrade.replace(':application', encodeURIComponent(application));
+    return this.post<IVeConfigurationResponse, IPostVeCopyUpgradeBody>(url, body);
+  }
+
   setSshConfig(ssh: ISsh): Observable<IPostSshConfigResponse> {
     return this.post<IPostSshConfigResponse, ISsh>(ApiUri.SshConfig, ssh).pipe(
       tap((res) => this.setVeContextKeyFrom(res)),
-      catchError(VeConfigurationService.handleError)
+      catchError((err) => this.handleError(err))
     );
   }
 
@@ -147,7 +153,7 @@ export class VeConfigurationService {
     const params = new URLSearchParams({ host });
     return this.http.delete<IDeleteSshConfigResponse>(`${ApiUri.SshConfig}?${params.toString()}`).pipe(
       tap((res) => this.setVeContextKeyFrom(res)),
-      catchError(VeConfigurationService.handleError)
+      catchError((err) => this.handleError(err))
     );
   }
   getExecuteMessages(): Observable<IVeExecuteMessagesResponse> {

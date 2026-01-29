@@ -25,8 +25,8 @@ execute_script_from_github() {
   for kv in "$@"; do
     key="${kv%%=*}"
     val="${kv#*=}"
-    esc_val=$(printf '%s' "$val" | sed 's/[\\&/]/\\&/g')
-    sed_args="$sed_args -e s/{{[[:space:]]*$key[[:space:]]*}}/$esc_val/g"
+    esc_val=$(printf '%s' "$val" | sed 's/[\\&|]/\\&/g')
+    sed_args="$sed_args -e s|{{[[:space:]]*$key[[:space:]]*}}|$esc_val|g"
   done
 
   # Determine interpreter based on file extension
@@ -36,7 +36,12 @@ execute_script_from_github() {
     *) interpreter="sh" ;;
   esac
 
-  script_content=$(curl -fsSL "$raw_url" | sed $sed_args)
+  script_content=$(curl -fsSL "$raw_url" 2>/dev/null || true)
+  if [ -z "$script_content" ]; then
+    echo "Error: Failed to download script from ${raw_url}" >&2
+    return 3
+  fi
+  script_content=$(printf '%s' "$script_content" | sed $sed_args)
 
   # Some Python scripts depend on shared helpers but are still executed via stdin.
   # Prepend the helper library explicitly when needed.
@@ -188,6 +193,50 @@ detect_volume_base_path() {
   echo "/mnt/volumes"
 }
 
+get_storage_type() {
+  _storage="$1"
+  pvesm status -storage "$_storage" 2>/dev/null | awk 'NR==2 {print $2}' || true
+}
+
+get_zfs_pool_for_storage() {
+  _storage="$1"
+  if [ -r /etc/pve/storage.cfg ]; then
+    awk -v storage="$_storage" '
+      $1 ~ /^zfspool:/ { inblock=0 }
+      $1 == "zfspool:" && $2 == storage { inblock=1 }
+      inblock && $1 == "pool" { print $2; exit }
+    ' /etc/pve/storage.cfg 2>/dev/null || true
+  fi
+}
+
+resolve_shared_volume_path() {
+  _storage="$1"
+  _storage_type="$2"
+  _volid="$3"
+  _volname="$4"
+
+  _path="$(pvesm path "$_volid" 2>/dev/null || true)"
+  if [ -n "$_path" ]; then
+    echo "$_path"
+    return 0
+  fi
+
+  if [ "$_storage_type" = "zfspool" ]; then
+    _pool=$(get_zfs_pool_for_storage "$_storage")
+    if [ -n "$_pool" ]; then
+      _mp=$(zfs get -H -o value mountpoint "${_pool}/${_volname}" 2>/dev/null || true)
+      if [ -z "$_mp" ] || [ "$_mp" = "-" ] || [ "$_mp" = "none" ]; then
+        _mp=$(zfs list -H -o mountpoint "${_pool}/${_volname}" 2>/dev/null || true)
+      fi
+      if [ -n "$_mp" ] && [ "$_mp" != "-" ] && [ "$_mp" != "none" ]; then
+        echo "$_mp"
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
 # Set default volume paths if not provided
 volume_base=$(detect_volume_base_path)
 if [ -z "$config_volume_path" ]; then
@@ -207,7 +256,11 @@ echo "  Proxmox Host: ${proxmox_hostname}" >&2
 echo "  Volume base: ${volume_base}" >&2
 echo "  Config volume: ${config_volume_path}" >&2
 echo "  Secure volume: ${secure_volume_path}" >&2
-echo "  OWNER=${OWNER}, REPO=${REPO}, BRANCH=${BRANCH}, OCI_IMAGE=${OCI_IMAGE}" >&2 
+if [ "$OWNER" = "modbus2mqtt" ]; then
+  echo "  \033[33mOWNER=${OWNER}\033[0m, REPO=${REPO}, BRANCH=${BRANCH}, OCI_IMAGE=${OCI_IMAGE}" >&2
+else
+  echo "  OWNER=${OWNER}, REPO=${REPO}, BRANCH=${BRANCH}, OCI_IMAGE=${OCI_IMAGE}" >&2
+fi
 
 # Check and install SSH server if needed (on Proxmox VE host)
 # This matches the installation command from the SSH config page
@@ -235,6 +288,7 @@ ChallengeResponseAuthentication no
 UsePAM no
 AuthorizedKeysFile .ssh/authorized_keys .ssh/authenticated_keys
 AllowUsers root
+AcceptEnv LANG LC_*
 SSHCONF
   
   # Enable and restart SSH service
@@ -311,6 +365,7 @@ echo "Step 2: Creating LXC container..." >&2
 vm_id=$(execute_script_from_github \
   "json/shared/scripts/create-lxc-container.sh" \
   "vm_id" \
+  "rootfs_storage=" \
   "template_path=${template_path}" \
   "vm_id=${vm_id}" \
   "disk_size=${disk_size}" \
@@ -349,74 +404,58 @@ if [ -z "$mapped_gid" ]; then mapped_gid="$LXC_GID"; fi
 
 echo "  UID/GID ranges configured; mapped_uid=${mapped_uid}, mapped_gid=${mapped_gid}" >&2
 
-# 4) Mount ZFS pool if using ZFS storage
-echo "Step 4: Preparing storage..." >&2
-# Determine if we're using ZFS
-host_mountpoint=""
-if echo "$volume_base" | grep -q "^/"; then
-  # Check if this is a ZFS mountpoint
-  if command -v zfs >/dev/null 2>&1; then
-    zfs_pool=$(echo "$volume_base" | cut -d'/' -f2)
-    if zpool list "$zfs_pool" >/dev/null 2>&1; then
-      echo "  Detected ZFS pool: $zfs_pool" >&2
-      host_mountpoint=$(execute_script_from_github \
-        "json/shared/scripts/mount-zfs-pool.sh" \
-        "host_mountpoint" \
-        "storage_selection=zfs:${zfs_pool}" \
-        "uid=${LXC_UID}" \
-        "gid=${LXC_GID}" \
-        "mapped_uid=${mapped_uid}" \
-        "mapped_gid=${mapped_gid}")
-      if [ -z "$host_mountpoint" ]; then
-        echo "Error: Failed to mount ZFS pool" >&2
-        exit 1
-      fi
-      echo "  ZFS pool mounted at: ${host_mountpoint}" >&2
-    else
-      # Not ZFS, use volume_base directly
-      host_mountpoint=$(dirname "$volume_base")
-    fi
-  else
-    # No ZFS tools, use volume_base directly
-    host_mountpoint=$(dirname "$volume_base")
-  fi
+# 4) Create and attach storage volumes (shared volume strategy)
+echo "Step 4: Preparing storage volumes..." >&2
+rootfs_storage=$(pct config "$vm_id" 2>/dev/null | awk -F: '/^rootfs:/ {print $2}' | cut -d',' -f1 | cut -d':' -f1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+if [ -z "$rootfs_storage" ]; then
+  rootfs_storage="$storage"
 fi
+storage_type=$(get_storage_type "$rootfs_storage")
 
-# 5) Bind volumes to container
-echo "Step 5: Binding volumes to container..." >&2
-# Log context for permissions/mapping
+echo "  Volume storage: ${rootfs_storage} (type: ${storage_type})" >&2
 echo "  Host: ${proxmox_hostname}" >&2
 echo "  Container ID: ${vm_id}, Container hostname: ${hostname}" >&2
 echo "  Using UID/GID: ${LXC_UID}/${LXC_GID} (mapped: ${mapped_uid}/${mapped_gid})" >&2
-# Set volumes as environment variable for the script
-export VOLUMES="config=config
-secure=secure,0700"
 
-# Use execute_script_from_github - VOLUMES is passed via environment
+export VOLUMES="config=/config
+secure=/secure,0700"
+
 if ! execute_script_from_github \
-  "json/shared/scripts/bind-multiple-volumes-to-lxc.sh" \
+  "json/shared/scripts/create-storage-volumes-for-lxc.sh" \
   "-" \
   "vm_id=${vm_id}" \
   "hostname=${hostname}" \
-  "base_path=volumes" \
-  "host_mountpoint=${host_mountpoint}" \
-  "username=" \
+  "volumes=\$VOLUMES" \
+  "volume_storage=${rootfs_storage}" \
+  "volume_size=4G" \
+  "volume_backup=true" \
+  "volume_shared=true" \
   "uid=${LXC_UID}" \
   "gid=${LXC_GID}" \
   "mapped_uid=${mapped_uid}" \
-  "mapped_gid=${mapped_gid}" \
-  "volumes=\$VOLUMES"; then
-  echo "Error: Failed to bind volumes to container" >&2
+  "mapped_gid=${mapped_gid}"; then
+  echo "Error: Failed to create/attach storage volumes" >&2
   exit 1
 fi
 
-echo "  Volumes bound successfully" >&2
-
-# Update volume paths to match what was created
-if [ -n "$host_mountpoint" ]; then
-  config_volume_path="${host_mountpoint}/volumes/${hostname}/config"
-  secure_volume_path="${host_mountpoint}/volumes/${hostname}/secure"
+shared_owner_vmid=999999
+shared_name_key="oci-lxc-deployer-volumes"
+if [ "$storage_type" = "zfspool" ]; then
+  shared_volname="subvol-${shared_owner_vmid}-${shared_name_key}"
+else
+  shared_volname="vol-${shared_name_key}"
 fi
+shared_volid="${rootfs_storage}:${shared_volname}"
+shared_volpath=$(resolve_shared_volume_path "$rootfs_storage" "$storage_type" "$shared_volid" "$shared_volname" || true)
+if [ -z "$shared_volpath" ]; then
+  echo "Error: Failed to resolve shared volume path (${shared_volid})" >&2
+  exit 1
+fi
+
+config_volume_path="${shared_volpath}/volumes/${hostname}/config"
+secure_volume_path="${shared_volpath}/volumes/${hostname}/secure"
+echo "  Config volume: ${config_volume_path}" >&2
+echo "  Secure volume: ${secure_volume_path}" >&2
 
 # Write storagecontext.json before starting the container so the app can read it on startup
 echo "Step 5.1: Writing storagecontext.json to /config..." >&2

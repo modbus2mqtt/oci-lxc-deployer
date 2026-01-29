@@ -1,15 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { IVEContext } from "@src/backend-types.mjs";
-import { IOciImageAnnotations } from "@src/types.mjs";
 import { execSync } from "child_process";
-import path from "path";
-import { fileURLToPath } from "node:url";
-import fs from "fs";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs";
-import { tmpdir } from "os";
-import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { ExecutionMode } from "@src/ve-execution-constants.mjs";
 import { FrameworkFromImage } from "@src/framework-from-image.mjs";
+import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
 
 // Check if skopeo is available (synchronously at module load time)
 let skopeoAvailable = false;
@@ -27,66 +22,42 @@ describe("FrameworkFromImage - Integration Tests", () => {
     getKey: () => "ve_localhost",
     getStorageContext: () => null,
   } as IVEContext;
-
-  // Get script path (integration tests are in tests/integration/, so go up 3 levels to repo root)
-  const __filename = fileURLToPath(import.meta.url);
-  const integrationTestDir = path.dirname(__filename);
-  const testsDir = path.dirname(integrationTestDir);
-  const backendDir = path.dirname(testsDir);
-  const repoRoot = path.dirname(backendDir);
-  const scriptPath = path.join(
-    repoRoot,
-    "json/shared/scripts/get-oci-image-annotations.py",
-  );
+  let env: TestEnvironment;
+  let persistenceHelper: TestPersistenceHelper;
 
   describe("getAnnotationsFromImage - ungemockt (localhost)", () => {
     // Only run if skopeo is available
     const testIfSkopeo = skopeoAvailable ? it : it.skip;
 
     beforeAll(() => {
-      // Initialize PersistenceManager with real json path for ungemockt tests
-      const __filename = fileURLToPath(import.meta.url);
-      // Integration tests are in tests/integration/, so we need to go up 3 levels to get to repo root
-      const integrationTestDir = path.dirname(__filename);
-      const testsDir = path.dirname(integrationTestDir);
-      const backendDir = path.dirname(testsDir);
-      const repoRoot = path.dirname(backendDir);
-      const jsonDir = path.join(repoRoot, "json");
-      const schemasDir = path.join(repoRoot, "schemas");
-      const testDir = mkdtempSync(path.join(tmpdir(), "framework-from-image-ungemockt-"));
-      const storageContextPath = path.join(testDir, "storagecontext.json");
-      const secretFilePath = path.join(testDir, "secret.txt");
-      writeFileSync(storageContextPath, JSON.stringify({}), "utf-8");
-      writeFileSync(secretFilePath, "", "utf-8");
-
-      // Close existing instance if any
-      try {
-        PersistenceManager.getInstance().close();
-      } catch {
-        // Ignore if not initialized
-      }
-
-      PersistenceManager.initialize(
-        path.join(testDir, "local"),
-        storageContextPath,
-        secretFilePath,
-        false, // Disable cache for tests
-        jsonDir, // Use real json path
-        schemasDir, // Use real schemas path
-      );
+      env = createTestEnvironment(import.meta.url, {
+        jsonIncludePatterns: ["^shared/scripts/get-oci-image-annotations\\.py$"],
+      });
+      persistenceHelper = new TestPersistenceHelper({
+        repoRoot: env.repoRoot,
+        localRoot: env.localDir,
+        jsonRoot: env.jsonDir,
+        schemasRoot: env.schemaDir,
+      });
+      env.initPersistence({ enableCache: false });
     });
 
     afterAll(() => {
-      try {
-        PersistenceManager.getInstance().close();
-      } catch {
-        // Ignore if not initialized
-      }
+      env.cleanup();
     });
 
     testIfSkopeo("should extract annotations from home-assistant image (GitHub Container Registry)", async () => {
       // Check if script exists
-      if (!fs.existsSync(scriptPath)) {
+      const scriptPath = persistenceHelper.resolve(
+        Volume.JsonSharedScripts,
+        "get-oci-image-annotations.py",
+      );
+      try {
+        persistenceHelper.readTextSync(
+          Volume.JsonSharedScripts,
+          "get-oci-image-annotations.py",
+        );
+      } catch {
         throw new Error(`Script not found: ${scriptPath}`);
       }
 

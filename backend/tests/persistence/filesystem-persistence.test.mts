@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs";
-import { tmpdir } from "os";
+import { mkdirSync, rmSync } from "fs";
 import path from "path";
 import { FileSystemPersistence } from "@src/persistence/filesystem-persistence.mjs";
 import { JsonValidator } from "@src/jsonvalidator.mjs";
@@ -8,7 +7,8 @@ import {
   IReadApplicationOptions,
   VEConfigurationError,
 } from "@src/backend-types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../test-environment.mjs";
+import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FileSystemPersistence (Integration)", () => {
   let env: TestEnvironment;
@@ -17,6 +17,7 @@ describe("FileSystemPersistence (Integration)", () => {
   let schemaPath: string;
   let persistence: FileSystemPersistence;
   let jsonValidator: JsonValidator;
+  let persistenceHelper: TestPersistenceHelper;
 
   beforeEach(() => {
     env = createTestEnvironment(import.meta.url, {
@@ -25,6 +26,12 @@ describe("FileSystemPersistence (Integration)", () => {
     jsonPath = env.jsonDir;
     localPath = env.localDir;
     schemaPath = env.schemaDir;
+    persistenceHelper = new TestPersistenceHelper({
+      repoRoot: env.repoRoot,
+      localRoot: env.localDir,
+      jsonRoot: env.jsonDir,
+      schemasRoot: env.schemaDir,
+    });
 
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
@@ -44,17 +51,13 @@ describe("FileSystemPersistence (Integration)", () => {
     env?.cleanup();
   });
 
-  function writeJson(filePath: string, data: any): void {
-    mkdirSync(path.dirname(filePath), { recursive: true });
-    writeFileSync(filePath, JSON.stringify(data, null, 2));
-  }
 
   describe("Delegation to Handlers", () => {
     it("should delegate getAllAppNames to ApplicationHandler", () => {
       // Setup: Application erstellen
-      const appDir = path.join(jsonPath, "applications", "testapp");
+      const appDir = persistenceHelper.resolve(Volume.JsonApplications, "testapp");
       mkdirSync(appDir, { recursive: true });
-      writeJson(path.join(appDir, "application.json"), {
+      persistenceHelper.writeJsonSync(Volume.JsonApplications, "testapp/application.json", {
         name: "Test App",
         installation: [],
       });
@@ -65,9 +68,9 @@ describe("FileSystemPersistence (Integration)", () => {
 
     it("should delegate getAllFrameworkNames to FrameworkHandler", () => {
       // Setup: Framework erstellen
-      const frameworksDir = path.join(jsonPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.JsonFrameworks);
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "testframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "testframework.json", {
         id: "testframework",
         name: "Test Framework",
         extends: "base",
@@ -80,9 +83,9 @@ describe("FileSystemPersistence (Integration)", () => {
 
     it("should delegate resolveTemplatePath to TemplateHandler", () => {
       // Setup: Template erstellen
-      const templatesDir = path.join(jsonPath, "shared", "templates");
+      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
       mkdirSync(templatesDir, { recursive: true });
-      writeJson(path.join(templatesDir, "testtemplate.json"), {
+      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
         name: "Test Template",
         commands: [],
       });
@@ -93,10 +96,10 @@ describe("FileSystemPersistence (Integration)", () => {
 
     it("should delegate loadTemplate to TemplateHandler", () => {
       // Setup: Template erstellen
-      const templatesDir = path.join(jsonPath, "shared", "templates");
+      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "testtemplate.json");
-      writeJson(templateFile, {
+      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
         name: "Test Template",
         commands: [{ name: "test", command: "echo test" }],
       });
@@ -110,28 +113,28 @@ describe("FileSystemPersistence (Integration)", () => {
   describe("invalidateCache()", () => {
     it("should invalidate all handler caches", () => {
       // Setup: Application, Framework, Template erstellen
-      const appDir = path.join(localPath, "applications", "testapp");
+      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/testapp");
       mkdirSync(appDir, { recursive: true });
-      writeJson(path.join(appDir, "application.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/testapp/application.json", {
         name: "Test App",
         installation: [],
       });
 
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "testframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
         id: "testframework",
         name: "Test Framework",
         extends: "base",
         properties: [],
       });
 
-      const templatesDir = path.join(localPath, "shared", "templates");
+      const templatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "testtemplate.json");
-      writeJson(templateFile, {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/testtemplate.json", {
         name: "Test Template",
-        commands: [],
+        commands: [{ name: "test", command: "echo test" }],
       });
 
       // Populate caches
@@ -171,9 +174,9 @@ describe("FileSystemPersistence (Integration)", () => {
   describe("End-to-End Scenarios", () => {
     it("should handle complete application workflow", () => {
       // 1. Create application
-      const appDir = path.join(localPath, "applications", "workflowapp");
+      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/workflowapp");
       mkdirSync(appDir, { recursive: true });
-      writeJson(path.join(appDir, "application.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/workflowapp/application.json", {
         name: "Workflow App",
         description: "Workflow Description",
         installation: ["template1.json"],
@@ -196,7 +199,7 @@ describe("FileSystemPersistence (Integration)", () => {
       expect(readApp.name).toBe("Workflow App");
 
       // 4. Read icon
-      writeFileSync(path.join(appDir, "icon.png"), "icon data");
+      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/workflowapp/icon.png", "icon data");
       const icon = persistence.readApplicationIcon("workflowapp");
       expect(icon).not.toBeNull();
 
@@ -229,9 +232,9 @@ describe("FileSystemPersistence (Integration)", () => {
 
     it("should handle framework and template operations together", () => {
       // Create framework
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      writeJson(path.join(frameworksDir, "testframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
         id: "testframework",
         name: "Test Framework",
         extends: "base",
@@ -239,9 +242,9 @@ describe("FileSystemPersistence (Integration)", () => {
       });
 
       // Create template
-      const templatesDir = path.join(localPath, "shared", "templates");
+      const templatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
       mkdirSync(templatesDir, { recursive: true });
-      writeJson(path.join(templatesDir, "testtemplate.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/testtemplate.json", {
         name: "Test Template",
         commands: [{ name: "test", command: "echo test" }],
       });

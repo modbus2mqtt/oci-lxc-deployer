@@ -1,19 +1,5 @@
 #!/bin/sh
-# Create LXC container on Proxmox host
-#
-# This script creates an LXC container by:
-# 1. Auto-selecting the best storage (prefers local-zfs, otherwise storage with most free space)
-# 2. Creating the LXC container with specified parameters
-# 3. Configuring container settings (hostname, ostype, etc.)
-#
-# Requires:
-#   - vm_id: LXC container ID (from context)
-#   - hostname: Container hostname (from context)
-#   - ostype: Operating system type (from context)
-#   - storage: Storage name (optional, auto-selected if not provided)
-#
-# Output: JSON to stdout (errors to stderr)
-# Note: Do NOT use exec >&2 here, as it redirects ALL stdout to stderr, including JSON output
+
 
 # Auto-select the best storage for LXC rootfs
 # Prefer local-zfs if available, otherwise use storage with most free space (supports rootdir)
@@ -60,13 +46,10 @@ else
 fi
 
 # Check that template_path is set
-# Note: template_path should be set by 010-get-latest-os-template.json
 TEMPLATE_PATH="{{ template_path }}"
-if [ -z "$TEMPLATE_PATH" ] || [ "$TEMPLATE_PATH" = "" ] || [ "$TEMPLATE_PATH" = "NOT_DEFINED" ]; then
-  echo "Error: template_path parameter is empty, not set, or resolved to NOT_DEFINED!" >&2
-  echo "Current value: '$TEMPLATE_PATH'" >&2
+if [ -z "$TEMPLATE_PATH" ] || [ "$TEMPLATE_PATH" = "" ]; then
+  echo "Error: template_path parameter is empty or not set!" >&2
   echo "Please ensure that 010-get-latest-os-template.json template is executed before 100-create-configure-lxc.json" >&2
-  echo "The template should output: [{ \"id\": \"template_path\", \"value\": \"...\" }]" >&2
   exit 1
 fi
 
@@ -105,64 +88,5 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 echo "LXC container $VMID ({{ hostname }}) created." >&2
-
-# Write notes/description so we can later detect oci-lxc-deployer managed containers.
-# Store the OCI image in a visible, identifiable line.
-OCI_IMAGE_RAW="{{ oci_image }}"
-OCI_IMAGE_VISIBLE=$(printf "%s" "$OCI_IMAGE_RAW" | sed -E 's#^(docker|oci)://##')
-TEMPLATE_PATH_FOR_NOTES="$TEMPLATE_PATH"
-
-OCI_IMAGE_TAG_RAW="{{ oci_image_tag }}"
-OCI_IMAGE_TAG=""
-if [ "$OCI_IMAGE_TAG_RAW" != "NOT_DEFINED" ]; then OCI_IMAGE_TAG="$OCI_IMAGE_TAG_RAW"; fi
-
-APP_ID_RAW="{{ application_id }}"
-APP_NAME_RAW="{{ application_name }}"
-APP_ID=""
-APP_NAME=""
-if [ "$APP_ID_RAW" != "NOT_DEFINED" ]; then APP_ID="$APP_ID_RAW"; fi
-if [ "$APP_NAME_RAW" != "NOT_DEFINED" ]; then APP_NAME="$APP_NAME_RAW"; fi
-
-NOTES_TMP=$(mktemp)
-{
-  echo "<!-- oci-lxc-deployer:managed -->"
-  if [ -n "$OCI_IMAGE_VISIBLE" ]; then
-    echo "<!-- oci-lxc-deployer:oci-image $OCI_IMAGE_VISIBLE -->"
-  fi
-  if [ -n "$APP_ID" ]; then
-    echo "<!-- oci-lxc-deployer:application-id $APP_ID -->"
-  fi
-  if [ -n "$APP_NAME" ]; then
-    echo "<!-- oci-lxc-deployer:application-name $APP_NAME -->"
-  fi
-  echo "# OCI LXC Deployer"
-  echo
-  echo "Managed by **oci-lxc-deployer**."
-  if [ -n "$APP_ID" ] || [ -n "$APP_NAME" ]; then
-    echo
-    if [ -n "$APP_ID" ] && [ -n "$APP_NAME" ]; then
-      echo "Application: $APP_NAME ($APP_ID)"
-    elif [ -n "$APP_NAME" ]; then
-      echo "Application: $APP_NAME"
-    else
-      echo "Application ID: $APP_ID"
-    fi
-  fi
-  if [ -n "$OCI_IMAGE_TAG" ]; then
-    echo
-    echo "Version: $OCI_IMAGE_TAG"
-  fi
-  if [ -n "$OCI_IMAGE_VISIBLE" ]; then
-    echo
-    echo "OCI image: $OCI_IMAGE_VISIBLE"
-  else
-    echo
-    echo "LXC template: $TEMPLATE_PATH_FOR_NOTES"
-  fi
-} > "$NOTES_TMP"
-
-# pct set --description supports multi-line text.
-pct set "$VMID" --description "$(cat "$NOTES_TMP")" >&2 || true
-rm -f "$NOTES_TMP"
 
 echo '{ "id": "vm_id", "value": "'$VMID'" }'

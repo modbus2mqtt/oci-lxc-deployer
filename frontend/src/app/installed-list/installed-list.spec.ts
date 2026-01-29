@@ -22,6 +22,7 @@ class MockVeConfigurationService {
       icon: '',
     },
   ]));
+  postVeCopyUpgrade = vi.fn(() => of({ success: true, restartKey: 'rk_test' }));
 }
 
 describe('InstalledList component (vitest)', () => {
@@ -56,6 +57,7 @@ describe('InstalledList component (vitest)', () => {
     // Optional: Navigation zum Monitor wurde angestoßen
     buttons[0].click();
     fixture.detectChanges();
+    expect(svc.postVeCopyUpgrade).toHaveBeenCalledTimes(1);
     expect(router.navigate).toHaveBeenCalledWith(['/monitor']);
   });
 });

@@ -122,6 +122,7 @@ See [Application Creation with Frameworks](#application-creation-with-frameworks
 - [Template Reference](#template-reference)
   - [Shared Templates](#shared-templates)
   - [Custom Templates](#custom-templates)
+- [Web API Notes (Internal)](#web-api-notes-internal)
 - [Best Practices](#best-practices)
 - [Generating Documentation](#generating-documentation)
 - [Next Steps](#next-steps)
@@ -950,6 +951,22 @@ You can create custom templates for application-specific tasks:
   ]
 }
 ```
+
+## Web API Notes (Internal)
+
+The Web UI uses a small set of internal endpoints. These are not part of the public API surface, but they are useful to know when integrating custom tooling.
+
+### Unresolved Parameters
+
+`GET /api/unresolved-parameters/:application/:task/:veContext`
+
+- `task` is a required **client-generated identifier** (typically a UUID). It is used for request grouping/traceability and can be any non-empty string.
+- The backend currently resolves parameters from the **installation** task regardless of the value in `task`.
+
+### Execution Task Behavior
+
+- VE execution is hard-coded to use the **installation** task.
+- Other task types are ignored by the Web UI execution flow.
 
 ## Best Practices
 

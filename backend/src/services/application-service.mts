@@ -18,6 +18,10 @@ export class ApplicationService {
     return this.persistence.getAllAppNames();
   }
 
+  getLocalAppNames(): Map<string, string> {
+    return this.persistence.getLocalAppNames();
+  }
+
   listApplicationsForFrontend(): IApplicationWeb[] {
     return this.persistence.listApplicationsForFrontend();
   }

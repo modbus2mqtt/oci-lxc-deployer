@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { TemplatePathResolver } from "./template-path-resolver.mjs";
+import { TemplatePathResolver } from "./templates/template-path-resolver.mjs";
 import type { IConfiguredPathes } from "./backend-types.mjs";
 import type { ITemplate } from "./types.mjs";
 

@@ -65,6 +65,10 @@ export class FileSystemPersistence
     return this.applicationHandler.getAllAppNames();
   }
 
+  getLocalAppNames() {
+    return this.applicationHandler.getLocalAppNames();
+  }
+
   listApplicationsForFrontend() {
     return this.applicationHandler.listApplicationsForFrontend();
   }

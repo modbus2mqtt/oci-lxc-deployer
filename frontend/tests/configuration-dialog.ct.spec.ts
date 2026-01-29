@@ -1,18 +1,23 @@
 import { test, expect } from '@playwright/experimental-ct-angular';
 import { of, throwError } from 'rxjs';
-import type { ComponentFixture } from '@playwright/experimental-ct-angular';
 import { ConfigurationDialog } from '../src/app/configuration-dialog/configuration-dialog';
 import { ProxmoxConfigurationService } from '../src/app/ve-configuration.service';
 import type { ISsh } from '../src/shared/types.mts';
 
 class MockConfigService {
   getSshConfigs = () => of<ISsh[]>([{ host: 'router.local', port: 22, current: true }]);
-  setSshConfig = (_ssh: ISsh) => of<void>(undefined);
+  setSshConfig = (_ssh: ISsh) => {
+    void _ssh;
+    return of<void>(undefined);
+  };
 }
 
 class ErrorMockConfigService extends MockConfigService {
   override getSshConfigs = () => throwError(() => new Error('load failed'));
-  override setSshConfig = (_ssh: ISsh) => throwError(() => new Error('save failed'));
+  override setSshConfig = (_ssh: ISsh) => {
+    void _ssh;
+    return throwError(() => new Error('save failed'));
+  };
 }
 
 test.describe('ConfigurationDialog component', () => {

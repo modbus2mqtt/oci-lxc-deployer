@@ -1,0 +1,285 @@
+import { ICommand, IVeExecuteMessage } from "../types.mjs";
+import { VariableResolver } from "../variable-resolver.mjs";
+import { getNextMessageIndex } from "./ve-execution-constants.mjs";
+import { VeExecutionMessageEmitter } from "./ve-execution-message-emitter.mjs";
+
+export interface CommandProcessorDependencies {
+  outputs: Map<string, string | number | boolean>;
+  inputs: Record<string, string | number | boolean>;
+  variableResolver: VariableResolver;
+  messageEmitter: VeExecutionMessageEmitter;
+  runOnLxc: (vm_id: string | number, command: string, tmplCommand: ICommand, timeoutMs?: number) => Promise<IVeExecuteMessage>;
+  runOnVeHost: (input: string, tmplCommand: ICommand, timeoutMs?: number) => Promise<IVeExecuteMessage>;
+  executeOnHost: (hostname: string, command: string, tmplCommand: ICommand) => Promise<void>;
+  outputsRaw: { name: string; value: string | number | boolean }[] | undefined;
+  setOutputsRaw: (raw: { name: string; value: string | number | boolean }[]) => void;
+}
+
+/**
+ * Handles command processing for VeExecution.
+ */
+export class VeExecutionCommandProcessor {
+  constructor(private deps: CommandProcessorDependencies) {}
+
+  /**
+   * Handles a skipped command by emitting a message.
+   */
+  handleSkippedCommand(cmd: ICommand, msgIndex: number): number {
+    // Use getNextMessageIndex() to ensure consistency with other commands
+    const index = getNextMessageIndex();
+    this.deps.messageEmitter.emitStandardMessage(
+      cmd,
+      cmd.description || "Skipped: all required parameters missing",
+      null,
+      0,
+      index,
+    );
+    return msgIndex + 1;
+  }
+
+  /**
+   * Processes a single property entry and sets it in outputs if valid.
+   */
+  private processPropertyEntry(entry: { id: string; value?: any }): void {
+    if (!entry || typeof entry !== "object" || !entry.id || entry.value === undefined) {
+      return;
+    }
+    
+    let value = entry.value;
+    // Replace variables in value if it's a string
+    if (typeof value === "string") {
+      value = this.deps.variableResolver.replaceVars(value);
+      // Skip property if value is "NOT_DEFINED" (optional parameter not set)
+      if (value === "NOT_DEFINED") {
+        return; // Skip this property
+      }
+    }
+    // Only set if value is a primitive type (not array)
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      this.deps.outputs.set(entry.id, value);
+    }
+  }
+
+  /**
+   * Handles a properties command by processing all properties and emitting a message.
+   */
+  handlePropertiesCommand(cmd: ICommand, msgIndex: number): number {
+    try {
+      if (Array.isArray(cmd.properties)) {
+        // Array of {id, value} objects
+        for (const entry of cmd.properties) {
+          this.processPropertyEntry(entry);
+        }
+      } else if (cmd.properties && typeof cmd.properties === "object" && "id" in cmd.properties) {
+        // Single object with id and value
+        this.processPropertyEntry(cmd.properties as { id: string; value?: any });
+      }
+      
+      // Emit success message
+      // Use command name (which should be set from template name) or fallback to "properties"
+      const commandName = cmd.name && cmd.name.trim() !== "" ? cmd.name : "properties";
+      const propertiesCmd = { ...cmd, name: commandName };
+      // Use getNextMessageIndex() to ensure consistency with other commands
+      const index = getNextMessageIndex();
+      this.deps.messageEmitter.emitStandardMessage(
+        propertiesCmd,
+        "",
+        JSON.stringify(cmd.properties),
+        0,
+        index,
+      );
+      return msgIndex + 1;
+    } catch (err: any) {
+      const msg = `Failed to process properties: ${err?.message || err}`;
+      // Use command name (which should be set from template name) or fallback to "properties"
+      const commandName = cmd.name && cmd.name.trim() !== "" ? cmd.name : "properties";
+      const propertiesCmd = { ...cmd, name: commandName };
+      // Use getNextMessageIndex() to ensure consistency with other commands
+      const index = getNextMessageIndex();
+      this.deps.messageEmitter.emitStandardMessage(propertiesCmd, msg, null, -1, index);
+      return msgIndex + 1;
+    }
+  }
+
+  /**
+   * Loads command content from script file or command string.
+   * If a library is specified, it will be prepended to the script content.
+   * Also extracts interpreter from shebang if present.
+   */
+  loadCommandContent(cmd: ICommand): string | null {
+    if (cmd.scriptContent !== undefined) {
+      const scriptContent = cmd.scriptContent;
+
+      // Extract interpreter from shebang (first line)
+      const lines = scriptContent.split('\n');
+      const firstLine = lines[0];
+      if (firstLine && firstLine.startsWith('#!')) {
+        const shebang = firstLine.substring(2).trim();
+        // Parse shebang: /usr/bin/env python3 -> ['python3']
+        // or /usr/bin/python3 -> ['/usr/bin/python3']
+        // or /usr/bin/env -S perl -w -> ['perl', '-w']
+        let interpreter: string[] = [];
+        
+        if (shebang.includes(' ')) {
+          const parts = shebang.split(/\s+/).filter(s => s.length > 0);
+          // Handle /usr/bin/env python3 -> extract 'python3'
+          if (parts.length > 0 && parts[0]) {
+            const firstPart = parts[0];
+            if (firstPart === '/usr/bin/env' || firstPart === '/bin/env' || firstPart === 'env') {
+              interpreter = parts.slice(1); // Skip 'env', take rest
+            } else if (firstPart.endsWith('/env')) {
+              interpreter = parts.slice(1); // Handle any path ending with /env
+            } else {
+              interpreter = parts; // Use all parts for explicit paths
+            }
+          }
+        } else {
+          interpreter = [shebang];
+        }
+        
+        // Store interpreter internally (not in JSON schema)
+        // This will be used by runOnVeHost to determine the correct interpreter
+        if (interpreter.length > 0) {
+          (cmd as any)._interpreter = interpreter;
+        }
+      }
+
+      // If library is specified, load and prepend it
+      if (cmd.libraryContent !== undefined) {
+        // Prepend library to script content
+        return `${cmd.libraryContent}\n\n# --- Script starts here ---\n${scriptContent}`;
+      }
+      if (cmd.library !== undefined || cmd.libraryPath !== undefined) {
+        throw new Error("Library content missing for command");
+      }
+
+      return scriptContent;
+    } else if (cmd.script !== undefined) {
+      throw new Error(`Script content missing for ${cmd.script}`);
+    } else if (cmd.command !== undefined) {
+      return cmd.command;
+    }
+    return null;
+  }
+
+  /**
+   * Gets vm_id from inputs or outputs.
+   */
+  getVmId(): string | number | undefined {
+    if (typeof this.deps.inputs["vm_id"] === "string" || typeof this.deps.inputs["vm_id"] === "number") {
+      return this.deps.inputs["vm_id"];
+    }
+    if (this.deps.outputs.has("vm_id")) {
+      const v = this.deps.outputs.get("vm_id");
+      if (typeof v === "string" || typeof v === "number") {
+        return v;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Executes a command based on its execute_on target.
+   */
+  async executeCommandByTarget(
+    cmd: ICommand,
+    rawStr: string,
+  ): Promise<IVeExecuteMessage | undefined> {
+    if (!cmd.execute_on) {
+      throw new Error(cmd.name + " is missing the execute_on property");
+    }
+    
+    switch (cmd.execute_on) {
+      case "lxc": {
+        const execStrLxc = this.deps.variableResolver.replaceVars(rawStr);
+        const vm_id = this.getVmId();
+        if (!vm_id) {
+          const msg = "vm_id is required for LXC execution but was not found in inputs or outputs.";
+          this.deps.messageEmitter.emitStandardMessage(cmd, msg, null, -1, -1);
+          throw new Error(msg);
+        }
+        // When sshCommand !== "ssh", runOnLxc will set remoteCommand to undefined
+        // to execute locally. We don't need to pass it explicitly here.
+        await this.deps.runOnLxc(vm_id, execStrLxc, cmd);
+        return undefined;
+      }
+      case "ve": {
+        const execStrVe = this.deps.variableResolver.replaceVars(rawStr);
+        return await this.deps.runOnVeHost(execStrVe, cmd);
+      }
+      default: {
+        if (typeof cmd.execute_on === "string" && /^host:.*/.test(cmd.execute_on)) {
+          const hostname = cmd.execute_on.split(":")[1] ?? "";
+          // Pass raw (unreplaced) string; executeOnHost will replace with vmctx.data
+          await this.deps.executeOnHost(hostname, rawStr, cmd);
+          return undefined;
+        } else {
+          throw new Error(cmd.name + " has invalid execute_on: " + cmd.execute_on);
+        }
+      }
+    }
+  }
+
+  /**
+   * Parses fallback outputs from echo JSON format.
+   * This is a fallback if parseAndUpdateOutputs didn't produce any outputs.
+   * Note: lastMsg.result contains the stdout from the command execution.
+   */
+  parseFallbackOutputs(lastMsg: IVeExecuteMessage | undefined): void {
+    if (
+      this.deps.outputs.size === 0 &&
+      lastMsg &&
+      typeof lastMsg.result === "string" &&
+      lastMsg.result.trim().length > 0
+    ) {
+      // Try to parse as JSON array or object
+      let cleaned = lastMsg.result.trim();
+      
+      // Remove unique marker if present (from SSH execution)
+      // The marker is typically at the beginning, followed by the actual JSON output
+      const markerMatch = cleaned.match(/^[A-Z0-9_]+\n(.*)$/s);
+      if (markerMatch && markerMatch[1]) {
+        cleaned = markerMatch[1].trim();
+      }
+      
+      try {
+        const parsed = JSON.parse(cleaned);
+        
+        // Handle array of {id, value} objects (like get-latest-os-template.sh output)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const first = parsed[0];
+          if (first && typeof first === "object" && "id" in first && "value" in first) {
+            // Array of IOutput objects
+            for (const entry of parsed as Array<{ id: string; value: string | number | boolean }>) {
+              if (entry.value !== undefined) {
+                this.deps.outputs.set(entry.id, entry.value);
+              }
+            }
+            return;
+          } else if (first && typeof first === "object" && "name" in first && "value" in first) {
+            // Array of {name, value} objects
+            const raw: { name: string; value: string | number | boolean }[] = [];
+            for (const entry of parsed as Array<{ name: string; value: string | number | boolean }>) {
+              this.deps.outputs.set(entry.name, entry.value);
+              raw.push({ name: entry.name, value: entry.value });
+            }
+            this.deps.setOutputsRaw(raw);
+            return;
+          }
+        }
+        
+        // Handle object format (legacy fallback)
+        const raw: { name: string; value: string | number | boolean }[] = [];
+        for (const [name, value] of Object.entries(parsed)) {
+          const v = value as string | number | boolean;
+          this.deps.outputs.set(name, v);
+          raw.push({ name, value: v });
+        }
+        this.deps.setOutputsRaw(raw);
+      } catch {
+        // Ignore parse errors
+      }
+    }
+  }
+}
+

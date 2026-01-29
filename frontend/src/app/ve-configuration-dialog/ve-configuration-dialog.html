@@ -11,6 +11,19 @@
 
 <form [formGroup]="form" (ngSubmit)="save()">
 	@if (!loading()) {
+		@if (showMissingRequiredHint) {
+			<div class="missing-required-hint" role="alert">
+				<strong>Missing required parameters detected.</strong>
+				<div class="missing-required-text">
+					If these values should be auto-filled, verify that the parameters template is included
+					and runs before the dependent template, and that no local override hides it.
+				</div>
+				<div class="missing-required-list">
+					Missing: {{ missingRequiredParamsLabel }}
+				</div>
+				<div class="missing-required-task">Task key: {{ taskKey }}</div>
+			</div>
+		}
 		<div class="group-container">
 			@for (groupName of groupNames; track groupName) {
 				<app-parameter-group
@@ -20,6 +33,9 @@
 					[showAdvanced]="showAdvanced()"
 				/>
 			}
+		</div>
+		<div class="trace-action">
+			<button mat-stroked-button type="button" (click)="openTemplateTrace()">Template trace</button>
 		</div>
 			@if (hasAdvancedParams()) {
 				<div class="advanced-toggle" (click)="toggleAdvanced()" (keyup.enter)="toggleAdvanced()" (keyup.space)="toggleAdvanced()" tabindex="0" role="button" [attr.aria-expanded]="showAdvanced()">

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { FileWatcherManager } from "@src/persistence/file-watcher-manager.mjs";
+import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FileWatcherManager", () => {
   let testDir: string;
@@ -11,6 +12,7 @@ describe("FileWatcherManager", () => {
   let applicationInvalidated: boolean;
   let templateInvalidated: boolean;
   let frameworkInvalidated: boolean;
+  let persistenceHelper: TestPersistenceHelper;
 
   beforeEach(() => {
     // Setup temporäre Verzeichnisse
@@ -19,6 +21,12 @@ describe("FileWatcherManager", () => {
 
     // Verzeichnisse erstellen
     mkdirSync(localPath, { recursive: true });
+    persistenceHelper = new TestPersistenceHelper({
+      repoRoot: path.join(testDir),
+      localRoot: localPath,
+      jsonRoot: path.join(testDir, "json"),
+      schemasRoot: path.join(testDir, "schemas"),
+    });
 
     // Reset invalidation flags
     applicationInvalidated = false;
@@ -52,16 +60,12 @@ describe("FileWatcherManager", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  function writeJson(filePath: string, data: any): void {
-    mkdirSync(path.dirname(filePath), { recursive: true });
-    writeFileSync(filePath, JSON.stringify(data, null, 2));
-  }
 
   /**
    * Helper to manually trigger watch callbacks by simulating fs.watch events
    * This tests the callback logic deterministically without relying on actual fs.watch
    */
-  function triggerApplicationWatch(filename: string, eventType: string = "change"): void {
+  function triggerApplicationWatch(filename: string): void {
     // Access private method isApplicationChange via reflection
     const watcherAny = watcher as any;
     if (watcherAny.isApplicationChange && watcherAny.isApplicationChange(filename)) {
@@ -112,9 +116,9 @@ describe("FileWatcherManager", () => {
   describe("Application file watching", () => {
     it("should detect application.json changes", async () => {
       // Setup: Application erstellen
-      const appDir = path.join(localPath, "applications", "testapp");
+      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/testapp");
       mkdirSync(appDir, { recursive: true });
-      writeJson(path.join(appDir, "application.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/testapp/application.json", {
         name: "Test App",
         installation: [],
       });
@@ -131,15 +135,15 @@ describe("FileWatcherManager", () => {
 
     it("should detect icon file changes", async () => {
       // Setup: Application mit Icon
-      const appDir = path.join(localPath, "applications", "iconapp");
+      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/iconapp");
       mkdirSync(appDir, { recursive: true });
-      writeJson(path.join(appDir, "application.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/iconapp/application.json", {
         name: "Icon App",
         installation: [],
       });
 
       // Create icon file
-      writeFileSync(path.join(appDir, "icon.png"), "icon data");
+      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/iconapp/icon.png", "icon data");
 
       // Manually trigger watch event for icon file
       triggerApplicationWatch("iconapp/icon.png", "change");
@@ -153,9 +157,9 @@ describe("FileWatcherManager", () => {
 
     it("should detect new application directories", async () => {
       // Create new application
-      const appDir = path.join(localPath, "applications", "newapp");
+      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/newapp");
       mkdirSync(appDir, { recursive: true });
-      writeJson(path.join(appDir, "application.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/newapp/application.json", {
         name: "New App",
         installation: [],
       });
@@ -174,11 +178,11 @@ describe("FileWatcherManager", () => {
   describe("Template file watching", () => {
     it("should detect template file changes", async () => {
       // Setup: Template-Verzeichnis erstellen
-      const templatesDir = path.join(localPath, "shared", "templates");
+      const templatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
       mkdirSync(templatesDir, { recursive: true });
 
       // Create template file
-      writeJson(path.join(templatesDir, "testtemplate.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/testtemplate.json", {
         name: "Test Template",
         commands: [],
       });
@@ -198,11 +202,11 @@ describe("FileWatcherManager", () => {
   describe("Framework file watching", () => {
     it("should detect framework file changes", async () => {
       // Setup: Framework-Verzeichnis erstellen
-      const frameworksDir = path.join(localPath, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
 
       // Create framework file
-      writeJson(path.join(frameworksDir, "testframework.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
         id: "testframework",
         name: "Test Framework",
         extends: "base",
@@ -234,9 +238,9 @@ describe("FileWatcherManager", () => {
       watcher.close();
 
       // Create file after close
-      const appDir = path.join(localPath, "applications", "afterclose");
+      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/afterclose");
       mkdirSync(appDir, { recursive: true });
-      writeJson(path.join(appDir, "application.json"), {
+      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/afterclose/application.json", {
         name: "After Close",
         installation: [],
       });

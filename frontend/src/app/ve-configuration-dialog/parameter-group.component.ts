@@ -1,5 +1,5 @@
-import { Component, Input, inject } from '@angular/core';
-import { FormGroup, ReactiveFormsModule, FormControl } from '@angular/forms';
+import { Component, Input, inject, signal, OnInit } from '@angular/core';
+import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -8,8 +8,10 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatExpansionModule } from '@angular/material/expansion';
+import { MatCardModule } from '@angular/material/card';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked } from 'marked';
+import * as yaml from 'js-yaml';
 import { IParameter, IJsonError } from '../../shared/types';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 
@@ -25,12 +27,36 @@ import { ErrorHandlerService } from '../shared/services/error-handler.service';
     MatSlideToggleModule,
     MatIconModule,
     MatButtonModule,
-    MatExpansionModule
+    MatExpansionModule,
+    MatCardModule
   ],
   templateUrl: './parameter-group.component.html',
-  styleUrl: './parameter-group.component.scss'
+  styleUrl: './parameter-group.component.scss',
+  styles: [`
+    .parameter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      width: 100%;
+    }
+    
+    mat-form-field {
+      width: 100%;
+    }
+    
+    mat-form-field:has(textarea) {
+      width: 100% !important;
+      max-width: none !important;
+    }
+    
+    textarea {
+      min-height: 150px !important;
+      width: 100% !important;
+      resize: vertical;
+    }
+  `]
 })
-export class ParameterGroupComponent {
+export class ParameterGroupComponent implements OnInit {
   @Input({ required: true }) groupName!: string;
   @Input({ required: true }) groupedParameters!: Record<string, IParameter[]>;
   @Input({ required: true }) form!: FormGroup;
@@ -39,6 +65,17 @@ export class ParameterGroupComponent {
   private errorHandler = inject(ErrorHandlerService);
   private sanitizer = inject(DomSanitizer);
   expandedHelp: Record<string, boolean> = {};
+  
+  // Track uploaded file names for display
+  uploadedFileNames: Record<string, string> = {};
+  
+  // Extracted compose properties
+  composeProperties = signal<{
+    services?: string;
+    ports?: string;
+    images?: string;
+    networks?: string;
+  } | null>(null);
 
   getTooltip(param: IParameter): string | undefined {
     // Only show tooltip if help is not expandable
@@ -112,8 +149,18 @@ export class ParameterGroupComponent {
       const file = input.files[0];
       try {
         const base64 = await this.readFileAsBase64(file);
-        this.form.get(paramId)?.setValue(base64);
+        // Store the base64 value with filename metadata: file:filename:content:base64content
+        const valueWithMetadata = `file:${file.name}:content:${base64}`;
+        this.form.get(paramId)?.setValue(valueWithMetadata);
         this.form.get(paramId)?.markAsTouched();
+        
+        // Store filename for display
+        this.uploadedFileNames[paramId] = file.name;
+        
+        // If this is compose_file, extract properties
+        if (paramId === 'compose_file') {
+          await this.extractComposeProperties(base64);
+        }
       } catch (error) {
         const errors: IJsonError[] = [{
           name: 'FileReadError',
@@ -122,6 +169,244 @@ export class ParameterGroupComponent {
         } as IJsonError];
         this.errorHandler.showErrorDialog(errors);
       }
+    }
+  }
+  
+  getDisplayValue(paramId: string): string {
+    const value = this.form.get(paramId)?.value;
+    if (!value) {
+      return '';
+    }
+    
+    // Check if value has file metadata format: file:filename:content:base64content
+    const fileMetadataMatch = typeof value === 'string' && value.match(/^file:([^:]+):content:(.+)$/);
+    if (fileMetadataMatch) {
+      const filename = fileMetadataMatch[1];
+      // const base64Content = fileMetadataMatch[2]; // Not used currently, but kept for future use
+      // Store filename for later use
+      this.uploadedFileNames[paramId] = filename;
+      return `base64:${filename}`;
+    }
+    
+    // Check if it's a base64 string (long string without spaces/newlines, base64 chars only)
+    const isBase64 = typeof value === 'string' && 
+                     value.length > 50 && 
+                     /^[A-Za-z0-9+/=]+$/.test(value) &&
+                     !value.includes(' ') &&
+                     !value.includes('\n');
+    
+    if (isBase64) {
+      // Check if we have a stored filename
+      if (this.uploadedFileNames[paramId]) {
+        return `base64:${this.uploadedFileNames[paramId]}`;
+      }
+      // Otherwise, show generic message with size
+      const size = Math.round(value.length * 0.75 / 1024); // Approximate size in KB
+      return `base64:${size}KB file uploaded`;
+    }
+    
+    return value;
+  }
+  
+  isBase64Value(paramId: string): boolean {
+    const value = this.form.get(paramId)?.value;
+    if (!value || typeof value !== 'string') {
+      return false;
+    }
+    
+    // Check if it has file metadata format
+    if (value.match(/^file:[^:]+:content:.+$/)) {
+      return true;
+    }
+    
+    // Check if it's a base64 string
+    return value.length > 50 && 
+           /^[A-Za-z0-9+/=]+$/.test(value) &&
+           !value.includes(' ') &&
+           !value.includes('\n');
+  }
+  
+  getBase64Content(paramId: string): string {
+    const value = this.form.get(paramId)?.value;
+    if (!value || typeof value !== 'string') {
+      return '';
+    }
+    
+    // Extract base64 content from file metadata format
+    const fileMetadataMatch = value.match(/^file:[^:]+:content:(.+)$/);
+    if (fileMetadataMatch) {
+      return fileMetadataMatch[1];
+    }
+    
+    // If it's plain base64, return as-is
+    return value;
+  }
+  
+  ngOnInit(): void {
+    // Check for existing base64 values and try to extract filenames
+    Object.keys(this.groupedParameters).forEach(groupName => {
+      const params = this.groupedParameters[groupName];
+      params.forEach(param => {
+        if (param.upload) {
+          const value = this.form.get(param.id)?.value;
+          if (value && typeof value === 'string') {
+            // Check if value has file metadata format: file:filename:content:base64content
+            const fileMetadataMatch = value.match(/^file:([^:]+):content:(.+)$/);
+            if (fileMetadataMatch) {
+              const filename = fileMetadataMatch[1];
+              this.uploadedFileNames[param.id] = filename;
+            } else if (this.isBase64Value(param.id)) {
+              // Try to get filename from parameter ID mapping or parameter name
+              const filename = this.getDefaultFilenameForParam(param);
+              if (filename) {
+                this.uploadedFileNames[param.id] = filename;
+              } else {
+                // Generic display for existing base64 values without filename
+                const size = Math.round(value.length * 0.75 / 1024);
+                this.uploadedFileNames[param.id] = `${size}KB file`;
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+  
+  private getDefaultFilenameForParam(param: IParameter): string | null {
+    // Map common parameter IDs to their expected filenames
+    const filenameMap: Record<string, string> = {
+      'compose_file': 'docker-compose.yml',
+      'env_file': '.env',
+      'docker_compose_file': 'docker-compose.yml',
+      'docker_compose_yaml': 'docker-compose.yaml',
+    };
+    
+    // Check if parameter ID matches a known filename
+    if (filenameMap[param.id]) {
+      return filenameMap[param.id];
+    }
+    
+    // Try to extract filename from parameter name or description
+    const searchText = `${param.name} ${param.description || ''}`.toLowerCase();
+    
+    // Check for explicit filename in parentheses, e.g., "Environment File (.env)"
+    const parenMatch = searchText.match(/\(([a-zA-Z0-9_.-]+)\)/);
+    if (parenMatch && parenMatch[1].includes('.')) {
+      return parenMatch[1];
+    }
+    
+    // Check if parameter name contains common file patterns
+    if (searchText.includes('docker-compose') || searchText.includes('compose file')) {
+      return 'docker-compose.yml';
+    }
+    if (searchText.includes('env file') || searchText.includes('.env')) {
+      return '.env';
+    }
+    
+    // Try to extract filename pattern from name/description
+    const filePatternMatch = searchText.match(/([a-zA-Z0-9_.-]+\.(yml|yaml|env|json|txt|conf|config|ini|sh|bash|pem|key|crt|cert))/i);
+    if (filePatternMatch) {
+      return filePatternMatch[1];
+    }
+    
+    return null;
+  }
+
+  private async extractComposeProperties(base64OrValue: string): Promise<void> {
+    // Extract base64 content if value has file metadata format
+    const base64 = base64OrValue.match(/^file:[^:]+:content:(.+)$/)?.[1] || base64OrValue;
+    try {
+      // Decode base64 to text
+      const text = atob(base64);
+      
+      // Parse YAML
+      const composeData = yaml.load(text) as Record<string, unknown>;
+      
+      if (!composeData) {
+        return;
+      }
+      
+      const properties: {
+        services?: string;
+        ports?: string;
+        images?: string;
+        networks?: string;
+      } = {};
+      
+      // Extract service names
+      const services = (composeData['services'] as Record<string, unknown>) || {};
+      const serviceNames = Object.keys(services);
+      if (serviceNames.length > 0) {
+        properties.services = serviceNames.join(', ');
+      }
+      
+      // Extract port mappings
+      const portMappings: string[] = [];
+      for (const [serviceName, serviceConfig] of Object.entries(services)) {
+        const service = serviceConfig as { ports?: (string | { published?: unknown; target?: unknown })[] };
+        if (service.ports) {
+          for (const portSpec of service.ports) {
+            if (typeof portSpec === 'string') {
+              const parts = portSpec.split(':');
+              if (parts.length >= 2) {
+                const containerPort = parts[parts.length - 1].split('/')[0];
+                const hostPort = parts.length > 1 ? parts[parts.length - 2] : parts[0];
+                portMappings.push(`${serviceName}:${hostPort}->${containerPort}`);
+              }
+            } else if (typeof portSpec === 'object' && (portSpec as { published?: unknown; target?: unknown }).published && (portSpec as { published?: unknown; target?: unknown }).target) {
+              const portObj = portSpec as { published: number | string; target: number | string };
+              portMappings.push(`${serviceName}:${portObj.published}->${portObj.target}`);
+            }
+          }
+        }
+      }
+      if (portMappings.length > 0) {
+        properties.ports = portMappings.join('\n');
+      }
+      
+      // Extract image tags
+      const imageTags: string[] = [];
+      for (const [serviceName, serviceConfig] of Object.entries(services)) {
+        const service = serviceConfig as Record<string, unknown>;
+        const image = service['image'];
+        if (image && typeof image === 'string') {
+          const tag = image.includes(':') ? image.split(':')[1] : 'latest';
+          imageTags.push(`${serviceName}:${tag}`);
+        }
+      }
+      if (imageTags.length > 0) {
+        properties.images = imageTags.join('\n');
+      }
+      
+      // Extract network names
+      const networks = composeData['networks'];
+      if (networks && typeof networks === 'object') {
+        const networkKeys = Object.keys(networks);
+        if (networkKeys.length > 0) {
+          properties.networks = networkKeys.join(', ');
+        }
+      }
+      
+      // Set properties in hidden form fields (if they exist)
+      if (properties.services && this.form.get('compose_services')) {
+        this.form.get('compose_services')?.setValue(properties.services);
+      }
+      if (properties.ports && this.form.get('compose_ports')) {
+        this.form.get('compose_ports')?.setValue(properties.ports);
+      }
+      if (properties.images && this.form.get('compose_images')) {
+        this.form.get('compose_images')?.setValue(properties.images);
+      }
+      if (properties.networks && this.form.get('compose_networks')) {
+        this.form.get('compose_networks')?.setValue(properties.networks);
+      }
+      
+      // Update signal for display
+      this.composeProperties.set(properties);
+    } catch (error) {
+      // Silently fail - not critical if extraction fails
+      console.warn('Failed to extract compose properties:', error);
+      this.composeProperties.set(null);
     }
   }
 

@@ -1,0 +1,93 @@
+{
+  "name": "Create Storage Volumes for LXC",
+  "description": "Creates Proxmox storage volumes (mpX) and attaches them to the container. Volumes are named by hostname and can be shared across CTs.",
+  "execute_on": "ve",
+  "parameters": [
+    {
+      "id": "vm_id",
+      "name": "ID of the LXC Container",
+      "type": "string",
+      "description": "Optional. If set, volumes are attached to the container."
+    },
+    {
+      "id": "hostname",
+      "name": "Hostname",
+      "type": "string",
+      "description": "Optional. Used for per-host volume subdirectories."
+    },
+    {
+      "id": "volumes",
+      "name": "Volumes",
+      "type": "string",
+      "multiline": true,
+      "required": true,
+      "description": "One per line: key=/container/path"
+    },
+    {
+      "id": "volume_storage",
+      "name": "Volume Storage",
+      "type": "enum",
+      "required": true,
+      "enumValuesTemplate": "list-available-pve-rootdir-storage.json",
+      "description": "Proxmox storage ID for data volumes"
+    },
+    {
+      "id": "volume_size",
+      "name": "Volume Size",
+      "type": "string",
+      "default": "4G",
+      "description": "Default size for each volume (e.g., 4G, 20G)"
+    },
+    {
+      "id": "volume_backup",
+      "name": "Include in Backup",
+      "type": "boolean",
+      "default": false,
+      "advanced": true,
+      "description": "Whether the volume should be included in Proxmox backups"
+    },
+    {
+      "id": "volume_shared",
+      "name": "Shared Volume",
+      "type": "boolean",
+      "default": true,
+      "advanced": true,
+      "description": "Allow the volume to be shared across containers (reuse by hostname)"
+    },
+    {
+      "id": "uid",
+      "name": "UID",
+      "type": "string",
+      "default": "0",
+      "advanced": true
+    },
+    {
+      "id": "gid",
+      "name": "GID",
+      "type": "string",
+      "default": "0",
+      "advanced": true
+    },
+    {
+      "id": "mapped_uid",
+      "name": "Mapped UID (Host)",
+      "type": "string",
+      "default": "",
+      "advanced": true
+    },
+    {
+      "id": "mapped_gid",
+      "name": "Mapped GID (Host)",
+      "type": "string",
+      "default": "",
+      "advanced": true
+    }
+  ],
+  "commands": [
+    {
+      "name": "Create Storage Volumes",
+      "script": "create-storage-volumes-for-lxc.sh",
+      "outputs": ["volumes_attached"]
+    }
+  ]
+}

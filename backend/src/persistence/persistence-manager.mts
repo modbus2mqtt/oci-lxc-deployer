@@ -1,4 +1,5 @@
 import path from "path";
+import fs from "node:fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { JsonValidator } from "../jsonvalidator.mjs";
@@ -12,6 +13,7 @@ import {
 import { ApplicationService } from "../services/application-service.mjs";
 import { FrameworkService } from "../services/framework-service.mjs";
 import { ContextManager } from "../context-manager.mjs";
+import { FileSystemRepositories, type IRepositories } from "./repositories.mjs";
 
 const baseSchemas: string[] = ["templatelist.schema.json"];
 
@@ -37,6 +39,7 @@ export class PersistenceManager {
   private applicationService: ApplicationService;
   private frameworkService: FrameworkService;
   private contextManager: ContextManager;
+  private repositories: IRepositories;
 
   private constructor(
     localPath: string,
@@ -45,6 +48,7 @@ export class PersistenceManager {
     enableCache: boolean = true,
     jsonPath?: string,
     schemaPath?: string,
+    repositories?: IRepositories,
   ) {
     // Create paths (same logic as StorageContext)
     // persistence-manager.mts is in backend/src/persistence/
@@ -56,6 +60,8 @@ export class PersistenceManager {
       jsonPath: jsonPath || path.join(projectRoot, "json"),
       schemaPath: schemaPath || path.join(projectRoot, "schemas"),
     };
+
+    this.assertBasePathsExist(this.pathes);
 
     // Create JsonValidator (same logic as StorageContext)
     this.jsonValidator = new JsonValidator(this.pathes.schemaPath, baseSchemas);
@@ -81,6 +87,24 @@ export class PersistenceManager {
       this.jsonValidator,
       this.persistence,
     );
+
+    this.repositories = repositories ?? new FileSystemRepositories(this.pathes, this.persistence, enableCache);
+    const reposWithPreload = this.repositories as IRepositories & {
+      preloadJsonResources?: () => void;
+    };
+    reposWithPreload.preloadJsonResources?.();
+  }
+
+  private assertBasePathsExist(pathes: IConfiguredPathes): void {
+    const missing: string[] = [];
+    if (!fs.existsSync(pathes.localPath)) missing.push(`localPath: ${pathes.localPath}`);
+    if (!fs.existsSync(pathes.jsonPath)) missing.push(`jsonPath: ${pathes.jsonPath}`);
+    if (!fs.existsSync(pathes.schemaPath)) missing.push(`schemaPath: ${pathes.schemaPath}`);
+    if (missing.length > 0) {
+      throw new Error(
+        `PersistenceManager initialization failed: missing base paths -> ${missing.join(", ")}`,
+      );
+    }
   }
 
   /**
@@ -96,6 +120,7 @@ export class PersistenceManager {
     enableCache: boolean = true,
     jsonPath?: string,
     schemaPath?: string,
+    repositories?: IRepositories,
   ): PersistenceManager {
     if (PersistenceManager.instance) {
       // Close existing instance (useful for tests)
@@ -108,6 +133,7 @@ export class PersistenceManager {
       enableCache,
       jsonPath,
       schemaPath,
+      repositories,
     );
     return PersistenceManager.instance;
   }
@@ -149,6 +175,10 @@ export class PersistenceManager {
 
   getContextManager(): ContextManager {
     return this.contextManager;
+  }
+
+  getRepositories(): IRepositories {
+    return this.repositories;
   }
 
   // Alias für Rückwärtskompatibilität (kann später entfernt werden)

@@ -2,6 +2,7 @@
   "execute_on": "ve",
   "name": "Get OCI Image",
   "description": "Download OCI image from Docker Registry and import to Proxmox storage",
+  "skip_if_property_set": "template_path",
   "parameters": [
     {
       "id": "oci_image",

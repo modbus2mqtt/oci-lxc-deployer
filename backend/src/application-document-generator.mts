@@ -3,11 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { ApplicationLoader } from "./apploader.mjs";
 import { VEConfigurationError, IApplication, IConfiguredPathes, IReadApplicationOptions, ITemplateReference } from "./backend-types.mjs";
-import { TemplateProcessor } from "./templateprocessor.mjs";
 import { DocumentationPathResolver } from "./documentation-path-resolver.mjs";
-import { TemplateAnalyzer } from "./template-analyzer.mjs";
-import { TemplatePathResolver } from "./template-path-resolver.mjs";
-import type { IParameter, ICommand, TaskType, ITemplate } from "./types.mjs";
+import { TemplateAnalyzer } from "./templates/template-analyzer.mjs";
+import { TemplatePathResolver } from "./templates/template-path-resolver.mjs";
+import type { IParameter, ICommand, ITemplate } from "./types.mjs";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
 import { FileSystemPersistence } from "./persistence/filesystem-persistence.mjs";
 

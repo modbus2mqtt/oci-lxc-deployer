@@ -1,9 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
 import { JsonValidator } from "./jsonvalidator.mjs";
-import { StorageContext } from "./storagecontext.mjs";
+import { PersistenceManager } from "./persistence/persistence-manager.mjs";
 import { ICommand } from "./types.mjs";
-import { ExecutionMode, determineExecutionMode } from "./ve-execution-constants.mjs";
+import { ExecutionMode, determineExecutionMode } from "./ve-execution/ve-execution-constants.mjs";
 
 // IOutput interface moved here to avoid circular dependency
 export interface IOutput {
@@ -24,7 +22,7 @@ export class OutputProcessor {
     private defaults: Map<string, string | number | boolean>,
     private executionMode?: ExecutionMode,
   ) {
-    this.validator = StorageContext.getInstance().getJsonValidator();
+    this.validator = PersistenceManager.getInstance().getJsonValidator();
     // Default to PRODUCTION if not specified
     if (!this.executionMode) {
       this.executionMode = determineExecutionMode();
@@ -44,14 +42,15 @@ export class OutputProcessor {
       // When executing on VE host, preserve the "local:" prefix so the file can be read on the VE host
       if (this.executionMode === ExecutionMode.TEST) {
         const filePath = value.substring(6); // Remove "local:" prefix
-        const storageContext = StorageContext.getInstance();
-        const localPath = storageContext.getLocalPath();
-        const fullPath = path.join(localPath, filePath);
+        const repositories = PersistenceManager.getInstance().getRepositories();
         try {
-          const fileContent = fs.readFileSync(fullPath);
+          const fileContent = repositories.getLocalResource({ path: filePath });
+          if (!fileContent) {
+            throw new Error("Local file not found");
+          }
           return fileContent.toString("base64");
         } catch (err: any) {
-          throw new Error(`Failed to read file ${fullPath}: ${err.message}`);
+          throw new Error(`Failed to read local resource ${filePath}: ${err.message}`);
         }
       }
       // When executing on VE host, return the value as-is (with "local:" prefix)

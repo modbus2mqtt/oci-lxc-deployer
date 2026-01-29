@@ -1,8 +1,8 @@
 import { Injectable, signal, inject } from '@angular/core';
 import { VeConfigurationService } from '../../ve-configuration.service';
-import { IFrameworkName, IApplicationWeb } from '../../../shared/types';
-import { BehaviorSubject, Observable, of } from 'rxjs';
-import { catchError, tap, map } from 'rxjs/operators';
+import { IFrameworkName } from '../../../shared/types';
+import { Observable, of } from 'rxjs';
+import { catchError, map, tap } from 'rxjs/operators';
 
 export interface CacheData {
   frameworks: IFrameworkName[];
@@ -136,13 +136,15 @@ export class CacheService {
     
     // Load all data in parallel
     this.getFrameworks().subscribe({
-      next: () => {},
-      error: () => {}
+      error: () => {
+        this.loading.set(false);
+      }
     });
     
     this.getApplicationIds().subscribe({
-      next: () => {},
-      error: () => {}
+      error: () => {
+        this.loading.set(false);
+      }
     });
     
     this.getHostnames().subscribe({
@@ -156,11 +158,18 @@ export class CacheService {
   }
 
   /**
-   * Check if application ID is already taken
+   * Check if application ID is already taken in local directory
+   * Allows creating local applications even if the same ID exists in json directory
    */
   isApplicationIdTaken(applicationId: string): Observable<boolean> {
-    return this.getApplicationIds().pipe(
-      map(ids => ids.has(applicationId))
+    return this.configService.getLocalApplicationIds().pipe(
+      map(ids => ids.includes(applicationId)),
+      catchError(() => {
+        // On error, fall back to checking all applications
+        return this.getApplicationIds().pipe(
+          map(ids => ids.has(applicationId))
+        );
+      })
     );
   }
 

@@ -2,10 +2,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
-import { VEWebApp } from "./webapp.mjs";
 import { exec as execCommand } from "./lxc-exec.mjs";
 import { validateAllJson } from "./validateAllJson.mjs";
 import { DocumentationGenerator } from "./documentation-generator.mjs";
+import { VEWebApp } from "./webapp/webapp.mjs";
 import type { TaskType } from "./types.mjs";
 
 interface ParsedArgs {

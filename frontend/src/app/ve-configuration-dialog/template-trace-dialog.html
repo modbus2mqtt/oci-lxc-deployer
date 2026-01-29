@@ -1,0 +1,86 @@
+<h2 mat-dialog-title>Template trace — {{ data.applicationName }} ({{ data.task }})</h2>
+
+<div mat-dialog-content class="trace-content">
+  <section class="trace-section">
+    <h3>Missing required parameters</h3>
+    <div class="trace-hint">
+      If you want to inspect other parameters, list their IDs below (comma-separated).
+    </div>
+    <div class="trace-filter">
+      <label for="trace-filter-input">Parameter filter</label>
+      <input
+        id="trace-filter-input"
+        type="text"
+        [(ngModel)]="filterText"
+        placeholder="e.g. oci_image, vm_id"
+      />
+    </div>
+
+    @if (filteredParameters.length > 0) {
+    <div class="trace-table-wrapper">
+      <table class="trace-table">
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th>Required</th>
+            <th>Set by</th>
+            <th>Set in</th>
+            <th>Used in</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (param of filteredParameters; track param.id) {
+          <tr>
+            <td>{{ param.id }}</td>
+            <td>{{ param.required ? 'Yes' : 'No' }}</td>
+            <td>{{ sourceLabel(param) }}</td>
+            <td>{{ sourceTemplateLabel(param) }}</td>
+            <td>{{ usedInLabel(param) }}</td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    } @else {
+    <div class="trace-empty">No parameters available for this filter.</div>
+    }
+  </section>
+
+  <section class="trace-section">
+    <h3>Templates</h3>
+    @if (templateTrace.length > 0) {
+    <div class="trace-table-wrapper">
+      <table class="trace-table">
+        <thead>
+          <tr>
+            <th>Template</th>
+            <th>Path</th>
+            <th>Origin</th>
+            <th>Shared</th>
+            <th>Skipped</th>
+            <th>Conditional</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (template of templateTrace; track template) {
+          <tr>
+            <td>{{ template.name }}</td>
+            <td>{{ template.path }}</td>
+            <td>{{ template.origin }}</td>
+            <td>{{ template.isShared ? 'Yes' : 'No' }}</td>
+            <td>{{ template.skipped ? 'Yes' : 'No' }}</td>
+            <td>{{ template.conditional ? 'Yes' : 'No' }}</td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    } @else {
+    <div class="trace-empty">No template trace information available.</div>
+    }
+  </section>
+</div>
+
+<div mat-dialog-actions align="end">
+  <button mat-stroked-button type="button" (click)="close()">Close</button>
+</div>

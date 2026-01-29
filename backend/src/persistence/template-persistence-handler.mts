@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import { IConfiguredPathes } from "../backend-types.mjs";
 import { ITemplate } from "../types.mjs";
-import { JsonValidator } from "../jsonvalidator.mjs";
+import { JsonError, JsonValidator } from "../jsonvalidator.mjs";
 
 /**
  * Handles template-specific persistence operations
@@ -61,9 +61,11 @@ export class TemplatePersistenceHandler {
     }
 
     const mtime = fs.statSync(templatePath).mtimeMs;
-    const cached = this.templateCache.get(templatePath);
-    if (cached && cached.mtime === mtime) {
-      return cached.data;
+    if (this.enableCache) {
+      const cached = this.templateCache.get(templatePath);
+      if (cached && cached.mtime === mtime) {
+        return cached.data;
+      }
     }
 
     // Load and validate
@@ -74,11 +76,21 @@ export class TemplatePersistenceHandler {
       );
 
       // Cache it
-      this.templateCache.set(templatePath, { data: templateData, mtime });
+      if (this.enableCache) {
+        this.templateCache.set(templatePath, { data: templateData, mtime });
+      }
 
       return templateData;
     } catch (e: Error | any) {
-      return null;
+      // Preserve validation details for UI error dialog
+      if (e && typeof e === "object" && (e as any).name === "JsonError") {
+        throw e;
+      }
+      throw new JsonError(
+        `Failed to load template from ${templatePath}`,
+        e ? [e] : undefined,
+        templatePath,
+      );
     }
   }
 
