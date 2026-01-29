@@ -181,5 +181,26 @@
       }
     }
   }
+
+  // Target all multiline textareas
+  ::ng-deep mat-form-field {
+    textarea.mat-mdc-input-element {
+      min-height: 150px !important;
+      resize: vertical;
+    }
+  }
+
+  // Ensure multiline fields take full width
+  ::ng-deep .parameter-group {
+    .multiline-field {
+      width: 100% !important;
+      max-width: none !important;
+      
+      textarea.mat-mdc-input-element {
+        min-height: 150px !important;
+        resize: vertical;
+      }
+    }
+  }
 }
 

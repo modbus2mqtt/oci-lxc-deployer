@@ -1,5 +1,24 @@
-<div class="create-application-container">
-  <h1>Create Application from Framework</h1>
+<!-- Step 3: Parameters --><div class="create-application-container">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-->}  </mat-card>    </mat-card-content>      </mat-form-field>        <textarea matInput readonly [value]="envVarKeysText()" rows="6"></textarea>        <mat-label>Environment Variables in .env</mat-label>      <mat-form-field appearance="outline" class="full-width">      <p><strong>Umgebungsvariablen in .env gesetzt</strong> ({{ envVarKeys().length }} Variablen)</p>    <mat-card-content>    </mat-card-header>      <mat-card-title>Environment Variables</mat-card-title>    <mat-card-header>  <mat-card>@if ((isDockerComposeFramework() || isOciComposeMode()) && envFileConfigured()) {<!-- <!-- REMOVE this entire section (lines ~178-190): --><!-- ...existing code... -->  <h1>Create Application from Framework</h1>
 
   <mat-stepper #stepper linear (selectionChange)="onStepChange($event)">
     <!-- Step 1: Select Framework -->
@@ -181,9 +200,9 @@
                 <mat-card-title>Environment Variables</mat-card-title>
               </mat-card-header>
               <mat-card-content>
-                <p><strong>.env gesetzt</strong> ({{ envVarKeys().length }} Variablen)</p>
+                <p><strong>Umgebungsvariablen in .env gesetzt</strong> ({{ envVarKeys().length }} Variablen)</p>
                 <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Environment Variable Keys</mat-label>
+                  <mat-label>Environment Variables in .env</mat-label>
                   <textarea matInput readonly [value]="envVarKeysText()" rows="6"></textarea>
                 </mat-form-field>
               </mat-card-content>
@@ -219,10 +238,61 @@
       </div>
     </mat-step>
 
-    <!-- Step 4/5: Summary -->
-    <mat-step [editable]="false">
-      <ng-template matStepLabel>Summary</ng-template>
-      <div class="step-content">
+    <!-- Step 4: Summary -->
+    <mat-step label="Summary">
+      <div class="summary-step">
+        <h2>Review Your Configuration</h2>
+        
+        <!-- Application Properties Summary -->
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>Application Properties</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <dl class="summary-list">
+              <dt>Name:</dt>
+              <dd>{{ appPropertiesForm.get('name')?.value }}</dd>
+              
+              <dt>Application ID:</dt>
+              <dd>{{ appPropertiesForm.get('applicationId')?.value }}</dd>
+              
+              <dt>Description:</dt>
+              <dd>{{ appPropertiesForm.get('description')?.value }}</dd>
+              
+              @if (appPropertiesForm.get('url')?.value) {
+                <dt>URL:</dt>
+                <dd>{{ appPropertiesForm.get('url')?.value }}</dd>
+              }
+              
+              @if (appPropertiesForm.get('documentation')?.value) {
+                <dt>Documentation:</dt>
+                <dd>{{ appPropertiesForm.get('documentation')?.value }}</dd>
+              }
+              
+              @if (appPropertiesForm.get('source')?.value) {
+                <dt>Source:</dt>
+                <dd>{{ appPropertiesForm.get('source')?.value }}</dd>
+              }
+              
+              @if (appPropertiesForm.get('vendor')?.value) {
+                <dt>Vendor:</dt>
+                <dd>{{ appPropertiesForm.get('vendor')?.value }}</dd>
+              }
+            </dl>
+          </mat-card-content>
+        </mat-card>
+        
+        <!-- Parameters Summary -->
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>Configuration Parameters</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <!-- ...existing code... -->
+          </mat-card-content>
+        </mat-card>
+        
+        <!-- Error Display and Action Buttons -->
         @if (createError()) {
           <mat-card class="error-card">
             <mat-card-header>
@@ -247,16 +317,6 @@
             <p>App Name: {{ appPropertiesForm.get('name')?.value }}</p>
           </mat-card-content>
         </mat-card>
-      </div>
-      <div class="step-actions">
-        <button mat-button matStepperPrevious>Back</button>
-        <button mat-raised-button color="primary" (click)="createApplication()" [disabled]="creating()">
-          @if (creating()) {
-            Creating...
-          } @else {
-            Create Application
-          }
-        </button>
       </div>
     </mat-step>
   </mat-stepper>

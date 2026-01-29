@@ -31,7 +31,30 @@ import { ErrorHandlerService } from '../shared/services/error-handler.service';
     MatCardModule
   ],
   templateUrl: './parameter-group.component.html',
-  styleUrl: './parameter-group.component.scss'
+  styleUrl: './parameter-group.component.scss',
+  styles: [`
+    .parameter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      width: 100%;
+    }
+    
+    mat-form-field {
+      width: 100%;
+    }
+    
+    mat-form-field:has(textarea) {
+      width: 100% !important;
+      max-width: none !important;
+    }
+    
+    textarea {
+      min-height: 150px !important;
+      width: 100% !important;
+      resize: vertical;
+    }
+  `]
 })
 export class ParameterGroupComponent implements OnInit {
   @Input({ required: true }) groupName!: string;

@@ -1,0 +1,33 @@
+{
+  "execute_on": "ve",
+  "name": "Set Parameters",
+  "description": "Set application-specific parameters for Node Red",
+  "parameters": [],
+  "commands": [
+    {
+      "name": "set-properties",
+      "properties": [
+        {
+          "id": "hostname",
+          "value": "node-red"
+        },
+        {
+          "id": "oci_image",
+          "value": "nodered/node-red"
+        },
+        {
+          "id": "uid",
+          "value": "1000"
+        },
+        {
+          "id": "username",
+          "value": "node-red"
+        },
+        {
+          "id": "volumes",
+          "value": "data=/data"
+        }
+      ]
+    }
+  ]
+}

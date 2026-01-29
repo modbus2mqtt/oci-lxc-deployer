@@ -24,8 +24,9 @@ export interface ParsedComposeData {
   serviceEnvironmentVariablesRequired?: Record<string, string[]>;
   environmentVariableDefaults?: Record<string, string>;
   serviceEnvironmentVariableDefaults?: Record<string, Record<string, string>>;
-  description?: string; // NEW: From labels
-  volumes?: string[]; // NEW: Volume bindings
+  description?: string;
+  volumes?: string[];
+  envs?: string[]; // NEW: Environment variables in KEY=value format
 }
 
 @Injectable({
@@ -153,16 +154,35 @@ export class DockerComposeService {
       const environmentVariableDefaults = this.extractGlobalDefaults(serviceEnvironmentVariableDefaults);
       
       const volumes: string[] = [];
+      const envs: string[] = [];
 
       if (services && typeof services === 'object') {
-        // Extract volumes from all services
+        // Extract volumes and environment variables from all services
         for (const [, serviceConfig] of Object.entries(services)) {
           if (!serviceConfig || typeof serviceConfig !== 'object') continue;
 
           const serviceRecord = serviceConfig as Record<string, unknown>;
+          
+          // Extract volumes
           const svcVolumes = serviceRecord['volumes'];
           if (Array.isArray(svcVolumes)) {
             volumes.push(...svcVolumes.map(v => String(v)));
+          }
+
+          // Extract environment variables
+          const environment = serviceRecord['environment'];
+          if (environment) {
+            if (Array.isArray(environment)) {
+              for (const envEntry of environment) {
+                if (typeof envEntry === 'string') {
+                  envs.push(envEntry);
+                }
+              }
+            } else if (typeof environment === 'object') {
+              for (const [key, value] of Object.entries(environment as Record<string, unknown>)) {
+                envs.push(`${key}=${value ?? ''}`);
+              }
+            }
           }
         }
       }
@@ -177,7 +197,8 @@ export class DockerComposeService {
         serviceEnvironmentVariablesRequired,
         environmentVariableDefaults,
         serviceEnvironmentVariableDefaults,
-        volumes: [...new Set(volumes)], // deduplicate
+        volumes: [...new Set(volumes)],
+        envs: [...new Set(envs)],
       };
     } catch (error) {
       console.error('Failed to parse docker-compose.yml:', error);

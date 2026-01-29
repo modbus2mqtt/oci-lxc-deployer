@@ -6,7 +6,8 @@
     "oci_image",
     "uid",
     "username",
-    "volumes"
+    "volumes",
+    "envs"
   ]
 }
 
