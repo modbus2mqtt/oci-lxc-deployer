@@ -90,8 +90,8 @@ if initial_command and initial_command != "NOT_DEFINED":
         # Let's remove existing init_cmd lines first to be safe/idempotent
         new_lines = [line for line in new_lines if not line.strip().startswith("lxc.init_cmd:")]
         
-        new_lines.append(f"lxc.init_cmd: {resolved_command}\n")
-        print(f"Set lxc.init_cmd: {resolved_command}", file=sys.stderr)
+        new_lines.append(f"lxc.init.cmd: {resolved_command}\n")
+        print(f"Set lxc.init.cmd: {resolved_command}", file=sys.stderr)
         
     except Exception as e:
         print(f"Error substituting variables in command: {e}", file=sys.stderr)
@@ -103,6 +103,3 @@ try:
 except IOError as e:
     print(f"Error writing config file: {e}", file=sys.stderr)
     sys.exit(1)
-
-# Output valid JSON
-print("{}")

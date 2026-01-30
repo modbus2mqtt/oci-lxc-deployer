@@ -55,6 +55,21 @@
             ></app-compose-env-selector>
           }
         }
+
+        @if (isDockerComposeFramework()) {
+          <app-compose-env-selector
+            [parameterForm]="parameterForm"
+            [mode]="'multi'"
+            [services]="composeServices"
+            [selectedServiceName]="selectedServiceName"
+            [requiredEnvVars]="requiredEnvVars"
+            [missingEnvVars]="missingEnvVars"
+            [composeProperties]="composeProperties"
+            (composeFileSelected)="onComposeFileSelected($event)"
+            (envFileSelected)="onEnvFileSelected($event)"
+            (serviceSelected)="onServiceSelected($event)"
+          ></app-compose-env-selector>
+        }
       </div>
       <div class="step-actions">
         <button mat-button (click)="cancel()">Cancel</button>

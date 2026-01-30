@@ -193,15 +193,21 @@ export class CreateApplication implements OnInit, OnDestroy {
     this.imageError.set(null);
     this.loadingImageAnnotations.set(false);
     this.imageAnnotationsReceived.set(false);
-    
+
     if (this.imageAnnotationsTimeout) {
       clearTimeout(this.imageAnnotationsTimeout);
     }
-    
+
     this.parsedComposeData.set(null);
     this.selectedServiceName.set('');
     this.ociInstallMode.set('compose');
-    
+
+    // Ensure compose controls exist immediately for docker-compose framework
+    // This prevents template errors before loadParameters() completes
+    if (this.isDockerComposeFramework()) {
+      this.ensureComposeControls({ requireComposeFile: true });
+    }
+
     if (this.selectedFramework) {
       this.loadParameters(frameworkId);
     }

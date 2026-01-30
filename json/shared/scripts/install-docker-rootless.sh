@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 # Install Docker in LXC container
 #
 # This script installs Docker by:

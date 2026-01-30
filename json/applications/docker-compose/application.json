@@ -8,6 +8,7 @@
     "100-create-configure-lxc.json",
     "101-configure-lxc-for-docker.json",
     "200-start-lxc.json",
+    "305-set-pkg-mirror.json",
     "300-install-docker-rootless.json",
     "310-extract-volumes-from-compose.json",
     "160-bind-multiple-volumes-to-lxc.json",

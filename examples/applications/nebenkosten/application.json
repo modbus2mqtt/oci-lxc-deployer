@@ -1,0 +1,12 @@
+{
+  "name": "nebenkosten",
+  "description": "Nebenkostenabrechnung Docker Container",
+  "extends": "docker-compose",
+  "icon": "icon.png",
+  "installation": [
+    {
+      "name": "nebenkosten-parameters.json",
+      "before": "010-get-latest-os-template.json"
+    }
+  ]
+}
