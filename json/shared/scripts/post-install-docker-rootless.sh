@@ -1,43 +1,29 @@
 #!/bin/sh
 set -e
 # Install Docker in LXC container
+# Library: pkg-common.sh (prepended automatically)
 #
-# This script installs Docker by:
-# 1. Auto-detecting OS type from /etc/os-release
-# 2. Using appropriate package manager (apk for Alpine, apt for Debian/Ubuntu)
-# 3. Installing Docker packages
-# 4. Configuring Docker daemon
-# 5. Starting Docker service
+# This script installs Docker using the pkg-common.sh library for:
+# - Network readiness check with retry
+# - OS detection (Alpine/Debian/Ubuntu)
+# - Package installation with automatic cache management
+#
+# Docker configuration and service management is handled directly.
 #
 # Supports both Alpine Linux (apk) and Debian/Ubuntu (apt)
 #
-# Requires:
-#   - ostype: OS type fallback if /etc/os-release not available (optional)
-#
 # Output: JSON to stdout (errors to stderr)
 
-# Auto-detect OS type from /etc/os-release
-# Falls back to {{ ostype }} parameter if os-release is not available
-if [ -f /etc/os-release ]; then
-  # Source the file to get ID variable
-  . /etc/os-release
-  OSTYPE="$ID"
-else
-  # Fallback to template parameter
-  OSTYPE="{{ ostype }}"
-  if [ -z "$OSTYPE" ] || [ "$OSTYPE" = "" ]; then
-    OSTYPE="alpine"
-  fi
-fi
+# Detect OS using library function
+pkg_detect_os || exit 1
 
-case "$OSTYPE" in
+case "$PKG_OS_TYPE" in
   alpine)
     echo "Installing Docker for Alpine Linux..." >&2
-    
-    # Install Docker packages
-    # Note: In LXC containers, Docker runs as root (not rootless)
-    apk add --no-cache docker docker-cli docker-compose >&2
-    
+
+    # Install Docker packages using library
+    pkg_install docker docker-cli docker-compose
+
     # Configure Docker daemon
     mkdir -p /etc/docker
     cat > /etc/docker/daemon.json <<EOF
@@ -46,53 +32,41 @@ case "$OSTYPE" in
   "userland-proxy": false
 }
 EOF
-    
+
     # Enable and start Docker service
     rc-update add docker default >&2
     rc-service docker start >&2
     ;;
-    
+
   debian|ubuntu)
     echo "Installing Docker for Debian/Ubuntu..." >&2
-    
-    # Install prerequisites
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq >&2
-    apt-get install -y --no-install-recommends \
-      ca-certificates \
-      curl \
-      gnupg \
-      lsb-release >&2
-    
-    # Add Docker's official GPG key
+
+    # Install prerequisites using library
+    pkg_install ca-certificates curl gnupg lsb-release
+
+    # Add Docker's official GPG key with retry
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg >&2
+    pkg_curl_retry "https://download.docker.com/linux/debian/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg >&2
     chmod a+r /etc/apt/keyrings/docker.gpg
-    
-    # Detect OS version
-    if [ -f /etc/os-release ]; then
-      . /etc/os-release
-      VERSION_CODENAME="$VERSION_CODENAME"
-    else
+
+    # Get version codename using library
+    VERSION_CODENAME=$(pkg_get_version_codename)
+    if [ -z "$VERSION_CODENAME" ]; then
       VERSION_CODENAME="bookworm"  # Default for Debian
     fi
-    
+
     # Set up Docker repository
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
       $VERSION_CODENAME stable" | \
       tee /etc/apt/sources.list.d/docker.list > /dev/null
-    
+
+    # Force cache update after adding new repository
+    pkg_update_cache true
+
     # Install Docker packages
-    # Note: In LXC containers, Docker runs as root (not rootless)
-    apt-get update -qq >&2
-    apt-get install -y --no-install-recommends \
-      docker-ce \
-      docker-ce-cli \
-      containerd.io \
-      docker-buildx-plugin \
-      docker-compose-plugin >&2
-    
+    pkg_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
     # Configure Docker daemon
     mkdir -p /etc/docker
     cat > /etc/docker/daemon.json <<EOF
@@ -101,14 +75,14 @@ EOF
   "userland-proxy": false
 }
 EOF
-    
+
     # Enable and start Docker service
     systemctl enable docker >&2
     systemctl start docker >&2
     ;;
-    
+
   *)
-    echo "Error: Unsupported ostype: $OSTYPE" >&2
+    echo "Error: Unsupported OS type: $PKG_OS_TYPE" >&2
     echo "Supported types: alpine, debian, ubuntu" >&2
     exit 3
     ;;

@@ -40,7 +40,7 @@ describe("ProxmoxConfiguration script path resolution", () => {
       `applications/${appName}/application.json`,
       {
         name: appName,
-        installation: ["install.json", "010-get-latest-os-template.json"],
+        installation: ["install.json", "010-host-get-latest-os-template.json"],
       },
     );
     persistenceHelper.writeJsonSync(
@@ -83,7 +83,7 @@ describe("ProxmoxConfiguration script path resolution", () => {
       helper.jsonDir,
       "shared",
       "scripts",
-      "get-latest-os-template.sh",
+      "host-get-latest-os-template.sh",
     );
     const sharedCmd = result.commands.find(
       (cmd) => cmd.script === expectedSharedScript,

@@ -13,8 +13,8 @@ describe("setup-lxc-uid-mapping.py", () => {
   beforeEach(async () => {
     env = createTestEnvironment(import.meta.url, {
       jsonIncludePatterns: [
-        "^shared/scripts/setup-lxc-uid-mapping\\.py$",
-        "^shared/scripts/setup-lxc-gid-mapping\\.py$",
+        "^shared/scripts/conf-setup-lxc-uid-mapping\\.py$",
+        "^shared/scripts/conf-setup-lxc-gid-mapping\\.py$",
         "^shared/scripts/setup_lxc_idmap_common\\.py$",
       ],
     });
@@ -38,7 +38,7 @@ describe("setup-lxc-uid-mapping.py", () => {
   function runUidScript(uid: string, vmId?: string): { stdout: string; stderr: string; exitCode: number } {
     let scriptContent = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup-lxc-uid-mapping.py",
+      "conf-setup-lxc-uid-mapping.py",
     );
     scriptContent = scriptContent
       .replace(/\{\{\s*uid\s*\}\}/g, uid)
@@ -76,7 +76,7 @@ describe("setup-lxc-uid-mapping.py", () => {
   function runGidScript(gid: string, vmId?: string): { stdout: string; stderr: string; exitCode: number } {
     let scriptContent = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup-lxc-gid-mapping.py",
+      "conf-setup-lxc-gid-mapping.py",
     );
     scriptContent = scriptContent
       .replace(/\{\{\s*gid\s*\}\}/g, gid)

@@ -1,10 +1,11 @@
 {
   "execute_on": "lxc",
   "name": "Enable Community Packages",
-  "description": "Enable Alpine Linux community repository for additional packages",
+  "description": "Enable Alpine Linux community repository for additional packages. Includes automatic network readiness check.",
   "commands": [
     {
       "script": "post-enable-community-packages.sh",
+      "library": "pkg-common.sh",
       "description": "Enable community repository in /etc/apk/repositories"
     }
   ]

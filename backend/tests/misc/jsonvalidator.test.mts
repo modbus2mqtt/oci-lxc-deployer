@@ -13,7 +13,7 @@ beforeAll(() => {
     // Copy only required files into env.jsonDir
     jsonIncludePatterns: [
       "^applications/modbus2mqtt/application\\.json$",
-      "^shared/templates/010-get-latest-os-template\\.json$",
+      "^shared/templates/010-host-get-latest-os-template\\.json$",
     ],
     // Schemas are stable and are read from repo directly (default)
   });
@@ -30,7 +30,7 @@ beforeAll(() => {
   );
   sharedTemplate = persistenceHelper.resolve(
     Volume.JsonSharedTemplates,
-    "010-get-latest-os-template.json",
+    "010-host-get-latest-os-template.json",
   );
 });
 
