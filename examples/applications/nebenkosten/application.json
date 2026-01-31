@@ -6,7 +6,7 @@
   "installation": [
     {
       "name": "nebenkosten-parameters.json",
-      "before": "010-get-latest-os-template.json"
+      "before": "010-host-get-latest-os-template.json"
     }
   ]
 }

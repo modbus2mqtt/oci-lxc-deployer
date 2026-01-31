@@ -6,7 +6,7 @@
   "installation": [
     {
       "name": "oci-lxc-deployer-parameters.json",
-      "before": "011-get-oci-image.json"
+      "before": "011-host-get-oci-image.json"
     }
   ],
   "url": "https://github.com/modbus2mqtt/oci-lxc-deployer",

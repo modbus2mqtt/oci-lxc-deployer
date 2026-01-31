@@ -4,12 +4,12 @@
   "icon": "icon.svg",
   "installation": [
     "set-parameters.json",
-    "010-get-latest-os-template.json",
-    "100-create-configure-lxc.json",
+    "010-host-get-latest-os-template.json",
+    "100-conf-create-configure-lxc.json",
     "200-start-lxc.json",
     "210-wait-for-container-ready.json",
     "320-enable-community-packages.json",
-    "330-install-packages.json",
+    "330-post-install-packages.json",
     "400-configure-lighttpd.json",
     "410-configure-phpmyadmin.json",
     "420-start-services.json"

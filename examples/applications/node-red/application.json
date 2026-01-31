@@ -6,7 +6,7 @@
   "installation": [
     {
       "name": "node-red-parameters.json",
-      "before": "011-get-oci-image.json"
+      "before": "011-host-get-oci-image.json"
     }
   ],
   "source": "https://github.com/node-red/node-red-docker"

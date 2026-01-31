@@ -4,8 +4,8 @@
   "extends": "node-red",
   "installation": [
     {
-      "name": "110-map-serial.json",
-      "after": "100-create-configure-lxc.json"
+      "name": "110-conf-map-serial.json",
+      "after": "100-conf-create-configure-lxc.json"
     }
   ]
 }

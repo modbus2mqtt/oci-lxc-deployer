@@ -6,7 +6,7 @@
   "installation": [
     {
       "name": "modbus2mqtt-parameters.json",
-      "before": "011-get-oci-image.json"
+      "before": "011-host-get-oci-image.json"
     }
   ],
   "url": "https://github.com/modbus2mqtt/hassio-addon-repository",

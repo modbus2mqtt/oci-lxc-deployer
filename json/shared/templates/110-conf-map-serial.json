@@ -1,13 +1,16 @@
 {
   "execute_on": "ve",
-  "name": "Map Serial Device (M2M)",
-  "description": "Map serial device to VM (required for Modbus2Mqtt RTU)",
+  "name": "Map Serial Device",
+  "description": "Map serial device to VM",
+  "skip_if_all_missing": [
+    "host_device_path"
+  ],
   "parameters": [
     {
       "id": "host_device_path",
       "name": "USB Serial Port",
       "type": "enum",
-      "required": true,
+      "required": false,
       "enumValuesTemplate": "list-host-usb-serial-ports.json"
     },
     {

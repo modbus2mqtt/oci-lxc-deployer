@@ -1,0 +1,64 @@
+{
+  "execute_on": "ve",
+  "name": "Get OCI Image",
+  "description": "Download OCI image from Docker Registry and import to Proxmox storage",
+  "skip_if_property_set": "template_path",
+  "parameters": [
+    {
+      "id": "oci_image",
+      "name": "OCI Image",
+      "type": "string",
+      "required": true,
+      "description": "OCI image reference (e.g., docker://alpine:latest, docker://debian:bookworm, oci://ghcr.io/owner/repo:latest)"
+    },
+    {
+      "id": "storage",
+      "name": "Storage",
+      "type": "string",
+      "default": "local",
+      "description": "Proxmox storage where the OCI image should be stored",
+      "advanced": true
+    },
+    {
+      "id": "registry_username",
+      "name": "Registry Username",
+      "type": "string",
+      "description": "Username for registry authentication (optional, required for private images)",
+      "advanced": true
+    },
+    {
+      "id": "registry_password",
+      "name": "Registry Password",
+      "type": "string",
+      "description": "Password for registry authentication (optional, required for private images)",
+      "advanced": true
+    },
+    {
+      "id": "registry_token",
+      "name": "Registry Token",
+      "type": "string",
+      "description": "Bearer token for registry authentication (optional, alternative to username/password)",
+      "advanced": true
+    },
+    {
+      "id": "platform",
+      "name": "Platform",
+      "type": "string",
+      "description": "Target platform (e.g., linux/amd64, linux/arm64). Auto-detects if not specified.",
+      "advanced": true
+    }
+  ],
+  "commands": [
+    {
+      "name": "Get OCI Image",
+      "script": "host-get-oci-image.py",
+      "outputs": [
+        "template_path",
+        "ostype",
+        "application_id",
+        "oci_image",
+        "oci_image_tag"
+      ]
+    }
+  ]
+}

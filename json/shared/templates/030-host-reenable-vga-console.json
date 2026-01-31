@@ -1,0 +1,10 @@
+{
+  "name": "Re-enable VGA Console",
+  "description": "Re-enables VGA/graphics output for the Proxmox host console by removing the VGA disable kernel parameter. After running this template and rebooting, console output will be visible on the monitor again.",
+  "execute_on": "ve",
+  "commands": [
+    {
+      "script": "host-reenable-vga-console.sh"
+    }
+  ]
+}

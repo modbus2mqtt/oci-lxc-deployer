@@ -1,0 +1,27 @@
+{
+  "execute_on": "lxc",
+  "name": "Start Docker Compose",
+  "description": "Start Docker Compose services. Runs 'docker-compose up -d' in the project directory. Docker daemon must be running.",
+  "parameters": [
+    {
+      "id": "vm_id",
+      "name": "LXC Container ID",
+      "type": "string",
+      "required": true,
+      "description": "LXC container ID (for logging)"
+    },
+    {
+      "id": "compose_project",
+      "name": "Compose Project Name",
+      "type": "string",
+      "required": true,
+      "description": "Project name for Docker Compose (directory name)"
+    }
+  ],
+  "commands": [
+    {
+      "script": "post-start-docker-compose.sh",
+      "description": "Start Docker Compose services with docker-compose up -d"
+    }
+  ]
+}

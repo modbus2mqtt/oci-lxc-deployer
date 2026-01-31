@@ -2,6 +2,6 @@
   "name": "Disable PVE Graphic",
   "description": "Disable Proxmox VE graphical console for the Host OS.",
   "installation": [
-    "020-redirect-console-to-usb-serial"
+    "020-host-redirect-console-to-usb-serial.json"
   ]
 }
