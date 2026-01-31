@@ -7,14 +7,10 @@
     "christian-kohler.path-intellisense",
     "christian-kohler.npm-intellisense",
     "ms-playwright.playwright",
-    "vitest.vitest",
+    "vitest.explorer",
     "mhutchie.git-graph",
-    "EditorConfig.EditorConfig"
+    "EditorConfig.EditorConfig",
+    "saoudrizwan.claude-dev"
   ],
   "unwantedRecommendations": []
-}
-{
-    "recommendations": [
-        "saoudrizwan.claude-dev"
-    ]
 }

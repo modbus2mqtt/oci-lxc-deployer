@@ -38,11 +38,31 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-# Check if Docker daemon is running (try docker info)
-if ! docker info >/dev/null 2>&1; then
-  echo "Error: Docker daemon is not running. Please start Docker first." >&2
+# Wait for Docker daemon to be ready (handles timing issues after container start)
+wait_for_docker() {
+  max_attempts="${1:-30}"
+  attempt=1
+
+  echo "Waiting for Docker daemon to be ready..." >&2
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    if docker info >/dev/null 2>&1; then
+      echo "Docker daemon is ready (attempt $attempt/$max_attempts)" >&2
+      return 0
+    fi
+
+    echo "Docker not ready yet, waiting... (attempt $attempt/$max_attempts)" >&2
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+
+  echo "Error: Docker daemon did not become ready after $max_attempts attempts" >&2
   echo "For Docker Rootless, ensure dockerd-rootless is running." >&2
   echo "For standard Docker, ensure dockerd service is running." >&2
+  return 1
+}
+
+if ! wait_for_docker 30; then
   exit 1
 fi
 

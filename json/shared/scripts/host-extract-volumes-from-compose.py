@@ -68,10 +68,20 @@ def main():
     
     volumes_list = []
     volume_names = set()
-    
-    # Extract volumes from services
+    compose_uid = None
+
+    # Extract volumes and user from services
     if "services" in compose_data:
         for service_name, service_config in compose_data["services"].items():
+            # Extract first numeric user found (for volume ownership)
+            if compose_uid is None and "user" in service_config:
+                user_val = str(service_config["user"]).strip().strip('"').strip("'")
+                # Check if it's a numeric UID (possibly with :GID)
+                uid_part = user_val.split(":")[0]
+                if uid_part.isdigit():
+                    compose_uid = uid_part
+                    eprint(f"Found user UID {compose_uid} in service '{service_name}'")
+
             if "volumes" in service_config:
                 for volume_spec in service_config["volumes"]:
                     # Parse volume specification
@@ -150,11 +160,16 @@ def main():
     output = [{"id": "volumes", "value": volumes_output}]
     
     # Only output compose_project if it was computed from hostname (was empty/not defined)
-    if (not original_compose_project or 
-        original_compose_project == "NOT_DEFINED" or 
+    if (not original_compose_project or
+        original_compose_project == "NOT_DEFINED" or
         original_compose_project == ""):
         output.append({"id": "compose_project", "value": compose_project})
-    
+
+    # Output UID if found (for volume ownership on host)
+    if compose_uid:
+        output.append({"id": "uid", "value": compose_uid})
+        output.append({"id": "gid", "value": compose_uid})  # Use same value for GID
+
     print(json.dumps(output))
 
 if __name__ == "__main__":

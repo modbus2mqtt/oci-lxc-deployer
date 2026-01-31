@@ -61,5 +61,16 @@ fi
 # Set directory permissions
 chmod 755 "$PROJECT_DIR"
 
+# Extract user from docker-compose.yaml and set ownership
+# Look for 'user: "NNN"' or 'user: NNN' pattern (first service's user as default)
+COMPOSE_USER=$(grep -E '^\s+user:\s*["\x27]?[0-9]+' "$PROJECT_DIR/docker-compose.yaml" | head -n1 | sed -E 's/.*user:\s*["\x27]?([0-9]+).*/\1/')
+
+if [ -n "$COMPOSE_USER" ]; then
+  echo "Setting ownership of $PROJECT_DIR to UID $COMPOSE_USER" >&2
+  chown -R "$COMPOSE_USER:$COMPOSE_USER" "$PROJECT_DIR"
+else
+  echo "No specific user found in compose file, keeping root ownership" >&2
+fi
+
 echo "Docker Compose files uploaded successfully to $PROJECT_DIR" >&2
 echo '[{"id": "compose_files_uploaded", "value": "true"}, {"id": "compose_dir", "value": "'"$PROJECT_DIR"'"}]'

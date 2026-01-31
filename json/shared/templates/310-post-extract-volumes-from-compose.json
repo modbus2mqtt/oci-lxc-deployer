@@ -25,7 +25,9 @@
       "description": "Extract volumes from Docker Compose file and convert to LXC format",
       "outputs": [
         "volumes",
-        "compose_project"
+        "compose_project",
+        "uid",
+        "gid"
       ]
     }
   ]

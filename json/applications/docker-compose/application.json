@@ -11,6 +11,7 @@
     "305-post-set-pkg-mirror.json",
     "307-post-install-docker-rootless.json",
     "310-post-extract-volumes-from-compose.json",
+    "121-conf-mount-zfs-pool-on-host.json",
     "160-conf-bind-multiple-volumes-to-lxc.json",
     "320-post-upload-docker-compose-files.json",
     "330-svc-start-docker-compose.json"
