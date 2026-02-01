@@ -58,20 +58,20 @@ except IOError as e:
     print(f"Error reading config file: {e}", file=sys.stderr)
     sys.exit(1)
 
-# Check and update/append logpath
-logpath_found = False
+# Check and update/append logfile
+logfile_found = False
 new_lines = []
 for line in lines:
-    if line.strip().startswith("lxc.console.logpath:"):
-        new_lines.append(f"lxc.console.logpath: {log_file}\n")
-        logpath_found = True
+    if line.strip().startswith("lxc.console.logfile:"):
+        new_lines.append(f"lxc.console.logfile: {log_file}\n")
+        logfile_found = True
     else:
         new_lines.append(line)
 
-if not logpath_found:
-    new_lines.append(f"lxc.console.logpath: {log_file}\n")
+if not logfile_found:
+    new_lines.append(f"lxc.console.logfile: {log_file}\n")
 
-print(f"Set lxc.console.logpath: {log_file}", file=sys.stderr)
+print(f"Set lxc.console.logfile: {log_file}", file=sys.stderr)
 
 # 2. Handle initial_command with substitution
 if initial_command and initial_command != "NOT_DEFINED":

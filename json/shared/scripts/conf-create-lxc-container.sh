@@ -87,6 +87,11 @@ if [ -f "$CONFIG_FILE" ]; then
   sed -i '/^lxc\.idmap/d' "$CONFIG_FILE" 2>/dev/null || true
 fi
 
+# Define log directory and file path for LXC console logging
+# Format: /var/log/lxc/{hostname}-{vmid}.log
+LOG_DIR="/var/log/lxc"
+LOG_FILE="${LOG_DIR}/{{ hostname }}-${VMID}.log"
+
 # Create log directory if it doesn't exist
 if [ ! -d "$LOG_DIR" ]; then
     echo "Creating log directory: $LOG_DIR" >&2
@@ -95,15 +100,15 @@ fi
 # Add lxc.console.logpath to config file
 
 # Check if it already exists to avoid duplicates
-if grep -q "^lxc.console.logpath:" "$CONFIG_FILE"; then
-    echo "Updating lxc.console.logpath in $CONFIG_FILE" >&2
-    sed -i "s|^lxc.console.logpath:.*|lxc.console.logpath: $LOG_FILE|" "$CONFIG_FILE"
+if grep -q "^lxc.console.logfile:" "$CONFIG_FILE"; then
+    echo "Updating lxc.console.logfile in $CONFIG_FILE" >&2
+    sed -i "s|^lxc.console.logfile:.*|lxc.console.logfile: $LOG_FILE|" "$CONFIG_FILE"
 else
-    echo "Adding lxc.console.logpath to $CONFIG_FILE" >&2
-    echo "lxc.console.logpath: $LOG_FILE" >> "$CONFIG_FILE"
+    echo "Adding lxc.console.logfile to $CONFIG_FILE" >&2
+    echo "lxc.console.logfile: $LOG_FILE" >> "$CONFIG_FILE"
 fi
 
-echo "Set lxc.console.logpath: $LOG_FILE" >&2
+echo "Set lxc.console.logfile: $LOG_FILE" >&2
 # Write notes/description so we can later detect lxc-manager managed containers.
 # Store the OCI image in a visible, identifiable line.
 OCI_IMAGE_RAW="{{ oci_image }}"
@@ -118,6 +123,12 @@ APP_NAME=""
 if [ "$APP_ID_RAW" != "NOT_DEFINED" ]; then APP_ID="$APP_ID_RAW"; fi
 if [ "$APP_NAME_RAW" != "NOT_DEFINED" ]; then APP_NAME="$APP_NAME_RAW"; fi
 
+# Log viewer URL parameters (auto-injected by backend)
+DEPLOYER_URL_RAW="{{ deployer_base_url }}"
+VE_CONTEXT_RAW="{{ ve_context_key }}"
+if [ "$DEPLOYER_URL_RAW" = "NOT_DEFINED" ]; then DEPLOYER_URL_RAW=""; fi
+if [ "$VE_CONTEXT_RAW" = "NOT_DEFINED" ]; then VE_CONTEXT_RAW=""; fi
+
 NOTES_TMP=$(mktemp)
 {
   echo "<!-- lxc-manager:managed -->"
@@ -130,8 +141,19 @@ NOTES_TMP=$(mktemp)
   if [ -n "$APP_NAME" ]; then
     echo "<!-- lxc-manager:application-name $APP_NAME -->"
   fi
+  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$VE_CONTEXT_RAW" ]; then
+    echo "<!-- lxc-manager:log-url ${DEPLOYER_URL_RAW}/logs/${VMID}/${VE_CONTEXT_RAW} -->"
+  fi
+  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$APP_ID" ]; then
+    echo "<!-- lxc-manager:icon-url ${DEPLOYER_URL_RAW}/icons/${APP_ID}.png -->"
+  fi
   echo "# LXC Manager"
   echo
+  # Show application icon if available
+  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$APP_ID" ]; then
+    echo "![${APP_NAME:-$APP_ID}](${DEPLOYER_URL_RAW}/icons/${APP_ID}.png)"
+    echo
+  fi
   echo "Managed by **lxc-manager**."
   if [ -n "$APP_ID" ] || [ -n "$APP_NAME" ]; then
     echo
@@ -150,6 +172,12 @@ NOTES_TMP=$(mktemp)
     echo
     echo "LXC template: $TEMPLATE_PATH_FOR_NOTES"
     echo "Log file: $LOG_FILE on host"
+  fi
+  # Add links section with log viewer URL
+  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$VE_CONTEXT_RAW" ]; then
+    echo
+    echo "## Links"
+    echo "- [Console Logs](${DEPLOYER_URL_RAW}/logs/${VMID}/${VE_CONTEXT_RAW})"
   fi
 } > "$NOTES_TMP"
 

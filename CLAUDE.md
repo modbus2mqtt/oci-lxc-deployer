@@ -113,6 +113,26 @@ cd frontend && npm run lint:fix && npm run build && npm test
 - Simple template bindings
 - Pure presentation components
 
+## Live Integration Tests
+
+When templates or scripts in `json/` are modified, suggest running the live integration tests:
+
+```bash
+# Run with default alpine-packages on pve1.cluster
+./backend/tests/livetests/run-live-test.sh pve1.cluster
+
+# Test specific application
+./backend/tests/livetests/run-live-test.sh pve1.cluster node-red installation
+
+# Keep container for debugging
+KEEP_VM=1 ./backend/tests/livetests/run-live-test.sh pve1.cluster
+```
+
+The test creates a real container on a Proxmox host and verifies:
+- Container creation and startup
+- Notes contain `lxc-manager:managed` marker
+- Notes contain log-url, icon-url, and Links section
+
 ## Import Resolution
 
 If imports fail:

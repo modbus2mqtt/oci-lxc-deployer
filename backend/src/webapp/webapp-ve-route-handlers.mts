@@ -1,4 +1,4 @@
-
+import os from "os";
 import { TaskType, IPostVeConfigurationBody, IVeExecuteMessagesResponse, IJsonError } from "@src/types.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
@@ -231,6 +231,14 @@ export class WebAppVeRouteHandlers {
       );
       defaults.set("task", task);
       defaults.set("task_type", task);
+
+      // Log viewer URL parameters for Notes links
+      // Priority: OCI_LXC_DEPLOYER_URL env var > auto-generated from hostname + port
+      const deployerPort = process.env.PORT || "3000";
+      const deployerUrl = process.env.OCI_LXC_DEPLOYER_URL
+        || `http://${os.hostname()}:${deployerPort}`;
+      defaults.set("deployer_base_url", deployerUrl);
+      defaults.set("ve_context_key", veContextKey);
 
       const contextManager = PersistenceManager.getInstance().getContextManager();
       // Process parameters: for upload parameters with "local:" prefix, read file and base64 encode

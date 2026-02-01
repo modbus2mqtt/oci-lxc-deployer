@@ -5,6 +5,7 @@ import {
   IVeExecuteMessagesResponse,
   IPostVeConfigurationBody,
   IPostVeCopyUpgradeBody,
+  IVeLogsResponse,
   TaskType,
 } from "../types.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
@@ -13,6 +14,7 @@ import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs"
 import { WebAppVeExecutionSetup } from "./webapp-ve-execution-setup.mjs";
 import { WebAppVeRouteHandlers } from "./webapp-ve-route-handlers.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
+import { VeLogsService } from "../ve-execution/ve-logs-service.mjs";
 
 export class WebAppVE {
   private messageManager: WebAppVeMessageManager;
@@ -267,5 +269,88 @@ export class WebAppVE {
         res.status(result.statusCode || 500).json(errorResponse);
       }
     });
+
+    // GET /api/ve/logs/:vmId/:veContext - LXC Console Logs
+    this.app.get<{ vmId: string; veContext: string }, unknown, unknown, { lines?: string }>(
+      ApiUri.VeLogs,
+      async (req, res) => {
+        const { vmId: vmIdStr, veContext: veContextKey } = req.params;
+        const linesStr = req.query.lines;
+
+        // Validate vmId
+        const vmId = parseInt(vmIdStr, 10);
+        if (isNaN(vmId) || vmId <= 0) {
+          res.status(400).json({
+            success: false,
+            error: "Invalid VM ID",
+          });
+          return;
+        }
+
+        // Get VE context
+        const storageContext = PersistenceManager.getInstance().getContextManager();
+        const veContext = storageContext.getVEContextByKey(veContextKey);
+        if (!veContext) {
+          res.status(404).json({
+            success: false,
+            error: "VE context not found",
+          });
+          return;
+        }
+
+        // Create log service and fetch logs
+        const logsService = new VeLogsService(veContext);
+        const logOptions: { vmId: number; lines?: number } = { vmId };
+        if (linesStr) {
+          logOptions.lines = parseInt(linesStr, 10);
+        }
+        const result = await logsService.getConsoleLogs(logOptions);
+
+        this.returnResponse<IVeLogsResponse>(res, result, result.success ? 200 : 400);
+      },
+    );
+
+    // GET /api/ve/logs/:vmId/docker/:veContext - Docker Logs
+    this.app.get<{ vmId: string; veContext: string }, unknown, unknown, { lines?: string; service?: string }>(
+      ApiUri.VeDockerLogs,
+      async (req, res) => {
+        const { vmId: vmIdStr, veContext: veContextKey } = req.params;
+        const { lines: linesStr, service } = req.query;
+
+        // Validate vmId
+        const vmId = parseInt(vmIdStr, 10);
+        if (isNaN(vmId) || vmId <= 0) {
+          res.status(400).json({
+            success: false,
+            error: "Invalid VM ID",
+          });
+          return;
+        }
+
+        // Get VE context
+        const storageContext = PersistenceManager.getInstance().getContextManager();
+        const veContext = storageContext.getVEContextByKey(veContextKey);
+        if (!veContext) {
+          res.status(404).json({
+            success: false,
+            error: "VE context not found",
+          });
+          return;
+        }
+
+        // Create log service and fetch logs
+        const logsService = new VeLogsService(veContext);
+        const logOptions: { vmId: number; lines?: number; service?: string } = { vmId };
+        if (linesStr) {
+          logOptions.lines = parseInt(linesStr, 10);
+        }
+        if (service) {
+          logOptions.service = service;
+        }
+        const result = await logsService.getDockerLogs(logOptions);
+
+        this.returnResponse<IVeLogsResponse>(res, result, result.success ? 200 : 400);
+      },
+    );
   }
 }

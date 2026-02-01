@@ -381,3 +381,198 @@ chmod -R g+rw /rpool/volumes/<app>/shared-data
 - `conf-bind-multiple-volumes-to-lxc.sh`: Creates bind mounts with correct ownership
 - `host-extract-volumes-from-compose.py`: Extracts volumes and UID from docker-compose
 - `post-upload-docker-compose-files.sh`: Uploads compose files, sets LXC-internal permissions
+
+---
+
+# Log-Zugriff & Notes Konzept
+
+## Übersicht
+
+HTTP-basierter Log-Zugriff für Docker-Container in LXC und Optimierung der Proxmox Notes.
+
+## Problemstellung
+
+1. **Keine Log-Einsicht:** Docker-Container-Logs können nicht per HTTP gelesen werden
+2. **Notes zu früh:** Notes werden in Template 100 geschrieben, bevor alle Infos verfügbar sind
+3. **Fehlende Service-Infos:** Service-Namen aus docker-compose.yaml fehlen in Notes
+
+## Lösungsarchitektur
+
+### Phase 1: Backend Log API (Aktuelle Implementierung)
+
+#### API Endpunkte
+
+```
+GET /api/ve/logs/:vmId/:veContext
+    Query: ?lines=100
+    → Liest LXC Console Log vom Host
+    → Für alle Anwendungen (oci-image, docker-compose)
+
+GET /api/ve/logs/:vmId/docker/:veContext
+    Query: ?lines=100&service=nextcloud
+    → Führt aus: lxc-attach -n VMID -- docker logs [SERVICE]
+    → Ohne service: docker-compose logs (alle Services)
+    → Nur für docker-compose Anwendungen
+```
+
+#### Implementierung
+
+Die Log-API nutzt die bestehende VeExecution-Infrastruktur:
+
+```
+Browser → Backend API → SSH → Proxmox Host → lxc-attach → docker logs
+```
+
+**LXC Console Logs:**
+- Pfad: `/var/log/lxc/{hostname}-{vmid}.log`
+- Wird direkt vom Host gelesen via SSH + cat/tail
+
+**Docker Logs:**
+- Befehl: `lxc-attach -n {vmId} -- docker logs [--tail {lines}] {service}`
+- Oder: `lxc-attach -n {vmId} -- docker-compose logs [--tail {lines}]`
+
+### Phase 2: Template-Umstrukturierung (Später)
+
+#### Neue Reihenfolge
+
+```
+VORHER:                              NACHHER:
+010 - OS Template                    010 - OS Template
+095 - Kernel Module prüfen           095 - Kernel Module prüfen
+096 - Kernel Module laden            096 - Kernel Module laden
+100 - LXC erstellen ← Notes!         097 - Compose analysieren (NEU)
+101 - LXC für Docker                 100 - LXC erstellen ← Notes mit ALLEN Infos!
+200 - LXC starten                    101 - LXC für Docker
+305 - Package Mirror                 121 - ZFS Pool mounten
+307 - Docker installieren            160 - Volumes binden
+310 - Volumes extrahieren ← ZU SPÄT  200 - LXC starten
+121 - ZFS Pool mounten               305 - Package Mirror
+160 - Volumes binden                 307 - Docker installieren
+320 - Compose hochladen              320 - Compose hochladen
+330 - Compose starten                330 - Compose starten
+```
+
+#### Template-Umbenennung
+
+| Alt | Neu |
+|-----|-----|
+| `310-post-extract-volumes-from-compose.json` | `097-host-analyze-compose.json` |
+| `host-extract-volumes-from-compose.py` | `host-analyze-compose.py` |
+
+#### Service-Extraktion (Erweiterung)
+
+```python
+# host-analyze-compose.py - Zusätzlicher Output
+services = list(compose_data.get("services", {}).keys())
+output.append({"id": "compose_services", "value": ",".join(services)})
+```
+
+### Phase 3: Notes-Erweiterung (Später)
+
+#### Neue Notes-Struktur
+
+```markdown
+<!-- lxc-manager:managed -->
+<!-- lxc-manager:application-id docker-compose -->
+<!-- lxc-manager:compose-services nextcloud,db,redis -->
+
+# LXC Manager
+
+Managed by **lxc-manager**.
+
+Application: Nextcloud (docker-compose)
+
+## Services
+- nextcloud
+- db
+- redis
+
+## Links
+- [Logs](http://deployer:3000/logs/105)
+```
+
+#### Neue Parameter für conf-create-lxc-container.sh
+
+- `compose_services` (optional) - Komma-separierte Service-Namen
+- `deployer_base_url` (optional) - URL für Log-Links
+
+---
+
+## API Spezifikation
+
+### GET /api/ve/logs/:vmId/:veContext
+
+Liest LXC Console Logs.
+
+**Parameter:**
+- `vmId` (path, required): VM ID des LXC Containers
+- `veContext` (path, required): VE Context ID
+- `lines` (query, optional): Anzahl Zeilen (default: 100, max: 10000)
+
+**Response:**
+```json
+{
+  "success": true,
+  "vmId": 105,
+  "logType": "console",
+  "lines": 100,
+  "content": "... log content ..."
+}
+```
+
+**Errors:**
+- 400: Ungültige Parameter
+- 404: Container nicht gefunden
+- 500: SSH/Ausführungsfehler
+
+### GET /api/ve/logs/:vmId/docker/:veContext
+
+Liest Docker Container Logs.
+
+**Parameter:**
+- `vmId` (path, required): VM ID des LXC Containers
+- `veContext` (path, required): VE Context ID
+- `service` (query, optional): Docker Service Name (ohne = alle Services)
+- `lines` (query, optional): Anzahl Zeilen (default: 100, max: 10000)
+
+**Response:**
+```json
+{
+  "success": true,
+  "vmId": 105,
+  "logType": "docker",
+  "service": "nextcloud",
+  "lines": 100,
+  "content": "... docker log content ..."
+}
+```
+
+**Errors:**
+- 400: Ungültige Parameter
+- 404: Container oder Service nicht gefunden
+- 500: SSH/Docker-Ausführungsfehler
+
+---
+
+## Implementierungsdetails
+
+### Backend Dateien
+
+```
+backend/src/
+├── webapp/
+│   ├── webapp-ve-logs-routes.mts      # Route-Handler
+│   └── webapp-routes.mts              # Route-Registrierung
+├── ve-execution/
+│   └── ve-logs-service.mts            # Log-Service Logik
+└── tests/
+    ├── ve-logs-service.test.mts       # Unit Tests
+    └── ve-logs-integration.test.mts   # Integration Tests
+```
+
+### Sicherheit
+
+- Validierung der vmId (nur numerisch)
+- Validierung des service-Namens (alphanumerisch + Bindestriche/Unterstriche)
+- Lines-Limit (max 10000)
+- Nutzung bestehender VE-Context Authentifizierung

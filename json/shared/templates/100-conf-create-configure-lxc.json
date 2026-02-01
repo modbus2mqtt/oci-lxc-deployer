@@ -96,6 +96,22 @@
       "default": "root",
       "description": "Optional: Username to create on the VE host before container creation. This ensures consistent UID/GID mapping between host and container. Default is root. If not provided, root will be used.",
       "advanced": true
+    },
+    {
+      "id": "deployer_base_url",
+      "name": "Deployer Base URL",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "Auto-injected by backend: Base URL of the deployer for log viewer links in Proxmox notes."
+    },
+    {
+      "id": "ve_context_key",
+      "name": "VE Context Key",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "Auto-injected by backend: VE context identifier for API calls."
     }
   ],
   "commands": [

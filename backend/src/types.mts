@@ -122,6 +122,8 @@ export enum ApiUri {
   VeRestart = "/api/ve/restart/:restartKey/:veContext",
   VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
+  VeLogs = "/api/ve/logs/:vmId/:veContext",
+  VeDockerLogs = "/api/ve/logs/:vmId/docker/:veContext",
   Applications = "/api/applications",
   LocalApplicationIds = "/api/applications/local/ids",
   Installations = "/api/installations/:veContext",
@@ -314,4 +316,15 @@ export interface IApplicationDefaults {
 export interface IPostFrameworkFromImageResponse {
   annotations: IOciImageAnnotations;
   defaults: IApplicationDefaults;
+}
+
+// Log API response interfaces
+export interface IVeLogsResponse {
+  success: boolean;
+  vmId: number;
+  logType: "console" | "docker";
+  service?: string;
+  lines: number;
+  content: string;
+  error?: string;
 }
