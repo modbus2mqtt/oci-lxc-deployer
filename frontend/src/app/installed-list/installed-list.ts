@@ -1,14 +1,14 @@
-
 import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { IManagedOciContainer } from '../../shared/types';
+import { CardGridComponent } from '../shared/components/card-grid/card-grid';
 
 @Component({
   selector: 'app-installed-list',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, RouterModule, CardGridComponent],
   templateUrl: './installed-list.html',
   styleUrl: './installed-list.scss',
 })
@@ -16,8 +16,12 @@ export class InstalledList implements OnInit {
   installations: IManagedOciContainer[] = [];
   loading = true;
   error?: string;
+
   private svc = inject(VeConfigurationService);
   private router = inject(Router);
+
+  // Track by function
+  trackByInstallation = (_: number, item: IManagedOciContainer): number => item.vm_id;
 
   ngOnInit(): void {
     this.svc.getInstallations().subscribe({

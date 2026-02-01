@@ -2,6 +2,7 @@
   "name": "Mosquitto",
   "description": "Mosquitto MQTT broker - lightweight message broker for MQTT",
   "icon": "icon.svg",
+  "tags": ["messaging", "iot"],
   "installation": [
     "set-parameters.json",
     "010-host-get-latest-os-template.json",

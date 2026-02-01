@@ -16,6 +16,7 @@ export interface IApplicationBase {
   description: string;
   icon?: string | undefined;
   extends?: string;
+  tags?: string[];
   url?: string;
   documentation?: string;
   source?: string;
@@ -29,6 +30,9 @@ export interface IApplicationWeb {
   iconContent?: string | undefined;
   iconType?: string | undefined;
   id: string;
+  tags?: string[] | undefined;
+  source: "local" | "json";
+  framework?: string | undefined;
   errors?: IJsonError[];
 }
 export type TaskType =
@@ -119,6 +123,7 @@ export enum ApiUri {
   VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
   Applications = "/api/applications",
+  ApplicationTags = "/api/applications/tags",
   LocalApplicationIds = "/api/applications/local/ids",
   Installations = "/api/installations/:veContext",
   VeCopyUpgrade = "/api/ve/copy-upgrade/:application/:veContext",
@@ -130,6 +135,25 @@ export enum ApiUri {
   FrameworkCreateApplication = "/api/framework-create-application",
   FrameworkFromImage = "/api/framework-from-image",
 }
+
+// Tags definition interfaces
+export interface ITagDefinition {
+  id: string;
+  name: string;
+}
+
+export interface ITagGroup {
+  id: string;
+  name: string;
+  tags: ITagDefinition[];
+}
+
+export interface ITagsConfig {
+  groups: ITagGroup[];
+  internal: string[];
+}
+
+export type ITagsConfigResponse = ITagsConfig;
 
 // Response interfaces for all backend endpoints (frontend mirror)
 export interface IUnresolvedParametersResponse {
@@ -352,4 +376,18 @@ export interface IApplicationDefaults {
 export interface IPostFrameworkFromImageResponse {
   annotations: IOciImageAnnotations;
   defaults: IApplicationDefaults;
+}
+
+// Docker-Compose migration warnings
+export type ComposeWarningSeverity = 'info' | 'warning';
+export type ComposeWarningCategory = 'unsupported' | 'partial' | 'manual';
+
+export interface IComposeWarning {
+  id: string;
+  severity: ComposeWarningSeverity;
+  category: ComposeWarningCategory;
+  feature: string;
+  title: string;
+  description: string;  // Markdown formatted
+  affectedServices?: string[];
 }

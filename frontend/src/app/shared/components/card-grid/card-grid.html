@@ -1,0 +1,55 @@
+<div class="card-grid-container" [class.theme-blue]="theme === 'blue'" [class.theme-green]="theme === 'green'">
+  @if (enableFilters) {
+    <div class="filter-bar">
+      <label class="filter-checkbox">
+        <input type="checkbox" [checked]="showInternal" (change)="toggleShowInternal()" />
+        Show internal
+      </label>
+      <label class="filter-checkbox">
+        <input type="checkbox" [checked]="showFramework" (change)="toggleShowFramework()" />
+        Show framework
+      </label>
+    </div>
+  }
+
+  @if (loading) {
+    <div class="loading">{{ loadingText }}</div>
+  }
+
+  @if (error) {
+    <div class="error">{{ error }}</div>
+  }
+
+  @if (!loading && !error) {
+    @if (enableGrouping && groupedItems.length > 0) {
+      <!-- Grouped view -->
+      @for (group of groupedItems; track trackByGroup($index, group)) {
+        <div class="card-group">
+          <button class="group-header" (click)="toggleGroup(group)" [class.collapsed]="group.collapsed">
+            <span class="group-toggle-icon">{{ group.collapsed ? '▶' : '▼' }}</span>
+            <span class="group-name">{{ group.name }}</span>
+            <span class="group-count">({{ group.items.length }})</span>
+          </button>
+          @if (!group.collapsed) {
+            <div class="card-grid">
+              @for (item of group.items; track trackByFn($index, item)) {
+                <div class="card" [class.is-internal]="isInternal(item)">
+                  <ng-container *ngTemplateOutlet="cardTemplate; context: { $implicit: item }"></ng-container>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    } @else {
+      <!-- Flat view -->
+      <div class="card-grid">
+        @for (item of filteredItems; track trackByFn($index, item)) {
+          <div class="card" [class.is-internal]="isInternal(item)">
+            <ng-container *ngTemplateOutlet="cardTemplate; context: { $implicit: item }"></ng-container>
+          </div>
+        }
+      </div>
+    }
+  }
+</div>

@@ -16,6 +16,7 @@ export interface IApplicationBase {
   description: string;
   icon?: string | undefined;
   extends?: string;
+  tags?: string[];
   url?: string;
   documentation?: string;
   source?: string;
@@ -29,6 +30,9 @@ export interface IApplicationWeb {
   iconContent?: string | undefined;
   iconType?: string | undefined;
   id: string;
+  tags?: string[] | undefined;
+  source: "local" | "json";
+  framework?: string | undefined;
   errors?: IJsonError[];
 }
 export type TaskType =
@@ -125,6 +129,7 @@ export enum ApiUri {
   VeLogs = "/api/ve/logs/:vmId/:veContext",
   VeDockerLogs = "/api/ve/logs/:vmId/docker/:veContext",
   Applications = "/api/applications",
+  ApplicationTags = "/api/applications/tags",
   LocalApplicationIds = "/api/applications/local/ids",
   Installations = "/api/installations/:veContext",
   TemplateDetailsForApplication = "/api/template-details/:application/:task/:veContext",
@@ -137,6 +142,25 @@ export enum ApiUri {
 
   VeCopyUpgrade = "/api/ve/copy-upgrade/:application/:veContext",
 }
+
+// Tags definition interfaces
+export interface ITagDefinition {
+  id: string;
+  name: string;
+}
+
+export interface ITagGroup {
+  id: string;
+  name: string;
+  tags: ITagDefinition[];
+}
+
+export interface ITagsConfig {
+  groups: ITagGroup[];
+  internal: string[];
+}
+
+export type ITagsConfigResponse = ITagsConfig;
 
 // Response interfaces for all backend endpoints (frontend mirror)
 export interface IUnresolvedParametersResponse {

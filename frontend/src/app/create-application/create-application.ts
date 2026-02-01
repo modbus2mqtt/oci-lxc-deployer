@@ -993,7 +993,7 @@ The system will automatically fetch metadata from the image and pre-fill applica
     if (!serviceName) return;
 
     const service = data.services.find((s: ComposeService) => s.name === serviceName);
-    let user = service?.config?.['user'];
+    const user = service?.config?.['user'];
     
     if (typeof user === 'string' || typeof user === 'number') {
         // Resolve variables in user string

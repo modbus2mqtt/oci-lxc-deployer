@@ -7,6 +7,11 @@
     "extends": { "type": "string", "pattern": "^(local:|[^:]+).*$" },
     "description": { "type": "string" },
     "icon": { "type": "string", "default": "icon.png" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Application tags for categorization. Must match tags defined in json/tags.json"
+    },
     "url": { "type": "string" },
     "documentation": { "type": "string" },
     "source": { "type": "string" },

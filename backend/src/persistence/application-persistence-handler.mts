@@ -106,18 +106,31 @@ export class ApplicationPersistenceHandler {
   private buildApplicationList(): IApplicationWeb[] {
     const applications: IApplicationWeb[] = [];
     const allApps = this.getAllAppNames();
+    const localApps = this.getLocalAppNames();
 
     // Für jede Application: application.json laden (OHNE Templates!)
     for (const [applicationName] of allApps) {
-      const readOpts: IReadApplicationOptions = {
+      const readOpts: IReadApplicationOptions & {
+        extendsChain?: string[];
+        appSource?: "local" | "json";
+      } = {
         applicationHierarchy: [],
         error: new VEConfigurationError("", applicationName),
         taskTemplates: [], // Wird nur für Validierung verwendet, nicht geladen
+        extendsChain: [],
       };
+
+      // Determine source: local or json
+      const source: "local" | "json" = localApps.has(applicationName) ? "local" : "json";
+      readOpts.appSource = source;
 
       try {
         // Use lightweight version that doesn't process templates
         const app = this.readApplicationLightweight(applicationName, readOpts);
+
+        // Determine framework from extends chain
+        const framework = this.determineFramework(readOpts.extendsChain || []);
+
         const appWeb: IApplicationWeb = {
           id: app.id,
           name: app.name,
@@ -125,6 +138,9 @@ export class ApplicationPersistenceHandler {
           icon: app.icon,
           iconContent: app.iconContent,
           iconType: app.iconType,
+          tags: app.tags,
+          source,
+          framework,
           ...(app.errors && app.errors.length > 0 && {
             errors: app.errors.map(e => ({ message: e, name: "Error", details: undefined }))
           }),
@@ -145,6 +161,21 @@ export class ApplicationPersistenceHandler {
     }
 
     return applications;
+  }
+
+  /**
+   * Determines the framework from the extends chain.
+   * Known frameworks: oci-image, docker-compose, npm-nodejs
+   * Returns undefined if no known framework is in the chain (native app)
+   */
+  private determineFramework(extendsChain: string[]): string | undefined {
+    const knownFrameworks = ["oci-image", "docker-compose", "npm-nodejs"];
+    for (const appId of extendsChain) {
+      if (knownFrameworks.includes(appId)) {
+        return appId;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -227,6 +258,11 @@ export class ApplicationPersistenceHandler {
 
       // Recursive inheritance - load parent first to get icon data
       if (appData.extends) {
+        // Track extends chain for framework detection
+        const extendsOpts = opts as typeof opts & { extendsChain?: string[] };
+        if (extendsOpts.extendsChain) {
+          extendsOpts.extendsChain.push(appData.extends);
+        }
         try {
           const parent = this.readApplicationLightweight(appData.extends, opts);
           // Inherit icon if not found

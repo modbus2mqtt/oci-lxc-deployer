@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import * as yaml from 'js-yaml';
+import { IComposeWarning } from '../../../shared/types';
 
 export interface ComposeService {
   name: string;
@@ -855,5 +856,248 @@ export class DockerComposeService {
     }
 
     return effectiveEnvs;
+  }
+
+  /**
+   * Analyze docker-compose data and detect unsupported/partial features for LXC migration
+   */
+  detectComposeWarnings(data: ParsedComposeData): IComposeWarning[] {
+    const warnings: IComposeWarning[] = [];
+    const services = data.composeData['services'] as Record<string, Record<string, unknown>> || {};
+
+    // Define unsupported features with their descriptions
+    const unsupportedFeatures: {
+      key: string;
+      id: string;
+      title: string;
+      description: string;
+      category: 'unsupported' | 'partial' | 'manual';
+      severity: 'info' | 'warning';
+      checkService?: boolean;
+    }[] = [
+      {
+        key: 'depends_on',
+        id: 'depends_on',
+        title: 'Service Dependencies (depends_on)',
+        description: `Service startup dependencies are **not automatically migrated**.
+
+In LXC/Proxmox, you can configure startup order manually:
+- **Proxmox GUI**: Datacenter → Options → Start/Shutdown order
+- **CLI**: \`pct set <vmid> -startup order=<n>,up=<delay>\`
+
+Example: If service B depends on A, set A with \`order=1\` and B with \`order=2,up=30\` (waits 30s).`,
+        category: 'manual',
+        severity: 'warning',
+        checkService: true
+      },
+      {
+        key: 'ports',
+        id: 'ports',
+        title: 'Port Mappings (ports)',
+        description: `Port mappings work differently in LXC containers.
+
+**Docker**: Maps host ports to container ports (isolation)
+**LXC**: Container has its own IP address - services are directly accessible
+
+No port mapping needed. Access services via: \`http://<container-ip>:<port>\``,
+        category: 'unsupported',
+        severity: 'info',
+        checkService: true
+      },
+      {
+        key: 'networks',
+        id: 'networks',
+        title: 'Custom Networks (networks)',
+        description: `Docker custom networks are **not migrated**.
+
+LXC containers use Proxmox network bridges (e.g., \`vmbr0\`).
+All containers on the same bridge can communicate directly via their IPs.
+
+For network isolation, use different bridges or VLANs in Proxmox.`,
+        category: 'unsupported',
+        severity: 'info'
+      },
+      {
+        key: 'healthcheck',
+        id: 'healthcheck',
+        title: 'Health Checks (healthcheck)',
+        description: `Docker health checks are **not migrated** to LXC.
+
+Alternative options:
+- Use **systemd** service watchdog (\`WatchdogSec=\`)
+- Use **monit** or **supervisord** for process monitoring
+- Configure Proxmox **HA** (High Availability) for automatic restart`,
+        category: 'unsupported',
+        severity: 'warning',
+        checkService: true
+      },
+      {
+        key: 'deploy',
+        id: 'deploy',
+        title: 'Deploy Configuration (deploy)',
+        description: `Docker Swarm/Compose deploy settings are **not migrated**.
+
+Resource limits can be set in Proxmox:
+- **Memory**: \`pct set <vmid> -memory <MB>\`
+- **CPU**: \`pct set <vmid> -cores <n>\`
+- **Replicas**: Not supported (deploy multiple containers manually)`,
+        category: 'unsupported',
+        severity: 'warning',
+        checkService: true
+      },
+      {
+        key: 'restart',
+        id: 'restart',
+        title: 'Restart Policy (restart)',
+        description: `Docker restart policies are handled by Proxmox.
+
+Configure in Proxmox:
+- **Start at boot**: \`pct set <vmid> -onboot 1\`
+- **Protection**: \`pct set <vmid> -protection 1\`
+
+Service-level restart is managed by the init system (OpenRC/systemd) inside the container.`,
+        category: 'partial',
+        severity: 'info',
+        checkService: true
+      },
+      {
+        key: 'cap_add',
+        id: 'cap_add',
+        title: 'Linux Capabilities (cap_add)',
+        description: `Additional Linux capabilities may require LXC configuration.
+
+Common mappings:
+- \`SYS_ADMIN\`: May need \`features: nesting=1\`
+- \`NET_ADMIN\`: Configure in container options
+- \`SYS_PTRACE\`: Add \`lxc.cap.keep: sys_ptrace\`
+
+Check Proxmox container options or edit \`/etc/pve/lxc/<vmid>.conf\`.`,
+        category: 'partial',
+        severity: 'warning',
+        checkService: true
+      },
+      {
+        key: 'privileged',
+        id: 'privileged',
+        title: 'Privileged Mode (privileged)',
+        description: `Privileged containers have security implications.
+
+In Proxmox, unprivileged containers are recommended. If privileged is needed:
+- Uncheck "Unprivileged container" during creation
+- Or set \`unprivileged: 0\` in container config
+
+**Security note**: Only use privileged mode when absolutely necessary.`,
+        category: 'partial',
+        severity: 'warning',
+        checkService: true
+      },
+      {
+        key: 'devices',
+        id: 'devices',
+        title: 'Device Mappings (devices)',
+        description: `Device passthrough requires manual LXC configuration.
+
+Add to \`/etc/pve/lxc/<vmid>.conf\`:
+\`\`\`
+lxc.cgroup2.devices.allow: c <major>:<minor> rwm
+lxc.mount.entry: /dev/<device> dev/<device> none bind,optional,create=file
+\`\`\`
+
+For USB devices, use the OCI LXC Deployer's USB mapping feature.`,
+        category: 'manual',
+        severity: 'warning',
+        checkService: true
+      },
+      {
+        key: 'sysctls',
+        id: 'sysctls',
+        title: 'Sysctl Settings (sysctls)',
+        description: `Kernel parameters need to be set in LXC config.
+
+Add to \`/etc/pve/lxc/<vmid>.conf\`:
+\`\`\`
+lxc.sysctl.<key> = <value>
+\`\`\`
+
+Example: \`lxc.sysctl.net.ipv4.ip_forward = 1\`
+
+Some sysctls may require privileged containers.`,
+        category: 'manual',
+        severity: 'warning',
+        checkService: true
+      },
+      {
+        key: 'ulimits',
+        id: 'ulimits',
+        title: 'Resource Limits (ulimits)',
+        description: `User limits can be configured inside the container.
+
+Edit \`/etc/security/limits.conf\` in the container:
+\`\`\`
+<user> soft nofile 65535
+<user> hard nofile 65535
+\`\`\`
+
+Or use \`prlimit\` for process-specific limits.`,
+        category: 'manual',
+        severity: 'info',
+        checkService: true
+      }
+    ];
+
+    // Check top-level features
+    for (const feature of unsupportedFeatures) {
+      if (!feature.checkService && data.composeData[feature.key]) {
+        warnings.push({
+          id: feature.id,
+          severity: feature.severity,
+          category: feature.category,
+          feature: feature.key,
+          title: feature.title,
+          description: feature.description
+        });
+      }
+    }
+
+    // Check networks at top level
+    if (data.composeData['networks']) {
+      const networkFeature = unsupportedFeatures.find(f => f.key === 'networks');
+      if (networkFeature) {
+        warnings.push({
+          id: networkFeature.id,
+          severity: networkFeature.severity,
+          category: networkFeature.category,
+          feature: networkFeature.key,
+          title: networkFeature.title,
+          description: networkFeature.description
+        });
+      }
+    }
+
+    // Check service-level features
+    for (const feature of unsupportedFeatures) {
+      if (!feature.checkService) continue;
+
+      const affectedServices: string[] = [];
+      for (const [serviceName, serviceConfig] of Object.entries(services)) {
+        if (serviceConfig && serviceConfig[feature.key]) {
+          affectedServices.push(serviceName);
+        }
+      }
+
+      if (affectedServices.length > 0) {
+        warnings.push({
+          id: feature.id,
+          severity: feature.severity,
+          category: feature.category,
+          feature: feature.key,
+          title: feature.title,
+          description: feature.description,
+          affectedServices
+        });
+      }
+    }
+
+    return warnings;
   }
 }

@@ -111,6 +111,9 @@ export class InMemoryRepositories
         icon: app.icon,
         iconContent: app.iconContent,
         iconType: app.iconType,
+        tags: app.tags,
+        source: this.origin,
+        framework: undefined,
         ...(app.errors && app.errors.length > 0
           ? { errors: app.errors.map((e) => ({ message: e, name: "Error", details: undefined })) }
           : {}),

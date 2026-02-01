@@ -1,0 +1,29 @@
+services:
+  phpmyadmin:
+    image: phpmyadmin:${PHPMYADMIN_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      PMA_HOST: ${DB_HOST:-mariadb}
+      PMA_PORT: ${DB_PORT:-3306}
+      PMA_USER: ${DB_USER:-root}
+      PMA_PASSWORD: ${DB_PASSWORD:-secret123}
+      UPLOAD_LIMIT: ${UPLOAD_LIMIT:-100M}
+    ports:
+      - "${PHPMYADMIN_PORT:-8080}:80"
+    depends_on:
+      - mariadb
+
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:-secret123}
+      MARIADB_DATABASE: ${DB_NAME:-appdb}
+    volumes:
+      - ./data:/var/lib/mysql
+    ports:
+      - "${MARIADB_PORT:-3306}:3306"
+
+volumes:
+  data:

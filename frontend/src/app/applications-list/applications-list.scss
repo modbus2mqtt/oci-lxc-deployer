@@ -1,199 +1,31 @@
+// applications-list specific styles
+// Most styles are now in shared/components/card-grid/card-grid.scss
 
-.applications-list {
-	.error {
-		color: #c00;
-		margin-bottom: 1rem;
-	}
-	.card-grid {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 1.5rem;
-	}
-	.app-card {
-		background: #fff;
-		border-radius: 8px;
-		box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-		padding: 1.5rem;
-		min-width: 320px;
-		max-width: 480px;
-		flex: 1 1 320px;
-		display: flex;
-		flex-direction: column;
-		align-items: stretch;
-		margin-bottom: 1.5rem;
-		transition: opacity 0.2s;
-		position: relative;
-	}
-	.card-header {
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		gap: 1.2rem;
-		margin-bottom: 0.5rem;
-		padding: 0.25rem 1.2rem 0.5rem 1.2rem;
-		background: #f5f7fa;
-		border-top-left-radius: 12px;
-		border-top-right-radius: 12px;
-		min-height: 48px;
-	}
-	.header-info {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: flex-start;
-		min-height: 48px;
-		h2 { margin-bottom: 0.15em; }
-	}
-	.app-description {
-		font-size: 0.98em;
-		color: #555;
-		margin: 0 0 0.1em 0;
-		line-height: 1.25;
-		white-space: normal;
-		word-break: break-word;
-		overflow-wrap: anywhere;
-		max-height: 3.5em;
-		overflow: hidden;
-	}
-	/* duplicate .header-info removed */
-	.error-list {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.5rem;
-		color: #e53935;
-		font-size: 1rem;
-		margin-top: 0.2rem;
-		margin-bottom: 0.2rem;
-		ul {
-			margin: 0;
-			padding-left: 1.2em;
-			font-size: 0.98em;
-		}
-		li {
-			margin-bottom: 0.1em;
-			white-space: normal;
-			word-break: break-word;
-			overflow-wrap: anywhere;
-		}
-	}
-	.show-errors-btn {
-		margin: 1.4em 0 0.8em 0; /* push button lower to avoid border overlap */
-		color: #c00;
-		background: #fff0f0;
-		border: 1px solid #e53935;
-		border-radius: 6px;
-		padding: 0.4em 1.2em;
-		font-size: 1em;
-		cursor: pointer;
-		box-shadow: 0 2px 8px rgba(229,57,53,0.08);
-		width: 100%;
-		text-align: left;
-		display: flex;
-		align-items: center;
-		gap: 0.5em;
-	}
-	.error-list-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100vw;
-		height: 100vh;
-		background: rgba(0,0,0,0.25);
-		z-index: 2147483647;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.error-list-ul {
-		background: #fff0f0;
-		color: #c00;
-		border: 1.5px solid #e53935;
-		border-radius: 8px;
-		padding: 2em 2.5em 2em 2.5em;
-		font-size: 1.1em;
-		min-width: 420px;
-		max-width: 90vw;
-		max-height: 80vh;
-		overflow: auto;
-		box-shadow: 0 4px 32px rgba(229,57,53,0.18);
-		position: relative;
-		display: block;
-	}
-	.close-errors-btn {
-		position: absolute;
-		top: 1em;
-		right: 1.2em;
-		background: #fff0f0;
-		border: 1.5px solid #e53935;
-		border-radius: 50%;
-		font-size: 1.7em;
-		color: #c00;
-		cursor: pointer;
-		width: 2.2em;
-		height: 2.2em;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: 0 2px 8px rgba(229,57,53,0.10);
-		transition: background 0.2s;
-		z-index: 1;
-		opacity: 0.5;
-	}
-	.close-errors-btn:hover { opacity: 1; background: #ffe0e0; color: #a00; border-color: #c00; }
-	.card-actions {
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		margin-top: 0.5rem;
-		gap: 1rem;
-    
-		button {
-			min-width: 120px;
-			font-size: 1rem;
-			font-weight: 500;
-			border-radius: 6px;
-			box-shadow: 0 1px 4px 0 #0001;
-			letter-spacing: 0.03em;
-			background: linear-gradient(90deg, #1976d2 0%, #42a5f5 100%);
-			color: #fff;
-			border: none;
-			padding: 0.6em 1.2em;
-			transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
-			cursor: pointer;
-			outline: none;
-		}
-		button:disabled {
-			background: #bdbdbd;
-			color: #eee;
-			cursor: not-allowed;
-			box-shadow: none;
-		}
-		button:not(:disabled):hover, button:not(:disabled):focus {
-			background: linear-gradient(90deg, #1565c0 0%, #1e88e5 100%);
-			box-shadow: 0 4px 16px rgba(25, 118, 210, 0.16);
-			transform: translateY(-2px) scale(1.03);
-		}
-	}
-	.icon-wrapper {
-		width: 48px;
-		height: 48px;
-		min-width: 48px;
-		min-height: 48px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin-right: 0.8rem;
-		img {
-			width: 48px;
-			height: 48px;
-			max-width: 48px;
-			max-height: 48px;
-			border-radius: 8px;
-			box-shadow: 0 1px 4px rgba(0,0,0,0.10);
-			display: block;
-			object-fit: contain;
-		}
-	}
-	/* .app-info block removed as unused */
+// Keep error dialog styles here as they're specific to this component
+.error-list {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: #e53935;
+  font-size: 1rem;
+  margin-top: 0.2rem;
+  margin-bottom: 0.2rem;
+
+  ul {
+    margin: 0;
+    padding-left: 1.2em;
+    font-size: 0.98em;
+  }
+
+  li {
+    margin-bottom: 0.1em;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+}
+
+.error-x {
+  color: #c00;
+  font-weight: bold;
 }

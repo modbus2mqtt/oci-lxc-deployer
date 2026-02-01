@@ -2,6 +2,7 @@
   "name": "Modbus2Mqtt Gateway",
   "description": "Modbus2Mqtt Gateway from Modbus RTU/TCP to MQTT and vice versa",
   "extends": "node-red",
+  "tags": ["iot", "messaging"],
   "installation": [
     {
       "name": "110-conf-map-serial.json",

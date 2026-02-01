@@ -2,6 +2,7 @@
   "name": "Node-RED",
   "description": "Node-RED is a flow-based programming tool for wiring together hardware devices, APIs and online services",
   "icon": "icon.svg",
+  "tags": ["iot", "api"],
   "installation": [
     "set-parameters.json",
     "010-host-get-latest-os-template.json",

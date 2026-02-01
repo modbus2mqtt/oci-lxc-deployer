@@ -1,0 +1,30 @@
+services:
+  modbus2mqtt:
+    image: ghcr.io/modbus2mqtt/server:${MODBUS2MQTT_VERSION:-latest}
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      MQTT_HOST: ${MQTT_HOST:-mosquitto}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_USER: ${MQTT_USER:-mqtt}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-secret123}
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "${MODBUS2MQTT_PORT:-3000}:3000"
+    depends_on:
+      - mosquitto
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+
+volumes:
+  data:

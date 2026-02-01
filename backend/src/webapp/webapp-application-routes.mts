@@ -6,6 +6,7 @@ import {
   IPostEnumValuesBody,
   IEnumValuesResponse,
   IApplicationsResponse,
+  ITagsConfigResponse,
 } from "@src/types.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
@@ -82,6 +83,20 @@ export function registerApplicationRoutes(
         .getLocalAppNames();
       const ids = Array.from(localAppNames.keys());
       res.json(ids).status(200);
+    } catch (err: any) {
+      const serializedError = serializeError(err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+        serializedError: serializedError,
+      });
+    }
+  });
+
+  app.get(ApiUri.ApplicationTags, (_req, res) => {
+    try {
+      const pm = PersistenceManager.getInstance();
+      const tagsConfig = pm.getTagsConfig();
+      returnResponse<ITagsConfigResponse>(res, tagsConfig);
     } catch (err: any) {
       const serializedError = serializeError(err);
       res.status(500).json({

@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { JsonValidator } from "../jsonvalidator.mjs";
 import { IConfiguredPathes } from "../backend-types.mjs";
+import { ITagsConfig } from "../types.mjs";
 import { FileSystemPersistence } from "./filesystem-persistence.mjs";
 import {
   IApplicationPersistence,
@@ -179,6 +180,20 @@ export class PersistenceManager {
 
   getRepositories(): IRepositories {
     return this.repositories;
+  }
+
+  /**
+   * Returns the tags configuration from json/tags.json
+   * Used for application categorization in the frontend
+   */
+  getTagsConfig(): ITagsConfig {
+    const tagsFilePath = path.join(this.pathes.jsonPath, "tags.json");
+    if (!fs.existsSync(tagsFilePath)) {
+      // Return empty config if file doesn't exist
+      return { groups: [], internal: [] };
+    }
+    const content = fs.readFileSync(tagsFilePath, "utf-8");
+    return JSON.parse(content) as ITagsConfig;
   }
 
   // Alias für Rückwärtskompatibilität (kann später entfernt werden)

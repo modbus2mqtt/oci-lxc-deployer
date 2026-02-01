@@ -2,6 +2,7 @@
   "name": "phpMyAdmin",
   "description": "phpMyAdmin - web-based MySQL/MariaDB administration tool",
   "icon": "icon.svg",
+  "tags": ["database"],
   "installation": [
     "set-parameters.json",
     "010-host-get-latest-os-template.json",
