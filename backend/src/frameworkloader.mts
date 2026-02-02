@@ -298,53 +298,21 @@ export class FrameworkLoader {
       }
     }
 
-    // Create <application-id>-parameters.json template
-    const setParametersTemplate = {
-      execute_on: "ve",
-      name: "Set Parameters",
-      description: `Set application-specific parameters for ${request.name}`,
-      parameters: templateParameters,
-      commands: [
-        {
-          name: "set-properties",
-          properties: templateProperties,
-        },
-      ],
-    };
-
-    // Determine template name: <application-id>-parameters.json
-    const prependTemplateName = `${request.applicationId}-parameters.json`;
-
-    // Write the prepend template using persistence
-    this.persistence.writeTemplate(
-      prependTemplateName,
-      setParametersTemplate,
-      false, // isShared = false (application-specific)
-      appDir, // appPath
-    );
-
-    // Create application.json
+    // Create application.json with parameters and properties directly embedded (new 1-file format)
     // Note: Templates from the extended application (framework.extends) are automatically
     // loaded through the 'extends' mechanism. We should NOT add them to the installation
     // list again, as this would cause duplicates.
-    // The installation list should only contain templates specific to this application,
-    // which can use 'before' or 'after' to position themselves relative to templates
-    // from the extended application.
     const applicationJson: any = {
       name: request.name,
       description: request.description,
       extends: framework.extends,
       icon: request.icon || baseApplication.icon || "icon.png",
-      // Only include the prepend template, positioned before the first template from extends
-      // If baseApplication has installation templates, we can reference the first one
-      installation: baseApplication.installation && baseApplication.installation.length > 0
-        ? [{
-            name: prependTemplateName,
-            before: typeof baseApplication.installation[0] === 'string' 
-              ? baseApplication.installation[0] 
-              : (baseApplication.installation[0] as any).name || (baseApplication.installation[0] as any).id
-          }]
-        : [prependTemplateName],
+      // Parameters defined directly in application.json (new approach - no separate template needed)
+      ...(templateParameters.length > 0 && { parameters: templateParameters }),
+      // Properties defined directly in application.json (new approach - no separate template needed)
+      ...(templateProperties.length > 0 && { properties: templateProperties }),
+      // Empty installation list - all templates come from extended application
+      installation: [],
     };
 
     // Optional OCI / metadata fields: prefer request overrides, then framework, then base application

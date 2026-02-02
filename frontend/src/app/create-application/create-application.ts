@@ -24,7 +24,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { Observable, Subject, debounceTime, distinctUntilChanged, of, takeUntil } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 
-import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse, ITagsConfig, ITagGroup } from '../../shared/types';
+import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse, ITagsConfig } from '../../shared/types';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { CacheService } from '../shared/services/cache.service';
 import { DockerComposeService, ComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';

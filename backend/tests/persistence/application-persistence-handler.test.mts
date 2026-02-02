@@ -36,6 +36,7 @@ describe("ApplicationPersistenceHandler", () => {
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
       "templatelist.schema.json",
+      "base-deployable.schema.json",
     ]);
 
     // ApplicationPersistenceHandler initialisieren

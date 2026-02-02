@@ -10,6 +10,60 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Tags for categorization. Must match tags defined in json/tags.json"
+    },
+    "parameters": {
+      "type": "array",
+      "description": "User-configurable parameters. Replaces the need for separate *-parameters.json templates.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "enum": ["string", "number", "enum", "boolean"] },
+          "description": { "type": "string" },
+          "multiline": { "type": "boolean", "default": false },
+          "upload": { "type": "boolean", "default": false },
+          "required": { "type": "boolean", "default": false },
+          "secure": { "type": "boolean", "default": false },
+          "advanced": { "type": "boolean", "default": false },
+          "default": { "type": ["string", "number", "boolean"] },
+          "enumValues": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                { "type": "string" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "value": { "type": ["string", "number", "boolean"] }
+                  },
+                  "required": ["name", "value"]
+                }
+              ]
+            }
+          },
+          "enumValuesTemplate": { "type": "string" }
+        },
+        "required": ["id", "name", "type"]
+      }
+    },
+    "properties": {
+      "type": "array",
+      "description": "Fixed property values set by this deployable. Merged with resolved parameters.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "value": { "type": ["string", "number", "boolean"] },
+          "default": { "type": ["string", "number", "boolean"] }
+        },
+        "required": ["id"],
+        "anyOf": [
+          { "required": ["value"] },
+          { "required": ["default"] }
+        ]
+      }
     }
   },
   "required": ["name"]

@@ -8,6 +8,7 @@ import {
   IApplicationsResponse,
   ITagsConfigResponse,
   IApplicationFrameworkDataResponse,
+  ICompatibleAddonsResponse,
 } from "@src/types.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
@@ -288,6 +289,44 @@ export function registerApplicationRoutes(
       if (application.tags && application.tags.length > 0) response.tags = application.tags;
 
       returnResponse<IApplicationFrameworkDataResponse>(res, response);
+    } catch (err: any) {
+      const statusCode = getErrorStatusCode(err);
+      const serializedError = serializeError(err);
+      res.status(statusCode).json({
+        error: err instanceof Error ? err.message : String(err),
+        serializedError: serializedError,
+      });
+    }
+  });
+
+  app.get(ApiUri.CompatibleAddons, (req, res) => {
+    try {
+      const applicationId = req.params.application;
+
+      if (!applicationId) {
+        return res.status(400).json({ error: "Missing application" });
+      }
+
+      // Note: VE context is not required for addon compatibility check
+      // Addon compatibility depends only on application metadata
+
+      const pm = PersistenceManager.getInstance();
+      const appService = pm.getApplicationService();
+      const addonService = pm.getAddonService();
+
+      // Read the application
+      const application = appService.readApplication(applicationId, {
+        applicationHierarchy: [],
+        error: { message: "", name: "Error", details: undefined },
+        taskTemplates: [],
+      });
+
+      // Get compatible addons with extracted parameters from addon templates
+      const compatibleAddons = addonService.getCompatibleAddonsWithParameters(application);
+
+      returnResponse<ICompatibleAddonsResponse>(res, {
+        addons: compatibleAddons,
+      });
     } catch (err: any) {
       const statusCode = getErrorStatusCode(err);
       const serializedError = serializeError(err);

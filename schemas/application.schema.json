@@ -12,7 +12,8 @@
     "vendor": { "type": "string" },
     "installation": { "$ref": "templatelist" },
     "copy-upgrade": { "$ref": "templatelist" },
-    "copy-rollback": { "$ref": "templatelist" }
+    "copy-rollback": { "$ref": "templatelist" },
+    "addon": { "$ref": "templatelist" }
   },
   "required": ["installation"],
   "unevaluatedProperties": false

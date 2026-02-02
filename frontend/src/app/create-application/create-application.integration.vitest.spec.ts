@@ -15,12 +15,10 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 describe('CreateApplication Integration', () => {
   let component: CreateApplication;
   let fixture: ComponentFixture<CreateApplication>;
-  let mockConfigService: any;
-  let mockCacheService: any;
 
   beforeEach(async () => {
-    mockConfigService = {
-      getFrameworkParameters: (id: string) => of({
+    const mockConfigService = {
+      getFrameworkParameters: () => of({
         parameters: [
           { id: 'initial_command', name: 'Initial Command', type: 'string' },
           { id: 'envs', name: 'Environment Variables', type: 'string', multiline: true },
@@ -29,13 +27,18 @@ describe('CreateApplication Integration', () => {
         ]
       }),
       createApplicationFromFramework: () => of({ success: true }),
-      getFrameworkFromImage: () => of({})
+      getFrameworkFromImage: () => of({}),
+      getTagsConfig: () => of({ groups: [] })
     };
 
-    mockCacheService = {
-      preloadAll: () => {},
+    const mockCacheService = {
+      preloadAll: () => undefined,
       getFrameworks: () => of([{ id: 'oci-image', name: 'OCI Image' }]).pipe(delay(0)),
       isApplicationIdTaken: () => of(false)
+    };
+
+    const mockErrorHandler = {
+      handleError: () => undefined
     };
 
     await TestBed.configureTestingModule({
@@ -46,8 +49,8 @@ describe('CreateApplication Integration', () => {
         DockerComposeService, // Use real service - tests actual integration
         { provide: VeConfigurationService, useValue: mockConfigService },
         { provide: CacheService, useValue: mockCacheService },
-        { provide: ErrorHandlerService, useValue: { handleError: () => {} } },
-        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => null } } } }
+        { provide: ErrorHandlerService, useValue: mockErrorHandler },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => null } }, queryParams: of({}) } }
       ],
       schemas: [NO_ERRORS_SCHEMA]
     }).compileComponents();

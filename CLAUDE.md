@@ -130,7 +130,7 @@ KEEP_VM=1 ./backend/tests/livetests/run-live-test.sh pve1.cluster
 
 The test creates a real container on a Proxmox host and verifies:
 - Container creation and startup
-- Notes contain `lxc-manager:managed` marker
+- Notes contain `oci-lxc-deployer:managed` marker
 - Notes contain log-url, icon-url, and Links section
 
 ## Import Resolution

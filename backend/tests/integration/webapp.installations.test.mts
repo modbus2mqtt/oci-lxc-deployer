@@ -23,8 +23,8 @@ describe("WebApp Installations API", () => {
     process.env.LXC_MANAGER_TEST_MODE = "true";
 
     env = createTestEnvironment(import.meta.url, {
-      // Provide required script for /api/installations via json/ (no manual copying)
-      jsonIncludePatterns: [".*list-managed-oci-containers.*"],
+      // Provide required scripts for /api/installations via json/ (no manual copying)
+      jsonIncludePatterns: [".*list-managed-oci-containers.*", ".*lxc_config_parser_lib.*"],
       // Schemas are read from repo directly by default (no copying)
     });
     tmpPve = createTempDir("lxc-pve-");

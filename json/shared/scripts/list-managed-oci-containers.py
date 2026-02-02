@@ -7,59 +7,23 @@ for containers that:
 - contain an OCI image marker or visible OCI image line
 
 Outputs a single VeExecution output id `containers` whose value is a JSON string
-representing an array of objects: { vm_id, hostname?, oci_image, icon: "" }.
-"""
+representing an array of objects: { vm_id, hostname?, oci_image, icon, addons?, ... }.
 
-from __future__ import annotations
+Requires lxc_config_parser_lib.py to be prepended via library parameter.
+
+Note: Do NOT add "from __future__ import annotations" here - it's already in the library
+and must be at the very beginning of the combined file.
+"""
 
 import json
 import os
-import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from urllib.parse import unquote
 
-
-MANAGED_RE = re.compile(r"(?:oci-lxc-deployer):managed", re.IGNORECASE)
-OCI_MARKER_RE = re.compile(r"(?:oci-lxc-deployer):oci-image\s+(.+?)\s*-->", re.IGNORECASE)
-OCI_VISIBLE_RE = re.compile(r"^\s*OCI image:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
-HOSTNAME_RE = re.compile(r"^hostname:\s*(.+?)\s*$", re.MULTILINE)
-APP_ID_MARKER_RE = re.compile(r"(?:oci-lxc-deployer):application-id\s+(.+?)\s*-->", re.IGNORECASE)
-APP_NAME_MARKER_RE = re.compile(r"(?:oci-lxc-deployer):application-name\s+(.+?)\s*-->", re.IGNORECASE)
-APP_ID_VISIBLE_RE = re.compile(r"^\s*#?\s*Application\s+ID\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
-APP_NAME_VISIBLE_RE = re.compile(r"^\s*#?\s*##\s+(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
-VERSION_VISIBLE_RE = re.compile(r"^\s*#?\s*Version\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
-
-
-def _extract_oci_image(conf_text: str) -> str | None:
-    m = OCI_MARKER_RE.search(conf_text)
-    if m:
-        val = m.group(1).strip()
-        return val or None
-    m2 = OCI_VISIBLE_RE.search(conf_text)
-    if m2:
-        val = m2.group(1).strip()
-        return val or None
-    return None
-
-
-def _extract_hostname(conf_text: str) -> str | None:
-    m = HOSTNAME_RE.search(conf_text)
-    if not m:
-        return None
-    val = m.group(1).strip()
-    return val or None
-
-
-def _extract_from_patterns(conf_text: str, patterns: list[re.Pattern[str]]) -> str | None:
-    for pattern in patterns:
-        m = pattern.search(conf_text)
-        if m:
-            val = m.group(1).strip()
-            if val:
-                return val
-    return None
+# Library functions are prepended - these are available:
+# - parse_lxc_config(conf_text) -> LxcConfig
+# - is_managed_container(conf_text) -> bool
 
 
 def get_status(vmid: int) -> str | None:
@@ -98,45 +62,31 @@ def main() -> None:
             except Exception:
                 continue
 
-            # Proxmox LXC config "description:" lines often encode newlines as literal "\\n".
-            # Normalize so regexes that expect line starts (MULTILINE) work reliably.
-            conf_text = conf_text.replace("\\n", "\n")
-            decoded_text = unquote(conf_text)
-
-            if not MANAGED_RE.search(conf_text) and not MANAGED_RE.search(decoded_text):
+            # Quick check before full parsing
+            if not is_managed_container(conf_text):
                 continue
 
-            oci_image = _extract_oci_image(decoded_text) or _extract_oci_image(conf_text)
-            if not oci_image:
-                continue
+            # Full parse
+            config = parse_lxc_config(conf_text)
 
-            hostname = _extract_hostname(decoded_text) or _extract_hostname(conf_text)
-            application_id = _extract_from_patterns(decoded_text, [APP_ID_MARKER_RE, APP_ID_VISIBLE_RE]) or _extract_from_patterns(
-                conf_text,
-                [APP_ID_MARKER_RE, APP_ID_VISIBLE_RE],
-            )
-            application_name = _extract_from_patterns(decoded_text, [APP_NAME_MARKER_RE, APP_NAME_VISIBLE_RE]) or _extract_from_patterns(
-                conf_text,
-                [APP_NAME_MARKER_RE, APP_NAME_VISIBLE_RE],
-            )
-            version = _extract_from_patterns(decoded_text, [VERSION_VISIBLE_RE]) or _extract_from_patterns(
-                conf_text,
-                [VERSION_VISIBLE_RE],
-            )
+            if not config.oci_image:
+                continue
 
             item = {
                 "vm_id": int(vmid_str),
-                "oci_image": oci_image,
+                "oci_image": config.oci_image,
                 "icon": "",
             }
-            if hostname:
-                item["hostname"] = hostname
-            if application_id:
-                item["application_id"] = application_id
-            if application_name:
-                item["application_name"] = application_name
-            if version:
-                item["version"] = version
+            if config.hostname:
+                item["hostname"] = config.hostname
+            if config.application_id:
+                item["application_id"] = config.application_id
+            if config.application_name:
+                item["application_name"] = config.application_name
+            if config.version:
+                item["version"] = config.version
+            if config.addons:
+                item["addons"] = config.addons
 
             containers.append(item)
 

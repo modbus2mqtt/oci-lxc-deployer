@@ -13,6 +13,7 @@ class MockDockerComposeService {
   extractServiceEnvironmentVariables = vi.fn(() => []);
   extractServiceVolumes = vi.fn(() => []);
   parseEnvFile = vi.fn(() => new Map<string, string>());
+  detectComposeWarnings = vi.fn(() => []);
 }
 
 describe('DockerComposeStepComponent', () => {
@@ -62,34 +63,17 @@ services:
       mockComposeService.parseComposeFile.mockReturnValue(mockParsedData);
       mockComposeService.extractServiceEnvironmentVariables.mockReturnValue([]);
 
+      // Mock readFileAsBase64 directly on the component instance
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      vi.spyOn(component as any, 'readFileAsBase64').mockResolvedValue(base64);
+
       const event = {
         target: {
           files: [new File([composeYaml], 'docker-compose.yml', { type: 'text/yaml' })]
         }
       } as unknown as Event;
 
-      // Mock FileReader using a class
-      class MockFileReader {
-        result: string | ArrayBuffer | null = null;
-        onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
-        onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
-        
-        readAsDataURL(): void {
-          // Simulate async file reading
-          setTimeout(() => {
-            if (this.onload) {
-              this.result = `data:text/yaml;base64,${base64}`;
-              this.onload({} as ProgressEvent<FileReader>);
-            }
-          }, 0);
-        }
-      }
-      
-      global.FileReader = MockFileReader as unknown as typeof FileReader;
-
       await component.onComposeFileSelected(event);
-      // Wait for async FileReader callback
-      await new Promise(resolve => setTimeout(resolve, 10));
 
       expect(mockComposeService.parseComposeFile).toHaveBeenCalled();
       expect(component.services().length).toBe(1);

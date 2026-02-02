@@ -148,7 +148,36 @@ export class TemplateProcessor extends EventEmitter {
     const processedTemplates = new Map<string, IProcessedTemplate>();
     const templateReferences = new Map<string, Set<string>>();  // template -> set of referenced templates
     const outputSources = new Map<string, { template: string; kind: "outputs" | "properties" }>();
-    
+
+    // 5a. Inject application-level parameters if defined directly in application.json
+    // This takes precedence over parameters defined in templates (similar to addon approach)
+    if (application?.parameters && application.parameters.length > 0) {
+      for (const param of application.parameters) {
+        outParameters.push({
+          ...param,
+          template: "application.json",
+        });
+      }
+    }
+
+    // 5b. Inject application-level properties if defined directly in application.json
+    // Properties with 'value' mark the parameter as resolved (output)
+    // Properties with 'default' only set the default value (still editable)
+    if (application?.properties && application.properties.length > 0) {
+      for (const prop of application.properties) {
+        if (prop.value !== undefined) {
+          // Property with explicit value - mark as resolved
+          resolvedParams.push({
+            id: prop.id,
+            template: "application.json",
+          });
+          outputSources.set(prop.id, { template: "application.json", kind: "properties" });
+        }
+        // Note: Properties with 'default' will be applied later during parameter resolution
+        // They don't mark the parameter as resolved, allowing UI editing
+      }
+    }
+
     for (const tmpl of templates) {
       let ptOpts: IProcessTemplateOpts = {
         application: applicationName,
@@ -382,6 +411,16 @@ export class TemplateProcessor extends EventEmitter {
 
     await this.validator.validateAndAddParameters(opts, tmplData, templateName, tmplRef);
 
+    // Apply property defaults to parameters
+    // This sets the default value on parameters without marking them as resolved,
+    // allowing them to appear as editable in the UI with pre-filled values
+    if (outputCollection.propertyDefaults.length > 0) {
+      this.outputProcessor.applyPropertyDefaults(
+        outputCollection.propertyDefaults,
+        opts.parameters,
+      );
+    }
+
     // Add commands or process nested templates
 
     for (const cmd of tmplData.commands ?? []) {
@@ -499,7 +538,9 @@ export class TemplateProcessor extends EventEmitter {
       return loaded.parameters.filter((param) => {
         if (param.type === "enum") return true;
         const trace = traceById.get(param.id);
-        return trace ? trace.source === "missing" : true;
+        // Include parameters that are missing OR have only a default value
+        // (both should be shown as editable in the UI)
+        return trace ? trace.source === "missing" || trace.source === "default" : true;
       });
     }
 

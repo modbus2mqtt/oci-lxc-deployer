@@ -11,6 +11,7 @@ export class FileWatcherManager {
   private localAppsWatcher?: FSWatcher;
   private localTemplatesWatcher?: FSWatcher;
   private localFrameworksWatcher?: FSWatcher;
+  private localAddonsWatcher?: FSWatcher;
   private invalidateTimeout: NodeJS.Timeout | undefined;
   private readonly DEBOUNCE_MS = 300;
 
@@ -24,6 +25,7 @@ export class FileWatcherManager {
     onApplicationChange: () => void,
     onTemplateChange: () => void,
     onFrameworkChange: () => void,
+    onAddonChange?: () => void,
   ): void {
     const localAppsDir = path.join(this.pathes.localPath, "applications");
     const localTemplatesDir = path.join(
@@ -32,6 +34,7 @@ export class FileWatcherManager {
       "templates",
     );
     const localFrameworksDir = path.join(this.pathes.localPath, "frameworks");
+    const localAddonsDir = path.join(this.pathes.localPath, "addons");
 
     // Watch local applications (rekursiv)
     if (fs.existsSync(localAppsDir)) {
@@ -69,6 +72,19 @@ export class FileWatcherManager {
         (eventType: string, filename: string | null) => {
           if (filename && filename.endsWith(".json")) {
             onFrameworkChange();
+          }
+        },
+      );
+    }
+
+    // Watch local addons
+    if (onAddonChange && fs.existsSync(localAddonsDir)) {
+      this.localAddonsWatcher = watch(
+        localAddonsDir,
+        { recursive: false },
+        (eventType: string, filename: string | null) => {
+          if (filename && filename.endsWith(".json")) {
+            onAddonChange();
           }
         },
       );
@@ -119,6 +135,9 @@ export class FileWatcherManager {
     }
     if (this.localFrameworksWatcher) {
       this.localFrameworksWatcher.close();
+    }
+    if (this.localAddonsWatcher) {
+      this.localAddonsWatcher.close();
     }
     if (this.invalidateTimeout) {
       clearTimeout(this.invalidateTimeout);

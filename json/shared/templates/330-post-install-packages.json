@@ -9,6 +9,13 @@
       "type": "string",
       "required": true,
       "description": "Space-separated list of packages to install. For Alpine Linux, use APK package names. For Debian/Ubuntu, use apt package names."
+    },
+    {
+      "id": "addon_packages",
+      "name": "Addon Packages",
+      "type": "string",
+      "description": "Additional packages from addons (merged with base packages).",
+      "advanced": true
     }
   ],
   "commands": [

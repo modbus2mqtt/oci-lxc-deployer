@@ -3,7 +3,7 @@ import {
   IReadApplicationOptions,
   VEConfigurationError,
 } from "../backend-types.mjs";
-import { IFramework, ITemplate, IApplicationWeb } from "../types.mjs";
+import { IFramework, ITemplate, IApplicationWeb, IAddon } from "../types.mjs";
 
 /**
  * Base interface for all persistence implementations
@@ -156,5 +156,27 @@ export interface IFrameworkPersistence extends IPersistence {
    * Invalidates cache automatically
    */
   deleteFramework(frameworkId: string): void;
+}
+
+/**
+ * Interface for addon persistence operations
+ */
+export interface IAddonPersistence extends IPersistence {
+  /**
+   * Returns all addon IDs (filenames without .json)
+   */
+  getAddonIds(): string[];
+
+  /**
+   * Loads an addon by ID
+   * @param addonId ID of the addon (filename without .json)
+   * @returns Addon data with id populated
+   */
+  loadAddon(addonId: string): IAddon;
+
+  /**
+   * Returns all addons
+   */
+  getAllAddons(): IAddon[];
 }
 

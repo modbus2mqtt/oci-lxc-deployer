@@ -10,7 +10,7 @@ import { catchError, of } from 'rxjs';
 
 function initializeVeContext(): () => Promise<void> {
   const cfg = inject(VeConfigurationService);
-  return () => firstValueFrom(cfg.initVeContext().pipe(catchError(() => of([])))).then(() => {});
+  return () => firstValueFrom(cfg.initVeContext().pipe(catchError(() => of([])))).then(() => undefined);
 }
 
 export const appConfig: ApplicationConfig = {

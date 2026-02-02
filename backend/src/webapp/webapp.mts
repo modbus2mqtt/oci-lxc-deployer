@@ -7,6 +7,7 @@ import { registerFrameworkRoutes } from "./webapp-framework-routes.mjs";
 import { WebAppIconEndpoint } from "./webapp-icon-endpoint.mjs";
 import { registerInstallationsRoutes } from "./webapp-installations-routes.mjs";
 import { registerSshRoutes } from "./webapp-ssh-routes.mjs";
+import { registerAddonRoutes } from "./webapp-addon-routes.mjs";
 import { setupStaticRoutes } from "./webapp-static.mjs";
 import { WebAppVE } from "./webapp-ve.mjs";
 
@@ -36,6 +37,7 @@ export class VEWebApp {
       this.returnResponse.bind(this),
     );
     registerInstallationsRoutes(this.app, this.storageContext);
+    registerAddonRoutes(this.app, this.storageContext);
     registerFrameworkRoutes(
       this.app,
       this.storageContext,

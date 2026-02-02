@@ -38,11 +38,24 @@ export function registerInstallationsRoutes(
         return;
       }
 
+      const libraryContent = repositories.getScript({
+        name: "lxc_config_parser_lib.py",
+        scope: "shared",
+      });
+      if (!libraryContent) {
+        res.status(500).json({
+          error:
+            "lxc_config_parser_lib.py not found (expected in local/shared/scripts or json/shared/scripts)",
+        });
+        return;
+      }
+
       const cmd: ICommand = {
         name: "List Managed OCI Containers",
         execute_on: "ve",
         script: "list-managed-oci-containers.py",
         scriptContent,
+        libraryContent,
         outputs: ["containers"],
       };
 

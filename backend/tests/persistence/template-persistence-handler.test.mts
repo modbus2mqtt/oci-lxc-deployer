@@ -32,6 +32,7 @@ describe("TemplatePersistenceHandler", () => {
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
       "templatelist.schema.json",
+      "base-deployable.schema.json",
     ]);
 
     // TemplatePersistenceHandler initialisieren

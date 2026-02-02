@@ -135,6 +135,14 @@ export enum ApiUri {
   FrameworkCreateApplication = "/api/framework-create-application",
   FrameworkFromImage = "/api/framework-from-image",
   ApplicationFrameworkData = "/api/application/:applicationId/framework-data",
+  CompatibleAddons = "/api/addons/compatible/:application",
+  AddonInstall = "/api/addons/install/:addonId/:veContext",
+}
+
+export interface IPostAddonInstallBody {
+  vm_id: number;
+  application_id?: string;
+  params?: { name: string; value: string | number | boolean }[];
 }
 
 // Tags definition interfaces
@@ -292,6 +300,7 @@ export interface IManagedOciContainer {
   application_name?: string;
   version?: string;
   status?: string;
+  addons?: string[];
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];
@@ -408,4 +417,48 @@ export interface IComposeWarning {
   title: string;
   description: string;  // Markdown formatted
   affectedServices?: string[];
+}
+
+// Addon interfaces
+export interface IAddonVolume {
+  id: string;
+  mount_point: string;
+  default_size?: string;
+}
+
+/** Template reference: either a string or object with name and optional before/after */
+export type AddonTemplateReference = string | {
+  name: string;
+  before?: string;
+  after?: string;
+};
+
+export interface IAddon {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  compatible_with: string[] | "*";
+  /** User-configurable parameters defined directly in addon JSON */
+  parameters?: IParameter[];
+  /** Fixed property values set by this addon */
+  properties?: IOutputObject[];
+  volumes?: IAddonVolume[];
+  /** Templates to run before container start (on VE/host) */
+  pre_start?: AddonTemplateReference[];
+  /** Templates to run after container start (inside LXC) */
+  post_start?: AddonTemplateReference[];
+  /** Templates for copy-upgrade */
+  upgrade?: AddonTemplateReference[];
+  notes_key: string;
+}
+
+/** Addon with extracted parameters from its templates */
+export interface IAddonWithParameters extends IAddon {
+  /** Parameters extracted from addon templates (pre_start, post_start, upgrade) */
+  parameters?: IParameter[];
+}
+
+export interface ICompatibleAddonsResponse {
+  addons: IAddonWithParameters[];
 }

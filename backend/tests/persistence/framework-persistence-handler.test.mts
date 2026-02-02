@@ -33,6 +33,7 @@ describe("FrameworkPersistenceHandler", () => {
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
       "templatelist.schema.json",
+      "base-deployable.schema.json",
     ]);
 
     // FrameworkPersistenceHandler initialisieren

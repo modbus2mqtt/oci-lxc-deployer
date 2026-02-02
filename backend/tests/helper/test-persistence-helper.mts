@@ -16,6 +16,7 @@ export enum Volume {
   JsonSharedScripts = "json_shared_scripts",
   JsonSharedTemplates = "json_shared_templates",
   JsonFrameworks = "json_frameworks",
+  JsonAddons = "json_addons",
   Schemas = "schemas",
   Scripts = "scripts",
   DocsRoot = "docs_root",
@@ -87,6 +88,8 @@ export class TestPersistenceHelper {
         return path.join(this.jsonRoot, "shared", "templates");
       case Volume.JsonFrameworks:
         return path.join(this.jsonRoot, "frameworks");
+      case Volume.JsonAddons:
+        return path.join(this.jsonRoot, "addons");
       case Volume.Schemas:
         return this.schemasRoot;
       case Volume.Scripts:

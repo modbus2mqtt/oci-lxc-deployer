@@ -22,6 +22,10 @@ export interface IApplicationBase {
   source?: string;
   vendor?: string;
   errors?: string[];
+  /** User-configurable parameters defined directly in application.json (new approach) */
+  parameters?: IParameter[];
+  /** Fixed property values set by this application (same format as template command properties) */
+  properties?: IOutputObject[];
 }
 export interface IApplicationWeb {
   name: string;
@@ -44,11 +48,14 @@ export type TaskType =
   | "upgrade"
   | "copy-upgrade"
   | "copy-rollback"
-  | "webui";
+  | "webui"
+  | "addon";
 // Generated from template.schema.json
 export interface IOutputObject {
   id: string;
   value?: string | number | boolean | (string | { name: string; value: string | number | boolean } | { id: string; value: string | number | boolean })[];
+  /** Default value for the parameter. Unlike 'value', this will show the parameter as editable in the UI. */
+  default?: string | number | boolean;
 }
 
 export interface ICommand {
@@ -142,6 +149,9 @@ export enum ApiUri {
   ApplicationFrameworkData = "/api/application/:applicationId/framework-data",
 
   VeCopyUpgrade = "/api/ve/copy-upgrade/:application/:veContext",
+
+  CompatibleAddons = "/api/addons/compatible/:application",
+  AddonInstall = "/api/addons/install/:addonId/:veContext",
 }
 
 // Tags definition interfaces
@@ -369,4 +379,57 @@ export interface IVeLogsResponse {
   lines: number;
   content: string;
   error?: string;
+}
+
+// Addon interfaces
+export interface IAddonVolume {
+  id: string;
+  mount_point: string;
+  default_size?: string;
+}
+
+/** Template reference: either a string or object with name and optional before/after */
+export type AddonTemplateReference = string | {
+  name: string;
+  before?: string;
+  after?: string;
+};
+
+export interface IAddon {
+  /** Addon ID (derived from filename without .json) */
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  /** Application IDs, 'tag:<tag-id>' or '*' for all */
+  compatible_with: string[] | "*";
+  /** User-configurable parameters defined directly in addon JSON */
+  parameters?: IParameter[];
+  /** Fixed property values set by this addon (same format as template command properties) */
+  properties?: IOutputObject[];
+  /** Fixed volumes required by this addon */
+  volumes?: IAddonVolume[];
+  /** Templates to run before container start (on VE/host) */
+  pre_start?: AddonTemplateReference[];
+  /** Templates to run after container start (inside LXC) */
+  post_start?: AddonTemplateReference[];
+  /** Templates for copy-upgrade */
+  upgrade?: AddonTemplateReference[];
+  /** Key for notes persistence */
+  notes_key: string;
+}
+
+export interface IActiveAddon {
+  addonId: string;
+  parameters: Record<string, string | number | boolean>;
+}
+
+/** Addon with extracted parameters from its templates */
+export interface IAddonWithParameters extends IAddon {
+  /** Parameters extracted from addon templates (pre_start, post_start, upgrade) */
+  parameters?: IParameter[];
+}
+
+export interface ICompatibleAddonsResponse {
+  addons: IAddonWithParameters[];
 }

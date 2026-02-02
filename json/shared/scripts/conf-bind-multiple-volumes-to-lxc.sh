@@ -11,11 +11,16 @@
 #   - vm_id: LXC container ID (from context)
 #   - hostname: Container hostname (from context)
 #   - volumes: Volume mappings in key=value format, one per line (required)
+#             Format: key=path[,permissions[,uid:gid]]
+#             Examples: data=/srv/data
+#                       data=/srv/data,0755
+#                       data=/srv/data,0755,1000:1000
+#                       private=/var/lib/samba/private,0700,0:0
 #   - base_path: Base path for host directories (optional)
 #   - host_mountpoint: Host mountpoint base (optional)
 #   - username: Username for ownership (optional)
-#   - uid: User ID (optional)
-#   - gid: Group ID (optional)
+#   - uid: User ID - default for volumes without explicit uid:gid (optional)
+#   - gid: Group ID - default for volumes without explicit uid:gid (optional)
 #
 # Script is idempotent and can be run multiple times safely.
 #
@@ -26,6 +31,7 @@ HOSTNAME="{{ hostname}}"
 HOST_MOUNTPOINT="{{ host_mountpoint}}"
 BASE_PATH="{{ base_path}}"
 VOLUMES="{{ volumes}}"
+ADDON_VOLUMES="{{ addon_volumes}}"
 USERNAME="{{ username}}"
 UID_VALUE="{{ uid}}"
 GID_VALUE="{{ gid}}"
@@ -41,6 +47,13 @@ fi
 if [ -z "$VOLUMES" ]; then
   echo "Error: Required parameter 'volumes' must be set and not empty!" >&2
   exit 1
+fi
+
+# Merge addon_volumes with base volumes (if addon_volumes is set)
+if [ -n "$ADDON_VOLUMES" ] && [ "$ADDON_VOLUMES" != "" ]; then
+  VOLUMES="$VOLUMES
+$ADDON_VOLUMES"
+  echo "Merged addon_volumes with base volumes" >&2
 fi
 
 # Set default base_path if not provided
@@ -115,9 +128,45 @@ fi
 
 echo "bind-multiple-volumes-to-lxc: vm_id=$VMID unprivileged=$IS_UNPRIV uid=$UID_VALUE gid=$GID_VALUE host_uid=$EFFECTIVE_UID host_gid=$EFFECTIVE_GID" >&2
 
-# Backward compatible variables (older code below expects UID_VALUE/GID_VALUE)
-UID_VALUE="$EFFECTIVE_UID"
-GID_VALUE="$EFFECTIVE_GID"
+# Store default effective UID/GID (used when volume doesn't specify its own)
+DEFAULT_EFFECTIVE_UID="$EFFECTIVE_UID"
+DEFAULT_EFFECTIVE_GID="$EFFECTIVE_GID"
+
+# Function to compute effective host UID for a given container UID
+# Usage: compute_effective_uid <container_uid>
+compute_effective_uid() {
+  _cuid="$1"
+  if ! is_number "$_cuid"; then
+    echo "$_cuid"
+    return
+  fi
+  _mid=$(map_id_via_idmap u "$_cuid")
+  if [ -n "$_mid" ]; then
+    echo "$_mid"
+  elif [ "$IS_UNPRIV" -eq 1 ]; then
+    echo $((100000 + _cuid))
+  else
+    echo "$_cuid"
+  fi
+}
+
+# Function to compute effective host GID for a given container GID
+# Usage: compute_effective_gid <container_gid>
+compute_effective_gid() {
+  _cgid="$1"
+  if ! is_number "$_cgid"; then
+    echo "$_cgid"
+    return
+  fi
+  _mid=$(map_id_via_idmap g "$_cgid")
+  if [ -n "$_mid" ]; then
+    echo "$_mid"
+  elif [ "$IS_UNPRIV" -eq 1 ]; then
+    echo $((100000 + _cgid))
+  else
+    echo "$_cgid"
+  fi
+}
 
 # Construct the full host path: <host_mountpoint>/<base_path>/<hostname>
 # If host_mountpoint is not set, use /mnt/<base_path>/<hostname>
@@ -243,42 +292,66 @@ VOLUME_COUNT=0
 while IFS= read -r line <&3; do
   # Skip empty lines
   [ -z "$line" ] && continue
-  
-  # Parse format: key=value or key=value,permissions
+
+  # Parse format: key=path[,permissions[,uid:gid]]
   VOLUME_KEY=$(echo "$line" | cut -d'=' -f1)
   VOLUME_REST=$(echo "$line" | cut -d'=' -f2-)
-  
-  # Check if permissions are specified (comma-separated)
-  if echo "$VOLUME_REST" | grep -q ','; then
-    VOLUME_VALUE=$(echo "$VOLUME_REST" | cut -d',' -f1)
+
+  # Count comma-separated fields
+  FIELD_COUNT=$(echo "$VOLUME_REST" | tr ',' '\n' | wc -l)
+
+  # Parse fields
+  VOLUME_VALUE=$(echo "$VOLUME_REST" | cut -d',' -f1)
+  VOLUME_PERMS="0755"  # Default permissions
+  VOLUME_UID=""
+  VOLUME_GID=""
+
+  if [ "$FIELD_COUNT" -ge 2 ]; then
     VOLUME_PERMS=$(echo "$VOLUME_REST" | cut -d',' -f2)
-  else
-    VOLUME_VALUE="$VOLUME_REST"
-    VOLUME_PERMS="0755"  # Default permissions
   fi
-  
+
+  if [ "$FIELD_COUNT" -ge 3 ]; then
+    VOLUME_UIDGID=$(echo "$VOLUME_REST" | cut -d',' -f3)
+    if echo "$VOLUME_UIDGID" | grep -q ':'; then
+      VOLUME_UID=$(echo "$VOLUME_UIDGID" | cut -d':' -f1)
+      VOLUME_GID=$(echo "$VOLUME_UIDGID" | cut -d':' -f2)
+    fi
+  fi
+
   # Skip if key or value is empty
   [ -z "$VOLUME_KEY" ] && continue
   [ -z "$VOLUME_VALUE" ] && continue
-  
+
+  # Determine effective UID/GID for this volume
+  # If volume specifies uid:gid, use that (mapped for unprivileged containers)
+  # Otherwise use the default effective UID/GID
+  if [ -n "$VOLUME_UID" ] && [ -n "$VOLUME_GID" ]; then
+    VOL_EFFECTIVE_UID=$(compute_effective_uid "$VOLUME_UID")
+    VOL_EFFECTIVE_GID=$(compute_effective_gid "$VOLUME_GID")
+    echo "Volume $VOLUME_KEY uses custom uid:gid $VOLUME_UID:$VOLUME_GID -> host $VOL_EFFECTIVE_UID:$VOL_EFFECTIVE_GID" >&2
+  else
+    VOL_EFFECTIVE_UID="$DEFAULT_EFFECTIVE_UID"
+    VOL_EFFECTIVE_GID="$DEFAULT_EFFECTIVE_GID"
+  fi
+
   # Construct paths: <base_path>/<hostname>/<volume-key>
   SOURCE_PATH="$HOST_PATH/$VOLUME_KEY"
   CONTAINER_PATH="/$VOLUME_VALUE"
-  
+
   # Create source directory if it doesn't exist
   if [ ! -d "$SOURCE_PATH" ]; then
     mkdir -p "$SOURCE_PATH" >&2
   fi
-  
+
   # Set ownership/permissions on the host source directory.
   # IMPORTANT: For unprivileged containers, host ownership must use mapped host IDs;
   # otherwise ownership shows up as "nobody" inside the container.
-  if [ -n "$UID_VALUE" ] && [ -n "$GID_VALUE" ] && [ "$UID_VALUE" != "" ] && [ "$GID_VALUE" != "" ]; then
+  if [ -n "$VOL_EFFECTIVE_UID" ] && [ -n "$VOL_EFFECTIVE_GID" ] && [ "$VOL_EFFECTIVE_UID" != "" ] && [ "$VOL_EFFECTIVE_GID" != "" ]; then
     # Set ownership recursively with the provided UID/GID
-    if chown -R "$UID_VALUE:$GID_VALUE" "$SOURCE_PATH" 2>/dev/null; then
-      echo "Set ownership of $SOURCE_PATH (recursively) to $UID_VALUE:$GID_VALUE" >&2
+    if chown -R "$VOL_EFFECTIVE_UID:$VOL_EFFECTIVE_GID" "$SOURCE_PATH" 2>/dev/null; then
+      echo "Set ownership of $SOURCE_PATH (recursively) to $VOL_EFFECTIVE_UID:$VOL_EFFECTIVE_GID" >&2
     else
-      echo "Warning: Failed to set ownership of $SOURCE_PATH to $UID_VALUE:$GID_VALUE" >&2
+      echo "Warning: Failed to set ownership of $SOURCE_PATH to $VOL_EFFECTIVE_UID:$VOL_EFFECTIVE_GID" >&2
     fi
     # Set permissions recursively with configured value
     if chmod -R "$VOLUME_PERMS" "$SOURCE_PATH" 2>/dev/null; then

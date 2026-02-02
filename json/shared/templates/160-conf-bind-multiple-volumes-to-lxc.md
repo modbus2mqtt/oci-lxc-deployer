@@ -32,23 +32,33 @@ Template documentation for binding multiple host directories to an LXC container
 
 ## Volumes
 
-Volume mappings in ```key=value``` format, one per line. 
+Volume mappings in ```key=value``` format, one per line.
 Each line creates a bind mount from `<host_mountpoint>/<base_path>/<hostname>/<key>` to `/<value>` in the container.
 
-**Format:** `key=path` or `key=path,permissions`
+**Format:** `key=path[,permissions[,uid:gid]]`
 
 **Default permissions:** 0755
 
-**Optional:** Add permissions after comma (e.g., 0700, 0755, 0644)
+**Default uid:gid:** Uses the global `uid` and `gid` parameters
+
+**Optional fields:**
+- `permissions` - Directory permissions (e.g., 0700, 0755, 0644)
+- `uid:gid` - Owner uid:gid for this specific volume (overrides global uid/gid)
 
 **Examples:**
 ```
 volume1=/var/lib/myapp/data,0700
 volume2=/var/lib/myapp/logs,0755
 volume3=/var/lib/myapp/config
+samba_private=/var/lib/samba/private,0700,0:0
 ```
 
-The first example creates a bind mount with 0700 permissions, the second with 0755, and the third uses the default 0755.
+- `volume1` - bind mount with 0700 permissions, uses global uid:gid
+- `volume2` - bind mount with 0755 permissions, uses global uid:gid
+- `volume3` - bind mount with default 0755 permissions, uses global uid:gid
+- `samba_private` - bind mount with 0700 permissions, owned by root (0:0)
+
+**Note:** For unprivileged containers, the specified uid:gid is automatically mapped to the corresponding host uid:gid (e.g., container 0:0 → host 100000:100000).
 
 ### How it works
 

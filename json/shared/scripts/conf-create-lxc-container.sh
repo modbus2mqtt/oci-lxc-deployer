@@ -109,81 +109,10 @@ else
 fi
 
 echo "Set lxc.console.logfile: $LOG_FILE" >&2
-# Write notes/description so we can later detect lxc-manager managed containers.
-# Store the OCI image in a visible, identifiable line.
-OCI_IMAGE_RAW="{{ oci_image }}"
-if [ "$OCI_IMAGE_RAW" = "NOT_DEFINED" ]; then OCI_IMAGE_RAW=""; fi
-OCI_IMAGE_VISIBLE=$(printf "%s" "$OCI_IMAGE_RAW" | sed -E 's#^(docker|oci)://##')
-TEMPLATE_PATH_FOR_NOTES="$TEMPLATE_PATH"
 
-APP_ID_RAW="{{ application_id }}"
-APP_NAME_RAW="{{ application_name }}"
-APP_ID=""
-APP_NAME=""
-if [ "$APP_ID_RAW" != "NOT_DEFINED" ]; then APP_ID="$APP_ID_RAW"; fi
-if [ "$APP_NAME_RAW" != "NOT_DEFINED" ]; then APP_NAME="$APP_NAME_RAW"; fi
+# Notes/description will be written by 190-host-write-lxc-notes.sh
+# This allows other conf-* scripts to contribute information before notes are finalized.
 
-# Log viewer URL parameters (auto-injected by backend)
-DEPLOYER_URL_RAW="{{ deployer_base_url }}"
-VE_CONTEXT_RAW="{{ ve_context_key }}"
-if [ "$DEPLOYER_URL_RAW" = "NOT_DEFINED" ]; then DEPLOYER_URL_RAW=""; fi
-if [ "$VE_CONTEXT_RAW" = "NOT_DEFINED" ]; then VE_CONTEXT_RAW=""; fi
-
-NOTES_TMP=$(mktemp)
-{
-  echo "<!-- lxc-manager:managed -->"
-  if [ -n "$OCI_IMAGE_VISIBLE" ]; then
-    echo "<!-- lxc-manager:oci-image $OCI_IMAGE_VISIBLE -->"
-  fi
-  if [ -n "$APP_ID" ]; then
-    echo "<!-- lxc-manager:application-id $APP_ID -->"
-  fi
-  if [ -n "$APP_NAME" ]; then
-    echo "<!-- lxc-manager:application-name $APP_NAME -->"
-  fi
-  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$VE_CONTEXT_RAW" ]; then
-    echo "<!-- lxc-manager:log-url ${DEPLOYER_URL_RAW}/logs/${VMID}/${VE_CONTEXT_RAW} -->"
-  fi
-  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$APP_ID" ]; then
-    echo "<!-- lxc-manager:icon-url ${DEPLOYER_URL_RAW}/icons/${APP_ID}.png -->"
-  fi
-  echo "# LXC Manager"
-  echo
-  # Show application icon if available
-  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$APP_ID" ]; then
-    echo "![${APP_NAME:-$APP_ID}](${DEPLOYER_URL_RAW}/icons/${APP_ID}.png)"
-    echo
-  fi
-  echo "Managed by **lxc-manager**."
-  if [ -n "$APP_ID" ] || [ -n "$APP_NAME" ]; then
-    echo
-    if [ -n "$APP_ID" ] && [ -n "$APP_NAME" ]; then
-      echo "Application: $APP_NAME ($APP_ID)"
-    elif [ -n "$APP_NAME" ]; then
-      echo "Application: $APP_NAME"
-    else
-      echo "Application ID: $APP_ID"
-    fi
-  fi
-  if [ -n "$OCI_IMAGE_VISIBLE" ]; then
-    echo
-    echo "OCI image: $OCI_IMAGE_VISIBLE"
-  else
-    echo
-    echo "LXC template: $TEMPLATE_PATH_FOR_NOTES"
-    echo "Log file: $LOG_FILE on host"
-  fi
-  # Add links section with log viewer URL
-  if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$VE_CONTEXT_RAW" ]; then
-    echo
-    echo "## Links"
-    echo "- [Console Logs](${DEPLOYER_URL_RAW}/logs/${VMID}/${VE_CONTEXT_RAW})"
-  fi
-} > "$NOTES_TMP"
-
-# pct set --description supports multi-line text.
-pct set "$VMID" --description "$(cat "$NOTES_TMP")" >&2 || true
-rm -f "$NOTES_TMP"
 echo "LXC container $VMID ({{ hostname }}) created." >&2
 
 echo '{ "id": "vm_id", "value": "'$VMID'" }'

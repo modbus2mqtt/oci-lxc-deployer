@@ -1,16 +1,39 @@
 {
   "name": "Samba File Shares",
-  "description": "SMB/CIFS file sharing for the container",
+  "description": "SMB/CIFS file sharing for the container. Upload a custom smb.conf to configure shares.",
   "tags": ["storage", "network"],
 
   "compatible_with": "*",
 
-  "volumes": [
+  "parameters": [
     {
-      "id": "samba_data",
-      "mount_point": "/srv/samba",
-      "default_size": "10G"
+      "id": "samba_config",
+      "name": "Samba Configuration File",
+      "type": "string",
+      "upload": true,
+      "required": true,
+      "description": "Samba configuration file (smb.conf) to upload"
+    },
+    {
+      "id": "smb_user",
+      "name": "Samba Username",
+      "type": "string",
+      "required": true,
+      "description": "Username for Samba authentication"
+    },
+    {
+      "id": "smb_password",
+      "name": "Samba Password",
+      "type": "string",
+      "required": true,
+      "secure": true,
+      "description": "Password for Samba authentication"
     }
+  ],
+
+  "properties": [
+    { "id": "addon_packages", "value": "samba" },
+    { "id": "addon_volumes", "value": "samba_private=/var/lib/samba/private,0700,0:0\nsamba_config=/etc/samba,0700,0:0" }
   ],
 
   "pre_start": [
@@ -21,10 +44,8 @@
   ],
 
   "post_start": [
-    {
-      "name": "320-post-install-samba.json",
-      "after": "310-post-install-apk-package.json"
-    }
+    "330-post-install-packages.json",
+    "335-post-samba-add-configuration.json"
   ],
 
   "upgrade": [],

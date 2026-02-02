@@ -1,6 +1,6 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse } from '../shared/types';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -147,6 +147,11 @@ export class VeConfigurationService {
     return this.post<IVeConfigurationResponse, IPostVeCopyUpgradeBody>(url, body);
   }
 
+  postAddonInstall(addonId: string, body: IPostAddonInstallBody): Observable<IVeConfigurationResponse> {
+    const url = ApiUri.AddonInstall.replace(':addonId', encodeURIComponent(addonId));
+    return this.post<IVeConfigurationResponse, IPostAddonInstallBody>(url, body);
+  }
+
   setSshConfig(ssh: ISsh): Observable<IPostSshConfigResponse> {
     return this.post<IPostSshConfigResponse, ISsh>(ApiUri.SshConfig, ssh).pipe(
       tap((res) => this.setVeContextKeyFrom(res)),
@@ -212,5 +217,11 @@ export class VeConfigurationService {
   getApplicationFrameworkData(applicationId: string): Observable<IApplicationFrameworkDataResponse> {
     const url = ApiUri.ApplicationFrameworkData.replace(':applicationId', encodeURIComponent(applicationId));
     return this.http.get<IApplicationFrameworkDataResponse>(url);
+  }
+
+  getCompatibleAddons(application: string): Observable<ICompatibleAddonsResponse> {
+    const url = ApiUri.CompatibleAddons
+      .replace(':application', encodeURIComponent(application));
+    return this.http.get<ICompatibleAddonsResponse>(url);
   }
 }

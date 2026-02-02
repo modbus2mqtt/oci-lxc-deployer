@@ -5,7 +5,8 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialog } from '@angu
 
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse } from '../../shared/types';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters } from '../../shared/types';
 import { VeConfigurationService, VeConfigurationParam } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { ParameterGroupComponent } from './parameter-group.component';
@@ -18,6 +19,7 @@ import type { NavigationExtras } from '@angular/router';
     MatDialogModule,
     ReactiveFormsModule,
     MatButtonModule,
+    MatCheckboxModule,
     ParameterGroupComponent
 ],
   templateUrl: './ve-configuration-dialog.html',
@@ -30,6 +32,10 @@ export class VeConfigurationDialog implements OnInit {
   loading = signal(true);
   hasError = signal(false);
   showAdvanced = signal(false);
+  availableAddons: IAddonWithParameters[] = [];
+  selectedAddons = signal<string[]>([]);
+  expandedAddons = signal<string[]>([]);
+  addonsLoading = signal(false);
   private initialValues = new Map<string, IParameterValue>();
   private enumRefreshAttempted = false;
   private configService: VeConfigurationService = inject(VeConfigurationService);
@@ -43,13 +49,20 @@ export class VeConfigurationDialog implements OnInit {
     this.form = this.fb.group({});
   }
   ngOnInit(): void {
+    // Load compatible addons in parallel with parameters
+    this.loadCompatibleAddons();
+
     // For demo purposes: use 'installation' as the default task, can be extended
     this.configService.getUnresolvedParameters(this.data.app.id, this.task).subscribe({
       next: (res) => {
         this.unresolvedParameters = res.unresolvedParameters;
-        // Group parameters by template
+        // Group parameters by template (filter out addon_ parameters - they are set by addons only)
         this.groupedParameters = {};
         for (const param of this.unresolvedParameters) {
+          // Skip addon_ parameters - they are internal and set by addon templates
+          if (param.id.startsWith('addon_')) {
+            continue;
+          }
           const group = param.templatename || 'General';
           if (!this.groupedParameters[group]) this.groupedParameters[group] = [];
           this.groupedParameters[group].push(param);
@@ -137,6 +150,88 @@ export class VeConfigurationDialog implements OnInit {
         this.errorHandler.handleError('Failed to load enum values', err);
       }
     });
+  }
+
+  private loadCompatibleAddons(): void {
+    this.addonsLoading.set(true);
+    this.configService.getCompatibleAddons(this.data.app.id).subscribe({
+      next: (res) => {
+        this.availableAddons = res.addons;
+        this.addonsLoading.set(false);
+      },
+      error: () => {
+        // Don't show error for addons - they're optional
+        // Just set loading to false and continue without addons
+        this.addonsLoading.set(false);
+      }
+    });
+  }
+
+  toggleAddon(addonId: string, checked: boolean): void {
+    const addon = this.availableAddons.find(a => a.id === addonId);
+
+    if (checked) {
+      this.selectedAddons.update(addons => [...addons, addonId]);
+      // Add form controls for addon parameters
+      if (addon?.parameters) {
+        for (const param of addon.parameters) {
+          if (!this.form.contains(param.id)) {
+            const validators = param.required ? [Validators.required] : [];
+            const defaultValue = param.default !== undefined ? param.default : '';
+            this.form.addControl(param.id, new FormControl(defaultValue, validators));
+            this.initialValues.set(param.id, defaultValue);
+          }
+        }
+      }
+    } else {
+      this.selectedAddons.update(addons => addons.filter(id => id !== addonId));
+      // Collapse addon when deselected
+      this.expandedAddons.update(addons => addons.filter(id => id !== addonId));
+      // Remove form controls for addon parameters
+      if (addon?.parameters) {
+        for (const param of addon.parameters) {
+          if (this.form.contains(param.id)) {
+            this.form.removeControl(param.id);
+            this.initialValues.delete(param.id);
+          }
+        }
+      }
+    }
+  }
+
+  isAddonSelected(addonId: string): boolean {
+    return this.selectedAddons().includes(addonId);
+  }
+
+  isAddonExpanded(addonId: string): boolean {
+    return this.expandedAddons().includes(addonId);
+  }
+
+  toggleAddonExpanded(addonId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.expandedAddons.update(addons =>
+      addons.includes(addonId)
+        ? addons.filter(id => id !== addonId)
+        : [...addons, addonId]
+    );
+  }
+
+  hasAddonParameters(addon: IAddonWithParameters): boolean {
+    return (addon.parameters?.length ?? 0) > 0;
+  }
+
+  getSelectedAddonParameters(): { addon: IAddonWithParameters; parameters: IParameter[] }[] {
+    return this.selectedAddons()
+      .map(addonId => this.availableAddons.find(a => a.id === addonId))
+      .filter((addon): addon is IAddonWithParameters => addon !== undefined && (addon.parameters?.length ?? 0) > 0)
+      .map(addon => ({ addon, parameters: addon.parameters! }));
+  }
+
+  getAddonGroupedParameters(addonName: string, param: IParameter): Record<string, IParameter[]> {
+    const result: Record<string, IParameter[]> = {};
+    result[addonName] = [param];
+    return result;
   }
 
   @Input() customActions?: boolean;

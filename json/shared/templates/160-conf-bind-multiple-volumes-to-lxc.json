@@ -45,6 +45,14 @@
       "required": true
     },
     {
+      "id": "addon_volumes",
+      "name": "Addon Volumes",
+      "type": "string",
+      "multiline": true,
+      "description": "Additional volumes from addons (merged with base volumes).",
+      "advanced": true
+    },
+    {
       "id": "username",
       "name": "Username",
       "type": "string",

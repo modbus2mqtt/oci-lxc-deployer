@@ -171,3 +171,143 @@ h2, p {
     letter-spacing: 0.02em;
   }
 }
+
+/* Addon selection section */
+.addons-section {
+  width: calc(100% - 2rem);
+  margin: 0 1rem 1.5rem 1rem;
+  padding: 1rem 1.25rem;
+  background: #f8f9fc;
+  border-radius: 8px;
+  border: 1px solid #e0e4eb;
+
+  h3 {
+    margin: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #333;
+  }
+
+  .addons-description {
+    margin: 0 0 1rem 0;
+    font-size: 0.875rem;
+    color: #666;
+  }
+}
+
+.addons-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.addon-entry {
+  display: flex;
+  flex-direction: column;
+}
+
+.addon-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+
+  mat-checkbox {
+    flex: 1;
+
+    .addon-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.125rem;
+      margin-left: 0.25rem;
+
+      .addon-name {
+        font-weight: 500;
+        color: #333;
+      }
+
+      .addon-description {
+        font-size: 0.8rem;
+        color: #666;
+        margin-left: 0;
+      }
+    }
+  }
+}
+
+.addon-configure-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  background: transparent;
+  border: 1px solid #667eea;
+  border-radius: 4px;
+  color: #667eea;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+
+  &:hover {
+    background: #667eea;
+    color: white;
+  }
+
+  .configure-icon {
+    font-size: 0.65rem;
+  }
+
+  .configure-text {
+    letter-spacing: 0.01em;
+  }
+}
+
+.addon-parameters-inline {
+  margin: 0.75rem 0 0.5rem 1.75rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #667eea08 0%, #764ba208 100%);
+  border-radius: 6px;
+  border: 1px solid #667eea22;
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-start;
+}
+
+.addons-loading {
+  width: calc(100% - 2rem);
+  margin: 0 1rem 1rem 1rem;
+  padding: 0.75rem 1rem;
+  text-align: center;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Addon parameters section (shown when addon is selected) */
+.addon-parameters-section {
+  width: calc(100% - 2rem);
+  margin: 0 1rem 1rem 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, #667eea08 0%, #764ba208 100%);
+  border-radius: 8px;
+  border: 1px solid #667eea33;
+
+  .addon-parameters-title {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #667eea;
+  }
+
+  .addon-parameters-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: flex-start;
+  }
+}

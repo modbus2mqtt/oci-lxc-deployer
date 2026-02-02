@@ -2,9 +2,9 @@ import vitestPlugin from "eslint-plugin-vitest";
 import prettierConfig from "eslint-config-prettier";
 
 export default [
-  // Ignore build outputs
+  // Ignore build outputs and declaration files
   {
-    ignores: ["dist/**"],
+    ignores: ["dist/**", "**/*.d.mts", "**/*.d.ts"],
   },
   // Vitest rules for test files
   {

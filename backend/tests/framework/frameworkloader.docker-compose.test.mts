@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { FrameworkLoader } from "@src/frameworkloader.mjs";
 import { VEConfigurationError, IVEContext } from "@src/backend-types.mjs";
 import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import type { IPostFrameworkCreateApplicationBody } from "@src/types.mjs";
 import path from "node:path";
 
 describe("FrameworkLoader - docker-compose", () => {
@@ -47,7 +48,8 @@ describe("FrameworkLoader - docker-compose", () => {
   it(
     "should set hostname as optional and compose_project as optional for docker-compose framework",
     async () => {
-      const framework = loader.readFrameworkJson("docker-compose", {
+      // Load framework to ensure it's valid (result not used directly)
+      loader.readFrameworkJson("docker-compose", {
         error: new VEConfigurationError("", "docker-compose"),
       });
       const veContext: IVEContext = {
@@ -102,8 +104,6 @@ describe("FrameworkLoader - docker-compose", () => {
   it(
     "should use Application ID as default for hostname when creating application without hostname",
     async () => {
-      const { IPostFrameworkCreateApplicationBody } = await import("@src/types.mjs");
-      
       const request: IPostFrameworkCreateApplicationBody = {
         frameworkId: "docker-compose",
         applicationId: "test-app-123",
@@ -120,8 +120,29 @@ describe("FrameworkLoader - docker-compose", () => {
       const applicationId = await loader.createApplicationFromFramework(request);
       expect(applicationId).toBe("test-app-123");
 
-      // Load the generated parameters template
-      // Construct path to local application template
+      // New 1-file format: parameters and properties are in application.json directly
+      const appJsonPath = path.join(
+        env.localDir,
+        "applications",
+        "test-app-123",
+        "application.json",
+      );
+      const appJson = JSON.parse(require("fs").readFileSync(appJsonPath, "utf-8"));
+
+      // Find hostname parameter in application.json
+      const hostnameParam = appJson.parameters?.find((p: any) => p.id === "hostname");
+      expect(hostnameParam).toBeDefined();
+      expect(hostnameParam?.required).toBe(false);
+      expect(hostnameParam?.default).toBe("test-app-123"); // Application ID should be default
+
+      // Find hostname in properties (should be set to Application ID)
+      const hostnameProperty = appJson.properties?.find(
+        (p: any) => p.id === "hostname",
+      );
+      expect(hostnameProperty).toBeDefined();
+      expect(hostnameProperty?.value).toBe("test-app-123"); // Application ID should be value
+
+      // Verify no separate template file is created
       const templatePath = path.join(
         env.localDir,
         "applications",
@@ -129,21 +150,7 @@ describe("FrameworkLoader - docker-compose", () => {
         "templates",
         "test-app-123-parameters.json",
       );
-      const template = pm.getPersistence().loadTemplate(templatePath);
-      expect(template).not.toBeNull();
-
-      // Find hostname parameter
-      const hostnameParam = template!.parameters?.find((p: any) => p.id === "hostname");
-      expect(hostnameParam).toBeDefined();
-      expect(hostnameParam?.required).toBe(false);
-      expect(hostnameParam?.default).toBe("test-app-123"); // Application ID should be default
-
-      // Find hostname in properties (should be set to Application ID)
-      const hostnameProperty = template!.commands?.[0]?.properties?.find(
-        (p: any) => p.id === "hostname",
-      );
-      expect(hostnameProperty).toBeDefined();
-      expect(hostnameProperty?.value).toBe("test-app-123"); // Application ID should be value
+      expect(require("fs").existsSync(templatePath)).toBe(false);
     },
     60000,
   );

@@ -1,7 +1,7 @@
 {
   "execute_on": "ve",
   "name": "Create and Configure LXC",
-  "description": "Creates LXC container and applies optional configurations (templates 101-199).\n\nThis template creates the container and then applies all optional configuration templates in the correct order. Each optional template will be automatically skipped if its required parameters are missing (via skip_if_all_missing).\n\nIf username is provided, a user will be created on the VE host before the container is created (template 095). This ensures consistent UID/GID mapping between host and container.\n\nNote: uid and gid parameters are used for volume permissions only, not for container idmap configuration. The container is created as unprivileged without automatic UID/GID mappings.\n\nTemplates included:\n- 095: Create User on VE Host (if username provided)\n- 100: Create LXC container (unprivileged, no idmap)\n- 104: Compute Static IPs from prefixes\n- 105: Set Static IP for LXC\n- 106: Update /etc/hosts entries\n- 110: Map Serial Device\n- 150: Create Storage Volumes for LXC\n- 170: Set Environment Variables in LXC",
+  "description": "Creates LXC container and applies optional configurations (templates 101-199).\n\nThis template creates the container and then applies all optional configuration templates in the correct order. Each optional template will be automatically skipped if its required parameters are missing (via skip_if_all_missing).\n\nIf username is provided, a user will be created on the VE host before the container is created (template 095). This ensures consistent UID/GID mapping between host and container.\n\nNote: uid and gid parameters are used for volume permissions only, not for container idmap configuration. The container is created as unprivileged without automatic UID/GID mappings.\n\nTemplates included:\n- 095: Create User on VE Host (if username provided)\n- 100: Create LXC container (unprivileged, no idmap)\n- 104: Compute Static IPs from prefixes\n- 105: Set Static IP for LXC\n- 106: Update /etc/hosts entries\n- 110: Map Serial Device\n- 150: Create Storage Volumes for LXC\n- 170: Set Environment Variables in LXC\n- 190: Write LXC Notes (managed marker, OCI image, links)",
   "parameters": [
     {
       "id": "vm_id",
@@ -155,6 +155,10 @@
     {
       "name": "Set Env Variables in LXC",
       "template": "170-conf-set-environment-variables-in-lxc.json"
+    },
+    {
+      "name": "Write LXC Notes",
+      "template": "190-host-write-lxc-notes.json"
     }
   ]
 }

@@ -1,0 +1,12 @@
+{
+  "name": "Update LXC Notes (Addon)",
+  "description": "Adds an addon marker to an existing LXC container's notes",
+  "execute_on": "ve",
+  "commands": [
+    {
+      "script": "host-update-lxc-notes-addon.py",
+      "library": "lxc_config_parser_lib.py",
+      "outputs": ["success"]
+    }
+  ]
+}

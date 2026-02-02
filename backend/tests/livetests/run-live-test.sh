@@ -202,9 +202,9 @@ assert '[ "$STATUS" = "running" ]' "Container is running (status: $STATUS)"
 NOTES=$(ssh "$PVE_SSH" "pct config $VM_ID 2>/dev/null" | grep -A100 "description:" || echo "")
 
 # Proxmox URL-encodes the description, so : becomes %3A
-assert 'echo "$NOTES" | grep -qE "lxc-manager(:managed|%3Amanaged)"' "Notes contain lxc-manager:managed marker"
-assert 'echo "$NOTES" | grep -qE "lxc-manager(:log-url|%3Alog-url)"' "Notes contain log-url"
-assert 'echo "$NOTES" | grep -qE "lxc-manager(:icon-url|%3Aicon-url)"' "Notes contain icon-url"
+assert 'echo "$NOTES" | grep -qE "oci-lxc-deployer(:managed|%3Amanaged)"' "Notes contain oci-lxc-deployer:managed marker"
+assert 'echo "$NOTES" | grep -qE "oci-lxc-deployer(:log-url|%3Alog-url)"' "Notes contain log-url"
+assert 'echo "$NOTES" | grep -qE "oci-lxc-deployer(:icon-url|%3Aicon-url)"' "Notes contain icon-url"
 assert 'echo "$NOTES" | grep -qE "(## Links|%23%23 Links)"' "Notes contain Links section"
 
 # 5d. Optional: Check if container has network

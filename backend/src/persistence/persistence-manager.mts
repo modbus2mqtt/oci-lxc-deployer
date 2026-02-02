@@ -10,9 +10,11 @@ import {
   IApplicationPersistence,
   ITemplatePersistence,
   IFrameworkPersistence,
+  IAddonPersistence,
 } from "./interfaces.mjs";
 import { ApplicationService } from "../services/application-service.mjs";
 import { FrameworkService } from "../services/framework-service.mjs";
+import { AddonService } from "../services/addon-service.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { FileSystemRepositories, type IRepositories } from "./repositories.mjs";
 
@@ -36,9 +38,11 @@ export class PersistenceManager {
   private jsonValidator: JsonValidator;
   private persistence: IApplicationPersistence &
     IFrameworkPersistence &
-    ITemplatePersistence;
+    ITemplatePersistence &
+    IAddonPersistence;
   private applicationService: ApplicationService;
   private frameworkService: FrameworkService;
+  private addonService: AddonService;
   private contextManager: ContextManager;
   private repositories: IRepositories;
 
@@ -77,6 +81,7 @@ export class PersistenceManager {
     // Initialize Services
     this.applicationService = new ApplicationService(this.persistence);
     this.frameworkService = new FrameworkService(this.persistence);
+    this.addonService = new AddonService(this.persistence, this.persistence);
 
     // Initialize ContextManager (no longer a singleton itself)
     // Pass pathes, validator and persistence to avoid duplication
@@ -164,6 +169,10 @@ export class PersistenceManager {
 
   getFrameworkService(): FrameworkService {
     return this.frameworkService;
+  }
+
+  getAddonService(): AddonService {
+    return this.addonService;
   }
 
   getPathes(): IConfiguredPathes {
