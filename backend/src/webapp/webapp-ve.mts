@@ -8,6 +8,7 @@ import {
   IVeLogsResponse,
   TaskType,
 } from "../types.mjs";
+import { IVEContext } from "../backend-types.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
@@ -269,6 +270,44 @@ export class WebAppVE {
         res.status(result.statusCode || 500).json(errorResponse);
       }
     });
+
+    // GET /api/ve/logs/:vmId/:veContext/hostname - Get container hostname
+    // IMPORTANT: Must be registered BEFORE VeLogs to avoid :veContext matching "hostname"
+    this.app.get<{ vmId: string; veContext: string }>(
+      ApiUri.VeLogsHostname,
+      async (req, res) => {
+        const { vmId: vmIdStr, veContext: veContextKey } = req.params;
+
+        const vmId = parseInt(vmIdStr, 10);
+        if (isNaN(vmId) || vmId <= 0) {
+          res.status(400).json({ hostname: null, error: "Invalid VM ID" });
+          return;
+        }
+
+        // Try to get VE context from storage, or derive from key (ve_hostname -> hostname)
+        const storageContext = PersistenceManager.getInstance().getContextManager();
+        const storedContext = storageContext.getVEContextByKey(veContextKey);
+        let veContext: IVEContext;
+        if (storedContext) {
+          veContext = storedContext;
+        } else if (veContextKey.startsWith("ve_")) {
+          // Extract host from key format: ve_hostname -> hostname
+          const host = veContextKey.substring(3);
+          veContext = { host, port: 22 } as IVEContext;
+        } else {
+          res.status(404).json({ hostname: null, error: "Invalid VE context key format" });
+          return;
+        }
+
+        try {
+          const logsService = new VeLogsService(veContext);
+          const hostname = await logsService.getHostnameForVm(vmId);
+          res.json({ hostname: hostname || null });
+        } catch {
+          res.json({ hostname: null });
+        }
+      },
+    );
 
     // GET /api/ve/logs/:vmId/:veContext - LXC Console Logs
     this.app.get<{ vmId: string; veContext: string }, unknown, unknown, { lines?: string }>(

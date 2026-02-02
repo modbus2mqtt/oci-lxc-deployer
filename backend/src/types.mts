@@ -134,6 +134,7 @@ export enum ApiUri {
   VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
   VeLogs = "/api/ve/logs/:vmId/:veContext",
+  VeLogsHostname = "/api/ve/logs/:vmId/:veContext/hostname",
   VeDockerLogs = "/api/ve/logs/:vmId/docker/:veContext",
   Applications = "/api/applications",
   ApplicationTags = "/api/applications/tags",

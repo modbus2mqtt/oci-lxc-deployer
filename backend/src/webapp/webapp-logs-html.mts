@@ -1,10 +1,12 @@
 import express from "express";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { VeLogsService } from "../ve-execution/ve-logs-service.mjs";
+import { IVEContext } from "../backend-types.mjs";
 
 /**
  * Register HTML log viewer route at /logs/:vmId/:veContext
  * This is a human-readable endpoint for direct browser access (e.g., from Proxmox notes).
+ * Hostname is loaded asynchronously via /api/ve/logs/:vmId/:veContext/hostname (in webapp-ve.mts)
  */
 export function registerLogsHtmlRoute(app: express.Application): void {
   app.get("/logs/:vmId/:veContext", async (req, res) => {
@@ -18,11 +20,18 @@ export function registerLogsHtmlRoute(app: express.Application): void {
       return;
     }
 
-    // Get VE context
+    // Try to get VE context from storage, or derive from key (ve_hostname -> hostname)
     const storageContext = PersistenceManager.getInstance().getContextManager();
-    const veContext = storageContext.getVEContextByKey(veContextKey);
-    if (!veContext) {
-      res.status(404).send(renderHtml(vmId, veContextKey, "VE context not found", true));
+    const storedContext = storageContext.getVEContextByKey(veContextKey);
+    let veContext: IVEContext;
+    if (storedContext) {
+      veContext = storedContext;
+    } else if (veContextKey.startsWith("ve_")) {
+      // Extract host from key format: ve_hostname -> hostname
+      const host = veContextKey.substring(3);
+      veContext = { host, port: 22 } as IVEContext;
+    } else {
+      res.status(404).send(renderHtml(vmId, veContextKey, "Invalid VE context key format", true));
       return;
     }
 
@@ -39,7 +48,7 @@ export function registerLogsHtmlRoute(app: express.Application): void {
   });
 }
 
-function renderHtml(vmId: number, veContext: string, content: string, isError: boolean, lines?: number): string {
+function renderHtml(vmId: number, veContextKey: string, content: string, isError: boolean, lines?: number): string {
   const escapedContent = content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return `<!DOCTYPE html>
 <html>
@@ -55,9 +64,24 @@ function renderHtml(vmId: number, veContext: string, content: string, isError: b
   </style>
 </head>
 <body>
-  <h1>Console Logs - CT ${vmId}</h1>
-  <div class="meta">VE: ${veContext} | Lines: ${lines || "N/A"}</div>
+  <h1 id="title">Console Logs - CT ${vmId}</h1>
+  <div class="meta">VE: ${veContextKey} | Lines: ${lines || "N/A"}</div>
   <pre${isError ? ' class="error"' : ""}>${escapedContent}</pre>
+  <script>
+    (async function() {
+      try {
+        const res = await fetch('/api/ve/logs/${vmId}/${veContextKey}/hostname');
+        const data = await res.json();
+        if (data.hostname) {
+          const title = data.hostname + ' (CT ${vmId})';
+          document.getElementById('title').textContent = 'Console Logs - ' + title;
+          document.title = 'Console Logs - ' + title;
+        }
+      } catch (e) {
+        // Ignore - keep default CT title
+      }
+    })();
+  </script>
 </body>
 </html>`;
 }
