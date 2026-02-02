@@ -306,6 +306,34 @@ export class WebAppVE {
         }
         const result = await logsService.getConsoleLogs(logOptions);
 
+        // Content negotiation: return HTML for browsers, JSON for API clients
+        const acceptHeader = req.headers.accept || "";
+        if (acceptHeader.includes("text/html")) {
+          const logContent = result.success && result.content ? result.content : (result.error || "No logs available");
+          const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Console Logs - CT ${vmId}</title>
+  <style>
+    body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }
+    h1 { color: #569cd6; margin-bottom: 10px; }
+    .meta { color: #808080; margin-bottom: 20px; }
+    pre { white-space: pre-wrap; word-wrap: break-word; background: #252526; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    .error { color: #f44747; }
+  </style>
+</head>
+<body>
+  <h1>Console Logs - CT ${vmId}</h1>
+  <div class="meta">VE: ${veContextKey} | Lines: ${result.lines || "N/A"}</div>
+  <pre${result.success ? "" : ' class="error"'}>${logContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
+</body>
+</html>`;
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          res.status(result.success ? 200 : 400).send(html);
+          return;
+        }
+
         this.returnResponse<IVeLogsResponse>(res, result, result.success ? 200 : 400);
       },
     );
