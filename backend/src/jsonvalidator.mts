@@ -101,7 +101,7 @@ export class JsonValidator {
   private ajv: Ajv2020;
   constructor(
     schemasDir: string = resolve("schemas"),
-    baseSchemas: string[] = ["templatelist.schema.json"],
+    baseSchemas: string[] = ["templatelist.schema.json", "base-deployable.schema.json"],
   ) {
     this.ajv = new Ajv2020({
       allErrors: true,

@@ -1,17 +1,11 @@
 {
   "$id": "application",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [{ "$ref": "base-deployable" }],
   "type": "object",
   "properties": {
-    "name": { "type": "string" },
     "extends": { "type": "string", "pattern": "^(local:|[^:]+).*$" },
-    "description": { "type": "string" },
     "icon": { "type": "string", "default": "icon.png" },
-    "tags": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Application tags for categorization. Must match tags defined in json/tags.json"
-    },
     "url": { "type": "string" },
     "documentation": { "type": "string" },
     "source": { "type": "string" },
@@ -20,6 +14,6 @@
     "copy-upgrade": { "$ref": "templatelist" },
     "copy-rollback": { "$ref": "templatelist" }
   },
-  "required": ["name", "installation"],
-  "additionalProperties": false
+  "required": ["installation"],
+  "unevaluatedProperties": false
 }

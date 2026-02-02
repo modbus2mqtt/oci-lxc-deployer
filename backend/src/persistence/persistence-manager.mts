@@ -16,7 +16,7 @@ import { FrameworkService } from "../services/framework-service.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { FileSystemRepositories, type IRepositories } from "./repositories.mjs";
 
-const baseSchemas: string[] = ["templatelist.schema.json"];
+const baseSchemas: string[] = ["templatelist.schema.json", "base-deployable.schema.json"];
 
 /**
  * Central singleton manager for Persistence, Services and ContextManager

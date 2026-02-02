@@ -1,0 +1,16 @@
+{
+  "$id": "base-deployable",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Base schema for deployable entities (applications and addons)",
+  "properties": {
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tags for categorization. Must match tags defined in json/tags.json"
+    }
+  },
+  "required": ["name"]
+}
