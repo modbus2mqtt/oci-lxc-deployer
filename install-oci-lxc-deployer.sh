@@ -20,7 +20,7 @@ execute_script_from_github() {
   fi
   path="$1"; output_id="$2"; shift 2
 
-  raw_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/${path}"
+  raw_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${path}"
   sed_args=""
   for kv in "$@"; do
     key="${kv%%=*}"
