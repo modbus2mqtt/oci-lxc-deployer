@@ -1,0 +1,33 @@
+{
+  "name": "Samba File Shares",
+  "description": "SMB/CIFS file sharing for the container",
+  "tags": ["storage", "network"],
+
+  "compatible_with": "*",
+
+  "volumes": [
+    {
+      "id": "samba_data",
+      "mount_point": "/srv/samba",
+      "default_size": "10G"
+    }
+  ],
+
+  "pre_start": [
+    {
+      "name": "150-conf-create-storage-volumes-for-lxc.json",
+      "after": "100-conf-create-configure-lxc.json"
+    }
+  ],
+
+  "post_start": [
+    {
+      "name": "320-post-install-samba.json",
+      "after": "310-post-install-apk-package.json"
+    }
+  ],
+
+  "upgrade": [],
+
+  "notes_key": "samba-shares"
+}

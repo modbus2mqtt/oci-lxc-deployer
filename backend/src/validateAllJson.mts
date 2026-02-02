@@ -84,6 +84,26 @@ function findFrameworkFiles(dir: string): string[] {
   return results;
 }
 
+function findAddonFiles(dir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) {
+    return results;
+  }
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      // Addons are single JSON files (not in subdirectories)
+      if (entry.isFile() && entry.name.endsWith(".json")) {
+        results.push(fullPath);
+      }
+    }
+  } catch {
+    // Ignore errors reading directory (e.g., permission denied)
+  }
+  return results;
+}
+
 export async function validateAllJson(localPathArg?: string): Promise<void> {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -276,6 +296,65 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
       hasError = true;
       const schemaName = path.basename(frameworkSchemaPath);
       console.error(`✖ Invalid framework: ${relPath} [${schemaName}]`);
+      if (err && err.details) {
+        for (const detail of err.details) {
+          const isAdditional =
+            detail.message &&
+            detail.message.includes("must NOT have additional properties");
+          if (
+            isAdditional &&
+            detail.params &&
+            detail.params.additionalProperty
+          ) {
+            console.error(
+              `  - ${detail.message} (property: '${detail.params.additionalProperty}')${
+                detail.line ? " (line " + detail.line + ")" : ""
+              }`,
+            );
+          } else {
+            console.error(
+              `  - ${detail.message}${
+                detail.line ? " (line " + detail.line + ")" : ""
+              }`,
+            );
+          }
+        }
+      } else {
+        console.error(err);
+      }
+    }
+  }
+
+  // Validate addons - search in localPath and jsonPath
+  console.log("\nValidating addons...");
+  const addonFiles: string[] = [];
+
+  // Search in localPath
+  if (fs.existsSync(localPath)) {
+    const localAddons = findAddonFiles(path.join(localPath, "addons"));
+    addonFiles.push(...localAddons);
+  }
+
+  // Search in jsonPath
+  if (fs.existsSync(jsonPath)) {
+    const jsonAddons = findAddonFiles(path.join(jsonPath, "addons"));
+    addonFiles.push(...jsonAddons);
+  }
+
+  const addonSchemaPath = path.join(schemasDir, "addon.schema.json");
+
+  for (const filePath of addonFiles) {
+    const relPath = path.relative(
+      filePath.startsWith(localPath) ? localPath : jsonPath,
+      filePath,
+    );
+    try {
+      validator.serializeJsonFileWithSchema(filePath, addonSchemaPath);
+      console.log(`✔ Valid addon: ${relPath}`);
+    } catch (err: any) {
+      hasError = true;
+      const schemaName = path.basename(addonSchemaPath);
+      console.error(`✖ Invalid addon: ${relPath} [${schemaName}]`);
       if (err && err.details) {
         for (const detail of err.details) {
           const isAdditional =
