@@ -7,6 +7,7 @@ import {
   IEnumValuesResponse,
   IApplicationsResponse,
   ITagsConfigResponse,
+  IApplicationFrameworkDataResponse,
 } from "@src/types.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
@@ -184,6 +185,116 @@ export function registerApplicationRoutes(
       returnResponse<ITemplateProcessorLoadResult>(res, application);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get(ApiUri.ApplicationFrameworkData, (req, res) => {
+    try {
+      const applicationId = req.params.applicationId;
+      if (!applicationId) {
+        return res.status(400).json({ error: "Missing applicationId" });
+      }
+
+      const pm = PersistenceManager.getInstance();
+      const appService = pm.getApplicationService();
+
+      // Check if application exists in local directory
+      const localAppNames = appService.getLocalAppNames();
+      if (!localAppNames.has(applicationId)) {
+        return res.status(404).json({ error: `Application ${applicationId} not found in local applications` });
+      }
+
+      // Read application.json
+      const application = appService.readApplication(applicationId, {
+        applicationHierarchy: [],
+        error: { message: "", name: "Error", details: undefined },
+        taskTemplates: [],
+      });
+
+      // Check if application has a framework (extends property pointing to a framework base)
+      if (!application.extends) {
+        return res.status(400).json({ error: `Application ${applicationId} is not framework-based (no extends property)` });
+      }
+
+      // Read the parameters template (<appId>-parameters.json)
+      const appPath = localAppNames.get(applicationId)!;
+      const parametersTemplatePath = `${appPath}/templates/${applicationId}-parameters.json`;
+      let parametersTemplate: any = null;
+      try {
+        parametersTemplate = pm.getPersistence().loadTemplate(parametersTemplatePath);
+      } catch {
+        // Parameters template might not exist for older applications
+      }
+
+      // Extract parameter values from the template
+      const parameterValues: { id: string; value: string | number | boolean }[] = [];
+
+      if (parametersTemplate) {
+        // Extract from parameters array (default values)
+        if (parametersTemplate.parameters) {
+          for (const param of parametersTemplate.parameters) {
+            if (param.default !== undefined) {
+              parameterValues.push({ id: param.id, value: param.default });
+            }
+          }
+        }
+
+        // Extract from commands[].properties (output values)
+        if (parametersTemplate.commands) {
+          for (const cmd of parametersTemplate.commands) {
+            if (cmd.properties) {
+              const props = Array.isArray(cmd.properties) ? cmd.properties : [cmd.properties];
+              for (const prop of props) {
+                if (prop.id && prop.value !== undefined) {
+                  // Don't duplicate if already in parameterValues
+                  if (!parameterValues.some(pv => pv.id === prop.id)) {
+                    parameterValues.push({ id: prop.id, value: prop.value });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Read icon if exists
+      let iconContent: string | undefined;
+      if (application.icon) {
+        try {
+          const iconData = appService.readApplicationIcon(applicationId);
+          if (iconData) {
+            iconContent = iconData.iconContent;
+          }
+        } catch {
+          // Icon might not exist
+        }
+      }
+
+      const response: IApplicationFrameworkDataResponse = {
+        frameworkId: application.extends,
+        applicationId,
+        name: application.name,
+        description: application.description,
+        parameterValues,
+      };
+
+      // Add optional properties only if they have values
+      if (application.url) response.url = application.url;
+      if (application.documentation) response.documentation = application.documentation;
+      if (application.source) response.source = application.source;
+      if (application.vendor) response.vendor = application.vendor;
+      if (application.icon) response.icon = application.icon;
+      if (iconContent) response.iconContent = iconContent;
+      if (application.tags && application.tags.length > 0) response.tags = application.tags;
+
+      returnResponse<IApplicationFrameworkDataResponse>(res, response);
+    } catch (err: any) {
+      const statusCode = getErrorStatusCode(err);
+      const serializedError = serializeError(err);
+      res.status(statusCode).json({
+        error: err instanceof Error ? err.message : String(err),
+        serializedError: serializedError,
+      });
     }
   });
 }

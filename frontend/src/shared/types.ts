@@ -134,6 +134,7 @@ export enum ApiUri {
   FrameworkParameters = "/api/framework-parameters/:frameworkId",
   FrameworkCreateApplication = "/api/framework-create-application",
   FrameworkFromImage = "/api/framework-from-image",
+  ApplicationFrameworkData = "/api/application/:applicationId/framework-data",
 }
 
 // Tags definition interfaces
@@ -340,7 +341,9 @@ export interface IPostFrameworkCreateApplicationBody {
   vendor?: string;
   icon?: string;
   iconContent?: string;
+  tags?: string[];
   parameterValues: { id: string; value: string | number | boolean }[];
+  update?: boolean; // If true, overwrite existing application
 }
 export interface IPostFrameworkCreateApplicationResponse {
   success: boolean;
@@ -376,6 +379,21 @@ export interface IApplicationDefaults {
 export interface IPostFrameworkFromImageResponse {
   annotations: IOciImageAnnotations;
   defaults: IApplicationDefaults;
+}
+
+export interface IApplicationFrameworkDataResponse {
+  frameworkId: string;
+  applicationId: string;
+  name: string;
+  description: string;
+  url?: string;
+  documentation?: string;
+  source?: string;
+  vendor?: string;
+  icon?: string;
+  iconContent?: string;
+  tags?: string[];
+  parameterValues: { id: string; value: string | number | boolean }[];
 }
 
 // Docker-Compose migration warnings

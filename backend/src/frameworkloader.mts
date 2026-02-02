@@ -152,10 +152,16 @@ export class FrameworkLoader {
     // Allow creating local applications even if the same ID exists in json directory
     const localAppNames = this.persistence.getLocalAppNames();
     if (localAppNames.has(request.applicationId)) {
-      const existingAppPath = localAppNames.get(request.applicationId)!;
-      throw new Error(
-        `Application ${request.applicationId} already exists at ${existingAppPath}`,
-      );
+      if (request.update) {
+        // In update mode, delete existing application directory first
+        const existingAppPath = localAppNames.get(request.applicationId)!;
+        fs.rmSync(existingAppPath, { recursive: true, force: true });
+      } else {
+        const existingAppPath = localAppNames.get(request.applicationId)!;
+        throw new Error(
+          `Application ${request.applicationId} already exists at ${existingAppPath}`,
+        );
+      }
     }
 
     // Application directory will be created by writeApplication
@@ -359,6 +365,9 @@ export class FrameworkLoader {
     }
     if (vendor) {
       applicationJson.vendor = vendor;
+    }
+    if (request.tags && request.tags.length > 0) {
+      applicationJson.tags = request.tags;
     }
 
     // Write application.json using persistence

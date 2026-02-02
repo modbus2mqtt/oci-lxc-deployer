@@ -1,6 +1,9 @@
 <!-- Step 3: Parameters -->
  <div class="create-application-container">
-  <h1>Create Application from Framework</h1>
+  <h1>{{ editMode() ? 'Edit Application' : 'Create Application from Framework' }}</h1>
+  @if (loadingEditData()) {
+    <p>Loading application data...</p>
+  }
   <mat-stepper #stepper linear (selectionChange)="onStepChange($event)">
     <!-- Step 1: Select Framework -->
     <mat-step [editable]="true">
@@ -138,6 +141,30 @@
             <mat-label>Vendor</mat-label>
             <input matInput formControlName="vendor" />
           </mat-form-field>
+
+          <!-- Tags Selection -->
+          @if (tagsConfig()) {
+            <div class="tags-selection-section">
+              <div class="tags-selection-label">Tags (Optional)</div>
+              <div class="tags-selection-container">
+                @for (group of tagsConfig()!.groups; track group.id) {
+                  <div class="tag-group">
+                    <div class="tag-group-name">{{ group.name }}</div>
+                    <mat-chip-listbox multiple>
+                      @for (tag of group.tags; track tag.id) {
+                        <mat-chip-option
+                          [selected]="isTagSelected(tag.id)"
+                          (selectionChange)="toggleTag(tag.id)"
+                        >
+                          {{ tag.name }}
+                        </mat-chip-option>
+                      }
+                    </mat-chip-listbox>
+                  </div>
+                }
+              </div>
+            </div>
+          }
 
           <!-- Icon Upload -->
           <div class="icon-upload-section">
@@ -293,9 +320,9 @@
         <button mat-button matStepperPrevious>Back</button>
         <button mat-raised-button color="primary" (click)="createApplication()" [disabled]="creating()">
           @if (creating()) {
-            Creating...
+            {{ editMode() ? 'Updating...' : 'Creating...' }}
           } @else {
-            Create Application
+            {{ editMode() ? 'Update Application' : 'Create Application' }}
           }
         </button>
       </div>

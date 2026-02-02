@@ -10,7 +10,7 @@ import {
   ValidationErrors,
   Validators,
 } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
@@ -18,12 +18,13 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { MatChipsModule } from '@angular/material/chips';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Observable, Subject, debounceTime, distinctUntilChanged, of, takeUntil } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 
-import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse } from '../../shared/types';
+import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse, ITagsConfig, ITagGroup } from '../../shared/types';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { CacheService } from '../shared/services/cache.service';
 import { DockerComposeService, ComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';
@@ -47,6 +48,7 @@ import { OciImageStepComponent } from './oci-image-step.component';
     MatTooltipModule,
     MatIconModule,
     MatButtonToggleModule,
+    MatChipsModule,
     ParameterGroupComponent,
     ComposeEnvSelectorComponent,
     OciImageStepComponent
@@ -60,10 +62,16 @@ export class CreateApplication implements OnInit, OnDestroy {
   private fb = inject(FormBuilder);
   private configService = inject(VeConfigurationService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   private errorHandler = inject(ErrorHandlerService);
   private cacheService = inject(CacheService);
   private composeService = inject(DockerComposeService);
   private cdr = inject(ChangeDetectorRef);
+
+  // Edit mode: when editing an existing application
+  editMode = signal(false);
+  editApplicationId = signal<string | null>(null);
+  loadingEditData = signal(false);
 
   // Step 1: Framework selection
   frameworks: IFrameworkName[] = [];
@@ -103,6 +111,10 @@ export class CreateApplication implements OnInit, OnDestroy {
   iconPreview = signal<string | null>(null);
   iconContent = signal<string | null>(null);
 
+  // Tags
+  tagsConfig = signal<ITagsConfig | null>(null);
+  selectedTags = signal<string[]>([]);
+
   // Docker Compose specific
   parsedComposeData = signal<ParsedComposeData | null>(null);
   selectedServiceName = signal<string>('');
@@ -134,12 +146,13 @@ export class CreateApplication implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.cacheService.preloadAll();
     this.loadFrameworks();
-    
+    this.loadTagsConfig();
+
     const applicationIdControl = this.appPropertiesForm.get('applicationId');
     if (applicationIdControl) {
       applicationIdControl.setAsyncValidators([this.applicationIdUniqueValidator()]);
     }
-    
+
     this.imageInputSubject.pipe(
       takeUntil(this.destroy$),
       debounceTime(500), // Wait 500ms after user stops typing
@@ -147,13 +160,26 @@ export class CreateApplication implements OnInit, OnDestroy {
     ).subscribe(imageRef => {
       if (imageRef && imageRef.trim()) {
         this.updateOciImageParameter(imageRef);
-        this.fetchImageAnnotations(imageRef.trim());
+        // In edit mode, don't fetch annotations automatically - user already has their data
+        if (!this.editMode()) {
+          this.fetchImageAnnotations(imageRef.trim());
+        }
       } else {
         this.imageError.set(null);
         this.loadingImageAnnotations.set(false);
         if (this.parameterForm.get('oci_image')) {
           this.parameterForm.patchValue({ oci_image: '' }, { emitEvent: false });
         }
+      }
+    });
+
+    // Check for edit mode via query parameter
+    this.route.queryParams.pipe(takeUntil(this.destroy$)).subscribe(params => {
+      const applicationId = params['applicationId'];
+      if (applicationId) {
+        this.editMode.set(true);
+        this.editApplicationId.set(applicationId);
+        this.loadEditData(applicationId);
       }
     });
   }
@@ -168,16 +194,19 @@ export class CreateApplication implements OnInit, OnDestroy {
 
   loadFrameworks(): void {
     this.loadingFrameworks.set(true);
-    
+
     this.cacheService.getFrameworks().subscribe({
       next: (frameworks) => {
         this.frameworks = frameworks;
         this.loadingFrameworks.set(false);
-        
-        const defaultFramework = frameworks.find(f => f.id === 'oci-image');
-        if (defaultFramework && !this.selectedFramework) {
-          this.selectedFramework = defaultFramework;
-          this.loadParameters(defaultFramework.id);
+
+        // In edit mode, don't auto-select - wait for loadEditData to set framework
+        if (!this.editMode()) {
+          const defaultFramework = frameworks.find(f => f.id === 'oci-image');
+          if (defaultFramework && !this.selectedFramework) {
+            this.selectedFramework = defaultFramework;
+            this.loadParameters(defaultFramework.id);
+          }
         }
       },
       error: (err) => {
@@ -185,6 +214,156 @@ export class CreateApplication implements OnInit, OnDestroy {
         this.loadingFrameworks.set(false);
       }
     });
+  }
+
+  private loadTagsConfig(): void {
+    this.configService.getTagsConfig().subscribe({
+      next: (config) => {
+        this.tagsConfig.set(config);
+      },
+      error: (err) => {
+        console.error('Failed to load tags config', err);
+      }
+    });
+  }
+
+  toggleTag(tagId: string): void {
+    const current = this.selectedTags();
+    if (current.includes(tagId)) {
+      this.selectedTags.set(current.filter(t => t !== tagId));
+    } else {
+      this.selectedTags.set([...current, tagId]);
+    }
+  }
+
+  isTagSelected(tagId: string): boolean {
+    return this.selectedTags().includes(tagId);
+  }
+
+  private loadEditData(applicationId: string): void {
+    this.loadingEditData.set(true);
+
+    this.configService.getApplicationFrameworkData(applicationId).subscribe({
+      next: (data) => {
+        // Set framework
+        const framework = this.frameworks.find(f => f.id === data.frameworkId);
+        if (framework) {
+          this.selectedFramework = framework;
+
+          // Load parameters first, then fill with edit data
+          this.configService.getFrameworkParameters(data.frameworkId).subscribe({
+            next: (res) => {
+              this.parameters = res.parameters;
+              this.setupParameterForm();
+
+              // Fill application properties form
+              this.appPropertiesForm.patchValue({
+                name: data.name,
+                applicationId: data.applicationId,
+                description: data.description,
+                url: data.url || '',
+                documentation: data.documentation || '',
+                source: data.source || '',
+                vendor: data.vendor || '',
+              }, { emitEvent: false });
+
+              // Disable applicationId field in edit mode
+              this.appPropertiesForm.get('applicationId')?.disable();
+
+              // Fill icon if present
+              if (data.iconContent) {
+                this.iconContent.set(data.iconContent);
+                const iconType = data.icon?.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
+                this.iconPreview.set(`data:${iconType};base64,${data.iconContent}`);
+              }
+
+              // Fill tags if present
+              if (data.tags && data.tags.length > 0) {
+                this.selectedTags.set(data.tags);
+              }
+
+              // Fill parameter values
+              for (const pv of data.parameterValues) {
+                const ctrl = this.parameterForm.get(pv.id);
+                if (ctrl) {
+                  ctrl.patchValue(pv.value, { emitEvent: false });
+                }
+
+                // Special handling for oci_image - also set imageReference signal
+                if (pv.id === 'oci_image' && typeof pv.value === 'string') {
+                  this.imageReference.set(pv.value);
+                }
+
+                // Special handling for compose_file - parse it
+                if (pv.id === 'compose_file' && typeof pv.value === 'string' && pv.value.trim()) {
+                  const parsed = this.composeService.parseComposeFile(pv.value);
+                  if (parsed) {
+                    this.parsedComposeData.set(parsed);
+                    this.composeServices.set(parsed.services);
+                    this.composeProperties.set(parsed.properties);
+                    if (parsed.services.length > 0) {
+                      this.selectedServiceName.set(parsed.services[0].name);
+                    }
+                    // Set install mode to compose if compose_file is present
+                    this.ociInstallMode.set('compose');
+                  }
+                }
+              }
+
+              this.loadingEditData.set(false);
+
+              // Navigate to step 2 after view is ready
+              setTimeout(() => {
+                if (this.stepper) {
+                  this.stepper.selectedIndex = 1;
+                }
+              }, 100);
+            },
+            error: (err) => {
+              this.errorHandler.handleError('Failed to load framework parameters', err);
+              this.loadingEditData.set(false);
+            }
+          });
+        } else {
+          this.errorHandler.handleError('Framework not found', new Error(`Framework ${data.frameworkId} not found`));
+          this.loadingEditData.set(false);
+        }
+      },
+      error: (err) => {
+        this.errorHandler.handleError('Failed to load application data', err);
+        this.loadingEditData.set(false);
+        // Navigate back to applications list on error
+        this.router.navigate(['/applications']);
+      }
+    });
+  }
+
+  private setupParameterForm(): void {
+    this.groupedParameters = {};
+
+    for (const param of this.parameters) {
+      const group = param.templatename || 'General';
+      if (!this.groupedParameters[group]) {
+        this.groupedParameters[group] = [];
+      }
+      this.groupedParameters[group].push(param);
+
+      // Skip if control already exists (e.g., compose_file, env_file)
+      if (this.parameterForm.get(param.id)) {
+        continue;
+      }
+
+      const validators = param.required ? [Validators.required] : [];
+      const defaultValue = param.default !== undefined ? param.default : '';
+      this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
+    }
+
+    // Sort parameters in each group: required first, then optional
+    for (const group in this.groupedParameters) {
+      this.groupedParameters[group] = this.groupedParameters[group].slice().sort(
+        (a, b) => Number(!!b.required) - Number(!!a.required)
+      );
+    }
   }
 
   onFrameworkSelected(frameworkId: string): void {
@@ -408,7 +587,7 @@ export class CreateApplication implements OnInit, OnDestroy {
           value = match[1]; // Extract only the base64 content
         }
       }
-      
+
       if (value !== null && value !== undefined && value !== '') {
         parameterValues.push({ id: param.id, value });
       }
@@ -427,9 +606,14 @@ export class CreateApplication implements OnInit, OnDestroy {
       }
     }
 
+    // In edit mode, use getRawValue() to get disabled field value
+    const applicationId = this.editMode()
+      ? this.editApplicationId()
+      : this.appPropertiesForm.get('applicationId')?.value;
+
     const body = {
       frameworkId: this.selectedFramework.id,
-      applicationId: this.appPropertiesForm.get('applicationId')?.value,
+      applicationId,
       name: this.appPropertiesForm.get('name')?.value,
       description: this.appPropertiesForm.get('description')?.value,
       url: this.appPropertiesForm.get('url')?.value || undefined,
@@ -440,17 +624,24 @@ export class CreateApplication implements OnInit, OnDestroy {
         icon: this.selectedIconFile.name,
         iconContent: this.iconContent()!,
       }),
-      parameterValues
+      // In edit mode, preserve existing icon if no new one selected
+      ...(!this.selectedIconFile && this.iconContent() && this.editMode() && {
+        iconContent: this.iconContent()!,
+      }),
+      ...(this.selectedTags().length > 0 && { tags: this.selectedTags() }),
+      parameterValues,
+      ...(this.editMode() && { update: true }),
     };
 
+    const actionText = this.editMode() ? 'updated' : 'created';
     this.configService.createApplicationFromFramework(body).subscribe({
       next: (res) => {
         this.creating.set(false);
         if (res.success) {
-          alert(`Application "${body.name}" created successfully!`);
+          alert(`Application "${body.name}" ${actionText} successfully!`);
           this.router.navigate(['/applications']);
         } else {
-          this.createError.set('Failed to create application. Please try again.');
+          this.createError.set(`Failed to ${this.editMode() ? 'update' : 'create'} application. Please try again.`);
           this.createErrorStep.set(null);
         }
       },
