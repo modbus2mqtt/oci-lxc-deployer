@@ -22,7 +22,8 @@ export function setupStaticRoutes(app: express.Application): string | undefined 
     }
   } catch {}
 
-  const repoRoot = path.join(__dirname, "../../");
+  // From dist/webapp/, go up 3 levels to reach repo root (dist/webapp/ -> dist/ -> backend/ -> repo/)
+  const repoRoot = path.join(__dirname, "../../../");
   const candidates: string[] = [];
   if (configuredRel) {
     candidates.push(
@@ -32,9 +33,9 @@ export function setupStaticRoutes(app: express.Application): string | undefined 
     );
   }
   candidates.push(
-    path.join(__dirname, "../../frontend/dist/webapp-angular/browser"),
-    path.join(__dirname, "../../frontend/dist"),
-    path.join(__dirname, "../../frontend/dist/frontend"),
+    path.join(repoRoot, "frontend/dist/webapp-angular/browser"),
+    path.join(repoRoot, "frontend/dist"),
+    path.join(repoRoot, "frontend/dist/frontend"),
     path.join(__dirname, "../webapp-angular"),
   );
 
