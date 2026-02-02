@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { IVEContext } from "@src/backend-types.mjs";
 import { execSync } from "child_process";
-import { ExecutionMode } from "@src/ve-execution-constants.mjs";
+import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
 import { FrameworkFromImage } from "@src/framework-from-image.mjs";
 import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
 import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
@@ -16,12 +16,12 @@ try {
 }
 
 describe("FrameworkFromImage - Integration Tests", () => {
-  const localhostVEContext: IVEContext = {
+  const localhostVEContext = {
     host: "localhost",
     port: 22,
     getKey: () => "ve_localhost",
-    getStorageContext: () => null,
-  } as IVEContext;
+    getStorageContext: () => {},
+  } as  IVEContext;
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
 
