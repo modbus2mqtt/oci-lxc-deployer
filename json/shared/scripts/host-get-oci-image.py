@@ -13,7 +13,7 @@ Parameters (via template variables):
   platform (optional): Target platform (e.g., linux/amd64, linux/arm64). Default: linux/amd64
 
 Output (JSON to stdout):
-    [{"id": "template_path", "value": "storage:vztmpl/image_tag.tar"}, {"id": "ostype", "value": "alpine"}, {"id": "application_id", "value": "oci-lxc-deployer"}, {"id": "oci_image", "value": "ghcr.io/modbus2mqtt/oci-lxc-deployer:latest"}, {"id": "oci_image_tag", "value": "0.17.5"}]
+    [{"id": "template_path", "value": "storage:vztmpl/image_tag.tar"}, {"id": "ostype", "value": "alpine"}, {"id": "application_id", "value": "oci-lxc-deployer"}, {"id": "application_name", "value": "OCI LXC Deployer"}, {"id": "oci_image", "value": "ghcr.io/modbus2mqtt/oci-lxc-deployer:latest"}, {"id": "oci_image_tag", "value": "0.17.5"}]
 
 All logs and progress go to stderr.
 
@@ -114,6 +114,37 @@ def extract_version_from_inspect(inspect_output: dict) -> str:
                         version = version[1:]
                     return version
         
+        return None
+    except Exception:
+        return None
+
+def extract_application_name_from_inspect(inspect_output: dict) -> Optional[str]:
+    """
+    Extract application name from skopeo inspect output.
+
+    Tries to find name in Labels:
+    - org.opencontainers.image.title
+    - io.hass.name
+
+    Returns the extracted name, or None if not found.
+    """
+    try:
+        labels = inspect_output.get('Labels', {})
+        if not labels:
+            return None
+
+        # Try common name label fields (in order of preference)
+        name_fields = [
+            'org.opencontainers.image.title',
+            'io.hass.name',
+        ]
+
+        for field in name_fields:
+            if field in labels:
+                name = labels[field]
+                if name and name.strip():
+                    return name.strip()
+
         return None
     except Exception:
         return None
@@ -370,19 +401,21 @@ def main() -> None:
                     
                     # Still need to detect ostype - inspect the existing image or use default
                     # For simplicity, inspect the source image
-                    log("Inspecting image to detect ostype...")
+                    log("Inspecting image to detect ostype and application name...")
                     inspect_output = skopeo_inspect(image_ref, registry_username, registry_password)
                     ostype = detect_ostype_from_inspect(inspect_output)
+                    application_name = extract_application_name_from_inspect(inspect_output) or ""
                     actual_tag = tag
                     if tag == "latest" or tag.lower() == "latest":
                         extracted_version = extract_version_from_inspect(inspect_output)
                         if extracted_version:
                             actual_tag = extracted_version
-                    
+
                     output = [
                         {"id": "template_path", "value": template_path},
                         {"id": "ostype", "value": ostype},
                         {"id": "application_id", "value": application_id},
+                        {"id": "application_name", "value": application_name},
                         {"id": "oci_image", "value": oci_image},
                         {"id": "oci_image_tag", "value": actual_tag}
                     ]
@@ -404,10 +437,13 @@ def main() -> None:
             actual_tag = extracted_version
             log(f"Extracted version from image labels: {actual_tag}")
     
-    # Detect ostype
+    # Detect ostype and application name
     ostype = detect_ostype_from_inspect(inspect_output)
     log(f"Detected ostype: {ostype}")
-    
+    application_name = extract_application_name_from_inspect(inspect_output) or ""
+    if application_name:
+        log(f"Extracted application name: {application_name}")
+
     # Check again if image with actual_tag (extracted version) already exists
     if actual_tag != tag:
         try:
@@ -415,7 +451,7 @@ def main() -> None:
             image_base = image.split('/')[-1]
             safe_tag = actual_tag.replace(':', '_').replace('/', '_').replace('\\', '_')
             search_pattern = f"{image_base}_{safe_tag}"
-            
+
             lines = result.stdout.split('\n')
             for line in lines:
                 if search_pattern in line and '.tar' in line:
@@ -426,6 +462,7 @@ def main() -> None:
                             {"id": "template_path", "value": template_path},
                             {"id": "ostype", "value": ostype},
                             {"id": "application_id", "value": application_id},
+                            {"id": "application_name", "value": application_name},
                             {"id": "oci_image", "value": oci_image},
                             {"id": "oci_image_tag", "value": actual_tag}
                         ]
@@ -456,6 +493,7 @@ def main() -> None:
         {"id": "template_path", "value": template_path},
         {"id": "ostype", "value": ostype},
         {"id": "application_id", "value": application_id},
+        {"id": "application_name", "value": application_name},
         {"id": "oci_image", "value": oci_image},
         {"id": "oci_image_tag", "value": actual_tag}
     ]
