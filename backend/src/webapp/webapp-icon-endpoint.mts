@@ -25,12 +25,7 @@ export class WebAppIconEndpoint {
           return;
         }
 
-        const expectedType = ext === "svg" ? "image/svg+xml" : "image/png";
-        if (icon.iconType !== expectedType) {
-          res.status(404).json({ error: "Icon not found" });
-          return;
-        }
-
+        // Serve whatever icon format is available, ignoring requested extension
         const buffer = Buffer.from(icon.iconContent, "base64");
         res.setHeader("Content-Type", icon.iconType);
         res.setHeader("Cache-Control", "public, max-age=3600");
