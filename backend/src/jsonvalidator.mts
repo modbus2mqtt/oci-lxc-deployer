@@ -1,6 +1,6 @@
 import { parse as parseWithSourceMap } from "json-source-map";
 
-import { Ajv, ErrorObject } from "ajv";
+import { Ajv2020, ErrorObject } from "ajv/dist/2020.js";
 import ajvErrors from "ajv-errors";
 import fs from "fs";
 import path, { resolve, extname, join } from "path";
@@ -98,12 +98,12 @@ export class ValidateJsonError extends JsonError implements IJsonError {
   }
 }
 export class JsonValidator {
-  private ajv: Ajv;
+  private ajv: Ajv2020;
   constructor(
     schemasDir: string = resolve("schemas"),
     baseSchemas: string[] = ["templatelist.schema.json"],
   ) {
-    this.ajv = new Ajv({
+    this.ajv = new Ajv2020({
       allErrors: true,
       strict: true,
       strictRequired: false,
