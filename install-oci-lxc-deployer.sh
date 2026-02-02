@@ -494,8 +494,8 @@ echo "  storagecontext.json written at: ${storagecontext_file}" >&2
 
 # 5.2) Write LXC notes/description
 echo "Step 5.2: Writing LXC notes..." >&2
-# For self-install, deployer_base_url points to this container, ve_context_key is the PVE host
-pve_hostname=$(hostname)
+# For self-install, deployer_base_url points to this container
+# ve_context_key must match the key in storagecontext.json (ve_${proxmox_hostname})
 deployer_base_url="http://${hostname}:3000"
 execute_script_from_github \
   "json/shared/scripts/host-write-lxc-notes.sh" \
@@ -508,7 +508,7 @@ execute_script_from_github \
   "application_id=${application_id}" \
   "application_name=${application_name}" \
   "deployer_base_url=${deployer_base_url}" \
-  "ve_context_key=${pve_hostname}" >/dev/null || echo "  Warning: Failed to write notes (non-fatal)" >&2
+  "ve_context_key=ve_${proxmox_hostname}" >/dev/null || echo "  Warning: Failed to write notes (non-fatal)" >&2
 
 # 6) Ensure container is running
 echo "Step 6: Ensuring container is running..." >&2
