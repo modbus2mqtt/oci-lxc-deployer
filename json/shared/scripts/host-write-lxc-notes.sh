@@ -67,7 +67,7 @@ NOTES_TMP=$(mktemp)
     echo "<!-- oci-lxc-deployer:version $VERSION -->"
   fi
   if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$VE_CONTEXT_RAW" ]; then
-    echo "<!-- oci-lxc-deployer:log-url ${DEPLOYER_URL_RAW}/logs/${VMID}/${VE_CONTEXT_RAW} -->"
+    echo "<!-- oci-lxc-deployer:log-url ${DEPLOYER_URL_RAW}/api/ve/logs/${VMID}/${VE_CONTEXT_RAW} -->"
   fi
   if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$APP_ID" ]; then
     echo "<!-- oci-lxc-deployer:icon-url ${DEPLOYER_URL_RAW}/icons/${APP_ID}.png -->"
@@ -124,7 +124,7 @@ NOTES_TMP=$(mktemp)
   if [ -n "$DEPLOYER_URL_RAW" ] && [ -n "$VE_CONTEXT_RAW" ]; then
     echo
     echo "## Links"
-    echo "- [Console Logs](${DEPLOYER_URL_RAW}/logs/${VMID}/${VE_CONTEXT_RAW})"
+    echo "- [Console Logs](${DEPLOYER_URL_RAW}/api/ve/logs/${VMID}/${VE_CONTEXT_RAW})"
   fi
 } > "$NOTES_TMP"
 

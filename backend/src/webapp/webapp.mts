@@ -50,8 +50,9 @@ export class VEWebApp {
     // Catch-all route for Angular routing - must be after all API routes
     // This ensures that routes like /ssh-config work correctly.
     // Use a RegExp instead of "*" to avoid path-to-regexp errors on Express 5.
+    // Exclude /api/ and /icons/ from the catch-all.
     if (staticDir) {
-      this.app.get(/^(?!\/api\/).*/, (_req, res) => {
+      this.app.get(/^(?!\/(api|icons)\/).*/, (_req, res) => {
         res.sendFile(path.join(staticDir, "index.html"));
       });
     }
