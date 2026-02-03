@@ -9,18 +9,18 @@
     "name": "Volkmar Nissen"
   },
   "scripts": {
-    "build": "npm run build:backend --silent && npm run build:frontend --silent",
-    "build:backend": "cd backend && npm run build",
-    "build:frontend": "cd frontend && npm run build",
+    "build": "pnpm build:backend && pnpm build:frontend",
+    "build:backend": "cd backend && pnpm build",
+    "build:frontend": "cd frontend && pnpm build",
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "e2e:debug": "PWDEBUG=1 playwright test --headed",
     "install-hooks": "sh scripts/install-git-hooks.sh",
     "lint:lang": "node scripts/check-language.js",
-    "postinstall": "npm run install-hooks",
-    "prettier": "npm run prettier --prefix backend && npm run prettier --prefix frontend",
+    "postinstall": "pnpm install-hooks",
+    "prettier": "cd backend && pnpm prettier && cd ../frontend && pnpm prettier",
     "sync-dependencies": "node scripts/sync-dependencies.mjs",
-    "prepack": "npm run sync-dependencies"
+    "prepack": "pnpm sync-dependencies"
   },
   "bin": {
     "oci-lxc-deployer": "backend/dist/oci-lxc-deployer.mjs"

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * Syncs dependencies from backend/package.json to root package.json
- * and ensures all package-lock.json files are up to date.
+ * and ensures all pnpm-lock.yaml files are up to date.
  *
  * Fast path: If everything is in sync, exits immediately (~30ms).
  * Slow path: If out of sync, repairs automatically.
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
@@ -24,48 +24,64 @@ const projects = [
 ];
 
 /**
- * Fast check: Is package-lock.json in sync with package.json?
- * Compares direct dependencies only (not transitive).
+ * Fast check: Does pnpm-lock.yaml exist and contain all dependencies?
+ * pnpm lock files are platform-independent, so we just check existence
+ * and that the importers section matches package.json dependencies.
  */
 function isLockInSync(projectDir) {
   try {
     const pkgPath = join(projectDir, 'package.json');
-    const lockPath = join(projectDir, 'package-lock.json');
+    const lockPath = join(projectDir, 'pnpm-lock.yaml');
+
+    if (!existsSync(lockPath)) {
+      return false;
+    }
 
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    const lockContent = readFileSync(lockPath, 'utf-8');
 
-    const pkgDeps = pkg.dependencies || {};
-    const pkgDevDeps = pkg.devDependencies || {};
-    const lockDeps = lock.packages?.['']?.dependencies || {};
-    const lockDevDeps = lock.packages?.['']?.devDependencies || {};
+    // Quick check: all dependencies should appear in lock file
+    // pnpm-lock.yaml format: "  ajv:" or "  '@scope/pkg':"
+    const allDeps = {
+      ...pkg.dependencies || {},
+      ...pkg.devDependencies || {}
+    };
 
-    // Check dependencies
-    const depsMatch = Object.keys(pkgDeps).every(dep => lockDeps[dep] === pkgDeps[dep]);
-    const devDepsMatch = Object.keys(pkgDevDeps).every(dep => lockDevDeps[dep] === pkgDevDeps[dep]);
+    for (const dep of Object.keys(allDeps)) {
+      // Check for both unquoted and quoted formats
+      const patterns = [
+        `\n      ${dep}:`,           // unquoted: "      ajv:"
+        `\n      '${dep}':`,         // quoted: "      '@scope/pkg':"
+        `\n  '${dep}@`,              // packages section: "  '@scope/pkg@version':"
+        `\n  ${dep}@`                // packages section: "  ajv@version:"
+      ];
+      if (!patterns.some(p => lockContent.includes(p))) {
+        return false;
+      }
+    }
 
-    return depsMatch && devDepsMatch;
+    return true;
   } catch {
     return false;
   }
 }
 
 /**
- * Repair package-lock.json by running npm install --package-lock-only
+ * Repair pnpm-lock.yaml by running pnpm install
  */
 function repairLock(projectName, projectDir) {
-  console.error(`Updating ${projectName}/package-lock.json...`);
-  const result = spawnSync('npm', ['install', '--package-lock-only'], {
+  console.error(`Updating ${projectName}/pnpm-lock.yaml...`);
+  const result = spawnSync('pnpm', ['install', '--lockfile-only'], {
     cwd: projectDir,
     stdio: 'inherit',
     shell: true
   });
 
   if (result.status === 0) {
-    console.error(`✓ Updated ${projectName}/package-lock.json`);
+    console.error(`✓ Updated ${projectName}/pnpm-lock.yaml`);
     return true;
   } else {
-    console.error(`✗ Failed to update ${projectName}/package-lock.json`);
+    console.error(`✗ Failed to update ${projectName}/pnpm-lock.yaml`);
     return false;
   }
 }

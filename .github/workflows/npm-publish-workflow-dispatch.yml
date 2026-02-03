@@ -31,7 +31,7 @@ jobs:
         id: set-version
         run: |
           set -euo pipefail
-          git config --global user.email "noreply@carcam360.de" 
+          git config --global user.email "noreply@carcam360.de"
           git config --global user.name "Workflow User"
           if [ -n "${{ inputs.version_number }}" ]; then
             version="$(npm version ${{ inputs.version_number }} | sed -e 's/^v//g' )"
@@ -47,24 +47,30 @@ jobs:
             echo "isRelease=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+          cache: 'pnpm'
 
       - name: Build project and create npm pack tarball
         id: pack
         run: |
           set -euo pipefail
-          npm ci
+          pnpm install --frozen-lockfile
           echo "::group::Building project frontend ..."
-          (cd frontend && npm ci && npm run build)
+          (cd frontend && pnpm install --frozen-lockfile && pnpm build)
           echo "::endgroup::"
           echo "::group::Building backend  ..."
-          (cd backend && npm ci && npm run build)
+          (cd backend && pnpm install --frozen-lockfile && pnpm build)
           echo "::endgroup::"
           echo "::group::Building root  ..."
-          (npm ci && npm run build)
+          pnpm build
           echo "::endgroup::"
           echo "::group::Packing npm tarball ..."
           info=$(npm pack --json)
@@ -115,9 +121,9 @@ jobs:
           name: Release v${{ steps.pack.outputs.version }}
           body: |
             ## Release v${{ steps.pack.outputs.version }}
-            
+
             For installation instructions and documentation, please see the [README.md](https://github.com/${{ github.repository }}/blob/v${{ steps.pack.outputs.version }}/README.md).
-            
+
             ### Docker Image
             The Docker image is available at:
             - `${{ env.REGISTRY }}/${{ github.repository_owner }}/oci-lxc-deployer:${{ steps.pack.outputs.version }}`
