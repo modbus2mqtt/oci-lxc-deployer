@@ -4,7 +4,6 @@ import path from "path";
 import { ContextManager } from "../context-manager.mjs";
 import { registerApplicationRoutes } from "./webapp-application-routes.mjs";
 import { registerFrameworkRoutes } from "./webapp-framework-routes.mjs";
-import { WebAppIconEndpoint } from "./webapp-icon-endpoint.mjs";
 import { registerInstallationsRoutes } from "./webapp-installations-routes.mjs";
 import { registerSshRoutes } from "./webapp-ssh-routes.mjs";
 import { registerAddonRoutes } from "./webapp-addon-routes.mjs";
@@ -29,7 +28,6 @@ export class VEWebApp {
     // No socket.io needed anymore
     const staticDir = setupStaticRoutes(this.app);
 
-    new WebAppIconEndpoint(this.app).init();
     registerLogsHtmlRoute(this.app);
 
     registerSshRoutes(this.app, this.storageContext, this.returnResponse.bind(this));
@@ -52,9 +50,9 @@ export class VEWebApp {
     // Catch-all route for Angular routing - must be after all API routes
     // This ensures that routes like /ssh-config work correctly.
     // Use a RegExp instead of "*" to avoid path-to-regexp errors on Express 5.
-    // Exclude /api/, /icons/, and /logs/ from the catch-all.
+    // Exclude /api/ and /logs/ from the catch-all.
     if (staticDir) {
-      this.app.get(/^(?!\/(api|icons|logs)\/).*/, (_req, res) => {
+      this.app.get(/^(?!\/(api|logs)\/).*/, (_req, res) => {
         res.sendFile(path.join(staticDir, "index.html"));
       });
     }

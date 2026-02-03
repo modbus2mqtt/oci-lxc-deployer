@@ -497,8 +497,14 @@ echo "Step 5.2: Writing LXC notes..." >&2
 # For self-install, deployer_base_url points to this container
 # ve_context_key must match the key in storagecontext.json (ve_${proxmox_hostname})
 deployer_base_url="http://${hostname}:3000"
+
+# Download and Base64-encode the application icon for embedding in notes
+icon_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/applications/oci-lxc-deployer/icon.svg"
+icon_base64=$(curl -fsSL "$icon_url" 2>/dev/null | base64 | tr -d '\n' || echo "")
+icon_mime_type="image/svg+xml"
+
 execute_script_from_github \
-  "json/shared/scripts/host-write-lxc-notes.sh" \
+  "json/shared/scripts/host-write-lxc-notes.py" \
   "notes_written" \
   "vm_id=${vm_id}" \
   "hostname=${hostname}" \
@@ -508,7 +514,9 @@ execute_script_from_github \
   "application_id=${application_id}" \
   "application_name=${application_name}" \
   "deployer_base_url=${deployer_base_url}" \
-  "ve_context_key=ve_${proxmox_hostname}" >/dev/null || echo "  Warning: Failed to write notes (non-fatal)" >&2
+  "ve_context_key=ve_${proxmox_hostname}" \
+  "icon_base64=${icon_base64}" \
+  "icon_mime_type=${icon_mime_type}" >/dev/null || echo "  Warning: Failed to write notes (non-fatal)" >&2
 
 # 6) Ensure container is running
 echo "Step 6: Ensuring container is running..." >&2

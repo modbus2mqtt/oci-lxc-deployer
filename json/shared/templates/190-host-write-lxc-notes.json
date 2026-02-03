@@ -60,12 +60,26 @@
       "type": "string",
       "advanced": true,
       "description": "Auto-injected by backend: VE context identifier"
+    },
+    {
+      "id": "icon_base64",
+      "name": "Icon Base64",
+      "type": "string",
+      "advanced": true,
+      "description": "Auto-injected by backend: Base64-encoded application icon"
+    },
+    {
+      "id": "icon_mime_type",
+      "name": "Icon MIME Type",
+      "type": "string",
+      "advanced": true,
+      "description": "Auto-injected by backend: Icon MIME type (image/svg+xml or image/png)"
     }
   ],
   "commands": [
     {
       "name": "Write LXC Notes",
-      "script": "host-write-lxc-notes.sh",
+      "script": "host-write-lxc-notes.py",
       "outputs": ["notes_written"]
     }
   ]

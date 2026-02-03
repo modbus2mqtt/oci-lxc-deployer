@@ -240,6 +240,13 @@ export class WebAppVeRouteHandlers {
       defaults.set("deployer_base_url", deployerUrl);
       defaults.set("ve_context_key", veContextKey);
 
+      // Icon data for embedding in notes (Data URL avoids mixed content issues)
+      const appData = loaded.application as any;
+      if (appData?.iconContent && appData?.iconType) {
+        defaults.set("icon_base64", appData.iconContent);
+        defaults.set("icon_mime_type", appData.iconType);
+      }
+
       const contextManager = PersistenceManager.getInstance().getContextManager();
       // Process parameters: for upload parameters with "local:" prefix, read file and base64 encode
       const processedParams = await this.parameterProcessor.processParameters(
