@@ -1,4 +1,0 @@
-#!/bin/sh
-set -eu
-rc-update add modbus2mqtt default || true
-rc-service modbus2mqtt restart || rc-service modbus2mqtt start || true

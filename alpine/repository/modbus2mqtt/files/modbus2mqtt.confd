@@ -1,3 +1,0 @@
-# Command-line options for modbus2mqtt
-# Example: web port and bind address
-MODBUS2MQTT_OPTS="--port 8080 --host 0.0.0.0"

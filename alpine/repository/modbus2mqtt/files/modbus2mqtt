@@ -1,4 +1,0 @@
-#!/bin/sh
-# Placeholder binary. Replace with the real modbus2mqtt binary.
-echo "modbus2mqtt starting (placeholder)."
-exec sleep 60
