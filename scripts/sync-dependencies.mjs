@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Syncs dependencies from backend/package.json to root package.json
- * and ensures package-lock.json is up to date.
+ * and ensures all package-lock.json files are up to date.
  *
- * Fast path: If everything is in sync, exits immediately.
+ * Fast path: If everything is in sync, exits immediately (~30ms).
  * Slow path: If out of sync, repairs automatically.
  */
 
@@ -16,62 +16,113 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = join(__dirname, '..');
 
-const backendPackageJsonPath = join(rootDir, 'backend', 'package.json');
-const rootPackageJsonPath = join(rootDir, 'package.json');
-const rootPackageLockPath = join(rootDir, 'package-lock.json');
+// Project directories
+const projects = [
+  { name: 'root', dir: rootDir },
+  { name: 'backend', dir: join(rootDir, 'backend') },
+  { name: 'frontend', dir: join(rootDir, 'frontend') }
+];
 
-// Read package files
-const backendPackage = JSON.parse(readFileSync(backendPackageJsonPath, 'utf-8'));
-const rootPackage = JSON.parse(readFileSync(rootPackageJsonPath, 'utf-8'));
+/**
+ * Fast check: Is package-lock.json in sync with package.json?
+ * Compares direct dependencies only (not transitive).
+ */
+function isLockInSync(projectDir) {
+  try {
+    const pkgPath = join(projectDir, 'package.json');
+    const lockPath = join(projectDir, 'package-lock.json');
 
-// Fast check: Are dependencies already in sync?
-const backendDeps = JSON.stringify(backendPackage.dependencies || {});
-const rootDeps = JSON.stringify(rootPackage.dependencies || {});
-const depsInSync = backendDeps === rootDeps;
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
 
-// Fast check: Is package-lock.json in sync with package.json?
-let lockInSync = false;
-try {
-  const lockFile = JSON.parse(readFileSync(rootPackageLockPath, 'utf-8'));
-  const lockDeps = lockFile.packages?.['']?.dependencies || {};
+    const pkgDeps = pkg.dependencies || {};
+    const pkgDevDeps = pkg.devDependencies || {};
+    const lockDeps = lock.packages?.['']?.dependencies || {};
+    const lockDevDeps = lock.packages?.['']?.devDependencies || {};
 
-  // Check if all root dependencies are in lock file with matching versions
-  const rootDepsObj = rootPackage.dependencies || {};
-  lockInSync = Object.keys(rootDepsObj).every(dep => {
-    return lockDeps[dep] === rootDepsObj[dep];
-  });
-} catch {
-  lockInSync = false;
+    // Check dependencies
+    const depsMatch = Object.keys(pkgDeps).every(dep => lockDeps[dep] === pkgDeps[dep]);
+    const devDepsMatch = Object.keys(pkgDevDeps).every(dep => lockDevDeps[dep] === pkgDevDeps[dep]);
+
+    return depsMatch && devDepsMatch;
+  } catch {
+    return false;
+  }
 }
 
+/**
+ * Repair package-lock.json by running npm install --package-lock-only
+ */
+function repairLock(projectName, projectDir) {
+  console.error(`Updating ${projectName}/package-lock.json...`);
+  const result = spawnSync('npm', ['install', '--package-lock-only'], {
+    cwd: projectDir,
+    stdio: 'inherit',
+    shell: true
+  });
+
+  if (result.status === 0) {
+    console.error(`✓ Updated ${projectName}/package-lock.json`);
+    return true;
+  } else {
+    console.error(`✗ Failed to update ${projectName}/package-lock.json`);
+    return false;
+  }
+}
+
+// --- Main ---
+
+// Check 1: Are root dependencies synced from backend?
+const backendPkgPath = join(rootDir, 'backend', 'package.json');
+const rootPkgPath = join(rootDir, 'package.json');
+
+const backendPkg = JSON.parse(readFileSync(backendPkgPath, 'utf-8'));
+const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8'));
+
+const backendDeps = JSON.stringify(backendPkg.dependencies || {});
+const rootDeps = JSON.stringify(rootPkg.dependencies || {});
+const rootDepsInSync = backendDeps === rootDeps;
+
+// Check 2: Are all lock files in sync?
+const lockStatus = projects.map(p => ({
+  ...p,
+  inSync: isLockInSync(p.dir)
+}));
+
+const allLocksInSync = lockStatus.every(p => p.inSync);
+
 // Fast path: Everything in sync
-if (depsInSync && lockInSync) {
-  console.error('✓ Dependencies in sync');
+if (rootDepsInSync && allLocksInSync) {
+  console.error('✓ All dependencies in sync');
   process.exit(0);
 }
 
 // Slow path: Need to repair
 console.error('Dependencies out of sync, repairing...');
+let hasError = false;
 
-// Step 1: Sync package.json
-if (!depsInSync) {
-  rootPackage.dependencies = { ...backendPackage.dependencies };
-  writeFileSync(rootPackageJsonPath, JSON.stringify(rootPackage, null, 2) + '\n');
-  console.error('✓ Synced dependencies from backend/package.json');
+// Step 1: Sync root package.json from backend
+if (!rootDepsInSync) {
+  rootPkg.dependencies = { ...backendPkg.dependencies };
+  writeFileSync(rootPkgPath, JSON.stringify(rootPkg, null, 2) + '\n');
+  console.error('✓ Synced root dependencies from backend/package.json');
+  // Mark root lock as needing repair since we changed package.json
+  const rootStatus = lockStatus.find(p => p.name === 'root');
+  if (rootStatus) rootStatus.inSync = false;
 }
 
-// Step 2: Update package-lock.json
-console.error('Updating package-lock.json...');
-const result = spawnSync('npm', ['install', '--package-lock-only'], {
-  cwd: rootDir,
-  stdio: 'inherit',
-  shell: true
-});
+// Step 2: Repair any out-of-sync lock files
+for (const project of lockStatus) {
+  if (!project.inSync) {
+    if (!repairLock(project.name, project.dir)) {
+      hasError = true;
+    }
+  }
+}
 
-if (result.status === 0) {
-  console.error('✓ Updated package-lock.json');
-  process.exit(0);
+if (hasError) {
+  process.exit(1);
 } else {
-  console.error('✗ Failed to update package-lock.json');
-  process.exit(result.status || 1);
+  console.error('✓ All dependencies repaired');
+  process.exit(0);
 }

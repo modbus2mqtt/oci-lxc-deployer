@@ -1,6 +1,6 @@
 #!/bin/sh
 # Install Git hooks for the oci-lxc-deployer project
-# This script copies the pre-push hook from scripts/git-hooks to .git/hooks
+# Only installs if hook is missing or outdated (silent if up-to-date)
 
 set -e
 
@@ -17,31 +17,24 @@ SOURCE_HOOKS_DIR="$SCRIPT_DIR/git-hooks"
 
 # Check if .git directory exists
 if [ ! -d "$PROJECT_ROOT/.git" ]; then
-  echo "${YELLOW}Warning: .git directory not found. Not a git repository?${NC}"
-  echo "${YELLOW}Skipping git hooks installation.${NC}"
   exit 0
 fi
 
 # Create hooks directory if it doesn't exist
 mkdir -p "$HOOKS_DIR"
 
-# Install pre-push hook
-if [ -f "$SOURCE_HOOKS_DIR/pre-push" ]; then
-  echo "Installing pre-push hook..."
-  cp "$SOURCE_HOOKS_DIR/pre-push" "$HOOKS_DIR/pre-push"
-  chmod +x "$HOOKS_DIR/pre-push"
-  echo "${GREEN}✓ pre-push hook installed${NC}"
-else
-  echo "${YELLOW}Warning: pre-push hook not found in $SOURCE_HOOKS_DIR${NC}"
-fi
+# Install pre-push hook only if missing or different
+SOURCE_HOOK="$SOURCE_HOOKS_DIR/pre-push"
+TARGET_HOOK="$HOOKS_DIR/pre-push"
 
-echo ""
-echo "${GREEN}Git hooks installation complete!${NC}"
-echo ""
-echo "The pre-push hook will:"
-echo "  1. Sync GitHub repository with upstream (if gh is installed)"
-echo "  2. Update main branch to latest origin/main"
-echo "  3. Merge main into your current branch"
-echo "  4. Abort push if merge conflicts occur (you can resolve them manually)"
-echo ""
-echo "To skip the hook temporarily: git push --no-verify"
+if [ -f "$SOURCE_HOOK" ]; then
+  if [ -f "$TARGET_HOOK" ] && cmp -s "$SOURCE_HOOK" "$TARGET_HOOK"; then
+    # Hook is up-to-date, nothing to do
+    exit 0
+  fi
+
+  # Install or update hook
+  cp "$SOURCE_HOOK" "$TARGET_HOOK"
+  chmod +x "$TARGET_HOOK"
+  echo "${GREEN}✓ pre-push hook installed${NC}"
+fi
