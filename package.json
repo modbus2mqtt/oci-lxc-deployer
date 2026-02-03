@@ -20,7 +20,6 @@
     "postinstall": "npm run install-hooks",
     "prettier": "npm run prettier --prefix backend && npm run prettier --prefix frontend",
     "sync-dependencies": "node scripts/sync-dependencies.mjs",
-    "sync-dependencies:lock": "node scripts/sync-dependencies.mjs --update-lock",
     "prepack": "npm run sync-dependencies"
   },
   "bin": {

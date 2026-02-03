@@ -9,11 +9,17 @@ on:
       - 'backend/tests/**/*.test.mts'
       - 'backend/src/**/*.mts'
       - 'json/shared/scripts/**/*.py'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'backend/package.json'
   pull_request:
     paths:
       - 'backend/tests/**/*.test.mts'
       - 'backend/src/**/*.mts'
       - 'json/shared/scripts/**/*.py'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'backend/package.json'
 
 jobs:
   test:
@@ -23,7 +29,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
+      - name: Verify root package-lock.json is in sync
+        run: npm ci --dry-run
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
