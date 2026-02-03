@@ -1,4 +1,5 @@
 import { Component, inject, OnInit, ViewChild } from '@angular/core';
+import { Location } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { CommonModule } from '@angular/common';
@@ -31,6 +32,7 @@ export class ApplicationsList implements OnInit {
   private dialog = inject(MatDialog);
   private cacheService = inject(CacheService);
   private route = inject(ActivatedRoute);
+  private location = inject(Location);
 
   // Filter function for internal apps
   filterApp = (app: IApplicationWebIntern, tagsConfig: ITagsConfig, showInternal: boolean): boolean => {
@@ -91,7 +93,7 @@ export class ApplicationsList implements OnInit {
 
     // Build preset values from query params
     const presetValues: Record<string, string | number> = {};
-    const paramKeys = ['vm_id', 'hostname', 'oci_image', 'username', 'uid', 'gid',
+    const paramKeys = ['vm_id', 'hostname', 'oci_image', 'application_id', 'application_name', 'username', 'uid', 'gid',
                        'memory', 'cores', 'rootfs_storage', 'disk_size', 'bridge'];
     for (const key of paramKeys) {
       if (params[key] !== undefined) {
@@ -104,13 +106,31 @@ export class ApplicationsList implements OnInit {
       }
     }
 
-    // Open dialog in addon mode with preset values
+    // Parse existing mount points from JSON string
+    let existingMountPoints: Array<{ source: string; target: string }> | undefined;
+    if (params['mount_points']) {
+      try {
+        existingMountPoints = JSON.parse(params['mount_points']);
+      } catch {
+        // Ignore parse errors - mount points are optional info
+      }
+    }
+
+    // Open dialog in addon-reconfigure mode with preset values
     const dialogData: VeConfigurationDialogData = {
       app,
-      task: 'addon',
+      task: 'addon-reconfigure',
       presetValues,
+      existingMountPoints,
     };
-    this.dialog.open(VeConfigurationDialog, { data: dialogData });
+    const dialogRef = this.dialog.open(VeConfigurationDialog, { data: dialogData });
+
+    // Navigate back when dialog is closed without submission
+    dialogRef.afterClosed().subscribe(result => {
+      if (!result) {
+        this.location.back();
+      }
+    });
   }
 
   get showFramework(): boolean {

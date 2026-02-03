@@ -12,5 +12,12 @@
   ],
   "copy-upgrade": [
     "220-copy-upgrade-oci-lxc.json"
+  ],
+  "addon-reconfigure": [
+     "set-addon-reconfigure-defaults.json",
+     "050-stop-lxc.json",
+     "100-conf-create-configure-lxc.json",
+     "200-start-lxc.json",
+     "210-wait-for-container-ready.json"
   ]
 }

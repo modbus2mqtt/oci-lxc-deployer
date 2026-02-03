@@ -21,6 +21,7 @@ export interface VeConfigurationDialogData {
   app: IApplicationWeb;
   task?: string;
   presetValues?: Record<string, string | number>;
+  existingMountPoints?: Array<{ source: string; target: string }>;
 }
 @Component({
   selector: 'app-ve-configuration-dialog',
@@ -56,6 +57,7 @@ export class VeConfigurationDialog implements OnInit {
   public data = inject(MAT_DIALOG_DATA) as VeConfigurationDialogData;
   private task = this.data.task ?? 'installation';
   private presetValues = this.data.presetValues ?? {};
+  existingMountPoints: Array<{ source: string; target: string }> = this.data.existingMountPoints ?? [];
   constructor(  ) {
     this.form = this.fb.group({});
   }
@@ -80,7 +82,10 @@ export class VeConfigurationDialog implements OnInit {
           const validators = param.required ? [Validators.required] : [];
           // Use preset value if available, otherwise use parameter default
           const presetValue = this.presetValues[param.id];
-          const defaultValue = presetValue !== undefined ? presetValue : (param.default !== undefined ? param.default : '');
+          if (presetValue !== undefined) {
+            param.default = presetValue;
+          }
+          const defaultValue = param.default !== undefined ? param.default : '';
           this.form.addControl(param.id, new FormControl(defaultValue, validators));
           // Store initial value for comparison
           this.initialValues.set(param.id, defaultValue);
@@ -286,7 +291,7 @@ export class VeConfigurationDialog implements OnInit {
     }
     
     const application = this.data.app.id;
-    const task = 'installation';
+    const task = this.task;
     
     // Pass changedParams to backend for vmInstallContext
         this.configService.postVeConfiguration(application, task, params, changedParams.length > 0 ? changedParams : undefined).subscribe({

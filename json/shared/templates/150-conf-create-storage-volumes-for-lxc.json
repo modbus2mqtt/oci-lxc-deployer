@@ -20,7 +20,6 @@
       "name": "Volumes",
       "type": "string",
       "multiline": true,
-      "required": true,
       "description": "One per line: key=/container/path"
     },
     {

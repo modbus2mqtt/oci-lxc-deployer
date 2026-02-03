@@ -18,13 +18,17 @@ if [ ! -d "$CLAUDE_PROJECT_DIR/backend/dist" ]; then
   exit 0
 fi
 
-# Run validation
-cd "$CLAUDE_PROJECT_DIR/backend" && node dist/oci-lxc-deployer.mjs validate 2>&1
+# Run validation, capture output
+OUTPUT=$(cd "$CLAUDE_PROJECT_DIR/backend" && node dist/oci-lxc-deployer.mjs validate 2>&1)
+EXIT_CODE=$?
 
-if [ $? -eq 0 ]; then
+if [ $EXIT_CODE -eq 0 ]; then
+  echo "JSON validation: OK" >&2
   exit 0
 else
-  echo "" >&2
-  echo "JSON validation failed. Please fix the errors above." >&2
+  # Output errors to stdout so Claude sees them
+  echo "=== JSON VALIDATION FAILED ==="
+  echo "$OUTPUT"
+  echo "=============================="
   exit 1
 fi

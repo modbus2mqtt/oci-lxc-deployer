@@ -628,6 +628,7 @@ export class ApplicationPersistenceHandler {
       "upgrade",
       "copy-upgrade",
       "copy-rollback",
+      "addon-reconfigure",
       "webui",
     ];
 

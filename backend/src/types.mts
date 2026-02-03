@@ -49,6 +49,7 @@ export type TaskType =
   | "upgrade"
   | "copy-upgrade"
   | "copy-rollback"
+  | "addon-reconfigure"
   | "webui"
   | "addon";
 // Generated from template.schema.json
@@ -249,6 +250,7 @@ export interface IManagedOciContainer {
   application_name?: string;
   version?: string;
   status?: string;
+  mount_points?: Array<{ source: string; target: string }>;
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];

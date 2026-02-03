@@ -249,6 +249,7 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
   private templateCache = new Map<string, ITemplate>();
   private scriptCache = new Map<string, string>();
   private markdownCache = new Map<string, string>();
+  private applicationHierarchyCache = new Map<string, string[]>();
 
   constructor(
     private pathes: IConfiguredPathes,
@@ -305,14 +306,46 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
   }
 
   resolveTemplateRef(applicationId: string, templateName: string): TemplateRef | null {
-    const appPath = this.getApplicationPath(applicationId);
-    if (!appPath) return null;
+    // Get the full application hierarchy (child -> parent -> grandparent...)
+    const hierarchy = this.getApplicationHierarchy(applicationId);
+
+    // Search through the hierarchy: child first, then parents
+    for (const appId of hierarchy) {
+      const appPath = this.getApplicationPath(appId);
+      if (!appPath) continue;
+
+      // Check if template exists in this application's templates folder (not shared)
+      const templateNameWithExt = templateName.endsWith(".json") ? templateName : `${templateName}.json`;
+      const templatePath = path.join(appPath, "templates", templateNameWithExt);
+
+      if (fs.existsSync(templatePath)) {
+        const fullPath = this.normalizePath(templatePath);
+        const localBase = this.normalizePath(this.pathes.localPath) + path.sep;
+        const jsonBase = this.normalizePath(this.pathes.jsonPath) + path.sep;
+        const origin = fullPath.startsWith(localBase)
+          ? "local"
+          : fullPath.startsWith(jsonBase)
+            ? "json"
+            : undefined;
+        if (!origin) continue;
+        const name = TemplatePathResolver.normalizeTemplateName(templateName);
+        return {
+          name,
+          scope: "application",
+          origin,
+          applicationId: appId,
+        };
+      }
+    }
+
+    // Not found in any application, check shared templates
     const resolved = TemplatePathResolver.resolveTemplatePath(
       templateName,
-      appPath,
+      hierarchy[0] ? this.getApplicationPath(hierarchy[0])! : this.pathes.jsonPath,
       this.pathes,
     );
-    if (!resolved) return null;
+    if (!resolved || !resolved.isShared) return null;
+
     const fullPath = this.normalizePath(resolved.fullPath);
     const localBase = this.normalizePath(this.pathes.localPath) + path.sep;
     const jsonBase = this.normalizePath(this.pathes.jsonPath) + path.sep;
@@ -325,10 +358,50 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     const name = TemplatePathResolver.normalizeTemplateName(templateName);
     return {
       name,
-      scope: resolved.isShared ? "shared" : "application",
+      scope: "shared",
       origin,
-      ...(resolved.isShared ? {} : { applicationId }),
     };
+  }
+
+  /**
+   * Get the application hierarchy (extends chain) for an application.
+   * Returns array starting with the application itself, then its parent, grandparent, etc.
+   */
+  private getApplicationHierarchy(applicationId: string): string[] {
+    // Check cache first
+    if (this.enableCache && this.applicationHierarchyCache.has(applicationId)) {
+      return this.applicationHierarchyCache.get(applicationId)!;
+    }
+
+    const hierarchy: string[] = [];
+    const visited = new Set<string>();
+    let currentId: string | undefined = applicationId;
+
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      hierarchy.push(currentId);
+
+      // Read application.json to get extends
+      const appPath = this.getApplicationPath(currentId);
+      if (!appPath) break;
+
+      const appJsonPath = path.join(appPath, "application.json");
+      if (!fs.existsSync(appJsonPath)) break;
+
+      try {
+        const appData = JSON.parse(fs.readFileSync(appJsonPath, "utf-8"));
+        currentId = appData.extends;
+      } catch {
+        break;
+      }
+    }
+
+    // Cache the result
+    if (this.enableCache) {
+      this.applicationHierarchyCache.set(applicationId, hierarchy);
+    }
+
+    return hierarchy;
   }
 
   getTemplate(ref: TemplateRef): ITemplate | null {

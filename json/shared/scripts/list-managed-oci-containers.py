@@ -105,6 +105,12 @@ def main() -> None:
                 item["disk_size"] = config.disk_size
             if config.bridge:
                 item["bridge"] = config.bridge
+            # Mount points for existing volumes display
+            if config.mount_points:
+                item["mount_points"] = [
+                    {"source": mp.source, "target": mp.target}
+                    for mp in config.mount_points
+                ]
 
             containers.append(item)
 

@@ -13,6 +13,7 @@
     "installation": { "$ref": "templatelist" },
     "copy-upgrade": { "$ref": "templatelist" },
     "copy-rollback": { "$ref": "templatelist" },
+    "addon-reconfigure": { "$ref": "templatelist" },
     "addon": { "$ref": "templatelist" }
   },
   "required": ["installation"],

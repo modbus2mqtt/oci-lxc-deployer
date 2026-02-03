@@ -43,7 +43,7 @@ export function registerApplicationRoutes(
       const templateProcessor = storageContext.getTemplateProcessor();
       const unresolved = await templateProcessor.getUnresolvedParameters(
         application,
-        "installation" as TaskType,
+        taskKey as TaskType,
         ctx,
       );
       returnResponse<IUnresolvedParametersResponse>(res, {

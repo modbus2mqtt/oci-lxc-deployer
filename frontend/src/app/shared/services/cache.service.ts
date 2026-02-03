@@ -1,6 +1,6 @@
 import { Injectable, signal, inject } from '@angular/core';
 import { VeConfigurationService } from '../../ve-configuration.service';
-import { IFrameworkName } from '../../../shared/types';
+import { IFrameworkName, IManagedOciContainer } from '../../../shared/types';
 import { Observable, of } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
 
@@ -8,6 +8,7 @@ export interface CacheData {
   frameworks: IFrameworkName[];
   applicationIds: Set<string>;
   hostnames: Set<string>;
+  installations: IManagedOciContainer[];
   lastUpdated: number;
 }
 
@@ -25,6 +26,7 @@ export class CacheService {
   private loadingFrameworks = signal(false);
   private loadingApplicationIds = signal(false);
   private loadingHostnames = signal(false);
+  private loadingInstallations = signal(false);
 
   /**
    * Get cached frameworks or load them if cache is empty/expired
@@ -125,6 +127,43 @@ export class CacheService {
   }
 
   /**
+   * Get cached installations or load them if cache is empty/expired
+   */
+  getInstallations(): Observable<IManagedOciContainer[]> {
+    const cached = this.cache();
+
+    // Return cached data if fresh
+    if (cached && cached.installations.length > 0 && !this.isExpired(cached.lastUpdated)) {
+      return of(cached.installations);
+    }
+
+    // Load if not already loading
+    if (!this.loadingInstallations()) {
+      this.loadingInstallations.set(true);
+      return this.configService.getInstallations().pipe(
+        tap(installations => {
+          this.updateCache({ installations });
+          this.loadingInstallations.set(false);
+        }),
+        catchError(err => {
+          this.loadingInstallations.set(false);
+          throw err;
+        })
+      );
+    }
+
+    // If loading, return cached data even if expired
+    return cached ? of(cached.installations) : of([]);
+  }
+
+  /**
+   * Set installations directly (e.g., after loading in Installed-List)
+   */
+  setInstallations(installations: IManagedOciContainer[]): void {
+    this.updateCache({ installations });
+  }
+
+  /**
    * Preload all cache data in the background
    */
   preloadAll(): void {
@@ -198,6 +237,7 @@ export class CacheService {
       frameworks: partial.frameworks ?? current?.frameworks ?? [],
       applicationIds: partial.applicationIds ?? current?.applicationIds ?? new Set(),
       hostnames: partial.hostnames ?? current?.hostnames ?? new Set(),
+      installations: partial.installations ?? current?.installations ?? [],
       lastUpdated: Date.now()
     };
     this.cache.set(updated);

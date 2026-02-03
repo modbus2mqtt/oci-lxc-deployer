@@ -9,6 +9,17 @@
 	</div>
 </div>
 
+@if (taskKey === 'addon-reconfigure' && existingMountPoints.length > 0) {
+	<div class="existing-mounts-info">
+		<h4>Existing Volumes</h4>
+		<ul>
+			@for (mp of existingMountPoints; track mp.target) {
+				<li><code>{{ mp.target }}</code></li>
+			}
+		</ul>
+	</div>
+}
+
 <form [formGroup]="form" (ngSubmit)="save()">
 	@if (!loading()) {
 		@if (showMissingRequiredHint) {

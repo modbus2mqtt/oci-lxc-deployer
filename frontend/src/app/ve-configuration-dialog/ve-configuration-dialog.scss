@@ -117,6 +117,42 @@ form {
   opacity: 0.8;
 }
 
+.existing-mounts-info {
+  width: calc(100% - 2rem);
+  margin: 0 1rem 1rem 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e0e4eb;
+  background: #f8f9fc;
+  border-radius: 8px;
+  font-size: 0.9rem;
+
+  h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #333;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    list-style-type: disc;
+  }
+
+  li {
+    margin: 0.25rem 0;
+    color: #555;
+  }
+
+  code {
+    background: #e8eaf0;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85rem;
+  }
+}
+
 .trace-action {
   display: flex;
   justify-content: center;

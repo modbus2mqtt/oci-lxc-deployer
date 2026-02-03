@@ -72,11 +72,10 @@ export class WebAppVE {
   init(): void {
     // POST /api/ve-configuration/:application/:task/:veContext
     this.post<
-      { application: string; task: string; veContext: string },
+      { application: string; task: TaskType; veContext: string },
       IPostVeConfigurationBody
     >(ApiUri.VeConfiguration, async (req, res) => {
-      const { application, veContext: veContextKey } = req.params;
-      const task: TaskType = "installation";
+      const { application, task, veContext: veContextKey } = req.params;
       
       // Set vmInstallContext in ContextManager for restart support
       // Use changedParams if provided, otherwise fall back to params

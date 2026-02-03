@@ -2,6 +2,7 @@ import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { VeConfigurationService } from '../ve-configuration.service';
+import { CacheService } from '../shared/services/cache.service';
 import { IManagedOciContainer } from '../../shared/types';
 import { CardGridComponent } from '../shared/components/card-grid/card-grid';
 
@@ -18,13 +19,14 @@ export class InstalledList implements OnInit {
   error?: string;
 
   private svc = inject(VeConfigurationService);
+  private cacheService = inject(CacheService);
   private router = inject(Router);
 
   // Track by function
   trackByInstallation = (_: number, item: IManagedOciContainer): number => item.vm_id;
 
   ngOnInit(): void {
-    this.svc.getInstallations().subscribe({
+    this.cacheService.getInstallations().subscribe({
       next: (items) => {
         this.installations = items;
         this.loading = false;
@@ -60,6 +62,7 @@ export class InstalledList implements OnInit {
       mode: 'addon',
       vm_id: installation.vm_id,
       application_id: installation.application_id,
+      application_name: installation.application_name,
       hostname: installation.hostname,
       oci_image: installation.oci_image,
       // User/permission info for addon configuration
@@ -72,6 +75,8 @@ export class InstalledList implements OnInit {
       rootfs_storage: installation.rootfs_storage,
       disk_size: installation.disk_size,
       bridge: installation.bridge,
+      // Mount points for existing volumes display
+      mount_points: installation.mount_points ? JSON.stringify(installation.mount_points) : undefined,
     };
     // Filter out undefined values
     const filteredParams = Object.fromEntries(

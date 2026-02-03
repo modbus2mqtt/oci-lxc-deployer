@@ -311,6 +311,8 @@ export interface IManagedOciContainer {
   rootfs_storage?: string;
   disk_size?: string;
   bridge?: string;
+  // Mount points for existing volumes display
+  mount_points?: Array<{ source: string; target: string }>;
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];
