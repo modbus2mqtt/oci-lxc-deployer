@@ -68,7 +68,9 @@ def main():
         lines.append(f"<!-- oci-lxc-deployer:icon-url data:{icon_mime_type};base64,... -->")
 
     # Visible content (Markdown)
-    lines.append("# LXC Manager")
+    # Use application name as header, fallback to application ID
+    header_name = app_name if app_name else app_id if app_id else "Container"
+    lines.append(f"# {header_name}")
     lines.append("")
 
     # Show application icon if available (using Data URL)
@@ -77,19 +79,16 @@ def main():
         lines.append(f"![{icon_alt}](data:{icon_mime_type};base64,{icon_base64})")
         lines.append("")
 
-    lines.append("Managed by **lxc-manager**.")
+    # Link to oci-lxc-deployer if URL available
+    if deployer_url:
+        lines.append(f"Managed by [oci-lxc-deployer]({deployer_url}/).")
+    else:
+        lines.append("Managed by **oci-lxc-deployer**.")
 
-    # Application info
-    if app_id or app_name:
+    # Application ID (only if different from name shown in header)
+    if app_id and app_id != app_name:
         lines.append("")
-        if app_id and app_name:
-            lines.append(f"## {app_name}")
-            lines.append("")
-            lines.append(f"Application ID: {app_id}")
-        elif app_name:
-            lines.append(f"## {app_name}")
-        else:
-            lines.append(f"Application ID: {app_id}")
+        lines.append(f"Application ID: {app_id}")
 
     # Version
     if version:
