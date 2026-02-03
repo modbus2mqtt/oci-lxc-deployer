@@ -156,7 +156,12 @@ export class ApplicationPersistenceHandler {
         readOpts.error.details.length > 0 &&
         applications.length > 0
       ) {
-        applications[applications.length - 1]!.errors = readOpts.error.details;
+        // Convert error details to IJsonError format (Error objects don't serialize to JSON correctly)
+        applications[applications.length - 1]!.errors = readOpts.error.details.map(e => ({
+          name: e?.name || "Error",
+          message: e?.message || String(e),
+          details: e?.details,
+        }));
       }
     }
 

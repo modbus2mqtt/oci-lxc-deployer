@@ -2,7 +2,6 @@
   "name": "oci-image",
   "description": "Base application for OCI image based services",
   "icon": "icon.png",
-w ],
   "copy-upgrade": [
     "220-copy-upgrade-oci-lxc.json"
   ]
