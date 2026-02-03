@@ -1,5 +1,3 @@
-
-// ...existing code...
 import { Component, OnInit, inject, signal, Input } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialog } from '@angular/material/dialog';
 
@@ -12,6 +10,18 @@ import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { ParameterGroupComponent } from './parameter-group.component';
 import { TemplateTraceDialog } from './template-trace-dialog';
 import type { NavigationExtras } from '@angular/router';
+
+/**
+ * Data passed to the VeConfigurationDialog.
+ * - app: The application to configure
+ * - task: The task type (installation, addon, etc.)
+ * - presetValues: Optional preset values for parameters (e.g., from existing container)
+ */
+export interface VeConfigurationDialogData {
+  app: IApplicationWeb;
+  task?: string;
+  presetValues?: Record<string, string | number>;
+}
 @Component({
   selector: 'app-ve-configuration-dialog',
   standalone: true,
@@ -43,8 +53,9 @@ export class VeConfigurationDialog implements OnInit {
   private errorHandler: ErrorHandlerService = inject(ErrorHandlerService);
   private fb: FormBuilder = inject(FormBuilder);
   private dialog = inject(MatDialog);
-  public data = inject(MAT_DIALOG_DATA) as { app: IApplicationWeb; task?: string };
+  public data = inject(MAT_DIALOG_DATA) as VeConfigurationDialogData;
   private task = this.data.task ?? 'installation';
+  private presetValues = this.data.presetValues ?? {};
   constructor(  ) {
     this.form = this.fb.group({});
   }
@@ -67,7 +78,9 @@ export class VeConfigurationDialog implements OnInit {
           if (!this.groupedParameters[group]) this.groupedParameters[group] = [];
           this.groupedParameters[group].push(param);
           const validators = param.required ? [Validators.required] : [];
-          const defaultValue = param.default !== undefined ? param.default : '';
+          // Use preset value if available, otherwise use parameter default
+          const presetValue = this.presetValues[param.id];
+          const defaultValue = presetValue !== undefined ? presetValue : (param.default !== undefined ? param.default : '');
           this.form.addControl(param.id, new FormControl(defaultValue, validators));
           // Store initial value for comparison
           this.initialValues.set(param.id, defaultValue);

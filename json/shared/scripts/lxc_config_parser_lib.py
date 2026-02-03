@@ -28,6 +28,9 @@ APP_ID_VISIBLE_RE = re.compile(r"^\s*#?\s*Application\s+ID\s*:\s*(.+?)\s*$", re.
 APP_NAME_VISIBLE_RE = re.compile(r"^\s*#?\s*##\s+(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 VERSION_VISIBLE_RE = re.compile(r"^\s*#?\s*Version\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 ADDON_MARKER_RE = re.compile(r"(?:oci-lxc-deployer):addon\s+(.+?)\s*-->", re.IGNORECASE)
+USERNAME_MARKER_RE = re.compile(r"(?:oci-lxc-deployer):username\s+(.+?)\s*-->", re.IGNORECASE)
+UID_MARKER_RE = re.compile(r"(?:oci-lxc-deployer):uid\s+(.+?)\s*-->", re.IGNORECASE)
+GID_MARKER_RE = re.compile(r"(?:oci-lxc-deployer):gid\s+(.+?)\s*-->", re.IGNORECASE)
 
 # --- Regex patterns for LXC config parsing ---
 
@@ -39,6 +42,18 @@ MOUNTPOINT_RE = re.compile(r"^mp(\d+):\s*(.+?),mp=(.+?)(?:,(.*))?$", re.MULTILIN
 
 # description: URL-encoded or plain text
 DESCRIPTION_RE = re.compile(r"^description:\s*(.*)$", re.MULTILINE)
+
+# memory: 512
+MEMORY_RE = re.compile(r"^memory:\s*(\d+)\s*$", re.MULTILINE)
+
+# cores: 2
+CORES_RE = re.compile(r"^cores:\s*(\d+)\s*$", re.MULTILINE)
+
+# rootfs: local-lvm:vm-123-disk-0,size=4G
+ROOTFS_RE = re.compile(r"^rootfs:\s*([^:]+):([^,]+)(?:,size=(\d+)([GMK]?))?", re.MULTILINE)
+
+# net0: name=eth0,bridge=vmbr0,hwaddr=...
+NET_BRIDGE_RE = re.compile(r"^net\d+:.*bridge=([^,\s]+)", re.MULTILINE)
 
 
 @dataclass
@@ -77,9 +92,21 @@ class LxcConfig:
     version: str | None = None
     addons: list[str] = field(default_factory=list)
 
+    # User/permission info from notes (for addon reconfiguration)
+    username: str | None = None
+    uid: str | None = None
+    gid: str | None = None
+
     # LXC config entries
     id_mappings: list[IdMapping] = field(default_factory=list)
     mount_points: list[MountPoint] = field(default_factory=list)
+
+    # Container resource settings (from LXC config)
+    memory: int | None = None  # in MB
+    cores: int | None = None
+    rootfs_storage: str | None = None
+    disk_size: str | None = None  # e.g. "4G"
+    bridge: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -98,6 +125,22 @@ class LxcConfig:
             result["version"] = self.version
         if self.addons:
             result["addons"] = self.addons
+        if self.username:
+            result["username"] = self.username
+        if self.uid:
+            result["uid"] = self.uid
+        if self.gid:
+            result["gid"] = self.gid
+        if self.memory is not None:
+            result["memory"] = self.memory
+        if self.cores is not None:
+            result["cores"] = self.cores
+        if self.rootfs_storage:
+            result["rootfs_storage"] = self.rootfs_storage
+        if self.disk_size:
+            result["disk_size"] = self.disk_size
+        if self.bridge:
+            result["bridge"] = self.bridge
         if self.id_mappings:
             result["id_mappings"] = [
                 {
@@ -235,9 +278,44 @@ def parse_lxc_config(conf_text: str) -> LxcConfig:
             seen.add(addon)
             config.addons.append(addon)
 
+    # Parse user/permission info from notes (for addon reconfiguration)
+    config.username = (
+        _extract_from_patterns(decoded, [USERNAME_MARKER_RE]) or
+        _extract_from_patterns(normalized, [USERNAME_MARKER_RE])
+    )
+    config.uid = (
+        _extract_from_patterns(decoded, [UID_MARKER_RE]) or
+        _extract_from_patterns(normalized, [UID_MARKER_RE])
+    )
+    config.gid = (
+        _extract_from_patterns(decoded, [GID_MARKER_RE]) or
+        _extract_from_patterns(normalized, [GID_MARKER_RE])
+    )
+
     # Parse LXC config entries (from raw/normalized, not decoded)
     config.id_mappings = parse_id_mappings(normalized)
     config.mount_points = parse_mount_points(normalized)
+
+    # Parse container resource settings from LXC config
+    memory_match = MEMORY_RE.search(normalized)
+    if memory_match:
+        config.memory = int(memory_match.group(1))
+
+    cores_match = CORES_RE.search(normalized)
+    if cores_match:
+        config.cores = int(cores_match.group(1))
+
+    rootfs_match = ROOTFS_RE.search(normalized)
+    if rootfs_match:
+        config.rootfs_storage = rootfs_match.group(1)
+        size_val = rootfs_match.group(3)
+        size_unit = rootfs_match.group(4) or "G"
+        if size_val:
+            config.disk_size = f"{size_val}{size_unit}"
+
+    bridge_match = NET_BRIDGE_RE.search(normalized)
+    if bridge_match:
+        config.bridge = bridge_match.group(1)
 
     return config
 

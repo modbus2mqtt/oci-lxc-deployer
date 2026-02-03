@@ -87,6 +87,24 @@ def main() -> None:
                 item["version"] = config.version
             if config.addons:
                 item["addons"] = config.addons
+            # User/permission info for addon reconfiguration
+            if config.username:
+                item["username"] = config.username
+            if config.uid:
+                item["uid"] = config.uid
+            if config.gid:
+                item["gid"] = config.gid
+            # Container resource settings
+            if config.memory is not None:
+                item["memory"] = config.memory
+            if config.cores is not None:
+                item["cores"] = config.cores
+            if config.rootfs_storage:
+                item["rootfs_storage"] = config.rootfs_storage
+            if config.disk_size:
+                item["disk_size"] = config.disk_size
+            if config.bridge:
+                item["bridge"] = config.bridge
 
             containers.append(item)
 

@@ -20,6 +20,9 @@ VE_CONTEXT_RAW = "{{ ve_context_key }}"
 HOSTNAME_RAW = "{{ hostname }}"
 ICON_BASE64 = "{{ icon_base64 }}"
 ICON_MIME_TYPE = "{{ icon_mime_type }}"
+USERNAME_RAW = "{{ username }}"
+UID_RAW = "{{ uid }}"
+GID_RAW = "{{ gid }}"
 
 def not_defined(val: str) -> bool:
     return val == "NOT_DEFINED" or val == ""
@@ -38,6 +41,9 @@ def main():
     hostname = "" if not_defined(HOSTNAME_RAW) else HOSTNAME_RAW
     icon_base64 = "" if not_defined(ICON_BASE64) else ICON_BASE64
     icon_mime_type = "" if not_defined(ICON_MIME_TYPE) else ICON_MIME_TYPE
+    username = "" if not_defined(USERNAME_RAW) else USERNAME_RAW
+    uid = "" if not_defined(UID_RAW) else UID_RAW
+    gid = "" if not_defined(GID_RAW) else GID_RAW
 
     # Strip OCI prefix for display
     oci_image_visible = oci_image_raw
@@ -66,6 +72,12 @@ def main():
         lines.append(f"<!-- oci-lxc-deployer:log-url {deployer_url}/logs/{VMID}/{ve_context} -->")
     if icon_base64 and icon_mime_type:
         lines.append(f"<!-- oci-lxc-deployer:icon-url data:{icon_mime_type};base64,... -->")
+    if username:
+        lines.append(f"<!-- oci-lxc-deployer:username {username} -->")
+    if uid:
+        lines.append(f"<!-- oci-lxc-deployer:uid {uid} -->")
+    if gid:
+        lines.append(f"<!-- oci-lxc-deployer:gid {gid} -->")
 
     # Visible content (Markdown)
     # Use application name as header, fallback to application ID

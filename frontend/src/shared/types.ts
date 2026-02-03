@@ -301,6 +301,16 @@ export interface IManagedOciContainer {
   version?: string;
   status?: string;
   addons?: string[];
+  // User/permission info for addon reconfiguration
+  username?: string;
+  uid?: string;
+  gid?: string;
+  // Container resource settings (from LXC config)
+  memory?: number;
+  cores?: number;
+  rootfs_storage?: string;
+  disk_size?: string;
+  bridge?: string;
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];

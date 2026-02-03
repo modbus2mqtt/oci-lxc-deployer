@@ -138,32 +138,13 @@ fi
 
 NEEDS_STOP=0
 
-# Pre-clean: remove mp entries for target paths to re-apply options
+# Collect existing mount targets - do NOT remove them (user may have created them)
 TMPFILE=$(mktemp)
 printf "%s\n" "$VOLUMES" > "$TMPFILE"
-if [ "$ATTACH_TO_CT" -eq 1 ] && [ -n "$VOLUMES" ]; then
-  TARGETS=""
-  while IFS= read -r tline; do
-    [ -z "$tline" ] && continue
-    tval=$(echo "$tline" | cut -d'=' -f2- | cut -d',' -f1)
-    [ -z "$tval" ] && continue
-    tval=$(printf '%s' "$tval" | sed -E 's#^/*#/#')
-    TARGETS="$TARGETS $tval"
-  done < "$TMPFILE"
-
-  for TARGET in $TARGETS; do
-    MAP_LINES=$(pct config "$VMID" | grep -aE "^mp[0-9]+: .*mp=$TARGET" || true)
-    if [ -n "$MAP_LINES" ]; then
-      if [ "$NEEDS_STOP" -eq 0 ] && [ "$WAS_RUNNING" -eq 1 ]; then
-        pct stop "$VMID" >&2 || true
-        NEEDS_STOP=1
-      fi
-      printf '%s\n' "$MAP_LINES" | while IFS= read -r mline; do
-        mpkey=$(echo "$mline" | cut -d: -f1)
-        pct set "$VMID" -delete "$mpkey" >&2 || true
-      done
-    fi
-    done
+EXISTING_TARGETS=""
+if [ "$ATTACH_TO_CT" -eq 1 ]; then
+  # Get all existing mount target paths from container config
+  EXISTING_TARGETS=$(pct config "$VMID" 2>/dev/null | grep -aE "^mp[0-9]+:" | sed -E 's/.*mp=([^,]+).*/\1/' | tr '\n' ' ' || true)
 fi
 
 # Refresh used mp list
@@ -323,6 +304,16 @@ while IFS= read -r line <&3; do
   [ -z "$VOLUME_KEY" ] && continue
   [ -z "$VOLUME_PATH" ] && continue
   VOLUME_PATH=$(printf '%s' "$VOLUME_PATH" | sed -E 's#^/*#/#')
+
+  # Skip if this mount target already exists (don't remove user-created mounts)
+  if [ "$ATTACH_TO_CT" -eq 1 ]; then
+    case " $EXISTING_TARGETS " in
+      *" $VOLUME_PATH "*)
+        log "Skipping $VOLUME_PATH - mount already exists (preserving existing configuration)"
+        continue
+        ;;
+    esac
+  fi
 
   SAFE_KEY=$(sanitize_name "$VOLUME_KEY")
   SUBDIR="${SHARED_VOLPATH}/volumes/${SAFE_HOST}/${SAFE_KEY}"

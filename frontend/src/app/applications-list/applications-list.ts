@@ -1,11 +1,11 @@
 import { Component, inject, OnInit, ViewChild } from '@angular/core';
-import { RouterModule } from '@angular/router';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { CommonModule } from '@angular/common';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { CacheService } from '../shared/services/cache.service';
 import { ErrorDialog } from './error-dialog';
-import { VeConfigurationDialog } from '../ve-configuration-dialog/ve-configuration-dialog';
+import { VeConfigurationDialog, VeConfigurationDialogData } from '../ve-configuration-dialog/ve-configuration-dialog';
 import { IApplicationWeb, ITagsConfig } from '../../shared/types';
 import { CardGridComponent } from '../shared/components/card-grid/card-grid';
 
@@ -30,6 +30,7 @@ export class ApplicationsList implements OnInit {
   private proxmoxService = inject(VeConfigurationService);
   private dialog = inject(MatDialog);
   private cacheService = inject(CacheService);
+  private route = inject(ActivatedRoute);
 
   // Filter function for internal apps
   filterApp = (app: IApplicationWebIntern, tagsConfig: ITagsConfig, showInternal: boolean): boolean => {
@@ -47,8 +48,8 @@ export class ApplicationsList implements OnInit {
   getAppTags = (app: IApplicationWebIntern): string[] | undefined => app.tags;
 
   openProxmoxConfigDialog(app: IApplicationWebIntern) {
-    const task = 'installation';
-    this.dialog.open(VeConfigurationDialog, { data: { app, task } });
+    const dialogData: VeConfigurationDialogData = { app, task: 'installation' };
+    this.dialog.open(VeConfigurationDialog, { data: dialogData });
   }
 
   showErrors(app: IApplicationWebIntern) {
@@ -65,12 +66,51 @@ export class ApplicationsList implements OnInit {
         const applicationIds = apps.map(app => app.id);
         this.cacheService.setApplicationIds(applicationIds);
         this.loading = false;
+
+        // Check for addon mode from query params
+        this.route.queryParams.subscribe(params => {
+          if (params['mode'] === 'addon' && params['application_id']) {
+            this.openAddonDialog(params);
+          }
+        });
       },
       error: () => {
         this.error = 'Error loading applications';
         this.loading = false;
       }
     });
+  }
+
+  private openAddonDialog(params: Record<string, string>): void {
+    const applicationId = params['application_id'];
+    const app = this.applications.find(a => a.id === applicationId);
+    if (!app) {
+      this.error = `Application '${applicationId}' not found`;
+      return;
+    }
+
+    // Build preset values from query params
+    const presetValues: Record<string, string | number> = {};
+    const paramKeys = ['vm_id', 'hostname', 'oci_image', 'username', 'uid', 'gid',
+                       'memory', 'cores', 'rootfs_storage', 'disk_size', 'bridge'];
+    for (const key of paramKeys) {
+      if (params[key] !== undefined) {
+        // Convert numeric values
+        if (['vm_id', 'memory', 'cores'].includes(key)) {
+          presetValues[key] = parseInt(params[key], 10);
+        } else {
+          presetValues[key] = params[key];
+        }
+      }
+    }
+
+    // Open dialog in addon mode with preset values
+    const dialogData: VeConfigurationDialogData = {
+      app,
+      task: 'addon',
+      presetValues,
+    };
+    this.dialog.open(VeConfigurationDialog, { data: dialogData });
   }
 
   get showFramework(): boolean {

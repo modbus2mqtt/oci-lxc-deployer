@@ -1,7 +1,7 @@
 {
   "execute_on": "ve",
   "name": "Create and Configure LXC",
-  "description": "Creates LXC container and applies optional configurations (templates 101-199).\n\nThis template creates the container and then applies all optional configuration templates in the correct order. Each optional template will be automatically skipped if its required parameters are missing (via skip_if_all_missing).\n\nIf username is provided, a user will be created on the VE host before the container is created (template 095). This ensures consistent UID/GID mapping between host and container.\n\nNote: uid and gid parameters are used for volume permissions only, not for container idmap configuration. The container is created as unprivileged without automatic UID/GID mappings.\n\nTemplates included:\n- 095: Create User on VE Host (if username provided)\n- 100: Create LXC container (unprivileged, no idmap)\n- 104: Compute Static IPs from prefixes\n- 105: Set Static IP for LXC\n- 106: Update /etc/hosts entries\n- 110: Map Serial Device\n- 150: Create Storage Volumes for LXC\n- 170: Set Environment Variables in LXC\n- 190: Write LXC Notes (managed marker, OCI image, links)",
+  "description": "Creates or reconfigures LXC container and applies optional configurations (templates 101-199).\n\n**New Installation Mode** (vm_id not set):\nCreates a new container using pct create and applies all configuration templates.\n\n**Reconfiguration Mode** (vm_id set and container exists):\nSkips pct create and only applies configuration changes. Existing mountpoints and environment variables are preserved (not removed).\n\nIf username is provided, a user will be created on the VE host before the container is created (template 095). This ensures consistent UID/GID mapping between host and container.\n\nNote: uid and gid parameters are used for volume permissions only, not for container idmap configuration. The container is created as unprivileged without automatic UID/GID mappings.\n\nTemplates included:\n- 095: Create User on VE Host (if username provided)\n- 100: Create LXC container (unprivileged, no idmap) - skipped in reconfiguration mode\n- 104: Compute Static IPs from prefixes\n- 105: Set Static IP for LXC\n- 106: Update /etc/hosts entries\n- 110: Map Serial Device\n- 150: Create Storage Volumes for LXC (only adds new, preserves existing)\n- 170: Set Environment Variables in LXC (only adds new, preserves existing)\n- 190: Write LXC Notes (managed marker, OCI image, links)",
   "parameters": [
     {
       "id": "vm_id",
@@ -15,8 +15,7 @@
       "id": "template_path",
       "name": "Path to the LXC template",
       "type": "string",
-      "required": true,
-      "description": "Path to the LXC template (e.g. local:vztmpl/alpine-3.19-default_20231107_amd64.tar.xz). Auto-selected by installer for Alpine. Must be provided by 010-get-latest-os-template.json template."
+      "description": "Path to the LXC template (e.g. local:vztmpl/alpine-3.19-default_20231107_amd64.tar.xz). Required for new installations (auto-selected for Alpine). Not needed in reconfiguration mode when vm_id points to an existing container."
     },
     {
       "id": "oci_image",

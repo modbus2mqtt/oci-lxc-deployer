@@ -38,16 +38,24 @@ ROOTFS="$stor:$(({{ disk_size }} * 1024))"
 echo "Rootfs: $ROOTFS" >&2
 
 # Auto-select VMID if not set
-if [ -z "{{ vm_id }}" ]; then
+if [ -z "{{ vm_id }}" ] || [ "{{ vm_id }}" = "NOT_DEFINED" ]; then
   # Find the next free VMID (highest existing + 1)
   VMID=$(pvesh get /cluster/nextid)
+  CREATE_NEW=1
 else
   VMID="{{ vm_id }}"
+  CREATE_NEW=0
+  # Check if container already exists - if so, skip creation (reconfiguration mode)
+  if [ -f "/etc/pve/lxc/${VMID}.conf" ]; then
+    echo "Container $VMID already exists - skipping pct create (reconfiguration mode)" >&2
+    echo '{ "id": "vm_id", "value": "'$VMID'" }'
+    exit 0
+  fi
 fi
 
-# Check that template_path is set
+# Check that template_path is set (only required for new containers)
 TEMPLATE_PATH="{{ template_path }}"
-if [ -z "$TEMPLATE_PATH" ] || [ "$TEMPLATE_PATH" = "" ]; then
+if [ -z "$TEMPLATE_PATH" ] || [ "$TEMPLATE_PATH" = "" ] || [ "$TEMPLATE_PATH" = "NOT_DEFINED" ]; then
   echo "Error: template_path parameter is empty or not set!" >&2
   echo "Please ensure that 010-get-latest-os-template.json template is executed before 100-create-configure-lxc.json" >&2
   exit 1
