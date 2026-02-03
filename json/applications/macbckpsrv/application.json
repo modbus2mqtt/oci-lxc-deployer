@@ -8,7 +8,6 @@
     "200-start-lxc.json",
     "310-post-create-user.json",
     "305-post-set-pkg-mirror.json",
-    "330-post-install-packages.json",
-    "320-post-install-samba.json"
+    "330-post-install-packages.json"
   ]
 }

@@ -37,8 +37,8 @@ function findApplicationFiles(root: string): string[] {
 
 describe("Application JSON validation", () => {
   it("validates all application.json files against application.schema.json", () => {
-    const rootDir = path.join(__dirname, "..");
-    const jsonRoot = path.join(rootDir, "json");
+    // Use actual project json directory from test environment
+    const jsonRoot = env.repoJsonDir;
 
     const appFiles: string[] = fs.existsSync(jsonRoot)
       ? findApplicationFiles(jsonRoot)
@@ -53,7 +53,7 @@ describe("Application JSON validation", () => {
         validator.serializeJsonFileWithSchema(filePath, schemaKey);
       } catch (e: any) {
         const msg = e && (e.message || String(e));
-        errors.push({ file: path.relative(rootDir, filePath), message: msg });
+        errors.push({ file: path.relative(env.repoRoot, filePath), message: msg });
       }
     }
 

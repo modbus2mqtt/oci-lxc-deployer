@@ -2,6 +2,14 @@
   "name": "oci-image",
   "description": "Base application for OCI image based services",
   "icon": "icon.png",
+  "installation": [
+    "011-host-get-oci-image.json",
+    "100-conf-create-configure-lxc.json",
+    "107-conf-oci-lxc-configuration.json",
+    "200-start-lxc.json",
+    "210-wait-for-container-ready.json",
+    "305-post-set-pkg-mirror.json"
+  ],
   "copy-upgrade": [
     "220-copy-upgrade-oci-lxc.json"
   ]

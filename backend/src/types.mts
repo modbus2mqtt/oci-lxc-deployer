@@ -37,6 +37,7 @@ export interface IApplicationWeb {
   tags?: string[] | undefined;
   source: "local" | "json";
   framework?: string | undefined;
+  extends?: string | undefined;
   errors?: IJsonError[];
 }
 export type TaskType =

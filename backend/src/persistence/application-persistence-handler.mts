@@ -102,6 +102,8 @@ export class ApplicationPersistenceHandler {
 
   /**
    * Baut Application-Liste auf (ohne Templates zu laden!)
+   * Jede Application bekommt einen Eintrag, auch wenn fehlerhaft.
+   * Fehler werden in der errors Property gesammelt.
    */
   private buildApplicationList(): IApplicationWeb[] {
     const applications: IApplicationWeb[] = [];
@@ -124,6 +126,8 @@ export class ApplicationPersistenceHandler {
       const source: "local" | "json" = localApps.has(applicationName) ? "local" : "json";
       readOpts.appSource = source;
 
+      let appWeb: IApplicationWeb;
+
       try {
         // Use lightweight version that doesn't process templates
         const app = this.readApplicationLightweight(applicationName, readOpts);
@@ -131,7 +135,7 @@ export class ApplicationPersistenceHandler {
         // Determine framework from extends chain
         const framework = this.determineFramework(readOpts.extendsChain || []);
 
-        const appWeb: IApplicationWeb = {
+        appWeb = {
           id: app.id,
           name: app.name,
           description: app.description || "No description available",
@@ -141,28 +145,43 @@ export class ApplicationPersistenceHandler {
           tags: app.tags,
           source,
           framework,
+          extends: app.extends,
           ...(app.errors && app.errors.length > 0 && {
             errors: app.errors.map(e => ({ message: e, name: "Error", details: undefined }))
           }),
         };
-        applications.push(appWeb);
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e: Error | any) {
-        // Errors werden unten behandelt
+        // Loading failed - create minimal entry with error
+        appWeb = {
+          id: applicationName,
+          name: applicationName,
+          description: "Failed to load application",
+          source,
+          errors: [{
+            name: e?.name || "Error",
+            message: e?.message || String(e),
+            details: e?.details,
+          }],
+        };
       }
 
-      if (
-        readOpts.error.details &&
-        readOpts.error.details.length > 0 &&
-        applications.length > 0
-      ) {
-        // Convert error details to IJsonError format (Error objects don't serialize to JSON correctly)
-        applications[applications.length - 1]!.errors = readOpts.error.details.map(e => ({
+      // Attach any accumulated errors from readOpts
+      if (readOpts.error.details && readOpts.error.details.length > 0) {
+        const convertedErrors = readOpts.error.details.map(e => ({
           name: e?.name || "Error",
           message: e?.message || String(e),
           details: e?.details,
         }));
+
+        if (appWeb.errors) {
+          // Merge with existing errors (avoid duplicates)
+          appWeb.errors = [...appWeb.errors, ...convertedErrors];
+        } else {
+          appWeb.errors = convertedErrors;
+        }
       }
+
+      applications.push(appWeb);
     }
 
     return applications;

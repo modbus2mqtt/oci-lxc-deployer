@@ -1,538 +1,350 @@
 import path from "node:path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { JsonValidator } from "./jsonvalidator.mjs";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
-import { ApplicationLoader } from "./apploader.mjs";
-import { IReadApplicationOptions } from "./backend-types.mjs";
-import { TaskType } from "./types.mjs";
-import { VEConfigurationError, VELoadApplicationError, IVEContext } from "./backend-types.mjs";
+import { TaskType, IJsonError } from "./types.mjs";
+import { IVEContext } from "./backend-types.mjs";
 import { TemplateProcessor } from "./templates/templateprocessor.mjs";
-import { FileSystemPersistence } from "./persistence/filesystem-persistence.mjs";
 import { ExecutionMode } from "./ve-execution/ve-execution-constants.mjs";
 
-function findTemplateDirs(dir: string): string[] {
-  let results: string[] = [];
-  // Check if directory exists before trying to read it
-  if (!fs.existsSync(dir)) {
-    return results;
-  }
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === "templates") {
-          results.push(fullPath);
-        } else {
-          results = results.concat(findTemplateDirs(fullPath));
-        }
-      }
-    }
-  } catch {
-    // Ignore errors reading directory (e.g., permission denied)
-    // Return empty results for this directory
-  }
-  return results;
-}
-
-function findApplicationFiles(dir: string): string[] {
-  let results: string[] = [];
-  // Check if directory exists before trying to read it
-  if (!fs.existsSync(dir)) {
-    return results;
-  }
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        // Check if there's an application.json in this directory
-        const appJsonPath = path.join(fullPath, "application.json");
-        if (fs.existsSync(appJsonPath)) {
-          results.push(appJsonPath);
-        }
-        // Recurse into subdirectories
-        results = results.concat(findApplicationFiles(fullPath));
-      }
-    }
-  } catch {
-    // Ignore errors reading directory (e.g., permission denied)
-    // Return empty results for this directory
-  }
-  return results;
-}
-
-function findFrameworkFiles(dir: string): string[] {
-  let results: string[] = [];
-  if (!fs.existsSync(dir)) {
-    return results;
-  }
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isFile() && entry.name.endsWith(".json")) {
-        results.push(fullPath);
-      } else if (entry.isDirectory()) {
-        results = results.concat(findFrameworkFiles(fullPath));
-      }
-    }
-  } catch {
-    // Ignore errors reading directory (e.g., permission denied)
-  }
-  return results;
-}
-
-function findAddonFiles(dir: string): string[] {
-  const results: string[] = [];
-  if (!fs.existsSync(dir)) {
-    return results;
-  }
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      // Addons are single JSON files (not in subdirectories)
-      if (entry.isFile() && entry.name.endsWith(".json")) {
-        results.push(fullPath);
-      }
-    }
-  } catch {
-    // Ignore errors reading directory (e.g., permission denied)
-  }
-  return results;
-}
-
+/**
+ * Validates all JSON files (templates, applications, frameworks, addons)
+ * Uses PersistenceManager for consistent path handling and validation.
+ */
 export async function validateAllJson(localPathArg?: string): Promise<void> {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   const projectRoot = path.resolve(__dirname, "..");
   const rootDir = path.resolve(projectRoot, "..");
-  const schemasDir = path.join(rootDir, "schemas");
-  
-  // Use the same paths as webapp.mts: localPath and jsonPath
-  // Default localPath is "examples" in root directory (same as webapp.mts)
-  // Priority: 1. localPathArg (from --local option), 2. LXC_MANAGER_LOCAL_PATH env var, 3. default "examples"
+
+  // Resolve paths
   const defaultLocalPath = path.join(rootDir, "examples");
   let localPath: string;
   if (localPathArg) {
-    // If localPathArg is relative, make it relative to process.cwd(), otherwise use as-is
     localPath = path.isAbsolute(localPathArg) ? localPathArg : path.join(process.cwd(), localPathArg);
   } else {
     localPath = process.env.LXC_MANAGER_LOCAL_PATH || defaultLocalPath;
   }
-  const jsonPath = path.join(rootDir, "json");
 
-  let hasError = false;
-
-  // Initialize validator
-  let validator: JsonValidator;
-  try {
-    validator = new JsonValidator(schemasDir);
-  } catch (err: any) {
-    console.error("Schema validation failed during validator initialization:");
-    if (err && err.details) {
-      for (const detail of err.details) {
-        console.error(`  - ${detail.message || detail}`);
-      }
-    } else {
-      console.error(err);
-    }
-    process.exit(2);
+  // Ensure localPath exists for PersistenceManager
+  if (!fs.existsSync(localPath)) {
+    fs.mkdirSync(localPath, { recursive: true });
   }
 
-  // Validate templates - search in localPath (default: examples) and jsonPath
-  console.log("Validating templates...");
-  const templateDirs: string[] = [];
-  
-  // Search in localPath (default: examples)
-  if (fs.existsSync(localPath)) {
-    const localTemplateDirs = findTemplateDirs(localPath);
-    templateDirs.push(...localTemplateDirs);
-  }
-  
-  // Search in jsonPath
-  if (fs.existsSync(jsonPath)) {
-    const jsonTemplateDirs = findTemplateDirs(jsonPath);
-    templateDirs.push(...jsonTemplateDirs);
-  }
-  
-  const templateSchemaPath = path.join(schemasDir, "template.schema.json");
-
-  for (const dir of templateDirs) {
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      // Calculate relative path from the base (localPath or jsonPath)
-      const relPath = path.relative(
-        filePath.startsWith(localPath) ? localPath : jsonPath,
-        filePath
-      );
-      try {
-        validator.serializeJsonFileWithSchema(filePath, templateSchemaPath);
-        console.log(`✔ Valid template: ${relPath}`);
-      } catch (err: any) {
-        hasError = true;
-        const schemaName = path.basename(templateSchemaPath);
-        console.error(`✖ Invalid template: ${relPath} [${schemaName}]`);
-        if (err && err.details) {
-          for (const detail of err.details) {
-            const isAdditional =
-              detail.message &&
-              detail.message.includes("must NOT have additional properties");
-            if (
-              isAdditional &&
-              detail.params &&
-              detail.params.additionalProperty
-            ) {
-              console.error(
-                `  - ${detail.message} (property: '${detail.params.additionalProperty}')${detail.line ? " (line " + detail.line + ")" : ""}`,
-              );
-            } else {
-              console.error(
-                `  - ${detail.message}${detail.line ? " (line " + detail.line + ")" : ""}`,
-              );
-            }
-          }
-        } else {
-          console.error(err);
-        }
-      }
-    }
-  }
-
-  // Validate applications - search in localPath (default: examples) and jsonPath
-  console.log("\nValidating applications...");
-  const applicationFiles: string[] = [];
-  
-  // Search in localPath (default: examples)
-  if (fs.existsSync(localPath)) {
-    const localApps = findApplicationFiles(
-      path.join(localPath, "applications")
-    );
-    applicationFiles.push(...localApps);
-  }
-  
-  // Search in jsonPath
-  if (fs.existsSync(jsonPath)) {
-    const jsonApps = findApplicationFiles(
-      path.join(jsonPath, "applications")
-    );
-    applicationFiles.push(...jsonApps);
-  }
-  
-  const applicationSchemaPath = path.join(schemasDir, "application.schema.json");
-
-  for (const filePath of applicationFiles) {
-    // Calculate relative path from the base (localPath or jsonPath)
-    const relPath = path.relative(
-      filePath.startsWith(localPath) ? localPath : jsonPath,
-      filePath
-    );
-    try {
-      validator.serializeJsonFileWithSchema(filePath, applicationSchemaPath);
-      console.log(`✔ Valid application: ${relPath}`);
-    } catch (err: any) {
-      hasError = true;
-      const schemaName = path.basename(applicationSchemaPath);
-      console.error(`✖ Invalid application: ${relPath} [${schemaName}]`);
-      if (err && err.details) {
-        for (const detail of err.details) {
-          const isAdditional =
-            detail.message &&
-            detail.message.includes("must NOT have additional properties");
-          if (
-            isAdditional &&
-            detail.params &&
-            detail.params.additionalProperty
-          ) {
-            console.error(
-              `  - ${detail.message} (property: '${detail.params.additionalProperty}')${detail.line ? " (line " + detail.line + ")" : ""}`,
-            );
-          } else {
-            console.error(
-              `  - ${detail.message}${detail.line ? " (line " + detail.line + ")" : ""}`,
-            );
-          }
-        }
-      } else {
-        console.error(err);
-      }
-    }
-  }
-
-  // Validate frameworks - search in localPath (default: examples) and jsonPath
-  console.log("\nValidating frameworks...");
-  const frameworkFiles: string[] = [];
-
-  // Search in localPath (default: examples)
-  if (fs.existsSync(localPath)) {
-    const localFrameworks = findFrameworkFiles(
-      path.join(localPath, "frameworks"),
-    );
-    frameworkFiles.push(...localFrameworks);
-  }
-
-  // Search in jsonPath
-  if (fs.existsSync(jsonPath)) {
-    const jsonFrameworks = findFrameworkFiles(
-      path.join(jsonPath, "frameworks"),
-    );
-    frameworkFiles.push(...jsonFrameworks);
-  }
-
-  const frameworkSchemaPath = path.join(schemasDir, "framework.schema.json");
-
-  for (const filePath of frameworkFiles) {
-    const relPath = path.relative(
-      filePath.startsWith(localPath) ? localPath : jsonPath,
-      filePath,
-    );
-    try {
-      validator.serializeJsonFileWithSchema(filePath, frameworkSchemaPath);
-      console.log(`✔ Valid framework: ${relPath}`);
-    } catch (err: any) {
-      hasError = true;
-      const schemaName = path.basename(frameworkSchemaPath);
-      console.error(`✖ Invalid framework: ${relPath} [${schemaName}]`);
-      if (err && err.details) {
-        for (const detail of err.details) {
-          const isAdditional =
-            detail.message &&
-            detail.message.includes("must NOT have additional properties");
-          if (
-            isAdditional &&
-            detail.params &&
-            detail.params.additionalProperty
-          ) {
-            console.error(
-              `  - ${detail.message} (property: '${detail.params.additionalProperty}')${
-                detail.line ? " (line " + detail.line + ")" : ""
-              }`,
-            );
-          } else {
-            console.error(
-              `  - ${detail.message}${
-                detail.line ? " (line " + detail.line + ")" : ""
-              }`,
-            );
-          }
-        }
-      } else {
-        console.error(err);
-      }
-    }
-  }
-
-  // Validate addons - search in localPath and jsonPath
-  console.log("\nValidating addons...");
-  const addonFiles: string[] = [];
-
-  // Search in localPath
-  if (fs.existsSync(localPath)) {
-    const localAddons = findAddonFiles(path.join(localPath, "addons"));
-    addonFiles.push(...localAddons);
-  }
-
-  // Search in jsonPath
-  if (fs.existsSync(jsonPath)) {
-    const jsonAddons = findAddonFiles(path.join(jsonPath, "addons"));
-    addonFiles.push(...jsonAddons);
-  }
-
-  const addonSchemaPath = path.join(schemasDir, "addon.schema.json");
-
-  for (const filePath of addonFiles) {
-    const relPath = path.relative(
-      filePath.startsWith(localPath) ? localPath : jsonPath,
-      filePath,
-    );
-    try {
-      validator.serializeJsonFileWithSchema(filePath, addonSchemaPath);
-      console.log(`✔ Valid addon: ${relPath}`);
-    } catch (err: any) {
-      hasError = true;
-      const schemaName = path.basename(addonSchemaPath);
-      console.error(`✖ Invalid addon: ${relPath} [${schemaName}]`);
-      if (err && err.details) {
-        for (const detail of err.details) {
-          const isAdditional =
-            detail.message &&
-            detail.message.includes("must NOT have additional properties");
-          if (
-            isAdditional &&
-            detail.params &&
-            detail.params.additionalProperty
-          ) {
-            console.error(
-              `  - ${detail.message} (property: '${detail.params.additionalProperty}')${
-                detail.line ? " (line " + detail.line + ")" : ""
-              }`,
-            );
-          } else {
-            console.error(
-              `  - ${detail.message}${
-                detail.line ? " (line " + detail.line + ")" : ""
-              }`,
-            );
-          }
-        }
-      } else {
-        console.error(err);
-      }
-    }
-  }
-
-  // Validate scripts and templates referenced in applications
-  console.log("\nValidating scripts and templates in applications...");
-  
-  // Initialize PersistenceManager for template processing
-  // Use the same localPath as above (already defined)
   const storageContextPath = path.join(localPath, "storagecontext.json");
   const secretFilePath = path.join(localPath, "secret.txt");
-  
-  // Create minimal storage context if it doesn't exist
+
+  // Create minimal files if they don't exist
   if (!fs.existsSync(storageContextPath)) {
-    fs.mkdirSync(path.dirname(storageContextPath), { recursive: true });
     fs.writeFileSync(storageContextPath, JSON.stringify({ veContexts: [] }, null, 2));
   }
   if (!fs.existsSync(secretFilePath)) {
-    fs.mkdirSync(path.dirname(secretFilePath), { recursive: true });
     fs.writeFileSync(secretFilePath, "dummy-secret-for-validation");
   }
-  
-  // Close existing instance if any
+
+  // Initialize PersistenceManager (validates directory structure)
   try {
     PersistenceManager.getInstance().close();
   } catch {
     // Ignore if not initialized
   }
-  PersistenceManager.initialize(localPath, storageContextPath, secretFilePath);
-  const pm = PersistenceManager.getInstance();
-  const storageContext = pm.getContextManager();
-  
-  // Get pathes from PersistenceManager (similar to how it's done in lxc-exec.mts)
-  // Use the same paths as webapp.mts
-  const configuredPathes = {
-    schemaPath: schemasDir,
-    jsonPath: jsonPath,
-    localPath: localPath,
+
+  let pm: PersistenceManager;
+  try {
+    pm = PersistenceManager.initialize(localPath, storageContextPath, secretFilePath);
+  } catch (err: any) {
+    console.error("Failed to initialize PersistenceManager:");
+    console.error(`  ${err.message || err}`);
+    process.exit(2);
+  }
+
+  const pathes = pm.getPathes();
+  const validator = pm.getJsonValidator();
+  let hasError = false;
+
+  // Helper to print errors
+  const printErrors = (errors: IJsonError[], indent = "    ") => {
+    for (const err of errors) {
+      const line = err.line ? ` (line ${err.line})` : "";
+      console.error(`${indent}- ${err.message}${line}`);
+      if (err.details?.length) {
+        printErrors(err.details, indent + "  ");
+      }
+    }
   };
-  const persistence = new FileSystemPersistence(
-    configuredPathes,
-    pm.getJsonValidator(),
-  );
-  const appLoader = new ApplicationLoader(configuredPathes, persistence);
-  
-  const VALID_TASK_TYPES: TaskType[] = [
-    "installation",
-    "backup",
-    "restore",
-    "uninstall",
-    "update",
-    "upgrade",
-    "webui",
-  ];
-  
-  // Process each application
-  for (const filePath of applicationFiles) {
-    // Calculate relative path from the base (localPath or jsonPath)
-    const relPath = path.relative(
-      filePath.startsWith(localPath) ? localPath : jsonPath,
-      filePath
-    );
-    const appDir = path.dirname(filePath);
-    const appName = path.basename(appDir);
-    
-    try {
-      // Read application.json to get tasks
-      const readOpts: IReadApplicationOptions = {
-        applicationHierarchy: [],
-        error: new VEConfigurationError("", appName),
-        taskTemplates: [],
-      };
-      
+
+  // === 1. Validate Templates ===
+  interface TemplateGroup {
+    label: string;
+    count: number;
+    errors: { file: string; err: any }[];
+  }
+  const templateGroups: TemplateGroup[] = [];
+
+  const templateDirs = findTemplateDirs(pathes.jsonPath).concat(findTemplateDirs(pathes.localPath));
+
+  for (const dir of templateDirs) {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith(".json"));
+    const errors: { file: string; err: any }[] = [];
+
+    for (const file of files) {
+      const filePath = path.join(dir, file);
       try {
-        appLoader.readApplicationJson(appName, readOpts);
-      } catch {
-        // Application.json might have errors, but we continue to check templates
-        if (readOpts.error.details && readOpts.error.details.length > 0) {
-          hasError = true;
-          console.error(`✖ Error loading application: ${relPath}`);
-          for (const detail of readOpts.error.details) {
-            console.error(`  - ${detail.message || detail}`);
-          }
-          continue;
-        }
+        validator.serializeJsonFileWithSchema(filePath, "template.schema.json");
+      } catch (err: any) {
+        hasError = true;
+        errors.push({ file, err });
       }
-      
-      // Process each task
-      for (const taskEntry of readOpts.taskTemplates) {
-        const task = taskEntry.task as TaskType;
-        if (!VALID_TASK_TYPES.includes(task)) {
-          continue; // Skip invalid task types
-        }
-        
-        try {
-          // Create a dummy VE context for validation
-          // loadApplication requires a VE context, but we don't need a real SSH connection
-          // The VE context is only used for path resolution, not for SSH operations
-          const dummyVeContext: IVEContext = {
-            host: "validation-dummy",
-            current: false,
-            getStorageContext: () => storageContext,
-            getKey: () => "ve_validation-dummy",
-          };
-          
-          // Use loadApplication to validate the application
-          // This will perform full template processing including:
-          // - Schema validation
-          // - Template existence checks
-          // - Script existence checks
-          // - Duplicate output/property ID checks
-          // - Skip logic validation
-          // Pass ExecutionMode.TEST to skip actual SSH execution for enum templates
-          const templateProcessor = new TemplateProcessor(configuredPathes, storageContext, pm.getPersistence());
-          await templateProcessor.loadApplication(appName, task, dummyVeContext, ExecutionMode.TEST);
-          
-          console.log(`✔ Validated application: ${relPath} (task: ${task})`);
-        } catch (err: any) {
-          hasError = true;
-          console.error(`✖ Error validating application: ${relPath} (task: ${task})`);
-          
-          if (err instanceof VEConfigurationError || err instanceof VELoadApplicationError) {
-            if (err.details && Array.isArray(err.details)) {
-              for (const detail of err.details) {
-                if (detail && typeof detail === "object" && "message" in detail) {
-                  console.error(`  - ${detail.message}`);
-                } else {
-                  console.error(`  - ${String(detail)}`);
-                }
-              }
-            } else if (err.message) {
-              console.error(`  - ${err.message}`);
-            }
-          } else if (err instanceof Error) {
-            console.error(`  - ${err.message}`);
-          } else {
-            console.error(`  - ${String(err)}`);
-          }
-        }
+    }
+
+    // Determine label
+    const isJson = dir.startsWith(pathes.jsonPath);
+    const relToBase = path.relative(isJson ? pathes.jsonPath : pathes.localPath, dir);
+    const parts = relToBase.split(path.sep);
+    const prefix = isJson ? "json" : "local";
+
+    let label: string;
+    if (parts[0] === "shared") {
+      label = `${prefix}/shared`;
+    } else if (parts[0] === "applications" && parts.length >= 2 && parts[1]) {
+      const appName = parts.slice(1, -1).join("/");
+      label = `${prefix}/applications/${appName}`;
+    } else {
+      label = `${prefix}/${relToBase}`;
+    }
+
+    templateGroups.push({ label, count: files.length, errors });
+  }
+
+  // Print Templates
+  const templateErrors = templateGroups.filter(g => g.errors.length > 0);
+  const templateTotal = templateGroups.reduce((sum, g) => sum + g.count, 0);
+
+  if (templateErrors.length === 0) {
+    console.log(`✔ Templates (${templateTotal})`);
+  } else {
+    console.error(`✖ Templates (${templateTotal - templateErrors.flatMap(g => g.errors).length}/${templateTotal})`);
+    for (const group of templateErrors) {
+      for (const { file, err } of group.errors) {
+        console.error(`  ✖ ${group.label}/${file}`);
+        if (err.details) printErrors(err.details);
+        else console.error(`    - ${err.message || err}`);
       }
-    } catch (err: any) {
-      hasError = true;
-      console.error(`✖ Error processing application: ${relPath}`);
-      console.error(`  - ${err.message || String(err)}`);
     }
   }
 
+  // === 2. Validate Frameworks ===
+  const frameworkSources = [
+    { dir: path.join(pathes.jsonPath, "frameworks"), label: "json" },
+    { dir: path.join(pathes.localPath, "frameworks"), label: "local" },
+  ];
+
+  let frameworkTotal = 0;
+  const frameworkErrors: { file: string; err: any }[] = [];
+
+  for (const { dir } of frameworkSources) {
+    if (!fs.existsSync(dir)) continue;
+    const files = findJsonFiles(dir);
+    frameworkTotal += files.length;
+
+    for (const filePath of files) {
+      const relFile = path.relative(dir, filePath);
+      try {
+        validator.serializeJsonFileWithSchema(filePath, "framework.schema.json");
+      } catch (err: any) {
+        hasError = true;
+        frameworkErrors.push({ file: relFile, err });
+      }
+    }
+  }
+
+  if (frameworkTotal > 0) {
+    if (frameworkErrors.length === 0) {
+      console.log(`✔ Frameworks (${frameworkTotal})`);
+    } else {
+      console.error(`✖ Frameworks (${frameworkTotal - frameworkErrors.length}/${frameworkTotal})`);
+      for (const { file, err } of frameworkErrors) {
+        console.error(`  ✖ ${file}`);
+        if (err.details) printErrors(err.details);
+        else console.error(`    - ${err.message || err}`);
+      }
+    }
+  }
+
+  // === 3. Validate Addons ===
+  const addonSources = [
+    { dir: path.join(pathes.jsonPath, "addons"), label: "json" },
+    { dir: path.join(pathes.localPath, "addons"), label: "local" },
+  ];
+
+  let addonTotal = 0;
+  const addonErrors: { file: string; err: any }[] = [];
+
+  for (const { dir } of addonSources) {
+    if (!fs.existsSync(dir)) continue;
+    const files = fs.readdirSync(dir).filter(f => f.endsWith(".json"));
+    addonTotal += files.length;
+
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      try {
+        validator.serializeJsonFileWithSchema(filePath, "addon.schema.json");
+      } catch (err: any) {
+        hasError = true;
+        addonErrors.push({ file, err });
+      }
+    }
+  }
+
+  if (addonTotal > 0) {
+    if (addonErrors.length === 0) {
+      console.log(`✔ Addons (${addonTotal})`);
+    } else {
+      console.error(`✖ Addons (${addonTotal - addonErrors.length}/${addonTotal})`);
+      for (const { file, err } of addonErrors) {
+        console.error(`  ✖ ${file}`);
+        if (err.details) printErrors(err.details);
+        else console.error(`    - ${err.message || err}`);
+      }
+    }
+  }
+
+  // === 4. Validate Applications (schema + tasks) ===
+  const apps = pm.getApplicationService().listApplicationsForFrontend();
+
+  const VALID_TASK_TYPES: TaskType[] = [
+    "installation", "backup", "restore", "uninstall", "update", "upgrade", "webui",
+  ];
+
+  const contextManager = pm.getContextManager();
+  const dummyVeContext: IVEContext = {
+    host: "validation-dummy",
+    current: false,
+    getStorageContext: () => contextManager,
+    getKey: () => "ve_validation-dummy",
+  };
+
+  const appErrors: { id: string; schemaErrors?: IJsonError[]; taskErrors?: { task: string; err: any }[] }[] = [];
+
+  for (const app of apps) {
+    // Check for schema errors first
+    if (app.errors?.length) {
+      hasError = true;
+      appErrors.push({ id: app.id, schemaErrors: app.errors });
+      continue;
+    }
+
+    // Validate tasks
+    const taskErrors: { task: string; err: any }[] = [];
+    for (const task of VALID_TASK_TYPES) {
+      try {
+        const templateProcessor = new TemplateProcessor(pathes, contextManager, pm.getPersistence());
+        await templateProcessor.loadApplication(app.id, task, dummyVeContext, ExecutionMode.TEST);
+      } catch (err: any) {
+        hasError = true;
+        taskErrors.push({ task, err });
+      }
+    }
+
+    if (taskErrors.length > 0) {
+      appErrors.push({ id: app.id, taskErrors });
+    }
+  }
+
+  // Get extends info for better error messages
+  const getExtendsInfo = (appId: string): string => {
+    const app = apps.find(a => a.id === appId);
+    if (app?.extends) {
+      const failedBase = appErrors.find(e => e.id === app.extends);
+      if (failedBase) {
+        return ` (extends: ${app.extends} ✖)`;
+      }
+      return ` (extends: ${app.extends})`;
+    }
+    return "";
+  };
+
+  if (appErrors.length === 0) {
+    console.log(`✔ Applications (${apps.length})`);
+  } else {
+    console.error(`✖ Applications (${apps.length - appErrors.length}/${apps.length})`);
+    for (const appErr of appErrors) {
+      const extendsInfo = getExtendsInfo(appErr.id);
+      if (appErr.schemaErrors) {
+        console.error(`  ✖ ${appErr.id}${extendsInfo}`);
+        printErrors(appErr.schemaErrors);
+      } else if (appErr.taskErrors) {
+        const passed = VALID_TASK_TYPES.length - appErr.taskErrors.length;
+        console.error(`  ✖ ${appErr.id}${extendsInfo} (${passed}/${VALID_TASK_TYPES.length} tasks)`);
+        for (const { task, err } of appErr.taskErrors) {
+          console.error(`    ✖ ${task}`);
+          if (err.details?.length) {
+            printErrors(err.details, "      ");
+          } else {
+            console.error(`      - ${err.message || err}`);
+          }
+        }
+      }
+    }
+  }
+
+  // === Summary ===
+  console.log("");
   if (hasError) {
-    console.error("\nValidation failed. Please fix the errors above.");
+    console.error("✖ Validation failed.");
     process.exit(1);
   } else {
-    console.log("\nAll templates, applications, scripts, and referenced templates are valid.");
+    console.log("✔ All validations passed.");
     process.exit(0);
   }
 }
 
+// Helper: Find all template directories
+function findTemplateDirs(baseDir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(baseDir)) return results;
+
+  const scan = (dir: string) => {
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === "templates") {
+            results.push(fullPath);
+          } else {
+            scan(fullPath);
+          }
+        }
+      }
+    } catch {
+      // Ignore permission errors
+    }
+  };
+
+  scan(baseDir);
+  return results;
+}
+
+// Helper: Find all JSON files recursively
+function findJsonFiles(dir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
+
+  const scan = (d: string) => {
+    try {
+      for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+        const fullPath = path.join(d, entry.name);
+        if (entry.isDirectory()) {
+          scan(fullPath);
+        } else if (entry.isFile() && entry.name.endsWith(".json")) {
+          results.push(fullPath);
+        }
+      }
+    } catch {
+      // Ignore permission errors
+    }
+  };
+
+  scan(dir);
+  return results;
+}
