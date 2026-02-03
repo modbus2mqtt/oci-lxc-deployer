@@ -30,15 +30,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify root package-lock.json is in sync
-        run: npm ci --dry-run
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
+
+      - name: Verify root package-lock.json is in sync
+        run: npm ci --dry-run
       
       - name: Install skopeo
         run: |
