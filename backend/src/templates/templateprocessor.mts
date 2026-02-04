@@ -164,6 +164,7 @@ export class TemplateProcessor extends EventEmitter {
     // Properties with 'value' mark the parameter as resolved (output)
     // Properties with 'default' only set the default value (still editable)
     if (application?.properties && application.properties.length > 0) {
+      const propertiesWithValue: { id: string; value: any }[] = [];
       for (const prop of application.properties) {
         if (prop.value !== undefined) {
           // Property with explicit value - mark as resolved
@@ -172,9 +173,17 @@ export class TemplateProcessor extends EventEmitter {
             template: "application.json",
           });
           outputSources.set(prop.id, { template: "application.json", kind: "properties" });
+          propertiesWithValue.push({ id: prop.id, value: prop.value });
         }
         // Note: Properties with 'default' will be applied later during parameter resolution
         // They don't mark the parameter as resolved, allowing UI editing
+      }
+      // Add a properties command to set these values during execution
+      if (propertiesWithValue.length > 0) {
+        outCommands.push({
+          name: "Application Properties",
+          properties: propertiesWithValue,
+        });
       }
     }
 
