@@ -5,12 +5,12 @@
 Um die nächste Phase in einer neuen Claude-Session zu starten:
 
 ```bash
-Lies docs/refactor-create-application.md und führe Phase 8 aus.
+Lies docs/refactor-create-application.md und führe Phase 9 aus.
 ```
 
-**Relevante Dateien für Phase 8:**
-- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Compose/Image Logik verschieben)
-- `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service (Ziel)
+**Relevante Dateien für Phase 9:**
+- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (finalisieren)
+- `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service
 
 **Verifizierung nach Abschluss:**
 ```bash
@@ -297,25 +297,41 @@ readonly state = inject(CreateApplicationStateService);
 
 ---
 
-### Phase 8: Compose/Image Logik in State Service ⏳ NÄCHSTE PHASE
+### Phase 8: Compose/Image Logik in State Service ✅ ABGESCHLOSSEN
 
 **Ziel:** Komplexe Integration-Logik in Service verschieben
 
-**Was wird in StateService verschoben:**
-- `onComposeFileSelected()`
-- `onEnvFileSelected()`
-- `fetchImageAnnotations()`
-- `fillFieldsFromAnnotations()`
-- `updateImageFromCompose()`
-- `updateInitialCommandFromCompose()`
-- `updateUserFromCompose()`
-- `fillEnvsForSelectedService()`
+**Was wurde in StateService verschoben:**
+- `onComposeFileSelected()` - Compose-Datei parsen und State aktualisieren
+- `onEnvFileSelected()` - Env-Datei parsen und State aktualisieren
+- `fetchImageAnnotations()` - Image-Annotationen vom Registry abrufen
+- `fillFieldsFromAnnotations()` - Formularfelder aus Annotationen füllen
+- `updateImageFromCompose()` - Image-Referenz aus Compose-Service ableiten
+- `updateInitialCommandFromCompose()` - Initial-Command aus Compose-Service ableiten
+- `updateUserFromCompose()` - UID/GID aus Compose-Service ableiten
+- `fillEnvsForSelectedService()` - Environment-Variablen für Service füllen
+- `ensureComposeControls()` - Compose-Formularfelder sicherstellen
+- `setComposeFileRequired()` - Compose-Datei als required setzen
+- `updateOciImageParameter()` - OCI-Image-Parameter aktualisieren
+- `updateRequiredEnvVars()` - Required Env-Vars aktualisieren
+- `updateMissingEnvVars()` - Missing Env-Vars aktualisieren
+- `updateEnvFileRequirement()` - Env-File-Requirement aktualisieren
+- `refreshEnvSummary()` - Env-Summary neu berechnen
+- `readFileAsBase64()` - Datei als Base64 lesen
+- `envFileConfigured()` - Prüfen ob Env-Datei konfiguriert ist
+- `envVarKeys()` - Env-Var-Keys abrufen
+- `envVarKeysText()` - Env-Var-Keys als Text
 
-**Verifizierung:** `./frontend/scripts/verify-build.sh`
+**Änderungen an create-application.ts:**
+- Lokale State-Variablen entfernt: `imageInputSubject`, `imageAnnotationsTimeout`, `lastAnnotationsResponse`
+- Alle Compose/Image-Logik-Methoden delegieren jetzt an `state.xxx()`
+- Datei von ~994 Zeilen auf ~572 Zeilen reduziert
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh` ✅ (Lint ✅, Build ✅, 63 Tests ✅)
 
 ---
 
-### Phase 9: Orchestrator finalisieren
+### Phase 9: Orchestrator finalisieren ⏳ NÄCHSTE PHASE
 
 **Ziel:** Haupt-Komponente auf ~450 Zeilen reduzieren
 

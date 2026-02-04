@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
 import {
   FormBuilder,
   FormControl,
@@ -17,12 +17,12 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Subject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
+import { debounceTime, distinctUntilChanged, Subject, takeUntil } from 'rxjs';
 
 import { IFrameworkName, IParameter, IPostFrameworkFromImageResponse } from '../../shared/types';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { CacheService } from '../shared/services/cache.service';
-import { DockerComposeService, ComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';
+import { DockerComposeService } from '../shared/services/docker-compose.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { CreateApplicationStateService } from './services/create-application-state.service';
 import { AppPropertiesStepComponent } from './steps/app-properties-step.component';
@@ -65,7 +65,6 @@ export class CreateApplication implements OnInit, OnDestroy {
   private errorHandler = inject(ErrorHandlerService);
   private cacheService = inject(CacheService);
   private composeService = inject(DockerComposeService);
-  private cdr = inject(ChangeDetectorRef);
 
   // State Service - holds all shared state
   readonly state = inject(CreateApplicationStateService);
@@ -134,25 +133,23 @@ export class CreateApplication implements OnInit, OnDestroy {
   // ─────────────────────────────────────────────────────────────────────────────
   // Local state (component-specific, not shared)
   // ─────────────────────────────────────────────────────────────────────────────
-  private imageInputSubject = new Subject<string>();
   private destroy$ = new Subject<void>();
-  private imageAnnotationsTimeout: ReturnType<typeof setTimeout> | null = null;
-  private lastAnnotationsResponse: IPostFrameworkFromImageResponse | null = null;
 
   ngOnInit(): void {
     this.cacheService.preloadAll();
     this.loadTagsConfig();
 
-    this.imageInputSubject.pipe(
+    // Subscribe to debounced image input from state service
+    this.state.imageInputSubject.pipe(
       takeUntil(this.destroy$),
-      debounceTime(500), // Wait 500ms after user stops typing
+      debounceTime(500),
       distinctUntilChanged()
-    ).subscribe(imageRef => {
+    ).subscribe((imageRef: string) => {
       if (imageRef && imageRef.trim()) {
-        this.updateOciImageParameter(imageRef);
+        this.state.updateOciImageParameter(imageRef);
         // In edit mode, don't fetch annotations automatically - user already has their data
         if (!this.editMode()) {
-          this.fetchImageAnnotations(imageRef.trim());
+          this.state.fetchImageAnnotations(imageRef.trim());
         }
       } else {
         this.imageError.set(null);
@@ -177,9 +174,6 @@ export class CreateApplication implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
-    if (this.imageAnnotationsTimeout) {
-      clearTimeout(this.imageAnnotationsTimeout);
-    }
   }
 
   private loadTagsConfig(): void {
@@ -320,14 +314,10 @@ export class CreateApplication implements OnInit, OnDestroy {
   }
 
   onFrameworkSelected(frameworkId: string): void {
-    if (this.imageAnnotationsTimeout) {
-      clearTimeout(this.imageAnnotationsTimeout);
-    }
-
     // Ensure compose controls exist immediately for docker-compose framework
     // This prevents template errors before loadParameters() completes
     if (this.isDockerComposeFramework()) {
-      this.ensureComposeControls({ requireComposeFile: true });
+      this.state.ensureComposeControls({ requireComposeFile: true });
     }
 
     if (this.state.selectedFramework()) {
@@ -337,30 +327,30 @@ export class CreateApplication implements OnInit, OnDestroy {
 
   onInstallModeChanged(mode: 'image' | 'compose'): void {
     if (mode === 'compose') {
-      this.ensureComposeControls({ requireComposeFile: true });
+      this.state.ensureComposeControls({ requireComposeFile: true });
     } else {
-      this.setComposeFileRequired(false);
-      this.updateEnvFileRequirement();
-      this.refreshEnvSummary();
+      this.state.setComposeFileRequired(false);
+      this.state.updateEnvFileRequirement();
+      this.state.refreshEnvSummary();
     }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onServiceSelected(_serviceName: string): void {
     if (this.isOciComposeMode()) {
-      this.updateImageFromCompose();
-      this.updateInitialCommandFromCompose();
-      this.updateUserFromCompose();
-      this.fillEnvsForSelectedService(); // Update envs when service changes
+      this.state.updateImageFromCompose();
+      this.state.updateInitialCommandFromCompose();
+      this.state.updateUserFromCompose();
+      this.state.fillEnvsForSelectedService();
     }
-    this.updateEnvFileRequirement();
+    this.state.updateEnvFileRequirement();
   }
 
   loadParameters(frameworkId: string): void {
     this.loadingParameters.set(true);
     this.parameters = [];
 
-    const preserveCompose = this.usesComposeControls();
+    const preserveCompose = this.state.usesComposeControls();
     const composeFileValue = preserveCompose ? (this.parameterForm.get('compose_file')?.value || '') : '';
     const envFileValue = preserveCompose ? (this.parameterForm.get('env_file')?.value || '') : '';
     const volumesValue = preserveCompose ? (this.parameterForm.get('volumes')?.value || '') : '';
@@ -370,12 +360,12 @@ export class CreateApplication implements OnInit, OnDestroy {
 
     if (preserveCompose) {
       // re-create controls + validators consistently after reset
-      this.ensureComposeControls({ requireComposeFile: true });
+      this.state.ensureComposeControls({ requireComposeFile: true });
       this.parameterForm.patchValue(
         { compose_file: composeFileValue, env_file: envFileValue, volumes: volumesValue },
         { emitEvent: false }
       );
-      this.updateEnvFileRequirement();
+      this.state.updateEnvFileRequirement();
     }
 
     this.configService.getFrameworkParameters(frameworkId).subscribe({
@@ -389,12 +379,12 @@ export class CreateApplication implements OnInit, OnDestroy {
             this.groupedParameters[group] = [];
           }
           this.groupedParameters[group].push(param);
-          
+
           // Don't overwrite compose_file, env_file, and volumes if they already exist
           if ((this.isDockerComposeFramework() || this.isOciComposeMode()) && (param.id === 'compose_file' || param.id === 'env_file' || param.id === 'volumes')) {
             continue;
           }
-          
+
           // NOTE: "Neue Property für Textfeld-Validierung" NICHT im Framework-Flow aktivieren.
           // Hier bewusst nur `required` berücksichtigen (Validation soll nur im ve-configuration-dialog laufen).
           const validators = param.required ? [Validators.required] : [];
@@ -410,7 +400,7 @@ export class CreateApplication implements OnInit, OnDestroy {
         }
         this.loadingParameters.set(false);
 
-        this.updateEnvFileRequirement();
+        this.state.updateEnvFileRequirement();
 
         if (preserveCompose) {
           setTimeout(() => this.hydrateComposeDataFromForm(), 0);
@@ -433,12 +423,12 @@ export class CreateApplication implements OnInit, OnDestroy {
         if (this.isOciComposeMode() && parsed.services.length > 0) {
           const first = parsed.services[0].name;
           this.selectedServiceName.set(first);
-          this.updateImageFromCompose();
-          this.updateInitialCommandFromCompose();
-          this.updateUserFromCompose();
+          this.state.updateImageFromCompose();
+          this.state.updateInitialCommandFromCompose();
+          this.state.updateUserFromCompose();
         }
 
-        this.updateEnvFileRequirement();
+        this.state.updateEnvFileRequirement();
       }
     }
   }
@@ -447,7 +437,7 @@ export class CreateApplication implements OnInit, OnDestroy {
     if (!this.selectedFramework) {
       return false;
     }
-    
+
     // For oci-image framework
     if (this.isOciImageFramework()) {
       if (this.ociInstallMode() === 'compose') {
@@ -458,22 +448,23 @@ export class CreateApplication implements OnInit, OnDestroy {
       }
       return this.imageReference().trim().length > 0;
     }
-    
+
     // For docker-compose framework, require compose_file
     if (this.isDockerComposeFramework()) {
       const composeFile = this.parameterForm.get('compose_file')?.value;
       return composeFile && composeFile.trim().length > 0 && this.parsedComposeData() !== null;
     }
-    
+
     return true;
   }
 
   onStepChange(event: { selectedIndex: number }): void {
     // When Step 2 is entered, fill fields from annotations if they were already loaded
-    if (event.selectedIndex === 1 && this.lastAnnotationsResponse) {
+    const lastResponse = this.state.lastAnnotationsResponse();
+    if (event.selectedIndex === 1 && lastResponse) {
       // Use setTimeout to ensure the form is fully rendered
       setTimeout(() => {
-        this.fillFieldsFromAnnotations(this.lastAnnotationsResponse!);
+        this.state.fillFieldsFromAnnotations(lastResponse);
       }, 0);
     }
   }
@@ -540,455 +531,42 @@ The system will automatically fetch metadata from the image and pre-fill applica
     return this.isOciImageFramework() && this.ociInstallMode() === 'compose';
   }
 
-  private usesComposeControls(): boolean {
-    return this.isDockerComposeFramework() || this.isOciComposeMode();
-  }
-
-  // --- CONSOLIDATED: env summary + requirement helpers used by template/logic ---
-  private ensureComposeControls(opts?: { requireComposeFile?: boolean }): void {
-    const requireComposeFile = opts?.requireComposeFile ?? false;
-
-    if (!this.parameterForm.get('compose_file')) {
-      this.parameterForm.addControl('compose_file', new FormControl(''));
-    }
-    this.setComposeFileRequired(requireComposeFile);
-
-    if (!this.parameterForm.get('env_file')) {
-      this.parameterForm.addControl('env_file', new FormControl(''));
-    }
-    if (!this.parameterForm.get('volumes')) {
-      this.parameterForm.addControl('volumes', new FormControl(''));
-    }
-  }
-
   // Template: (imageReferenceChange)="onImageReferenceChange($event)"
   onImageReferenceChange(imageRef: string): void {
     const v = (imageRef ?? '').trim();
     this.imageReference.set(v);
     this.imageError.set(null);
     this.imageAnnotationsReceived.set(false);
-    this.imageInputSubject.next(v);
+    this.state.imageInputSubject.next(v);
   }
 
   // Template: (annotationsReceived)="onAnnotationsReceived($event)"
   onAnnotationsReceived(response: IPostFrameworkFromImageResponse): void {
-    this.lastAnnotationsResponse = response;
+    this.state.lastAnnotationsResponse.set(response);
     this.loadingImageAnnotations.set(false);
     this.imageAnnotationsReceived.set(true);
-    setTimeout(() => this.fillFieldsFromAnnotations(response), 0);
+    setTimeout(() => this.state.fillFieldsFromAnnotations(response), 0);
   }
 
-  // --- add: used by ngOnInit debounce pipeline ---
-  private updateOciImageParameter(imageRef: string): void {
-    const v = (imageRef ?? '').trim();
-    if (!v) return;
-    if (this.parameterForm.get('oci_image')) {
-      this.parameterForm.patchValue({ oci_image: v }, { emitEvent: false });
-    }
-  }
-
-  // --- add: used by template output from ComposeEnvSelectorComponent ---
-  private isParsedComposeData(x: unknown): x is ParsedComposeData {
-    if (!x || typeof x !== 'object') return false;
-    const o = x as Record<string, unknown>;
-    return 'composeData' in o && 'services' in o;
-  }
-
-  private extractParsedComposeData(event: unknown): ParsedComposeData | null {
-    if (this.isParsedComposeData(event)) return event;
-    const detail = (event as CustomEvent<unknown> | { detail?: unknown } | null | undefined)?.detail;
-    if (this.isParsedComposeData(detail)) return detail;
-    return null;
-  }
-
+  // Delegate compose/env file selection to state service
   async onComposeFileSelected(file: File): Promise<void> {
-    const base64 = await this.readFileAsBase64(file);
-    const valueWithMetadata = `file:${file.name}:content:${base64}`;
-    this.parameterForm.get('compose_file')?.setValue(valueWithMetadata);
-
-    const parsed = this.composeService.parseComposeFile(valueWithMetadata);
-    if (!parsed) return;
-
-    this.parsedComposeData.set(parsed);
-    this.composeServices.set(parsed.services);
-    this.composeProperties.set(parsed.properties);
-
-    // Fill volumes ONLY if there are volumes AND field is empty
-    if (parsed.volumes && parsed.volumes.length > 0) {
-      const volumesCtrl = this.parameterForm.get('volumes');
-      if (volumesCtrl) {
-        const currentValue = volumesCtrl.value;
-        if (!currentValue || String(currentValue).trim() === '') {
-          const volumesText = parsed.volumes.join('\n');
-          volumesCtrl.patchValue(volumesText, { emitEvent: false });
-        }
-      }
-    }
-
-    if (this.isOciComposeMode() && parsed.services.length > 0) {
-      this.selectedServiceName.set(parsed.services[0].name);
-      this.updateImageFromCompose();
-      this.updateInitialCommandFromCompose();
-      this.updateUserFromCompose();
-      this.fillEnvsForSelectedService();
-    }
-
-    this.updateRequiredEnvVars();
-    this.updateEnvFileRequirement();
-    this.refreshEnvSummary();
+    await this.state.onComposeFileSelected(file);
   }
 
   async onEnvFileSelected(file: File): Promise<void> {
-    const base64 = await this.readFileAsBase64(file);
-    const valueWithMetadata = `file:${file.name}:content:${base64}`;
-    this.parameterForm.get('env_file')?.setValue(valueWithMetadata);
-
-    const envVars = this.composeService.parseEnvFile(valueWithMetadata);
-    this.updateMissingEnvVars(envVars);
-    this.updateEnvFileRequirement();
-
-    if (this.isOciComposeMode()) {
-      this.fillEnvsForSelectedService();
-      // Re-resolve image in case .env contains version override
-      this.updateImageFromCompose();
-      // Update uid/gid in next tick to avoid ExpressionChangedAfterItHasBeenCheckedError
-      setTimeout(() => this.updateUserFromCompose(), 0);
-    }
+    await this.state.onEnvFileSelected(file);
   }
 
-  private updateRequiredEnvVars(): void {
-    const data = this.parsedComposeData();
-    if (!data) {
-      this.requiredEnvVars.set([]);
-      this.missingEnvVars.set([]);
-      return;
-    }
-
-    let vars: string[] = [];
-    if (this.isDockerComposeFramework()) {
-      vars = data.environmentVariablesRequired ?? data.environmentVariables ?? [];
-    } else if (this.isOciComposeMode()) {
-      const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
-      if (!serviceName) return;
-      vars = data.serviceEnvironmentVariablesRequired?.[serviceName] ?? data.serviceEnvironmentVariables?.[serviceName] ?? [];
-    }
-
-    this.requiredEnvVars.set(vars);
-
-    const envFile = this.parameterForm.get('env_file')?.value;
-    if (envFile) {
-      const envVars = this.composeService.parseEnvFile(envFile);
-      this.updateMissingEnvVars(envVars);
-    } else {
-      this.missingEnvVars.set(vars);
-    }
-  }
-
-  private updateMissingEnvVars(envVars: Map<string, string>): void {
-    const missing = this.requiredEnvVars().filter((v: string) => !envVars.has(v) || !envVars.get(v));
-    this.missingEnvVars.set(missing);
-  }
-
-  // --- NEW: env_file Requirement abhängig vom Modus steuern ---
-  private updateEnvFileRequirement(): void {
-    const envCtrl = this.parameterForm.get('env_file');
-    if (!envCtrl) return;
-
-    // OCI Image + Compose: .env ist erlaubt NICHT vorhanden zu sein → niemals required
-    if (this.isOciComposeMode()) {
-      envCtrl.clearValidators();
-      envCtrl.updateValueAndValidity({ emitEvent: false });
-      return;
-    }
-
-    // docker-compose Framework: bestehende "required wenn missing vars" Logik beibehalten
-    const shouldRequireEnvFile =
-      this.isDockerComposeFramework() &&
-      (this.requiredEnvVars()?.length ?? 0) > 0 &&
-      (this.missingEnvVars()?.length ?? 0) > 0;
-
-    if (shouldRequireEnvFile) envCtrl.setValidators([Validators.required]);
-    else envCtrl.clearValidators();
-
-    envCtrl.updateValueAndValidity({ emitEvent: false });
-  }
-
-  // --- NEW: Summary neu berechnen ---
-  private refreshEnvSummary(): void {
-    this.updateRequiredEnvVars();
-    this.updateEnvFileRequirement();
-  }
-
-  private readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64 = result.includes(',') ? result.split(',')[1] : result;
-        resolve(base64);
-      };
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // REMOVE: onComposeDataChanged, onEnvVarsChanged (nicht mehr nötig)
-  // --- add: used by ngOnInit debounce pipeline ---
-  fetchImageAnnotations(imageRef: string): void {
-    const ref = (imageRef ?? '').trim();
-    if (!ref) return;
-
-    this.loadingImageAnnotations.set(true);
-    this.imageError.set(null);
-
-    const [image, tag = 'latest'] = ref.split(':');
-
-    if (this.imageAnnotationsTimeout) clearTimeout(this.imageAnnotationsTimeout);
-    this.imageAnnotationsTimeout = setTimeout(() => {
-      // allow proceeding; annotations can arrive later
-    }, 1000);
-
-    this.configService.getFrameworkFromImage({ image, tag }).subscribe({
-      next: (res: IPostFrameworkFromImageResponse) => {
-        this.loadingImageAnnotations.set(false);
-        this.imageAnnotationsReceived.set(true);
-        if (this.imageAnnotationsTimeout) {
-          clearTimeout(this.imageAnnotationsTimeout);
-          this.imageAnnotationsTimeout = null;
-        }
-        this.lastAnnotationsResponse = res;
-        this.fillFieldsFromAnnotations(res);
-      },
-      error: (err) => {
-        this.loadingImageAnnotations.set(false);
-        if (this.imageAnnotationsTimeout) {
-          clearTimeout(this.imageAnnotationsTimeout);
-          this.imageAnnotationsTimeout = null;
-        }
-        const msg = err?.error?.error || err?.message || 'Failed to fetch image annotations';
-        this.imageError.set(msg);
-      }
-    });
-  }
-
-  // --- add: used by onAnnotationsReceived + fetchImageAnnotations + onStepChange ---
-  fillFieldsFromAnnotations(res: IPostFrameworkFromImageResponse): void {
-    const defaults = res?.defaults;
-    if (!defaults) return;
-
-    const isEmpty = (v: unknown) => v === null || v === undefined || v === '';
-
-    const appProps = defaults.applicationProperties;
-    if (appProps) {
-      const form = this.appPropertiesForm;
-      if (appProps.name && isEmpty(form.get('name')?.value)) form.patchValue({ name: appProps.name }, { emitEvent: false });
-      if (appProps.description && isEmpty(form.get('description')?.value)) form.patchValue({ description: appProps.description }, { emitEvent: false });
-      if (appProps.url && isEmpty(form.get('url')?.value)) form.patchValue({ url: appProps.url }, { emitEvent: false });
-      if (appProps.documentation && isEmpty(form.get('documentation')?.value)) form.patchValue({ documentation: appProps.documentation }, { emitEvent: false });
-      if (appProps.source && isEmpty(form.get('source')?.value)) form.patchValue({ source: appProps.source }, { emitEvent: false });
-      if (appProps.vendor && isEmpty(form.get('vendor')?.value)) form.patchValue({ vendor: appProps.vendor }, { emitEvent: false });
-
-      if (appProps.applicationId && isEmpty(form.get('applicationId')?.value)) {
-        const ctrl = form.get('applicationId');
-        ctrl?.patchValue(appProps.applicationId, { emitEvent: false });
-        ctrl?.updateValueAndValidity();
-      }
-    }
-
-    const params = defaults.parameters;
-    if (params) {
-      for (const [paramId, paramValue] of Object.entries(params)) {
-        const ctrl = this.parameterForm.get(paramId);
-        if (ctrl && isEmpty(ctrl.value)) ctrl.patchValue(paramValue, { emitEvent: false });
-      }
-    }
-
-    const img = this.imageReference().trim();
-    if (img && this.parameterForm.get('oci_image') && isEmpty(this.parameterForm.get('oci_image')?.value)) {
-      this.parameterForm.patchValue({ oci_image: img }, { emitEvent: false });
-    }
-  }
-
-  // --- add: used by OCI compose mode to derive image from selected service ---
-  private updateImageFromCompose(): void {
-    if (!this.isOciComposeMode()) return;
-
-    const data = this.parsedComposeData();
-    if (!data) return;
-
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
-    if (!serviceName) return;
-
-    const service = data.services.find((s: ComposeService) => s.name === serviceName);
-    const image = service?.config?.['image'];
-    if (typeof image !== 'string' || !image.trim()) return;
-
-    // Get current env values from .env file if uploaded
-    const envFileValue = this.parameterForm.get('env_file')?.value;
-    const envValues = envFileValue ? this.composeService.parseEnvFile(envFileValue) : new Map<string, string>();
-
-    // Resolve variables like ${ZITADEL_VERSION:-v4.10.1} using env values and defaults
-    const imageRef = this.composeService.resolveVariables(image.trim(), envValues);
-    if (imageRef === this.imageReference()) return;
-
-    // Set image reference and trigger annotation fetch
-    this.imageReference.set(imageRef);
-    this.imageInputSubject.next(imageRef); // Triggers debounced fetchImageAnnotations
-
-    // ADDED: Also update oci_image parameter immediately
-    this.updateOciImageParameter(imageRef);
-  }
-
-  private updateInitialCommandFromCompose(): void {
-    if (!this.isOciComposeMode()) return;
-
-    const data = this.parsedComposeData();
-    if (!data) return;
-
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
-    if (!serviceName) return;
-
-    const service = data.services.find((s: ComposeService) => s.name === serviceName);
-    const command = service?.config?.['command'];
-    
-    let cmdStr = '';
-    if (Array.isArray(command)) {
-      cmdStr = command.join(' ');
-    } else if (typeof command === 'string') {
-      cmdStr = command;
-    }
-
-    if (cmdStr && this.parameterForm.get('initial_command')) {
-       this.parameterForm.patchValue({ initial_command: cmdStr }, { emitEvent: false });
-    }
-  }
-
-  // Helper to get required variables from command string
-  private getCommandVariables(command: string): Set<string> {
-    const { vars } = this.composeService.extractVarRefsFromString(command);
-    return new Set(vars);
-  }
-
-  private updateUserFromCompose(): void {
-    if (!this.isOciComposeMode()) return;
-
-    const data = this.parsedComposeData();
-    if (!data) return;
-
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
-    if (!serviceName) return;
-
-    const service = data.services.find((s: ComposeService) => s.name === serviceName);
-    const user = service?.config?.['user'];
-    
-    if (typeof user === 'string' || typeof user === 'number') {
-        // Resolve variables in user string
-        const envFileContent = this.parameterForm.get('env_file')?.value ?? '';
-        const effectiveEnvs = this.composeService.getEffectiveServiceEnvironment(service!.config, data, serviceName, envFileContent);
-        
-        // Manual substitution
-        let resolvedUser = String(user);
-        for(const [key, value] of effectiveEnvs.entries()) {
-            resolvedUser = resolvedUser.replace(`\${${key}}`, value);
-        }
-
-        const parts = resolvedUser.split(':');
-        
-        // Map first part to uid
-        if (parts.length > 0 && parts[0].trim()) {
-             if (this.parameterForm.get('uid')) {
-                 this.parameterForm.patchValue({ uid: parts[0].trim() }, { emitEvent: false });
-             }
-        }
-        
-        // Map second part to gid
-        if (parts.length > 1 && parts[1].trim()) {
-             if (this.parameterForm.get('gid')) {
-                 this.parameterForm.patchValue({ gid: parts[1].trim() }, { emitEvent: false });
-             }
-        }
-    }
-  }
-
-  private setComposeFileRequired(required: boolean): void {
-    const ctrl = this.parameterForm.get('compose_file');
-    if (!ctrl) return;
-
-    if (required) ctrl.setValidators([Validators.required]);
-    else ctrl.clearValidators();
-
-    ctrl.updateValueAndValidity({ emitEvent: false });
-  }
-  private fillEnvsForSelectedService(): void {
-    const data = this.parsedComposeData();
-    if (!data || !this.isOciComposeMode()) return;
-
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
-    if (!serviceName) return;
-
-    const service = data.services.find(s => s.name === serviceName);
-    if (!service) return;
-    
-    const envFileContent = this.parameterForm.get('env_file')?.value ?? '';
-    const effectiveEnvs = this.composeService.getEffectiveServiceEnvironment(service.config, data, serviceName, envFileContent);
-
-    const lines: string[] = [];
-    for (const [key, value] of effectiveEnvs.entries()) {
-        lines.push(`${key}=${value}`);
-    }
-
-    const envsCtrl = this.parameterForm.get('envs');
-    if (envsCtrl) {
-      envsCtrl.patchValue(lines.join('\n'), { emitEvent: false });
-    }
-  }
-
-  private extractServiceEnvs(serviceConfig: Record<string, unknown>): string[] {
-    const envs: string[] = [];
-    const environment = serviceConfig['environment'];
-    
-    if (environment) {
-      if (Array.isArray(environment)) {
-        for (const envEntry of environment) {
-          if (typeof envEntry === 'string') {
-            envs.push(envEntry);
-          }
-        }
-      } else if (typeof environment === 'object') {
-        for (const [key, value] of Object.entries(environment as Record<string, unknown>)) {
-          envs.push(`${key}=${value ?? ''}`);
-        }
-      }
-    }
-    
-    return envs;
-  }
-
-  private parseEnvEntry(envEntry: string): [string | null, string | undefined] {
-    const equalIndex = envEntry.indexOf('=');
-    if (equalIndex <= 0) return [null, undefined];
-    
-    const key = envEntry.substring(0, equalIndex).trim();
-    const value = envEntry.substring(equalIndex + 1).trim();
-    
-    return [key, value];
-  }
-
-  // --- NEW: Template helpers für env summary anzeige ---
+  // --- Template helpers for env summary display (delegate to state) ---
   envFileConfigured(): boolean {
-    const envFileValue = this.parameterForm.get('env_file')?.value;
-    return !!envFileValue && String(envFileValue).trim().length > 0;
+    return this.state.envFileConfigured();
   }
 
   envVarKeys(): string[] {
-    const envFileValue = this.parameterForm.get('env_file')?.value;
-    if (!envFileValue) return [];
-    
-    const envVarsMap = this.composeService.parseEnvFile(envFileValue);
-    return Array.from(envVarsMap.keys()).sort();
+    return this.state.envVarKeys();
   }
 
   envVarKeysText(): string {
-    return this.envVarKeys().join('\n');
+    return this.state.envVarKeysText();
   }
 }
