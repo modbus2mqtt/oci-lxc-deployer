@@ -24,38 +24,43 @@ def parse_ids(id_str: str) -> List[int]:
     return sorted({int(x.strip()) for x in id_str.split(",") if x.strip()})
 
 
-def _calculate_specific_and_rest_ranges(max_id: int) -> tuple[int, int, int]:
-    """Return (specific_start, rest_start, rest_count) for the given max_id."""
-
-    specific_start = STANDARD_START + STANDARD_COUNT + ((max_id // 10) * STANDARD_COUNT)
-    rest_start = specific_start + max_id + 1
-    rest_count = 65536 - max_id - 1
-    return specific_start, rest_start, rest_count
-
 
 def calculate_subid_entries(ids: Iterable[int]) -> List[str]:
+    """Calculate /etc/subuid or /etc/subgid entries needed for the given IDs.
+
+    Returns entries for:
+    - Standard subordinate range (100000:65536) for shifted mappings
+    - Individual 1:1 passthrough entries for each requested ID
+    """
     ids_list = sorted(set(ids))
     if not ids_list:
         return []
 
-    max_id = max(ids_list)
-    specific_start, rest_start, rest_count = _calculate_specific_and_rest_ranges(max_id)
-
     entries: List[str] = [
-        f"root:{STANDARD_START}:{STANDARD_COUNT}",
-        f"root:{specific_start}:{max_id}",
+        f"root:{STANDARD_START}:{STANDARD_COUNT}",  # Standard range for shifted IDs
     ]
 
+    # Add 1:1 passthrough entries for each requested ID
     for value in ids_list:
         entries.append(f"root:{value}:1")
 
-    entries.append(f"root:{rest_start}:{rest_count}")
     return entries
 
 
 def calculate_idmap_entries(ids: Iterable[int], kind: str) -> List[str]:
-    """Create lxc.idmap entries for one kind ('u' or 'g')"""
+    """Create lxc.idmap entries for one kind ('u' or 'g').
 
+    Creates a complete mapping covering all container IDs 0-65535:
+    - Shifted ranges map to host IDs starting at STANDARD_START (100000)
+    - Passthrough IDs map 1:1 (container ID = host ID)
+
+    Example for IDs [1000, 2000]:
+    - Container 0-999 → Host 100000-100999 (shifted)
+    - Container 1000 → Host 1000 (passthrough)
+    - Container 1001-1999 → Host 101000-101999 (shifted)
+    - Container 2000 → Host 2000 (passthrough)
+    - Container 2001-65535 → Host 102000-... (shifted)
+    """
     if kind not in ("u", "g"):
         raise ValueError("kind must be 'u' or 'g'")
 
@@ -63,21 +68,25 @@ def calculate_idmap_entries(ids: Iterable[int], kind: str) -> List[str]:
     if not ids_list:
         return []
 
-    max_id = max(ids_list)
-    specific_start, rest_start, rest_count = _calculate_specific_and_rest_ranges(max_id)
-
     idmap_entries: List[str] = []
+    host_offset = STANDARD_START  # Start of shifted range on host
 
-    first_id = min(ids_list)
-    if first_id > 0:
-        idmap_entries.append(f"lxc.idmap: {kind} 0 {STANDARD_START} {first_id}")
+    current_container_id = 0
+    for passthrough_id in ids_list:
+        # Add shifted range before this passthrough ID (if any gap exists)
+        if current_container_id < passthrough_id:
+            count = passthrough_id - current_container_id
+            idmap_entries.append(f"lxc.idmap: {kind} {current_container_id} {host_offset} {count}")
+            host_offset += count
 
-    for value in ids_list:
-        idmap_entries.append(f"lxc.idmap: {kind} {value} {value} 1")
+        # Add 1:1 passthrough for this ID
+        idmap_entries.append(f"lxc.idmap: {kind} {passthrough_id} {passthrough_id} 1")
+        current_container_id = passthrough_id + 1
 
-    last_id = max_id
-    if last_id < 65535:
-        idmap_entries.append(f"lxc.idmap: {kind} {last_id + 1} {rest_start} {rest_count}")
+    # Add remaining shifted range after last passthrough ID
+    if current_container_id <= 65535:
+        count = 65536 - current_container_id
+        idmap_entries.append(f"lxc.idmap: {kind} {current_container_id} {host_offset} {count}")
 
     return idmap_entries
 

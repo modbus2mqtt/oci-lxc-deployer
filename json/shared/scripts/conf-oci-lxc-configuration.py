@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
+import re
 import sys
-import string
 
 # Get parameters
 vm_id = "{{ vm_id }}"

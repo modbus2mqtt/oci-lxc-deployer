@@ -108,8 +108,8 @@ describe('CreateApplication Integration', () => {
     await new Promise(resolve => setTimeout(resolve, 10));
 
     // Assert
-    // Raw command should remain unchanged
-    expect(component.parameterForm.get('initial_command')?.value).toBe('start --key ${MY_KEY} --undefined ${UNDEFINED_VAR}');
+    // Command should have variables resolved (MY_KEY from .env, UNDEFINED_VAR -> empty)
+    expect(component.parameterForm.get('initial_command')?.value).toBe('start --key from_env --undefined ');
 
     // User fields should be resolved
     expect(component.parameterForm.get('uid')?.value).toBe('1000');
@@ -122,6 +122,50 @@ describe('CreateApplication Integration', () => {
     expect(envsValue).toContain('PGID=2000'); // From .env file
     expect(envsValue).toContain('ANOTHER_VAR=hardcoded'); // Hardcoded value
     expect(envsValue).toContain('UNDEFINED_VAR='); // Undefined variable -> empty string
+  });
+
+  /**
+   * Test: initial_command variable resolution with ${VAR:-default} syntax
+   *
+   * This test validates that variables in the command field are resolved using .env values
+   * and defaults. This is critical for OCI containers where lxc.init.cmd doesn't interpret
+   * shell variables at runtime.
+   */
+  it('should resolve variables in initial_command using .env and defaults', async () => {
+    // Setup
+    component.onFrameworkSelected('oci-image');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const composeYaml = `
+      version: '3.8'
+      services:
+        zitadel:
+          image: ghcr.io/zitadel/zitadel
+          command: start-from-init --masterkey "\${ZITADEL_MASTERKEY:-MustBeAtLeast32CharactersLongKey!}" --tlsMode disabled
+          environment:
+            - ZITADEL_MASTERKEY=\${ZITADEL_MASTERKEY:-DefaultMasterKey32CharactersLong}
+    `;
+    const envFileContent = 'ZITADEL_MASTERKEY=MyCustomMasterKeyThatIs32Chars!!';
+
+    const composeFile = new File([composeYaml], 'docker-compose.yml');
+    const envFile = new File([envFileContent], '.env');
+
+    // Act
+    await component.onComposeFileSelected(composeFile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    await component.onEnvFileSelected(envFile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Assert - command should have variable resolved with .env value
+    const cmdValue = component.parameterForm.get('initial_command')?.value;
+    expect(cmdValue).toBe('start-from-init --masterkey "MyCustomMasterKeyThatIs32Chars!!" --tlsMode disabled');
   });
 
   /**

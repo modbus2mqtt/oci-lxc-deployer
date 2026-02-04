@@ -267,8 +267,11 @@ export class CreateApplicationStateService {
       this.fillEnvsForSelectedService();
       // Re-resolve image in case .env contains version override
       this.updateImageFromCompose();
-      // Update uid/gid in next tick to avoid ExpressionChangedAfterItHasBeenCheckedError
-      setTimeout(() => this.updateUserFromCompose(), 0);
+      // Update uid/gid and initial_command in next tick to avoid ExpressionChangedAfterItHasBeenCheckedError
+      setTimeout(() => {
+        this.updateUserFromCompose();
+        this.updateInitialCommandFromCompose();
+      }, 0);
     }
   }
 
@@ -373,6 +376,7 @@ export class CreateApplicationStateService {
 
   /**
    * Updates initial command from compose file for selected service.
+   * Resolves environment variables like ${VAR:-default} using values from .env file.
    */
   updateInitialCommandFromCompose(): void {
     if (!this.isOciComposeMode()) return;
@@ -394,7 +398,13 @@ export class CreateApplicationStateService {
     }
 
     if (cmdStr && this.parameterForm.get('initial_command')) {
-       this.parameterForm.patchValue({ initial_command: cmdStr }, { emitEvent: false });
+       // Resolve environment variables in the command string
+       const envFileContent = this.parameterForm.get('env_file')?.value ?? '';
+       const effectiveEnvs = this.composeService.getEffectiveServiceEnvironment(
+         service!.config, data, serviceName, envFileContent
+       );
+       const resolvedCmd = this.composeService.resolveVariables(cmdStr, effectiveEnvs);
+       this.parameterForm.patchValue({ initial_command: resolvedCmd }, { emitEvent: false });
     }
   }
 
