@@ -201,7 +201,15 @@ export class DockerComposeService {
           // Extract volumes
           const svcVolumes = serviceRecord['volumes'];
           if (Array.isArray(svcVolumes)) {
-            volumes.push(...svcVolumes.map(v => String(v)));
+            volumes.push(...svcVolumes.map(v => {
+              const str = String(v);
+              // Strip leading ./ from source path (common in docker-compose)
+              // ./data:/var/lib/postgresql/data -> data:/var/lib/postgresql/data
+              if (str.startsWith('./')) {
+                return str.substring(2);
+              }
+              return str;
+            }));
           }
 
           // Extract environment variables

@@ -58,6 +58,28 @@ services:
 
       expect(result).toBeNull();
     });
+
+    it('should strip leading ./ from volumes in parsed.volumes', () => {
+      const composeYaml = `
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ./data:/var/lib/postgresql/data
+      - ./config:/etc/postgresql
+      - named_vol:/var/log
+`;
+      const base64 = btoa(composeYaml);
+      const result = service.parseComposeFile(base64);
+
+      expect(result).not.toBeNull();
+      expect(result?.volumes).toContain('data:/var/lib/postgresql/data');
+      expect(result?.volumes).toContain('config:/etc/postgresql');
+      expect(result?.volumes).toContain('named_vol:/var/log');
+      // Should NOT contain ./ prefix
+      expect(result?.volumes?.some(v => v.startsWith('./'))).toBe(false);
+    });
   });
 
   describe('extractServiceEnvironmentVariables', () => {
