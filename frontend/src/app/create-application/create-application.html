@@ -8,72 +8,15 @@
     <!-- Step 1: Select Framework -->
     <mat-step [editable]="true">
       <ng-template matStepLabel>Select Framework</ng-template>
-      <div class="step-content">
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Framework</mat-label>
-          <mat-select (selectionChange)="onFrameworkSelected($event.value)" [value]="selectedFramework?.id">
-            <mat-option [value]="null">-- Select Framework --</mat-option>
-            @for (framework of frameworks; track framework.id) {
-              <mat-option [value]="framework.id">{{ framework.name }} ({{ framework.id }})</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-        @if (isOciImageFramework()) {
-          <mat-card class="selected-framework-card">
-            <mat-card-content>
-              <h3>OCI Install Mode</h3>
-              <mat-button-toggle-group
-                [value]="ociInstallMode()"
-                (change)="setOciInstallMode($event.value)"
-                aria-label="OCI install mode"
-              >
-                <mat-button-toggle value="image">OCI Image</mat-button-toggle>
-                <mat-button-toggle value="compose">docker-compose.yml + .env</mat-button-toggle>
-              </mat-button-toggle-group>
-            </mat-card-content>
-          </mat-card>
-
-          @if (ociInstallMode() === 'image') {
-            <app-oci-image-step
-              [parameterForm]="parameterForm"
-              [imageReference]="imageReference"
-              [loadingImageAnnotations]="loadingImageAnnotations"
-              [imageError]="imageError"
-              [imageAnnotationsReceived]="imageAnnotationsReceived"
-              (imageReferenceChange)="onImageReferenceChange($event)"
-              (annotationsReceived)="onAnnotationsReceived($event)"
-            ></app-oci-image-step>
-          } @else {
-            <app-compose-env-selector
-              [parameterForm]="parameterForm"
-              [mode]="'single'"
-              [services]="composeServices()"
-              [selectedServiceName]="selectedServiceName()"
-              [requiredEnvVars]="requiredEnvVars()"
-              [missingEnvVars]="missingEnvVars()"
-              [composeProperties]="composeProperties()"
-              (composeFileSelected)="onComposeFileSelected($event)"
-              (envFileSelected)="onEnvFileSelected($event)"
-              (serviceSelected)="onServiceSelected($event)"
-            ></app-compose-env-selector>
-          }
-        }
-
-        @if (isDockerComposeFramework()) {
-          <app-compose-env-selector
-            [parameterForm]="parameterForm"
-            [mode]="'multi'"
-            [services]="composeServices()"
-            [selectedServiceName]="selectedServiceName()"
-            [requiredEnvVars]="requiredEnvVars()"
-            [missingEnvVars]="missingEnvVars()"
-            [composeProperties]="composeProperties()"
-            (composeFileSelected)="onComposeFileSelected($event)"
-            (envFileSelected)="onEnvFileSelected($event)"
-            (serviceSelected)="onServiceSelected($event)"
-          ></app-compose-env-selector>
-        }
-      </div>
+      <app-framework-step
+        (frameworkSelected)="onFrameworkSelected($event)"
+        (installModeChanged)="onInstallModeChanged($event)"
+        (composeFileSelected)="onComposeFileSelected($event)"
+        (envFileSelected)="onEnvFileSelected($event)"
+        (serviceSelected)="onServiceSelected($event)"
+        (imageReferenceChanged)="onImageReferenceChange($event)"
+        (annotationsReceived)="onAnnotationsReceived($event)"
+      ></app-framework-step>
       <div class="step-actions">
         <button mat-button (click)="cancel()">Cancel</button>
         <button mat-raised-button color="primary" matStepperNext>Next</button>
@@ -93,33 +36,7 @@
     <!-- Step 3/4: Parameters -->
     <mat-step [stepControl]="parameterForm" [editable]="true">
       <ng-template matStepLabel>Configure Parameters</ng-template>
-      <div class="step-content">
-        @if (loadingParameters()) {
-          <p>Loading parameters...</p>
-        } @else {
-
-          @if (hasAdvancedParams()) {
-            <div class="advanced-toggle">
-              <button mat-button (click)="toggleAdvanced()">
-                {{ showAdvanced() ? 'Hide' : 'Show' }} Advanced Parameters
-              </button>
-            </div>
-          }
-
-          @for (groupName of groupNames; track groupName) {
-            <app-parameter-group
-              [groupName]="groupName"
-              [groupedParameters]="groupedParameters"
-              [form]="parameterForm"
-              [showAdvanced]="showAdvanced()"
-            ></app-parameter-group>
-          }
-
-          @if (parameters.length === 0) {
-            <p>No parameters to configure for this framework.</p>
-          }
-        }
-      </div>
+      <app-parameters-step></app-parameters-step>
       <div class="step-actions">
         <button mat-button matStepperPrevious>Back</button>
         <button mat-button (click)="cancel()">Cancel</button>

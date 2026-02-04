@@ -25,11 +25,10 @@ import { VeConfigurationService } from '../ve-configuration.service';
 import { CacheService } from '../shared/services/cache.service';
 import { DockerComposeService, ComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
-import { ComposeEnvSelectorComponent } from '../shared/components/compose-env-selector/compose-env-selector.component';
-import { ParameterGroupComponent } from '../ve-configuration-dialog/parameter-group.component';
-import { OciImageStepComponent } from './oci-image-step.component';
 import { CreateApplicationStateService } from './services/create-application-state.service';
 import { AppPropertiesStepComponent } from './steps/app-properties-step.component';
+import { FrameworkStepComponent } from './steps/framework-step.component';
+import { ParametersStepComponent } from './steps/parameters-step.component';
 
 @Component({
   selector: 'app-create-application',
@@ -47,10 +46,9 @@ import { AppPropertiesStepComponent } from './steps/app-properties-step.componen
     MatIconModule,
     MatButtonToggleModule,
     MatChipsModule,
-    ParameterGroupComponent,
-    ComposeEnvSelectorComponent,
-    OciImageStepComponent,
-    AppPropertiesStepComponent
+    AppPropertiesStepComponent,
+    FrameworkStepComponent,
+    ParametersStepComponent
   ],
   templateUrl: './create-application.html',
   styleUrls: ['./create-application.scss']
@@ -142,7 +140,6 @@ export class CreateApplication implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.cacheService.preloadAll();
-    this.loadFrameworks();
     this.loadTagsConfig();
 
     this.imageInputSubject.pipe(
@@ -182,30 +179,6 @@ export class CreateApplication implements OnInit, OnDestroy {
     if (this.imageAnnotationsTimeout) {
       clearTimeout(this.imageAnnotationsTimeout);
     }
-  }
-
-  loadFrameworks(): void {
-    this.loadingFrameworks.set(true);
-
-    this.cacheService.getFrameworks().subscribe({
-      next: (fws) => {
-        this.state.frameworks.set(fws);
-        this.loadingFrameworks.set(false);
-
-        // In edit mode, don't auto-select - wait for loadEditData to set framework
-        if (!this.editMode()) {
-          const defaultFramework = fws.find(f => f.id === 'oci-image');
-          if (defaultFramework && !this.selectedFramework) {
-            this.selectedFramework = defaultFramework;
-            this.loadParameters(defaultFramework.id);
-          }
-        }
-      },
-      error: (err) => {
-        this.errorHandler.handleError('Failed to load frameworks', err);
-        this.loadingFrameworks.set(false);
-      }
-    });
   }
 
   private loadTagsConfig(): void {
@@ -346,19 +319,9 @@ export class CreateApplication implements OnInit, OnDestroy {
   }
 
   onFrameworkSelected(frameworkId: string): void {
-    this.selectedFramework = this.frameworks.find(f => f.id === frameworkId) || null;
-    this.imageReference.set('');
-    this.imageError.set(null);
-    this.loadingImageAnnotations.set(false);
-    this.imageAnnotationsReceived.set(false);
-
     if (this.imageAnnotationsTimeout) {
       clearTimeout(this.imageAnnotationsTimeout);
     }
-
-    this.parsedComposeData.set(null);
-    this.selectedServiceName.set('');
-    this.ociInstallMode.set('compose');
 
     // Ensure compose controls exist immediately for docker-compose framework
     // This prevents template errors before loadParameters() completes
@@ -366,16 +329,12 @@ export class CreateApplication implements OnInit, OnDestroy {
       this.ensureComposeControls({ requireComposeFile: true });
     }
 
-    if (this.selectedFramework) {
+    if (this.state.selectedFramework()) {
       this.loadParameters(frameworkId);
     }
   }
 
-  setOciInstallMode(mode: 'image' | 'compose'): void {
-    this.ociInstallMode.set(mode); // Reaktiviert!
-    this.parsedComposeData.set(null); // Reaktiviert!
-    this.selectedServiceName.set(''); // Reaktiviert!
-
+  onInstallModeChanged(mode: 'image' | 'compose'): void {
     if (mode === 'compose') {
       this.ensureComposeControls({ requireComposeFile: true });
     } else {
@@ -385,8 +344,8 @@ export class CreateApplication implements OnInit, OnDestroy {
     }
   }
 
-  onServiceSelected(serviceName: string): void {
-    this.selectedServiceName.set(serviceName ?? '');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  onServiceSelected(_serviceName: string): void {
     if (this.isOciComposeMode()) {
       this.updateImageFromCompose();
       this.updateInitialCommandFromCompose();
@@ -481,18 +440,6 @@ export class CreateApplication implements OnInit, OnDestroy {
         this.updateEnvFileRequirement();
       }
     }
-  }
-
-  toggleAdvanced(): void {
-    this.showAdvanced.set(!this.showAdvanced());
-  }
-
-  hasAdvancedParams(): boolean {
-    return this.parameters.some(p => p.advanced);
-  }
-
-  get groupNames(): string[] {
-    return Object.keys(this.groupedParameters);
   }
 
   canProceedToStep2(): boolean {

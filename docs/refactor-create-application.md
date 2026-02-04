@@ -5,14 +5,14 @@
 Um die nächste Phase in einer neuen Claude-Session zu starten:
 
 ```bash
-Lies docs/refactor-create-application.md und führe Phase 5 aus.
+Lies docs/refactor-create-application.md und führe Phase 7 aus.
 ```
 
-**Relevante Dateien für Phase 5:**
-- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Step 1 extrahieren)
-- `frontend/src/app/create-application/create-application.html` - Template (Step 1 HTML extrahieren)
+**Relevante Dateien für Phase 7:**
+- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Step 4 extrahieren)
+- `frontend/src/app/create-application/create-application.html` - Template (Step 4 HTML extrahieren)
 - `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service
-- `frontend/src/app/create-application/steps/app-properties-step.component.ts` - Pattern-Vorlage
+- `frontend/src/app/create-application/steps/parameters-step.component.ts` - Pattern-Vorlage
 
 **Verifizierung nach Abschluss:**
 ```bash
@@ -183,51 +183,86 @@ get appPropertiesForm() { return this.state.appPropertiesForm; }
 
 ---
 
-### Phase 5: Framework Step (Step 1) ⏳ NÄCHSTE PHASE
+### Phase 5: Framework Step (Step 1) ✅ ABGESCHLOSSEN
 
 **Ziel:** Step 1 als eigene Komponente
 
 **Neue Datei:** `steps/framework-step.component.ts`
 
-**Was wird verschoben:**
-- `loadFrameworks()`
-- `onFrameworkSelected()`
-- `setOciInstallMode()`
-- `onServiceSelected()`
-- Framework-Helper: `isOciImageFramework()`, `isDockerComposeFramework()`, `isOciComposeMode()`
-- Template-Teil für Step 1
+**Was wurde verschoben aus create-application.ts:**
+- `loadFrameworks()` → `loadFrameworks()` in FrameworkStepComponent
+- Framework-Auswahl und State-Änderungen → `onFrameworkSelect()` in FrameworkStepComponent
+- Install-Mode-Änderungen → `onInstallModeChange()` in FrameworkStepComponent
+- Service-Auswahl State → `onServiceSelect()` in FrameworkStepComponent
+- Image-Referenz-Änderungen → `onImageReferenceChange()` in FrameworkStepComponent
+- Annotations-Empfang → `onAnnotationsReceived()` in FrameworkStepComponent
+
+**Was wurde verschoben aus create-application.html:**
+- Step 1 Template (Framework-Auswahl, OCI Mode Toggle, OCI Image Step, Compose Env Selector) → Template in FrameworkStepComponent
 
 **Interface:**
 ```typescript
 @Output() frameworkSelected = new EventEmitter<string>();
+@Output() installModeChanged = new EventEmitter<'image' | 'compose'>();
 @Output() composeFileSelected = new EventEmitter<File>();
 @Output() envFileSelected = new EventEmitter<File>();
 @Output() serviceSelected = new EventEmitter<string>();
+@Output() imageReferenceChanged = new EventEmitter<string>();
+@Output() annotationsReceived = new EventEmitter<IPostFrameworkFromImageResponse>();
 ```
 
-**Verifizierung:** `./frontend/scripts/verify-build.sh`
+**Änderungen an create-application.ts:**
+- Import `FrameworkStepComponent` hinzugefügt
+- `FrameworkStepComponent` zu imports-Array hinzugefügt
+- `OciImageStepComponent`, `ComposeEnvSelectorComponent` aus imports entfernt (werden jetzt von FrameworkStepComponent verwendet)
+- `loadFrameworks()` entfernt (ist jetzt in FrameworkStepComponent)
+- `onFrameworkSelected()` vereinfacht (nur noch loadParameters + ensureComposeControls)
+- `setOciInstallMode()` umbenannt zu `onInstallModeChanged()` (State-Änderung passiert jetzt in FrameworkStepComponent)
+- `onServiceSelected()` vereinfacht (State-Änderung passiert jetzt in FrameworkStepComponent)
+
+**Änderungen an create-application.html:**
+- Step 1 Inhalt ersetzt durch: `<app-framework-step (frameworkSelected)="..." ...></app-framework-step>`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh` ✅ (Lint ✅, Build ✅, 63 Tests ✅)
 
 ---
 
-### Phase 6: Parameters Step (Step 3)
+### Phase 6: Parameters Step (Step 3) ✅ ABGESCHLOSSEN
 
 **Ziel:** Step 3 als eigene Komponente
 
 **Neue Datei:** `steps/parameters-step.component.ts`
 
-**Was wird verschoben:**
-- `loadParameters()`
-- `setupParameterForm()`
-- Volume-Storage-Validierung
-- Env-File-Requirement
-- `toggleAdvanced()`, `hasAdvancedParams()`, `groupNames`
-- Template-Teil für Step 3
+**Was wurde verschoben aus create-application.ts:**
+- `toggleAdvanced()` → `toggleAdvanced()` in ParametersStepComponent
+- `hasAdvancedParams()` → `hasAdvancedParams()` in ParametersStepComponent
+- `groupNames` getter → `groupNames` getter in ParametersStepComponent
 
-**Verifizierung:** `./frontend/scripts/verify-build.sh`
+**Was wurde verschoben aus create-application.html:**
+- Step 3 Template (Parameter-Gruppen, Advanced Toggle) → Template in ParametersStepComponent
+
+**Hinweis:** `loadParameters()` und `setupParameterForm()` bleiben in der Hauptkomponente, da sie vom Framework-Wechsel getriggert werden (Phase 8 plant die Verschiebung in den State Service).
+
+**Interface:**
+```typescript
+// Nutzt StateService für alle Signals
+readonly state = inject(CreateApplicationStateService);
+```
+
+**Änderungen an create-application.ts:**
+- Import `ParametersStepComponent` hinzugefügt
+- `ParametersStepComponent` zu imports-Array hinzugefügt
+- `ParameterGroupComponent` aus imports entfernt (wird jetzt von ParametersStepComponent verwendet)
+- `toggleAdvanced()`, `hasAdvancedParams()`, `groupNames` entfernt
+
+**Änderungen an create-application.html:**
+- Step 3 Inhalt ersetzt durch: `<app-parameters-step></app-parameters-step>`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh` ✅ (Lint ✅, Build ✅, 63 Tests ✅)
 
 ---
 
-### Phase 7: Summary Step (Step 4)
+### Phase 7: Summary Step (Step 4) ⏳ NÄCHSTE PHASE
 
 **Ziel:** Step 4 als eigene Komponente
 

@@ -74,7 +74,8 @@ describe('CreateApplication Integration', () => {
   it('should resolve variables with .env overriding defaults (Priority: .env > defaults > hardcoded)', async () => {
     // Setup
     component.onFrameworkSelected('oci-image');
-    component.setOciInstallMode('compose');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -131,7 +132,8 @@ describe('CreateApplication Integration', () => {
   it('should resolve variables using defaults when no .env file is provided', async () => {
     // Setup
     component.onFrameworkSelected('oci-image');
-    component.setOciInstallMode('compose');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -173,7 +175,8 @@ describe('CreateApplication Integration', () => {
   it('should handle various variable reference formats correctly', async () => {
     // Setup
     component.onFrameworkSelected('oci-image');
-    component.setOciInstallMode('compose');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -221,7 +224,8 @@ describe('CreateApplication Integration', () => {
   it('should update environment variables when service selection changes', async () => {
     // Setup
     component.onFrameworkSelected('oci-image');
-    component.setOciInstallMode('compose');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -253,6 +257,7 @@ describe('CreateApplication Integration', () => {
     expect(envsValue).toContain('SHARED_VAR=default1');
 
     // Change to service2
+    component.state.selectedServiceName.set('service2');
     component.onServiceSelected('service2');
     fixture.detectChanges();
     await fixture.whenStable();
@@ -275,7 +280,8 @@ describe('CreateApplication Integration', () => {
   it('should correctly resolve variables through complete priority chain', async () => {
     // Setup
     component.onFrameworkSelected('oci-image');
-    component.setOciInstallMode('compose');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
     fixture.detectChanges();
     await fixture.whenStable();
 
