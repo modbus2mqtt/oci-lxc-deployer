@@ -5,14 +5,12 @@
 Um die nächste Phase in einer neuen Claude-Session zu starten:
 
 ```bash
-Lies docs/refactor-create-application.md und führe Phase 7 aus.
+Lies docs/refactor-create-application.md und führe Phase 8 aus.
 ```
 
-**Relevante Dateien für Phase 7:**
-- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Step 4 extrahieren)
-- `frontend/src/app/create-application/create-application.html` - Template (Step 4 HTML extrahieren)
-- `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service
-- `frontend/src/app/create-application/steps/parameters-step.component.ts` - Pattern-Vorlage
+**Relevante Dateien für Phase 8:**
+- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Compose/Image Logik verschieben)
+- `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service (Ziel)
 
 **Verifizierung nach Abschluss:**
 ```bash
@@ -262,17 +260,19 @@ readonly state = inject(CreateApplicationStateService);
 
 ---
 
-### Phase 7: Summary Step (Step 4) ⏳ NÄCHSTE PHASE
+### Phase 7: Summary Step (Step 4) ✅ ABGESCHLOSSEN
 
 **Ziel:** Step 4 als eigene Komponente
 
 **Neue Datei:** `steps/summary-step.component.ts`
 
-**Was wird verschoben:**
-- `createApplication()`
-- `navigateToErrorStep()`
-- `clearError()`
-- Template-Teil für Step 4
+**Was wurde verschoben aus create-application.ts:**
+- `createApplication()` → `createApplication()` in SummaryStepComponent
+- `navigateToErrorStep()` → `onNavigateToErrorStep()` in SummaryStepComponent (emittiert Event)
+- `clearError()` → `clearError()` in SummaryStepComponent (delegiert an StateService)
+
+**Was wurde verschoben aus create-application.html:**
+- Step 4 Template (Summary Cards, Error Display) → Template in SummaryStepComponent
 
 **Interface:**
 ```typescript
@@ -280,11 +280,24 @@ readonly state = inject(CreateApplicationStateService);
 @Output() applicationCreated = new EventEmitter<void>();
 ```
 
-**Verifizierung:** `./frontend/scripts/verify-build.sh`
+**Änderungen an create-application.ts:**
+- Import `SummaryStepComponent` hinzugefügt
+- `SummaryStepComponent` zu imports-Array hinzugefügt
+- `@ViewChild(SummaryStepComponent) summaryStep` hinzugefügt
+- `createApplication()` delegiert an `summaryStep.createApplication()`
+- `onNavigateToStep()` hinzugefügt für Stepper-Navigation
+- `navigateToErrorStep()`, `clearError()` entfernt
+- `IParameterValue` Import entfernt (nicht mehr benötigt)
+- `MatCardModule` aus imports entfernt (wird jetzt von SummaryStepComponent verwendet)
+
+**Änderungen an create-application.html:**
+- Step 4 Inhalt ersetzt durch: `<app-summary-step (navigateToStep)="onNavigateToStep($event)"></app-summary-step>`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh` ✅ (Lint ✅, Build ✅, 63 Tests ✅)
 
 ---
 
-### Phase 8: Compose/Image Logik in State Service
+### Phase 8: Compose/Image Logik in State Service ⏳ NÄCHSTE PHASE
 
 **Ziel:** Komplexe Integration-Logik in Service verschieben
 

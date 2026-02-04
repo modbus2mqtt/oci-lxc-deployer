@@ -46,84 +46,9 @@
 
     <!-- Step 4: Summary -->
     <mat-step label="Summary">
-      <div class="summary-step">
-        <h2>Review Your Configuration</h2>
-        
-        <!-- Application Properties Summary -->
-        <mat-card>
-          <mat-card-header>
-            <mat-card-title>Application Properties</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
-            <dl class="summary-list">
-              <dt>Name:</dt>
-              <dd>{{ appPropertiesForm.get('name')?.value }}</dd>
-              
-              <dt>Application ID:</dt>
-              <dd>{{ appPropertiesForm.get('applicationId')?.value }}</dd>
-              
-              <dt>Description:</dt>
-              <dd>{{ appPropertiesForm.get('description')?.value }}</dd>
-              
-              @if (appPropertiesForm.get('url')?.value) {
-                <dt>URL:</dt>
-                <dd>{{ appPropertiesForm.get('url')?.value }}</dd>
-              }
-              
-              @if (appPropertiesForm.get('documentation')?.value) {
-                <dt>Documentation:</dt>
-                <dd>{{ appPropertiesForm.get('documentation')?.value }}</dd>
-              }
-              
-              @if (appPropertiesForm.get('source')?.value) {
-                <dt>Source:</dt>
-                <dd>{{ appPropertiesForm.get('source')?.value }}</dd>
-              }
-              
-              @if (appPropertiesForm.get('vendor')?.value) {
-                <dt>Vendor:</dt>
-                <dd>{{ appPropertiesForm.get('vendor')?.value }}</dd>
-              }
-            </dl>
-          </mat-card-content>
-        </mat-card>
-        
-        <!-- Parameters Summary -->
-        <mat-card>
-          <mat-card-header>
-            <mat-card-title>Configuration Parameters</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
-            <!-- ...existing code... -->
-          </mat-card-content>
-        </mat-card>
-        
-        <!-- Error Display and Action Buttons -->
-        @if (createError()) {
-          <mat-card class="error-card">
-            <mat-card-header>
-              <mat-card-title>Error Creating Application</mat-card-title>
-            </mat-card-header>
-            <mat-card-content>
-              <p class="error-message">{{ createError() }}</p>
-              @if (createErrorStep() !== null) {
-                <button mat-stroked-button color="primary" (click)="navigateToErrorStep()">
-                  Go to Step {{ (createErrorStep() ?? 0) + 1 }} to Fix
-                </button>
-              }
-            </mat-card-content>
-          </mat-card>
-        }
-        <mat-card class="summary-card">
-          <mat-card-header>
-            <mat-card-title>Application Summary</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
-            <p>Framework: {{ selectedFramework?.name }}</p>
-            <p>App Name: {{ appPropertiesForm.get('name')?.value }}</p>
-          </mat-card-content>
-        </mat-card>
-      </div>
+      <app-summary-step
+        (navigateToStep)="onNavigateToStep($event)"
+      ></app-summary-step>
       <div class="step-actions">
         <button mat-button matStepperPrevious>Back</button>
         <button mat-raised-button color="primary" (click)="createApplication()" [disabled]="creating()">

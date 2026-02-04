@@ -10,7 +10,6 @@ import {
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
-import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -20,7 +19,7 @@ import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
 
-import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse } from '../../shared/types';
+import { IFrameworkName, IParameter, IPostFrameworkFromImageResponse } from '../../shared/types';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { CacheService } from '../shared/services/cache.service';
 import { DockerComposeService, ComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';
@@ -29,6 +28,7 @@ import { CreateApplicationStateService } from './services/create-application-sta
 import { AppPropertiesStepComponent } from './steps/app-properties-step.component';
 import { FrameworkStepComponent } from './steps/framework-step.component';
 import { ParametersStepComponent } from './steps/parameters-step.component';
+import { SummaryStepComponent } from './steps/summary-step.component';
 
 @Component({
   selector: 'app-create-application',
@@ -41,20 +41,21 @@ import { ParametersStepComponent } from './steps/parameters-step.component';
     MatInputModule,
     MatSelectModule,
     MatButtonModule,
-    MatCardModule,
     MatTooltipModule,
     MatIconModule,
     MatButtonToggleModule,
     MatChipsModule,
     AppPropertiesStepComponent,
     FrameworkStepComponent,
-    ParametersStepComponent
+    ParametersStepComponent,
+    SummaryStepComponent
   ],
   templateUrl: './create-application.html',
   styleUrls: ['./create-application.scss']
 })
 export class CreateApplication implements OnInit, OnDestroy {
   @ViewChild('stepper') stepper!: MatStepper;
+  @ViewChild(SummaryStepComponent) summaryStep!: SummaryStepComponent;
 
   // Inject services
   private fb = inject(FormBuilder);
@@ -494,147 +495,24 @@ export class CreateApplication implements OnInit, OnDestroy {
   }
 
   createApplication(): void {
-    if (!this.selectedFramework || this.appPropertiesForm.invalid || this.parameterForm.invalid) {
-      return;
-    }
-
-    this.creating.set(true);
-    this.createError.set(null);
-    this.createErrorStep.set(null);
-
-    const parameterValues: { id: string; value: IParameterValue }[] = [];
-    for (const param of this.parameters) {
-      let value = this.parameterForm.get(param.id)?.value;
-
-      // Extract base64 content if value has file metadata format: file:filename:content:base64content
-      if (typeof value === 'string' && value.match(/^file:[^:]+:content:(.+)$/)) {
-        const match = value.match(/^file:[^:]+:content:(.+)$/);
-        if (match) {
-          value = match[1]; // Extract only the base64 content
-        }
-      }
-
-      if (value !== null && value !== undefined && value !== '') {
-        parameterValues.push({ id: param.id, value });
-      }
-    }
-
-    // Ensure docker-compose essentials are not dropped even if backend didn't list them in `parameters`
-    if (this.isDockerComposeFramework()) {
-      const ensuredIds = ['compose_file', 'env_file', 'volumes'] as const;
-      const existing = new Set(parameterValues.map(p => p.id));
-      for (const id of ensuredIds) {
-        if (existing.has(id)) continue;
-        const v = this.parameterForm.get(id)?.value;
-        if (v !== null && v !== undefined && String(v).trim() !== '') {
-          parameterValues.push({ id, value: v });
-        }
-      }
-    }
-
-    // In edit mode, use getRawValue() to get disabled field value
-    const applicationId = this.editMode()
-      ? this.editApplicationId()
-      : this.appPropertiesForm.get('applicationId')?.value;
-
-    const body = {
-      frameworkId: this.selectedFramework.id,
-      applicationId,
-      name: this.appPropertiesForm.get('name')?.value,
-      description: this.appPropertiesForm.get('description')?.value,
-      url: this.appPropertiesForm.get('url')?.value || undefined,
-      documentation: this.appPropertiesForm.get('documentation')?.value || undefined,
-      source: this.appPropertiesForm.get('source')?.value || undefined,
-      vendor: this.appPropertiesForm.get('vendor')?.value || undefined,
-      ...(this.selectedIconFile && this.iconContent() && {
-        icon: this.selectedIconFile.name,
-        iconContent: this.iconContent()!,
-      }),
-      // In edit mode, preserve existing icon if no new one selected
-      ...(!this.selectedIconFile && this.iconContent() && this.editMode() && {
-        iconContent: this.iconContent()!,
-      }),
-      ...(this.selectedTags().length > 0 && { tags: this.selectedTags() }),
-      parameterValues,
-      ...(this.editMode() && { update: true }),
-    };
-
-    const actionText = this.editMode() ? 'updated' : 'created';
-    this.configService.createApplicationFromFramework(body).subscribe({
-      next: (res) => {
-        this.creating.set(false);
-        if (res.success) {
-          alert(`Application "${body.name}" ${actionText} successfully!`);
-          this.router.navigate(['/applications']);
-        } else {
-          this.createError.set(`Failed to ${this.editMode() ? 'update' : 'create'} application. Please try again.`);
-          this.createErrorStep.set(null);
-        }
-      },
-      error: (err: { error?: { error?: string }; message?: string }) => {
-        this.creating.set(false);
-        
-        // Extract error message
-        const errorMessage = err?.error?.error || err?.message || 'Failed to create application';
-        
-        // Determine which step to navigate to based on error
-        let targetStep: number | null = null;
-        
-        // Check for specific error types
-        if (errorMessage.includes('already exists') || errorMessage.includes('Application') && errorMessage.includes('exists')) {
-          // Application ID already exists - navigate to Step 2 (Application Properties)
-          targetStep = 1; // Step index is 0-based, Step 2 is index 1
-          this.createError.set(`Application ID "${body.applicationId}" already exists. Please choose a different ID.`);
-        } else if (errorMessage.includes('applicationId') || errorMessage.includes('Missing applicationId')) {
-          // Application ID related error - navigate to Step 2
-          targetStep = 1;
-          this.createError.set(errorMessage);
-        } else if (errorMessage.includes('name') || errorMessage.includes('Missing name')) {
-          // Name related error - navigate to Step 2
-          targetStep = 1;
-          this.createError.set(errorMessage);
-        } else if (errorMessage.includes('parameter') || errorMessage.includes('Parameter')) {
-          // Parameter related error - navigate to Step 3 (Parameters)
-          targetStep = 2; // Step index is 0-based, Step 3 is index 2
-          this.createError.set(errorMessage);
-        } else {
-          // Generic error - show in Step 4
-          this.createError.set(errorMessage);
-          targetStep = null;
-        }
-        
-        this.createErrorStep.set(targetStep);
-        
-        // Don't automatically navigate - let the user decide when to navigate using the button
-        // The error will be displayed in Step 4, and the user can click "Go to Step X to Fix" if needed
-      }
-    });
+    this.summaryStep.createApplication();
   }
 
-  navigateToErrorStep(): void {
-    const errorStep = this.createErrorStep();
-    if (errorStep !== null && this.stepper) {
-      // Navigate to the error step
-      this.stepper.selectedIndex = errorStep;
-      
+  onNavigateToStep(stepIndex: number): void {
+    if (this.stepper) {
+      this.stepper.selectedIndex = stepIndex;
+
       // Mark the form field as touched to show validation errors after navigation
       setTimeout(() => {
-        if (errorStep === 1) {
+        if (stepIndex === 1) {
           // Step 2 - mark applicationId field as touched if it's an ID error
           const errorMessage = this.createError();
           if (errorMessage && (errorMessage.includes('already exists') || errorMessage.includes('applicationId'))) {
             this.appPropertiesForm.get('applicationId')?.markAsTouched();
           }
         }
-        // Don't clear the error immediately - let it stay visible so user can see what to fix
-        // The error will be cleared when they try to create again or manually dismiss it
       }, 100);
     }
-  }
-
-  clearError(): void {
-    this.createError.set(null);
-    this.createErrorStep.set(null);
   }
 
   getImageReferenceTooltip(): string {
