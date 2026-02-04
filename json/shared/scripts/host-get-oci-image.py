@@ -10,10 +10,10 @@ Parameters (via template variables):
   storage (required): Proxmox storage name (default: local)
   registry_username (optional): Username for registry authentication
   registry_password (optional): Password for registry authentication
-  platform (optional): Target platform (e.g., linux/amd64, linux/arm64). Default: linux/amd64
+  platform (optional): Target platform (e.g., linux/amd64, linux/arm64). Default: auto-detected from host via uname -m
 
 Output (JSON to stdout):
-    [{"id": "template_path", "value": "storage:vztmpl/image_tag.tar"}, {"id": "ostype", "value": "alpine"}, {"id": "application_id", "value": "oci-lxc-deployer"}, {"id": "application_name", "value": "OCI LXC Deployer"}, {"id": "oci_image", "value": "ghcr.io/modbus2mqtt/oci-lxc-deployer:latest"}, {"id": "oci_image_tag", "value": "0.17.5"}]
+    [{"id": "template_path", "value": "storage:vztmpl/image_tag.tar"}, {"id": "ostype", "value": "alpine"}, {"id": "arch", "value": "amd64"}, {"id": "application_id", "value": "oci-lxc-deployer"}, {"id": "application_name", "value": "OCI LXC Deployer"}, {"id": "oci_image", "value": "ghcr.io/modbus2mqtt/oci-lxc-deployer:latest"}, {"id": "oci_image_tag", "value": "0.17.5"}]
 
 All logs and progress go to stderr.
 
@@ -28,7 +28,52 @@ import re
 import subprocess
 import tempfile
 import shutil
+import platform as platform_module
 from typing import Optional, Tuple
+
+
+def get_host_arch() -> str:
+    """
+    Get host architecture mapped to OCI/Docker format.
+
+    Uses uname -m (via platform.machine()) to detect the host architecture
+    and maps it to the OCI format used by skopeo.
+
+    Returns:
+        Architecture string (e.g., 'amd64', 'arm64', 'arm/v7')
+    """
+    machine = platform_module.machine()
+    arch_map = {
+        'x86_64': 'amd64',
+        'amd64': 'amd64',
+        'aarch64': 'arm64',
+        'arm64': 'arm64',
+        'armv7l': 'arm/v7',
+        'armv6l': 'arm/v6',
+        'i386': '386',
+        'i686': '386',
+    }
+    return arch_map.get(machine, 'amd64')
+
+
+def get_proxmox_arch(oci_arch: str) -> str:
+    """
+    Map OCI architecture to Proxmox pct --arch format.
+
+    Args:
+        oci_arch: OCI architecture (e.g., 'amd64', 'arm64', 'arm/v7')
+
+    Returns:
+        Proxmox architecture string (e.g., 'amd64', 'arm64', 'armhf')
+    """
+    arch_map = {
+        'amd64': 'amd64',
+        'arm64': 'arm64',
+        'arm/v7': 'armhf',
+        'arm/v6': 'armhf',
+        '386': 'i386',
+    }
+    return arch_map.get(oci_arch, 'amd64')
 
 def log(message: str) -> None:
     """Print message to stderr (for logging/progress)."""
@@ -233,7 +278,7 @@ def skopeo_copy(image_ref: str, output_path: str, username: Optional[str] = None
     """
     cmd = ['skopeo', 'copy']
     
-    # Add platform override if specified
+    # Add platform override (platform is always set at this point, either from param or auto-detected)
     if platform:
         # Parse platform (e.g., linux/amd64 -> arch=amd64, os=linux)
         if '/' in platform:
@@ -242,9 +287,6 @@ def skopeo_copy(image_ref: str, output_path: str, username: Optional[str] = None
         else:
             # Assume linux if only arch specified
             cmd.extend(['--override-os', 'linux', '--override-arch', platform])
-    else:
-        # Default to linux/amd64
-        cmd.extend(['--override-os', 'linux', '--override-arch', 'amd64'])
     
     # Add authentication if provided
     if username and password:
@@ -354,10 +396,10 @@ def main() -> None:
     elif registry_password.strip() == "":
         registry_password = None
     
-    if not platform or platform == "NOT_DEFINED":
-        platform = None
-    elif platform.strip() == "":
-        platform = 'linux/amd64'  # Default platform
+    if not platform or platform == "NOT_DEFINED" or platform.strip() == "":
+        # Auto-detect host architecture as default
+        platform = f'linux/{get_host_arch()}'
+        log(f"Auto-detected host platform: {platform}")
     
     log(f"Downloading OCI image: {oci_image}")
     if platform:
@@ -411,9 +453,14 @@ def main() -> None:
                         if extracted_version:
                             actual_tag = extracted_version
 
+                    # Extract arch from platform for Proxmox
+                    oci_arch = platform.split('/')[-1] if '/' in platform else platform
+                    proxmox_arch = get_proxmox_arch(oci_arch)
+
                     output = [
                         {"id": "template_path", "value": template_path},
                         {"id": "ostype", "value": ostype},
+                        {"id": "arch", "value": proxmox_arch},
                         {"id": "application_id", "value": application_id},
                         {"id": "application_name", "value": application_name},
                         {"id": "oci_image", "value": oci_image},
@@ -458,9 +505,14 @@ def main() -> None:
                     template_path = line.split()[0]
                     if search_pattern in template_path:
                         log(f"OCI image already exists (with extracted version): {template_path} (version: {actual_tag})")
+                        # Extract arch from platform for Proxmox
+                        oci_arch = platform.split('/')[-1] if '/' in platform else platform
+                        proxmox_arch = get_proxmox_arch(oci_arch)
+
                         output = [
                             {"id": "template_path", "value": template_path},
                             {"id": "ostype", "value": ostype},
+                            {"id": "arch", "value": proxmox_arch},
                             {"id": "application_id", "value": application_id},
                             {"id": "application_name", "value": application_name},
                             {"id": "oci_image", "value": oci_image},
@@ -488,10 +540,15 @@ def main() -> None:
         
         log(f"OCI image successfully imported: {template_path}")
     
+    # Extract arch from platform for Proxmox
+    oci_arch = platform.split('/')[-1] if '/' in platform else platform
+    proxmox_arch = get_proxmox_arch(oci_arch)
+
     # Output JSON
     output = [
         {"id": "template_path", "value": template_path},
         {"id": "ostype", "value": ostype},
+        {"id": "arch", "value": proxmox_arch},
         {"id": "application_id", "value": application_id},
         {"id": "application_name", "value": application_name},
         {"id": "oci_image", "value": oci_image},

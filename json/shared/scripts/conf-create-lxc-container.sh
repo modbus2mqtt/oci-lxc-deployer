@@ -69,17 +69,26 @@ fi
 # We'll create the container and then remove any idmap entries that were created
 CONFIG_FILE="/etc/pve/lxc/${VMID}.conf"
 
+# Build optional --arch argument (only set for OCI images, not for regular LXC templates)
+ARCH_ARG=""
+if [ -n "{{ arch }}" ] && [ "{{ arch }}" != "NOT_DEFINED" ]; then
+  ARCH_ARG="--arch {{ arch }}"
+  echo "Using architecture: {{ arch }}" >&2
+fi
+
 # Create the container
-# Note: The error "newuidmap: uid range [0-65536) -> [100000-165536) not allowed" 
+# Note: The error "newuidmap: uid range [0-65536) -> [100000-165536) not allowed"
 # occurs because Proxmox tries to use idmap during template extraction.
 # This happens even though we don't want idmap - uid/gid are only for volume permissions.
+# shellcheck disable=SC2086
 pct create "$VMID" "$TEMPLATE_PATH" \
   --rootfs "$ROOTFS" \
   --hostname "{{ hostname }}" \
   --memory "{{ memory }}" \
   --net0 name=eth0,bridge="{{ bridge }}",ip=dhcp \
   --ostype "{{ ostype }}" \
-  --unprivileged 1 >&2
+  --unprivileged 1 \
+  $ARCH_ARG >&2
 RC=$? 
 if [ $RC -ne 0 ]; then
   echo "Failed to create LXC container!" >&2

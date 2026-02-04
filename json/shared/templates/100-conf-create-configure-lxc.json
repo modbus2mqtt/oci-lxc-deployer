@@ -111,6 +111,14 @@
       "default": "",
       "advanced": true,
       "description": "Auto-injected by backend: VE context identifier for API calls."
+    },
+    {
+      "id": "arch",
+      "name": "Architecture",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "Optional: CPU architecture for pct create (amd64, arm64, armhf, i386). Only used for OCI images. For regular LXC templates, Proxmox auto-detects the architecture."
     }
   ],
   "commands": [

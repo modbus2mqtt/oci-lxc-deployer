@@ -55,7 +55,9 @@
       "outputs": [
         "template_path",
         "ostype",
+        "arch",
         "application_id",
+        "application_name",
         "oci_image",
         "oci_image_tag"
       ]
