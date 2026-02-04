@@ -34,6 +34,7 @@ import { ParameterGroupComponent } from '../ve-configuration-dialog/parameter-gr
 import { OciImageStepComponent } from './oci-image-step.component';
 import { CreateApplicationStateService } from './services/create-application-state.service';
 import { IconUploadComponent, IconSelectedEvent } from './components/icon-upload.component';
+import { TagsSelectorComponent } from './components/tags-selector.component';
 
 @Component({
   selector: 'app-create-application',
@@ -54,7 +55,8 @@ import { IconUploadComponent, IconSelectedEvent } from './components/icon-upload
     ParameterGroupComponent,
     ComposeEnvSelectorComponent,
     OciImageStepComponent,
-    IconUploadComponent
+    IconUploadComponent,
+    TagsSelectorComponent
   ],
   templateUrl: './create-application.html',
   styleUrls: ['./create-application.scss']

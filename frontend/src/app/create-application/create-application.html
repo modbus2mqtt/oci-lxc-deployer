@@ -143,28 +143,11 @@
           </mat-form-field>
 
           <!-- Tags Selection -->
-          @if (tagsConfig()) {
-            <div class="tags-selection-section">
-              <div class="tags-selection-label">Tags (Optional)</div>
-              <div class="tags-selection-container">
-                @for (group of tagsConfig()!.groups; track group.id) {
-                  <div class="tag-group">
-                    <div class="tag-group-name">{{ group.name }}</div>
-                    <mat-chip-listbox multiple>
-                      @for (tag of group.tags; track tag.id) {
-                        <mat-chip-option
-                          [selected]="isTagSelected(tag.id)"
-                          (selectionChange)="toggleTag(tag.id)"
-                        >
-                          {{ tag.name }}
-                        </mat-chip-option>
-                      }
-                    </mat-chip-listbox>
-                  </div>
-                }
-              </div>
-            </div>
-          }
+          <app-tags-selector
+            [tagsConfig]="tagsConfig()"
+            [selectedTags]="selectedTags()"
+            (tagToggled)="toggleTag($event)"
+          ></app-tags-selector>
 
           <!-- Icon Upload -->
           <app-icon-upload

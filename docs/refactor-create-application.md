@@ -5,14 +5,15 @@
 Um die nächste Phase in einer neuen Claude-Session zu starten:
 
 ```bash
-Lies docs/refactor-create-application.md und führe Phase 3 aus.
+Lies docs/refactor-create-application.md und führe Phase 4 aus.
 ```
 
-**Relevante Dateien für Phase 3:**
-- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Tags-Methoden extrahieren)
-- `frontend/src/app/create-application/create-application.html` - Template (Tags-HTML extrahieren)
-- `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service (Tags-Signals/Methoden)
-- `frontend/src/app/create-application/components/icon-upload.component.ts` - Pattern-Vorlage für neue Komponente
+**Relevante Dateien für Phase 4:**
+- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Step 2 extrahieren)
+- `frontend/src/app/create-application/create-application.html` - Template (Step 2 HTML extrahieren)
+- `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service
+- `frontend/src/app/create-application/components/icon-upload.component.ts` - Pattern-Vorlage
+- `frontend/src/app/create-application/components/tags-selector.component.ts` - Pattern-Vorlage
 
 **Verifizierung nach Abschluss:**
 ```bash
@@ -111,28 +112,38 @@ Das Script führt automatisch aus:
 
 ---
 
-### Phase 3: Tags Selector Component ⏳ NÄCHSTE PHASE
+### Phase 3: Tags Selector Component ✅ ABGESCHLOSSEN
 
 **Ziel:** Zweite kleine Komponente extrahieren
 
 **Neue Datei:** `components/tags-selector.component.ts`
 
-**Was wird verschoben (aus State Service):**
-- `toggleTag()`
-- `isTagSelected()`
+**Was wurde verschoben aus create-application.html:**
+- Tags-Selection Section (22 Zeilen) → Template in TagsSelectorComponent
+
+**Was wurde in TagsSelectorComponent implementiert:**
+- `isTagSelected()` - Prüft ob Tag ausgewählt ist
+- `onTagToggle()` - Emittiert tagToggled Event
 
 **Interface:**
 ```typescript
-tagsConfig = input<ITagsConfig | null>(null);
-selectedTags = input<string[]>([]);
+@Input() tagsConfig: ITagsConfig | null = null;
+@Input() selectedTags: string[] = [];
 @Output() tagToggled = new EventEmitter<string>();
 ```
 
-**Verifizierung:** `./frontend/scripts/verify-build.sh`
+**Änderungen an create-application.ts:**
+- Import `TagsSelectorComponent` hinzugefügt
+- `TagsSelectorComponent` zu imports-Array hinzugefügt
+
+**Änderungen an create-application.html:**
+- Tags-Selection Section ersetzt durch: `<app-tags-selector [tagsConfig]="tagsConfig()" [selectedTags]="selectedTags()" (tagToggled)="toggleTag($event)"></app-tags-selector>`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh` ✅ (Lint ✅, Build ✅, 63 Tests ✅)
 
 ---
 
-### Phase 4: App Properties Step (Step 2)
+### Phase 4: App Properties Step (Step 2) ⏳ NÄCHSTE PHASE
 
 **Ziel:** Step 2 als eigene Komponente
 
