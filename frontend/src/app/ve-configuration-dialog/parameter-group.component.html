@@ -96,15 +96,15 @@
 						}
 						</div>
 						} @else {
-						<mat-form-field appearance="outline" class="param-field">
+						<mat-form-field appearance="outline" class="param-field" [class.param-field-multiline]="param.multiline">
 						<mat-label>{{ param.name }}</mat-label>
 						@if (param.multiline) {
-						  <textarea matInput rows="3" [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above"></textarea>
+						  <textarea matInput rows="5" [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above"></textarea>
 						} @else {
 						  <input matInput [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" />
-						}
-						@if (param.default !== undefined) {
-						<mat-hint>Default: {{ param.default }}</mat-hint>
+						  @if (param.default !== undefined) {
+						    <mat-hint>Default: {{ param.default }}</mat-hint>
+						  }
 						}
 						@if (hasExpandableHelp(param)) {
 							<button type="button" mat-icon-button matSuffix class="help-toggle-suffix" (click)="toggleHelp(param.id)" [matTooltip]="'Show/hide help'" matTooltipPosition="above">

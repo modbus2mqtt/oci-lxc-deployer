@@ -225,11 +225,13 @@
   }
 
   // Ensure multiline fields take full width
-  ::ng-deep .parameter-group {
-    .multiline-field {
+  ::ng-deep .param-group {
+    .param-field-multiline {
       width: 100% !important;
+      min-width: 100% !important;
       max-width: none !important;
-      
+      flex-basis: 100% !important;
+
       textarea.mat-mdc-input-element {
         min-height: 150px !important;
         resize: vertical;

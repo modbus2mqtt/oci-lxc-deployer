@@ -1,0 +1,62 @@
+{
+  "name": "Zitadel",
+  "description": "ZITADEL - Identity infrastructure, simplified for you.",
+  "extends": "oci-image",
+  "icon": "icon.png",
+  "parameters": [
+    {
+      "id": "hostname",
+      "name": "Hostname",
+      "required": true,
+      "type": "string",
+      "description": "Hostname for the LXC container",
+      "template": "100-conf-create-configure-lxc.json",
+      "templatename": "Create and Configure LXC",
+      "default": "zitadel"
+    },
+    {
+      "id": "volumes",
+      "name": "Volumes",
+      "type": "string",
+      "multiline": true,
+      "required": false,
+      "description": "One per line: key=/container/path",
+      "template": "150-conf-create-storage-volumes-for-lxc.json",
+      "templatename": "Create Storage Volumes for LXC"
+    },
+    {
+      "id": "envs",
+      "name": "Environment Variables",
+      "type": "string",
+      "advanced": true,
+      "multiline": true,
+      "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
+      "template": "170-conf-set-environment-variables-in-lxc.json",
+      "templatename": "Env Variables in LXC",
+      "default": "ADMIN_PASSWORD=secret123\nADMIN_USER=admin\nDB_HOST=postgres\nDB_NAME=zitadel\nDB_PASSWORD=secret123\nDB_PORT=5432\nDB_SSL_MODE=disable\nDB_USER=zitadel\nZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=postgres\nZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=postgres\nZITADEL_DATABASE_POSTGRES_DATABASE=zitadel\nZITADEL_DATABASE_POSTGRES_HOST=postgres\nZITADEL_DATABASE_POSTGRES_PORT=5432\nZITADEL_DATABASE_POSTGRES_USER_PASSWORD=zitadel\nZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_USER_USERNAME=zitadel\nZITADEL_EXTERNALDOMAIN=localhost\nZITADEL_EXTERNALPORT=8080\nZITADEL_EXTERNALSECURE=false\nZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD=secret123\nZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME=admin\nZITADEL_MASTERKEY=MasterkeyNeedsToHave32Characters\nZITADEL_PORT=8080\nZITADEL_VERSION=v4.10.1"
+    }
+  ],
+  "properties": [
+    {
+      "id": "oci_image",
+      "value": "ghcr.io/zitadel/zitadel:v4.10.1"
+    },
+    {
+      "id": "uid",
+      "value": "1001"
+    },
+    {
+      "id": "username",
+      "value": "root"
+    },
+    {
+      "id": "initial_command",
+      "value": "start-from-init --masterkey \"${ZITADEL_MASTERKEY:-MustBeAtLeast32CharactersLongKey!}\" --tlsMode disabled"
+    }
+  ],
+  "installation": [],
+  "url": "https://github.com/zitadel/zitadel",
+  "documentation": "https://zitadel.com/docs",
+  "source": "https://github.com/zitadel/zitadel",
+  "vendor": "ZITADEL"
+}
