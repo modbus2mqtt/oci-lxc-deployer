@@ -7,7 +7,11 @@ idmap entries.
 
 Parameters:
   - gid: Group ID(s) for 1:1 mapping (e.g., "1000" or "1000,1001")
+  - uid: User ID - used as fallback if gid is not set (e.g., "1000")
   - vm_id: LXC container ID (optional, for updating container config)
+
+Note: If gid is not provided or is "0", uid will be used as the default gid.
+This simplifies configuration when uid and gid should be the same.
 
 Mock paths for testing:
   - MOCK_SUBGID_PATH: Override /etc/subgid path
@@ -49,15 +53,21 @@ except Exception:
 
 def main() -> None:
     gid_str = "{{ gid }}"
+    uid_str = "{{ uid }}"
     vm_id = "{{ vm_id }}"
 
     subgid_path = os.environ.get("MOCK_SUBGID_PATH", "/etc/subgid")
     config_dir = os.environ.get("MOCK_CONFIG_DIR", "/etc/pve/lxc")
 
-    eprint(f"setup-lxc-gid-mapping: vm_id={vm_id!r} gid={gid_str!r} subgid_path={subgid_path} config_dir={config_dir}")
+    # Use uid as fallback if gid is not set
+    if not gid_str or gid_str == "NOT_DEFINED" or gid_str.strip() == "" or gid_str.strip() == "0":
+        if uid_str and uid_str != "NOT_DEFINED" and uid_str.strip() != "" and uid_str.strip() != "0":
+            gid_str = uid_str
+            eprint(f"setup-lxc-gid-mapping: gid not set, using uid={uid_str} as fallback")
+        else:
+            gid_str = "0"
 
-    if not gid_str or gid_str == "NOT_DEFINED" or gid_str.strip() == "":
-        gid_str = "0"
+    eprint(f"setup-lxc-gid-mapping: vm_id={vm_id!r} gid={gid_str!r} uid={uid_str!r} subgid_path={subgid_path} config_dir={config_dir}")
     if not vm_id or vm_id == "NOT_DEFINED" or vm_id.strip() == "":
         vm_id = ""
 
