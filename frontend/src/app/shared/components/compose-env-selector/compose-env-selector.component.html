@@ -13,8 +13,11 @@
           <mat-icon>attach_file</mat-icon>
         </button>
 
-        <!-- prevent duplicate "start" hints -->
-        <mat-hint align="end">Upload your docker-compose.yml file</mat-hint>
+        @if (services().length > 0) {
+          <mat-hint>Services: {{ getServiceNames() }}</mat-hint>
+        } @else {
+          <mat-hint align="end">Upload your docker-compose.yml file</mat-hint>
+        }
 
         @if (composeFileError()) {
           <mat-error>{{ composeFileError() }}</mat-error>

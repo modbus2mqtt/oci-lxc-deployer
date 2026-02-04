@@ -961,6 +961,8 @@ The system will automatically fetch metadata from the image and pre-fill applica
 
     if (this.isOciComposeMode()) {
       this.fillEnvsForSelectedService();
+      // Re-resolve image in case .env contains version override
+      this.updateImageFromCompose();
       // Update uid/gid in next tick to avoid ExpressionChangedAfterItHasBeenCheckedError
       setTimeout(() => this.updateUserFromCompose(), 0);
     }
@@ -1133,13 +1135,18 @@ The system will automatically fetch metadata from the image and pre-fill applica
     const image = service?.config?.['image'];
     if (typeof image !== 'string' || !image.trim()) return;
 
-    const imageRef = image.trim();
+    // Get current env values from .env file if uploaded
+    const envFileValue = this.parameterForm.get('env_file')?.value;
+    const envValues = envFileValue ? this.composeService.parseEnvFile(envFileValue) : new Map<string, string>();
+
+    // Resolve variables like ${ZITADEL_VERSION:-v4.10.1} using env values and defaults
+    const imageRef = this.composeService.resolveVariables(image.trim(), envValues);
     if (imageRef === this.imageReference()) return;
 
     // Set image reference and trigger annotation fetch
     this.imageReference.set(imageRef);
     this.imageInputSubject.next(imageRef); // Triggers debounced fetchImageAnnotations
-  
+
     // ADDED: Also update oci_image parameter immediately
     this.updateOciImageParameter(imageRef);
   }

@@ -77,6 +77,38 @@ export class DockerComposeService {
 
     return { vars: Array.from(vars), defaults, required: Array.from(required) };
   }
+
+  /**
+   * Resolve variables in a string using provided env values and defaults.
+   * ${VAR:-default} -> uses env value if set, otherwise default
+   * ${VAR} or $VAR -> uses env value if set, otherwise empty string
+   */
+  public resolveVariables(value: string, envValues: Map<string, string> = new Map()): string {
+    let result = value;
+
+    // First resolve ${VAR:-default} and ${VAR-default} patterns
+    result = result.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_match, varName, defaultValue) => {
+      if (envValues.has(varName) && envValues.get(varName)) {
+        return envValues.get(varName)!;
+      }
+      return defaultValue !== undefined ? this.stripQuotes(defaultValue) : '';
+    });
+
+    // Also handle ${VAR-default} (without colon - only uses default if var is unset)
+    result = result.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)-([^}]*)\}/g, (_match, varName, defaultValue) => {
+      if (envValues.has(varName)) {
+        return envValues.get(varName)!;
+      }
+      return this.stripQuotes(defaultValue);
+    });
+
+    // Then resolve $VAR patterns (simple variable references)
+    result = result.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_match, varName) => {
+      return envValues.get(varName) || '';
+    });
+
+    return result;
+  }
   
   private base64ToUtf8(base64: string): string {
     const bin = atob(base64);

@@ -1,6 +1,5 @@
-
 import { CommonModule } from '@angular/common';
-import { Component, EventEmitter, Input, Output, signal } from '@angular/core';
+import { Component, EventEmitter, input, Input, Output, signal } from '@angular/core';
 import { FormGroup, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -35,12 +34,12 @@ export class ComposeEnvSelectorComponent {
   @Input() parameterForm!: FormGroup;
   @Input() mode: ComposeEnvSelectorMode = 'multi';
 
-  // NEW: Parent gibt uns die parsed data (kein internes Parsing mehr)
-  @Input() services = signal<ComposeService[]>([]);
-  @Input() selectedServiceName = signal<string>('');
-  @Input() requiredEnvVars = signal<string[]>([]);
-  @Input() missingEnvVars = signal<string[]>([]);
-  @Input() composeProperties = signal<{
+  // Use Angular's input() signals for reactive updates when parent values change
+  services = input<ComposeService[]>([]);
+  selectedServiceName = input<string>('');
+  requiredEnvVars = input<string[]>([]);
+  missingEnvVars = input<string[]>([]);
+  composeProperties = input<{
     services?: string;
     ports?: string;
     images?: string;
@@ -93,5 +92,9 @@ export class ComposeEnvSelectorComponent {
 
   hasMissingEnvVars(): boolean {
     return this.missingEnvVars().length > 0;
+  }
+
+  getServiceNames(): string {
+    return this.services().map(s => s.name).join(', ');
   }
 }

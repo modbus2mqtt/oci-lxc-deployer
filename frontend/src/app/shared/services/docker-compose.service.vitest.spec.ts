@@ -388,4 +388,96 @@ services:
       expect(effectiveEnvs.get('UID')).toBe('1000');
     });
   });
+
+  describe('resolveVariables', () => {
+    it('should resolve ${VAR:-default} with .env value when present', () => {
+      const input = 'ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.10.1}';
+      const envValues = new Map([['ZITADEL_VERSION', 'v5.0.0']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v5.0.0');
+    });
+
+    it('should resolve ${VAR:-default} with default when .env value missing', () => {
+      const input = 'ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.10.1}';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v4.10.1');
+    });
+
+    it('should resolve ${VAR:-default} with default when .env value is empty', () => {
+      const input = 'ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.10.1}';
+      const envValues = new Map([['ZITADEL_VERSION', '']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v4.10.1');
+    });
+
+    it('should resolve ${VAR-default} (without colon) with .env value', () => {
+      const input = 'image:${TAG-latest}';
+      const envValues = new Map([['TAG', 'v1.0']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('image:v1.0');
+    });
+
+    it('should resolve ${VAR-default} with default when var unset', () => {
+      const input = 'image:${TAG-latest}';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('image:latest');
+    });
+
+    it('should resolve ${VAR} to empty string when not set', () => {
+      const input = 'prefix-${MISSING}-suffix';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('prefix--suffix');
+    });
+
+    it('should resolve $VAR simple syntax', () => {
+      const input = 'image:$TAG';
+      const envValues = new Map([['TAG', 'v2.0']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('image:v2.0');
+    });
+
+    it('should resolve multiple variables in one string', () => {
+      const input = '${REGISTRY}/zitadel:${VERSION:-latest}';
+      const envValues = new Map([['REGISTRY', 'ghcr.io']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel:latest');
+    });
+
+    it('should return original string when no variables present', () => {
+      const input = 'ghcr.io/zitadel/zitadel:v4.10.1';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v4.10.1');
+    });
+
+    it('should strip quotes from default values', () => {
+      const input = '${VAR:-"quoted-default"}';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('quoted-default');
+    });
+  });
 });
