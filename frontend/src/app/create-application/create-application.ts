@@ -1,13 +1,10 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
 import {
-  AbstractControl,
-  AsyncValidatorFn,
   FormBuilder,
   FormControl,
   FormGroup,
   ReactiveFormsModule,
-  ValidationErrors,
   Validators,
 } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -21,8 +18,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Observable, Subject, debounceTime, distinctUntilChanged, of, takeUntil } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { Subject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
 
 import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse } from '../../shared/types';
 import { VeConfigurationService } from '../ve-configuration.service';
@@ -33,8 +29,7 @@ import { ComposeEnvSelectorComponent } from '../shared/components/compose-env-se
 import { ParameterGroupComponent } from '../ve-configuration-dialog/parameter-group.component';
 import { OciImageStepComponent } from './oci-image-step.component';
 import { CreateApplicationStateService } from './services/create-application-state.service';
-import { IconUploadComponent, IconSelectedEvent } from './components/icon-upload.component';
-import { TagsSelectorComponent } from './components/tags-selector.component';
+import { AppPropertiesStepComponent } from './steps/app-properties-step.component';
 
 @Component({
   selector: 'app-create-application',
@@ -55,8 +50,7 @@ import { TagsSelectorComponent } from './components/tags-selector.component';
     ParameterGroupComponent,
     ComposeEnvSelectorComponent,
     OciImageStepComponent,
-    IconUploadComponent,
-    TagsSelectorComponent
+    AppPropertiesStepComponent
   ],
   templateUrl: './create-application.html',
   styleUrls: ['./create-application.scss']
@@ -145,17 +139,11 @@ export class CreateApplication implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
   private imageAnnotationsTimeout: ReturnType<typeof setTimeout> | null = null;
   private lastAnnotationsResponse: IPostFrameworkFromImageResponse | null = null;
-  private applicationIdSubject = new Subject<string>();
 
   ngOnInit(): void {
     this.cacheService.preloadAll();
     this.loadFrameworks();
     this.loadTagsConfig();
-
-    const applicationIdControl = this.appPropertiesForm.get('applicationId');
-    if (applicationIdControl) {
-      applicationIdControl.setAsyncValidators([this.applicationIdUniqueValidator()]);
-    }
 
     this.imageInputSubject.pipe(
       takeUntil(this.destroy$),
@@ -229,19 +217,6 @@ export class CreateApplication implements OnInit, OnDestroy {
         console.error('Failed to load tags config', err);
       }
     });
-  }
-
-  toggleTag(tagId: string): void {
-    const current = this.selectedTags();
-    if (current.includes(tagId)) {
-      this.selectedTags.set(current.filter(t => t !== tagId));
-    } else {
-      this.selectedTags.set([...current, tagId]);
-    }
-  }
-
-  isTagSelected(tagId: string): boolean {
-    return this.selectedTags().includes(tagId);
   }
 
   private loadEditData(applicationId: string): void {
@@ -723,68 +698,6 @@ export class CreateApplication implements OnInit, OnDestroy {
 The system will automatically fetch metadata from the image and pre-fill application properties.`;
   }
 
-  /**
-   * Custom async validator for application ID uniqueness
-   */
-  applicationIdUniqueValidator(): AsyncValidatorFn {
-    return (control: AbstractControl): Observable<ValidationErrors | null> => {
-      const applicationId = control.value;
-      
-      // If empty, don't validate (required validator will handle it)
-      if (!applicationId || !applicationId.trim()) {
-        return of(null);
-      }
-      
-      // Check against cache
-      return this.cacheService.isApplicationIdTaken(applicationId.trim()).pipe(
-        map(isTaken => {
-          if (isTaken) {
-            return { applicationIdTaken: true };
-          }
-          return null;
-        }),
-        catchError(() => {
-          // On error, don't block the user - validation will happen on submit
-          return of(null);
-        })
-      );
-    };
-  }
-
-  onApplicationIdInput(event: Event): void {
-    const applicationId = (event.target as HTMLInputElement).value;
-    this.applicationIdSubject.next(applicationId);
-  }
-
-  validateApplicationId(applicationId: string): void {
-    if (!applicationId || !applicationId.trim()) {
-      this.applicationIdError.set(null);
-      return;
-    }
-    
-    this.cacheService.isApplicationIdTaken(applicationId).subscribe({
-      next: (isTaken) => {
-        if (isTaken) {
-          this.applicationIdError.set(`Application ID "${applicationId}" already exists. Please choose a different ID.`);
-          this.appPropertiesForm.get('applicationId')?.setErrors({ taken: true });
-        } else {
-          this.applicationIdError.set(null);
-          // Clear 'taken' error if it exists
-          const control = this.appPropertiesForm.get('applicationId');
-          if (control?.hasError('taken')) {
-            const errors = { ...control.errors };
-            delete errors['taken'];
-            control.setErrors(Object.keys(errors).length > 0 ? errors : null);
-          }
-        }
-      },
-      error: () => {
-        // On error, don't block the user - validation will happen on submit
-        this.applicationIdError.set(null);
-      }
-    });
-  }
-
   cancel(): void {
     this.router.navigate(['/applications']);
   }
@@ -804,19 +717,6 @@ The system will automatically fetch metadata from the image and pre-fill applica
 
   private usesComposeControls(): boolean {
     return this.isDockerComposeFramework() || this.isOciComposeMode();
-  }
-
-  // --- CONSOLIDATED: icon handlers used by template ---
-  onIconSelected(event: IconSelectedEvent): void {
-    this.selectedIconFile = event.file;
-    this.iconContent.set(event.content);
-    this.iconPreview.set(event.preview);
-  }
-
-  onIconRemoved(): void {
-    this.selectedIconFile = null;
-    this.iconContent.set(null);
-    this.iconPreview.set(null);
   }
 
   // --- CONSOLIDATED: env summary + requirement helpers used by template/logic ---

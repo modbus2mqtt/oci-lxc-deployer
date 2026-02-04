@@ -5,15 +5,14 @@
 Um die nächste Phase in einer neuen Claude-Session zu starten:
 
 ```bash
-Lies docs/refactor-create-application.md und führe Phase 4 aus.
+Lies docs/refactor-create-application.md und führe Phase 5 aus.
 ```
 
-**Relevante Dateien für Phase 4:**
-- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Step 2 extrahieren)
-- `frontend/src/app/create-application/create-application.html` - Template (Step 2 HTML extrahieren)
+**Relevante Dateien für Phase 5:**
+- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Step 1 extrahieren)
+- `frontend/src/app/create-application/create-application.html` - Template (Step 1 HTML extrahieren)
 - `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service
-- `frontend/src/app/create-application/components/icon-upload.component.ts` - Pattern-Vorlage
-- `frontend/src/app/create-application/components/tags-selector.component.ts` - Pattern-Vorlage
+- `frontend/src/app/create-application/steps/app-properties-step.component.ts` - Pattern-Vorlage
 
 **Verifizierung nach Abschluss:**
 ```bash
@@ -143,28 +142,48 @@ Das Script führt automatisch aus:
 
 ---
 
-### Phase 4: App Properties Step (Step 2) ⏳ NÄCHSTE PHASE
+### Phase 4: App Properties Step (Step 2) ✅ ABGESCHLOSSEN
 
 **Ziel:** Step 2 als eigene Komponente
 
 **Neue Datei:** `steps/app-properties-step.component.ts`
 
-**Was wird verschoben:**
-- Application ID Validierung
-- Template-Teil für Step 2
-- Integration von IconUpload und TagsSelector
+**Was wurde verschoben aus create-application.ts:**
+- `applicationIdUniqueValidator()` → `applicationIdUniqueValidator()` in AppPropertiesStepComponent
+- `onApplicationIdInput()` → `onApplicationIdInput()` in AppPropertiesStepComponent
+- `validateApplicationId()` → `validateApplicationId()` in AppPropertiesStepComponent
+- `onIconSelected()` → `onIconSelected()` in AppPropertiesStepComponent
+- `onIconRemoved()` → `onIconRemoved()` in AppPropertiesStepComponent
+- `toggleTag()` → `onTagToggle()` in AppPropertiesStepComponent (delegiert an StateService)
+- `isTagSelected()` → entfernt (nicht mehr benötigt)
+
+**Was wurde verschoben aus create-application.html:**
+- Step 2 Form (Name, ID, Description, URL, Documentation, Source, Vendor) → Template in AppPropertiesStepComponent
+- Integration von IconUpload und TagsSelector → Template in AppPropertiesStepComponent
 
 **Interface:**
 ```typescript
-// Nutzt StateService für Form
-get appPropertiesForm() { return this.stateService.appPropertiesForm; }
+// Nutzt StateService für Form und alle Signals
+readonly state = inject(CreateApplicationStateService);
+get appPropertiesForm() { return this.state.appPropertiesForm; }
 ```
 
-**Verifizierung:** `./frontend/scripts/verify-build.sh`
+**Änderungen an create-application.ts:**
+- Import `AppPropertiesStepComponent` hinzugefügt
+- `AppPropertiesStepComponent` zu imports-Array hinzugefügt
+- `IconUploadComponent`, `TagsSelectorComponent` aus imports entfernt (werden jetzt von AppPropertiesStepComponent verwendet)
+- Async-Validator Setup aus ngOnInit entfernt (wird jetzt in AppPropertiesStepComponent gemacht)
+- `applicationIdSubject` entfernt (ist im StateService)
+- Nicht mehr benötigte Imports entfernt: `AbstractControl`, `AsyncValidatorFn`, `ValidationErrors`, `Observable`, `of`, `map`, `catchError`
+
+**Änderungen an create-application.html:**
+- Step 2 Inhalt ersetzt durch: `<app-properties-step></app-properties-step>`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh` ✅ (Lint ✅, Build ✅, 63 Tests ✅)
 
 ---
 
-### Phase 5: Framework Step (Step 1)
+### Phase 5: Framework Step (Step 1) ⏳ NÄCHSTE PHASE
 
 **Ziel:** Step 1 als eigene Komponente
 
