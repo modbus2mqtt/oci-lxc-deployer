@@ -4,6 +4,7 @@ import { Subject } from 'rxjs';
 
 import { IFrameworkName, IParameter, IPostFrameworkFromImageResponse, ITagsConfig } from '../../../shared/types';
 import { ComposeService, DockerComposeService, ParsedComposeData } from '../../shared/services/docker-compose.service';
+import { ErrorHandlerService } from '../../shared/services/error-handler.service';
 import { VeConfigurationService } from '../../ve-configuration.service';
 
 /**
@@ -15,6 +16,7 @@ export class CreateApplicationStateService {
   private fb = inject(FormBuilder);
   private configService = inject(VeConfigurationService);
   private composeService = inject(DockerComposeService);
+  private errorHandler = inject(ErrorHandlerService);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Edit mode state
@@ -635,5 +637,147 @@ export class CreateApplicationStateService {
    */
   envVarKeysText(): string {
     return this.envVarKeys().join('\n');
+  }
+
+  /**
+   * Loads tags configuration from backend.
+   */
+  loadTagsConfig(): void {
+    this.configService.getTagsConfig().subscribe({
+      next: (config) => {
+        this.tagsConfig.set(config);
+      },
+      error: (err) => {
+        console.error('Failed to load tags config', err);
+      }
+    });
+  }
+
+  /**
+   * Sets up the parameter form from current parameters.
+   * Groups parameters by template and adds form controls.
+   */
+  setupParameterForm(): void {
+    const grouped: Record<string, IParameter[]> = {};
+
+    for (const param of this.parameters()) {
+      const group = param.templatename || 'General';
+      if (!grouped[group]) {
+        grouped[group] = [];
+      }
+      grouped[group].push(param);
+
+      // Skip if control already exists (e.g., compose_file, env_file)
+      if (this.parameterForm.get(param.id)) {
+        continue;
+      }
+
+      const validators = param.required ? [Validators.required] : [];
+      const defaultValue = param.default !== undefined ? param.default : '';
+      this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
+    }
+
+    // Sort parameters in each group: required first, then optional
+    for (const group in grouped) {
+      grouped[group] = grouped[group].slice().sort(
+        (a, b) => Number(!!b.required) - Number(!!a.required)
+      );
+    }
+
+    this.groupedParameters.set(grouped);
+  }
+
+  /**
+   * Loads parameters for a given framework.
+   */
+  loadParameters(frameworkId: string): void {
+    this.loadingParameters.set(true);
+    this.parameters.set([]);
+
+    const preserveCompose = this.usesComposeControls();
+    const composeFileValue = preserveCompose ? (this.parameterForm.get('compose_file')?.value || '') : '';
+    const envFileValue = preserveCompose ? (this.parameterForm.get('env_file')?.value || '') : '';
+    const volumesValue = preserveCompose ? (this.parameterForm.get('volumes')?.value || '') : '';
+
+    this.parameterForm = this.fb.group({});
+    this.groupedParameters.set({});
+
+    if (preserveCompose) {
+      // re-create controls + validators consistently after reset
+      this.ensureComposeControls({ requireComposeFile: true });
+      this.parameterForm.patchValue(
+        { compose_file: composeFileValue, env_file: envFileValue, volumes: volumesValue },
+        { emitEvent: false }
+      );
+      this.updateEnvFileRequirement();
+    }
+
+    this.configService.getFrameworkParameters(frameworkId).subscribe({
+      next: (res) => {
+        this.parameters.set(res.parameters);
+        // Group parameters by template (or use 'General' as default)
+        const grouped: Record<string, IParameter[]> = {};
+        for (const param of res.parameters) {
+          const group = param.templatename || 'General';
+          if (!grouped[group]) {
+            grouped[group] = [];
+          }
+          grouped[group].push(param);
+
+          // Don't overwrite compose_file, env_file, and volumes if they already exist
+          if ((this.isDockerComposeFramework() || this.isOciComposeMode()) && (param.id === 'compose_file' || param.id === 'env_file' || param.id === 'volumes')) {
+            continue;
+          }
+
+          // NOTE: "Neue Property für Textfeld-Validierung" NICHT im Framework-Flow aktivieren.
+          // Hier bewusst nur `required` berücksichtigen (Validation soll nur im ve-configuration-dialog laufen).
+          const validators = param.required ? [Validators.required] : [];
+
+          const defaultValue = param.default !== undefined ? param.default : '';
+          this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
+        }
+        // Sort parameters in each group: required first, then optional
+        for (const group in grouped) {
+          grouped[group] = grouped[group].slice().sort(
+            (a, b) => Number(!!b.required) - Number(!!a.required)
+          );
+        }
+        this.groupedParameters.set(grouped);
+        this.loadingParameters.set(false);
+
+        this.updateEnvFileRequirement();
+
+        if (preserveCompose) {
+          setTimeout(() => this.hydrateComposeDataFromForm(), 0);
+        }
+      },
+      error: (err) => {
+        this.errorHandler.handleError('Failed to load framework parameters', err);
+        this.loadingParameters.set(false);
+      }
+    });
+  }
+
+  /**
+   * Hydrates compose data from form values (after framework switch).
+   */
+  hydrateComposeDataFromForm(): void {
+    const composeFileValue = this.parameterForm.get('compose_file')?.value;
+    if (composeFileValue && typeof composeFileValue === 'string' && composeFileValue.trim()) {
+      const parsed = this.composeService.parseComposeFile(composeFileValue);
+      if (parsed) {
+        this.parsedComposeData.set(parsed);
+
+        if (this.isOciComposeMode() && parsed.services.length > 0) {
+          const first = parsed.services[0].name;
+          this.selectedServiceName.set(first);
+          this.updateImageFromCompose();
+          this.updateInitialCommandFromCompose();
+          this.updateUserFromCompose();
+        }
+
+        this.updateEnvFileRequirement();
+      }
+    }
   }
 }

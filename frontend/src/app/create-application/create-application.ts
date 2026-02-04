@@ -1,12 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
-import {
-  FormBuilder,
-  FormControl,
-  FormGroup,
-  ReactiveFormsModule,
-  Validators,
-} from '@angular/forms';
+import { ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
@@ -58,7 +52,6 @@ export class CreateApplication implements OnInit, OnDestroy {
   @ViewChild(SummaryStepComponent) summaryStep!: SummaryStepComponent;
 
   // Inject services
-  private fb = inject(FormBuilder);
   private configService = inject(VeConfigurationService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
@@ -82,7 +75,6 @@ export class CreateApplication implements OnInit, OnDestroy {
   get frameworks() { return this.state.frameworks(); }
   get selectedFramework() { return this.state.selectedFramework(); }
   set selectedFramework(value: IFrameworkName | null) { this.state.selectedFramework.set(value); }
-  get loadingFrameworks() { return this.state.loadingFrameworks; }
 
   // OCI Image
   get imageReference() { return this.state.imageReference; }
@@ -95,11 +87,8 @@ export class CreateApplication implements OnInit, OnDestroy {
 
   // Step 2: App properties
   get appPropertiesForm() { return this.state.appPropertiesForm; }
-  get applicationIdError() { return this.state.applicationIdError; }
 
   // Icon
-  get selectedIconFile() { return this.state.selectedIconFile(); }
-  set selectedIconFile(value: File | null) { this.state.selectedIconFile.set(value); }
   get iconPreview() { return this.state.iconPreview; }
   get iconContent() { return this.state.iconContent; }
 
@@ -119,11 +108,6 @@ export class CreateApplication implements OnInit, OnDestroy {
   get parameters() { return this.state.parameters(); }
   set parameters(value: IParameter[]) { this.state.parameters.set(value); }
   get parameterForm() { return this.state.parameterForm; }
-  set parameterForm(value: FormGroup) { this.state.parameterForm = value; }
-  get groupedParameters() { return this.state.groupedParameters(); }
-  set groupedParameters(value: Record<string, IParameter[]>) { this.state.groupedParameters.set(value); }
-  get showAdvanced() { return this.state.showAdvanced; }
-  get loadingParameters() { return this.state.loadingParameters; }
 
   // Step 4: Summary
   get creating() { return this.state.creating; }
@@ -137,7 +121,7 @@ export class CreateApplication implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.cacheService.preloadAll();
-    this.loadTagsConfig();
+    this.state.loadTagsConfig();
 
     // Subscribe to debounced image input from state service
     this.state.imageInputSubject.pipe(
@@ -176,17 +160,6 @@ export class CreateApplication implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  private loadTagsConfig(): void {
-    this.configService.getTagsConfig().subscribe({
-      next: (config) => {
-        this.tagsConfig.set(config);
-      },
-      error: (err) => {
-        console.error('Failed to load tags config', err);
-      }
-    });
-  }
-
   private loadEditData(applicationId: string): void {
     this.loadingEditData.set(true);
 
@@ -201,7 +174,7 @@ export class CreateApplication implements OnInit, OnDestroy {
           this.configService.getFrameworkParameters(data.frameworkId).subscribe({
             next: (res) => {
               this.parameters = res.parameters;
-              this.setupParameterForm();
+              this.state.setupParameterForm();
 
               // Fill application properties form
               this.appPropertiesForm.patchValue({
@@ -285,34 +258,6 @@ export class CreateApplication implements OnInit, OnDestroy {
     });
   }
 
-  private setupParameterForm(): void {
-    this.groupedParameters = {};
-
-    for (const param of this.parameters) {
-      const group = param.templatename || 'General';
-      if (!this.groupedParameters[group]) {
-        this.groupedParameters[group] = [];
-      }
-      this.groupedParameters[group].push(param);
-
-      // Skip if control already exists (e.g., compose_file, env_file)
-      if (this.parameterForm.get(param.id)) {
-        continue;
-      }
-
-      const validators = param.required ? [Validators.required] : [];
-      const defaultValue = param.default !== undefined ? param.default : '';
-      this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
-    }
-
-    // Sort parameters in each group: required first, then optional
-    for (const group in this.groupedParameters) {
-      this.groupedParameters[group] = this.groupedParameters[group].slice().sort(
-        (a, b) => Number(!!b.required) - Number(!!a.required)
-      );
-    }
-  }
-
   onFrameworkSelected(frameworkId: string): void {
     // Ensure compose controls exist immediately for docker-compose framework
     // This prevents template errors before loadParameters() completes
@@ -321,7 +266,7 @@ export class CreateApplication implements OnInit, OnDestroy {
     }
 
     if (this.state.selectedFramework()) {
-      this.loadParameters(frameworkId);
+      this.state.loadParameters(frameworkId);
     }
   }
 
@@ -344,93 +289,6 @@ export class CreateApplication implements OnInit, OnDestroy {
       this.state.fillEnvsForSelectedService();
     }
     this.state.updateEnvFileRequirement();
-  }
-
-  loadParameters(frameworkId: string): void {
-    this.loadingParameters.set(true);
-    this.parameters = [];
-
-    const preserveCompose = this.state.usesComposeControls();
-    const composeFileValue = preserveCompose ? (this.parameterForm.get('compose_file')?.value || '') : '';
-    const envFileValue = preserveCompose ? (this.parameterForm.get('env_file')?.value || '') : '';
-    const volumesValue = preserveCompose ? (this.parameterForm.get('volumes')?.value || '') : '';
-
-    this.parameterForm = this.fb.group({});
-    this.groupedParameters = {};
-
-    if (preserveCompose) {
-      // re-create controls + validators consistently after reset
-      this.state.ensureComposeControls({ requireComposeFile: true });
-      this.parameterForm.patchValue(
-        { compose_file: composeFileValue, env_file: envFileValue, volumes: volumesValue },
-        { emitEvent: false }
-      );
-      this.state.updateEnvFileRequirement();
-    }
-
-    this.configService.getFrameworkParameters(frameworkId).subscribe({
-      next: (res) => {
-        this.parameters = res.parameters;
-        // Group parameters by template (or use 'General' as default)
-        this.groupedParameters = {};
-        for (const param of this.parameters) {
-          const group = param.templatename || 'General';
-          if (!this.groupedParameters[group]) {
-            this.groupedParameters[group] = [];
-          }
-          this.groupedParameters[group].push(param);
-
-          // Don't overwrite compose_file, env_file, and volumes if they already exist
-          if ((this.isDockerComposeFramework() || this.isOciComposeMode()) && (param.id === 'compose_file' || param.id === 'env_file' || param.id === 'volumes')) {
-            continue;
-          }
-
-          // NOTE: "Neue Property für Textfeld-Validierung" NICHT im Framework-Flow aktivieren.
-          // Hier bewusst nur `required` berücksichtigen (Validation soll nur im ve-configuration-dialog laufen).
-          const validators = param.required ? [Validators.required] : [];
-
-          const defaultValue = param.default !== undefined ? param.default : '';
-          this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
-        }
-        // Sort parameters in each group: required first, then optional
-        for (const group in this.groupedParameters) {
-          this.groupedParameters[group] = this.groupedParameters[group].slice().sort(
-            (a, b) => Number(!!b.required) - Number(!!a.required)
-          );
-        }
-        this.loadingParameters.set(false);
-
-        this.state.updateEnvFileRequirement();
-
-        if (preserveCompose) {
-          setTimeout(() => this.hydrateComposeDataFromForm(), 0);
-        }
-      },
-      error: (err) => {
-        this.errorHandler.handleError('Failed to load framework parameters', err);
-        this.loadingParameters.set(false);
-      }
-    });
-  }
-
-  private hydrateComposeDataFromForm(): void {
-    const composeFileValue = this.parameterForm.get('compose_file')?.value;
-    if (composeFileValue && typeof composeFileValue === 'string' && composeFileValue.trim()) {
-      const parsed = this.composeService.parseComposeFile(composeFileValue);
-      if (parsed) {
-        this.parsedComposeData.set(parsed);
-
-        if (this.isOciComposeMode() && parsed.services.length > 0) {
-          const first = parsed.services[0].name;
-          this.selectedServiceName.set(first);
-          this.state.updateImageFromCompose();
-          this.state.updateInitialCommandFromCompose();
-          this.state.updateUserFromCompose();
-        }
-
-        this.state.updateEnvFileRequirement();
-      }
-    }
   }
 
   canProceedToStep2(): boolean {
