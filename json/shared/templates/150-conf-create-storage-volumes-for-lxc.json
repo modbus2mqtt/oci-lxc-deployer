@@ -2,6 +2,7 @@
   "name": "Create Storage Volumes for LXC",
   "description": "Creates Proxmox storage volumes (mpX) and attaches them to the container. Volumes are named by hostname and can be shared across CTs.",
   "execute_on": "ve",
+  "skip_if_all_missing": ["volumes", "addon_volumes"],
   "parameters": [
     {
       "id": "vm_id",
@@ -21,6 +22,14 @@
       "type": "string",
       "multiline": true,
       "description": "One per line: key=/container/path"
+    },
+    {
+      "id": "addon_volumes",
+      "name": "Addon Volumes",
+      "type": "string",
+      "multiline": true,
+      "description": "Additional volumes from addons (merged with base volumes).",
+      "advanced": true
     },
     {
       "id": "volume_storage",

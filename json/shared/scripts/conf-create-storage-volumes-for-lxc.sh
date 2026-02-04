@@ -16,6 +16,7 @@ set -eu
 VMID="{{ vm_id }}"
 HOSTNAME="{{ hostname }}"
 VOLUMES="{{ volumes }}"
+ADDON_VOLUMES="{{ addon_volumes }}"
 VOLUME_STORAGE="{{ volume_storage }}"
 VOLUME_SIZE="{{ volume_size }}"
 VOLUME_BACKUP="{{ volume_backup }}"
@@ -35,6 +36,17 @@ fi
 
 if [ -z "$VOLUMES" ] || [ "$VOLUMES" = "NOT_DEFINED" ]; then
   VOLUMES=""
+fi
+
+# Merge addon_volumes with base volumes (if addon_volumes is set)
+if [ -n "$ADDON_VOLUMES" ] && [ "$ADDON_VOLUMES" != "NOT_DEFINED" ] && [ "$ADDON_VOLUMES" != "" ]; then
+  if [ -n "$VOLUMES" ]; then
+    VOLUMES="$VOLUMES
+$ADDON_VOLUMES"
+  else
+    VOLUMES="$ADDON_VOLUMES"
+  fi
+  log "Merged addon_volumes with base volumes"
 fi
 
 if [ -n "$VOLUMES" ]; then

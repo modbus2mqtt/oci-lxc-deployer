@@ -3,7 +3,8 @@
   "description": "Bind multiple host directories to an LXC container (idempotent).",
   "execute_on": "ve",
   "skip_if_all_missing": [
-    "volumes"
+    "volumes",
+    "addon_volumes"
   ],
   "skip_if_property_set": "skip_bind_multiple_volumes_to_lxc",
   "parameters": [
