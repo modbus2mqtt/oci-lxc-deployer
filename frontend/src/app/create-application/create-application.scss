@@ -216,27 +216,5 @@
     }
   }
 
-  // Target all multiline textareas
-  ::ng-deep mat-form-field {
-    textarea.mat-mdc-input-element {
-      min-height: 150px !important;
-      resize: vertical;
-    }
-  }
-
-  // Ensure multiline fields take full width
-  ::ng-deep .param-group {
-    .param-field-multiline {
-      width: 100% !important;
-      min-width: 100% !important;
-      max-width: none !important;
-      flex-basis: 100% !important;
-
-      textarea.mat-mdc-input-element {
-        min-height: 150px !important;
-        resize: vertical;
-      }
-    }
-  }
 }
 

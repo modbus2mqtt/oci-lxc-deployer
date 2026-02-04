@@ -30,22 +30,21 @@
   width: 200pt;
   min-width: 200pt;
   margin-bottom: 1rem;
+
+  // Multiline fields get full width
+  &.param-field-multiline {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    flex-basis: 100%;
+  }
 }
 
-// Multiline fields get full width (like volumes)
-// Use ::ng-deep to pierce Angular Material's view encapsulation
-:host ::ng-deep .param-field.param-field-multiline {
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
-  flex-basis: 100% !important;
-
-  .mat-mdc-form-field-flex {
-    width: 100% !important;
-  }
-
+// Use ::ng-deep for inner Angular Material elements
+:host ::ng-deep .param-field-multiline {
+  .mat-mdc-form-field-flex,
   .mat-mdc-text-field-wrapper {
-    width: 100% !important;
+    width: 100%;
   }
 
   textarea.mat-mdc-input-element {

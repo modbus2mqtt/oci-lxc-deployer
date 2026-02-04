@@ -77,6 +77,12 @@ form {
   max-height: calc(85vh - 200px);
   scrollbar-width: thin;
   scrollbar-color: #667eea33 transparent;
+
+  // Give parameter groups with multiline fields full width
+  app-parameter-group:has(.param-field-multiline) {
+    width: 100%;
+    flex-basis: 100%;
+  }
   
   &::-webkit-scrollbar {
     width: 6px;
