@@ -62,6 +62,17 @@ describe('CreateApplication Integration', () => {
   });
 
   /**
+   * Helper: Simulate step change to trigger loadParameters
+   */
+  async function simulateStepChange(): Promise<void> {
+    component.onStepChange({ selectedIndex: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+
+  /**
    * Test: Variable resolution with .env file overriding defaults
    *
    * This test validates the complete integration chain:
@@ -385,5 +396,151 @@ CMD_VAR=start --server`;
 
     // Command variable in envs
     expect(envsValue).toContain('CMD_VAR=start --server');
+  });
+
+  /**
+   * Test: Loading a new compose file replaces old values
+   *
+   * This test validates that when a new docker-compose.yml is loaded,
+   * the old values are cleared and replaced with new values from the new file.
+   */
+  it('should replace old values when loading a new compose file', async () => {
+    // Setup
+    component.onFrameworkSelected('oci-image');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // First compose file
+    const composeYaml1 = `
+      version: '3.8'
+      services:
+        postgres:
+          image: postgres:16
+          user: "1000:1000"
+          environment:
+            POSTGRES_PASSWORD: secret1
+            POSTGRES_USER: user1
+            POSTGRES_DB: db1
+    `;
+
+    const composeFile1 = new File([composeYaml1], 'docker-compose.yml');
+
+    // Act - Load first compose file
+    await component.onComposeFileSelected(composeFile1);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Assert first file values - envs must NOT be empty
+    let envsValue = component.parameterForm.get('envs')?.value;
+    expect(envsValue, 'envs should not be falsy').toBeTruthy();
+    expect(envsValue.length, 'envs should not be empty string').toBeGreaterThan(0);
+    expect(envsValue).toContain('POSTGRES_PASSWORD=secret1');
+    expect(envsValue).toContain('POSTGRES_USER=user1');
+    expect(envsValue).toContain('POSTGRES_DB=db1');
+
+    // uid/gid must be exactly '1000', not '0' or empty
+    const uid1 = component.parameterForm.get('uid')?.value;
+    const gid1 = component.parameterForm.get('gid')?.value;
+    expect(uid1, `uid should be '1000' but was '${uid1}'`).toBe('1000');
+    expect(gid1, `gid should be '1000' but was '${gid1}'`).toBe('1000');
+
+    // Second compose file with different values
+    const composeYaml2 = `
+      version: '3.8'
+      services:
+        mariadb:
+          image: mariadb:11
+          user: "2000:2000"
+          environment:
+            MYSQL_ROOT_PASSWORD: newsecret
+            MYSQL_USER: newuser
+            MYSQL_DATABASE: newdb
+    `;
+
+    const composeFile2 = new File([composeYaml2], 'docker-compose2.yml');
+
+    // Act - Load second compose file (should replace first)
+    await component.onComposeFileSelected(composeFile2);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Assert second file values - old values should be gone
+    envsValue = component.parameterForm.get('envs')?.value;
+
+    // New values should be present
+    expect(envsValue).toContain('MYSQL_ROOT_PASSWORD=newsecret');
+    expect(envsValue).toContain('MYSQL_USER=newuser');
+    expect(envsValue).toContain('MYSQL_DATABASE=newdb');
+
+    // Old values should NOT be present
+    expect(envsValue).not.toContain('POSTGRES_PASSWORD');
+    expect(envsValue).not.toContain('POSTGRES_USER');
+    expect(envsValue).not.toContain('POSTGRES_DB');
+
+    // User values should be updated
+    expect(component.parameterForm.get('uid')?.value).toBe('2000');
+    expect(component.parameterForm.get('gid')?.value).toBe('2000');
+  });
+
+  /**
+   * Test: Postgres docker-compose.yml with ${VAR:-default} syntax
+   *
+   * This test uses the exact structure from docker/postgres.docker-compose.yml
+   * to validate that variables with defaults are resolved correctly.
+   */
+  it('should resolve postgres docker-compose.yml with variable defaults', async () => {
+    // Setup
+    component.onFrameworkSelected('oci-image');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Exact structure from docker/postgres.docker-compose.yml
+    const composeYaml = `
+services:
+  postgres:
+    image: postgres:\${POSTGRES_VERSION:-16-alpine}
+    restart: unless-stopped
+    user: "\${UID:-1000}:\${GID:-1000}"
+    environment:
+      POSTGRES_PASSWORD: \${DB_PASSWORD:-secret123}
+      POSTGRES_USER: \${DB_USER:-appuser}
+      POSTGRES_DB: \${DB_NAME:-appdb}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./data:/var/lib/postgresql/data
+    ports:
+      - "\${POSTGRES_PORT:-5432}:5432"
+`;
+
+    const composeFile = new File([composeYaml], 'postgres.docker-compose.yml');
+
+    // Act - Load compose file (no .env file)
+    await component.onComposeFileSelected(composeFile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Assert - envs should contain resolved defaults
+    const envsValue = component.parameterForm.get('envs')?.value;
+    expect(envsValue, 'envs should not be falsy').toBeTruthy();
+    expect(envsValue.length, 'envs should not be empty').toBeGreaterThan(0);
+
+    // Environment variables should have default values resolved
+    expect(envsValue).toContain('POSTGRES_PASSWORD=secret123');
+    expect(envsValue).toContain('POSTGRES_USER=appuser');
+    expect(envsValue).toContain('POSTGRES_DB=appdb');
+    expect(envsValue).toContain('PGDATA=/var/lib/postgresql/data/pgdata');
+
+    // User should be resolved from defaults
+    const uid = component.parameterForm.get('uid')?.value;
+    const gid = component.parameterForm.get('gid')?.value;
+    expect(uid, `uid should be '1000' but was '${uid}'`).toBe('1000');
+    expect(gid, `gid should be '1000' but was '${gid}'`).toBe('1000');
+
+    // Image should be resolved
+    expect(component.state.imageReference()).toBe('postgres:16-alpine');
   });
 });

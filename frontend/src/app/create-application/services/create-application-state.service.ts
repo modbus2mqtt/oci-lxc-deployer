@@ -88,6 +88,9 @@ export class CreateApplicationStateService {
   showAdvanced = signal(false);
   loadingParameters = signal(false);
 
+  /** Pending values for controls that don't exist yet (set before parameters are loaded) */
+  private pendingControlValues: Record<string, string> = {};
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Step 4: Summary
   // ─────────────────────────────────────────────────────────────────────────────
@@ -192,6 +195,7 @@ export class CreateApplicationStateService {
     this.groupedParameters.set({});
     this.showAdvanced.set(false);
     this.loadingParameters.set(false);
+    this.pendingControlValues = {};
 
     // Step 4: Summary
     this.creating.set(false);
@@ -208,13 +212,128 @@ export class CreateApplicationStateService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Compose/Image Logic (Phase 8)
+  // Compose/Image Logic - Helper Methods
   // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Resets form controls to their default values from parameter definitions.
+   * @param preserveControls - Control names to skip (not reset)
+   */
+  private resetControlsToDefaults(preserveControls: string[]): void {
+    for (const controlName of Object.keys(this.parameterForm.controls)) {
+      if (!preserveControls.includes(controlName)) {
+        const param = this.parameters().find(p => p.id === controlName);
+        const defaultValue = param?.default ?? '';
+        this.parameterForm.get(controlName)?.setValue(defaultValue);
+      }
+    }
+  }
+
+  /**
+   * Gets the currently selected service name, falling back to first service.
+   */
+  getSelectedServiceName(): string {
+    const data = this.parsedComposeData();
+    return this.selectedServiceName() || data?.services?.[0]?.name || '';
+  }
+
+  /**
+   * Gets the effective environment variables for the selected service.
+   * Combines .env file values with compose environment and defaults.
+   */
+  getEffectiveEnvsForSelectedService(): Map<string, string> {
+    const data = this.parsedComposeData();
+    if (!data) return new Map();
+
+    const serviceName = this.getSelectedServiceName();
+    if (!serviceName) return new Map();
+
+    const service = data.services.find(s => s.name === serviceName);
+    if (!service) return new Map();
+
+    const envFileContent = this.parameterForm.get('env_file')?.value ?? '';
+    return this.composeService.getEffectiveServiceEnvironment(
+      service.config, data, serviceName, envFileContent
+    );
+  }
+
+  /**
+   * Updates all compose-derived fields for the selected service.
+   * Call this after compose file or env file changes.
+   */
+  private updateFieldsFromComposeService(): void {
+    if (!this.isOciComposeMode()) return;
+
+    const data = this.parsedComposeData();
+    if (!data || data.services.length === 0) return;
+
+    this.updateImageFromCompose();
+    this.updateInitialCommandFromCompose();
+    this.updateUserFromCompose();
+    this.fillEnvsForSelectedService();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Clear Methods
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Clears fields that will be populated from a new compose file.
+   */
+  private clearFieldsForNewComposeFile(): void {
+    this.resetControlsToDefaults(['compose_file', 'env_file']);
+
+    if (this.isOciComposeMode()) {
+      this.imageReference.set('');
+    }
+
+    this.parsedComposeData.set(null);
+    this.composeServices.set([]);
+    this.composeProperties.set(null);
+    this.selectedServiceName.set('');
+  }
+
+  /**
+   * Clears fields that will be populated from a new env file.
+   */
+  private clearFieldsForNewEnvFile(): void {
+    if (this.isOciComposeMode()) {
+      this.resetControlsToDefaults(['compose_file', 'env_file']);
+    }
+  }
+
+  /**
+   * Clears fields that will be populated from image annotations.
+   */
+  clearFieldsForNewImage(): void {
+    this.appPropertiesForm.patchValue({
+      name: '',
+      description: '',
+      url: '',
+      documentation: '',
+      source: '',
+      vendor: '',
+      applicationId: ''
+    });
+
+    this.selectedIconFile.set(null);
+    this.iconPreview.set(null);
+    this.iconContent.set(null);
+    this.selectedTags.set([]);
+
+    this.resetControlsToDefaults(['compose_file', 'env_file', 'volumes']);
+
+    this.imageAnnotationsReceived.set(false);
+    this.lastAnnotationsResponse.set(null);
+    this.imageError.set(null);
+  }
 
   /**
    * Handles compose file selection, parses it and updates state.
    */
   async onComposeFileSelected(file: File): Promise<void> {
+    // Clear fields that will be populated from the new compose file
+    this.clearFieldsForNewComposeFile();
     const base64 = await this.readFileAsBase64(file);
     const valueWithMetadata = `file:${file.name}:content:${base64}`;
     this.parameterForm.get('compose_file')?.setValue(valueWithMetadata);
@@ -228,22 +347,22 @@ export class CreateApplicationStateService {
 
     // Fill volumes ONLY if there are volumes AND field is empty
     if (parsed.volumes && parsed.volumes.length > 0) {
+      const volumesText = parsed.volumes.join('\n');
       const volumesCtrl = this.parameterForm.get('volumes');
       if (volumesCtrl) {
         const currentValue = volumesCtrl.value;
         if (!currentValue || String(currentValue).trim() === '') {
-          const volumesText = parsed.volumes.join('\n');
           volumesCtrl.patchValue(volumesText, { emitEvent: false });
         }
+      } else {
+        // Control doesn't exist yet - store as pending
+        this.pendingControlValues['volumes'] = volumesText;
       }
     }
 
     if (this.isOciComposeMode() && parsed.services.length > 0) {
       this.selectedServiceName.set(parsed.services[0].name);
-      this.updateImageFromCompose();
-      this.updateInitialCommandFromCompose();
-      this.updateUserFromCompose();
-      this.fillEnvsForSelectedService();
+      this.updateFieldsFromComposeService();
     }
 
     this.updateRequiredEnvVars();
@@ -255,6 +374,8 @@ export class CreateApplicationStateService {
    * Handles env file selection, parses it and updates state.
    */
   async onEnvFileSelected(file: File): Promise<void> {
+    this.clearFieldsForNewEnvFile();
+
     const base64 = await this.readFileAsBase64(file);
     const valueWithMetadata = `file:${file.name}:content:${base64}`;
     this.parameterForm.get('env_file')?.setValue(valueWithMetadata);
@@ -263,16 +384,8 @@ export class CreateApplicationStateService {
     this.updateMissingEnvVars(envVars);
     this.updateEnvFileRequirement();
 
-    if (this.isOciComposeMode()) {
-      this.fillEnvsForSelectedService();
-      // Re-resolve image in case .env contains version override
-      this.updateImageFromCompose();
-      // Update uid/gid and initial_command in next tick to avoid ExpressionChangedAfterItHasBeenCheckedError
-      setTimeout(() => {
-        this.updateUserFromCompose();
-        this.updateInitialCommandFromCompose();
-      }, 0);
-    }
+    // Update fields in next tick to avoid ExpressionChangedAfterItHasBeenCheckedError
+    setTimeout(() => this.updateFieldsFromComposeService(), 0);
   }
 
   /**
@@ -281,6 +394,9 @@ export class CreateApplicationStateService {
   fetchImageAnnotations(imageRef: string): void {
     const ref = (imageRef ?? '').trim();
     if (!ref) return;
+
+    // Clear fields that will be populated from the new image
+    this.clearFieldsForNewImage();
 
     this.loadingImageAnnotations.set(true);
     this.imageError.set(null);
@@ -351,26 +467,20 @@ export class CreateApplicationStateService {
     const data = this.parsedComposeData();
     if (!data) return;
 
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
+    const serviceName = this.getSelectedServiceName();
     if (!serviceName) return;
 
     const service = data.services.find((s: ComposeService) => s.name === serviceName);
     const image = service?.config?.['image'];
     if (typeof image !== 'string' || !image.trim()) return;
 
-    // Get current env values from .env file if uploaded
-    const envFileValue = this.parameterForm.get('env_file')?.value;
-    const envValues = envFileValue ? this.composeService.parseEnvFile(envFileValue) : new Map<string, string>();
-
-    // Resolve variables like ${ZITADEL_VERSION:-v4.10.1} using env values and defaults
-    const imageRef = this.composeService.resolveVariables(image.trim(), envValues);
+    // Use effective envs for variable resolution (includes .env + compose defaults)
+    const effectiveEnvs = this.getEffectiveEnvsForSelectedService();
+    const imageRef = this.composeService.resolveVariables(image.trim(), effectiveEnvs);
     if (imageRef === this.imageReference()) return;
 
-    // Set image reference and trigger annotation fetch
     this.imageReference.set(imageRef);
-    this.imageInputSubject.next(imageRef); // Triggers debounced fetchImageAnnotations
-
-    // Also update oci_image parameter immediately
+    this.imageInputSubject.next(imageRef);
     this.updateOciImageParameter(imageRef);
   }
 
@@ -384,7 +494,7 @@ export class CreateApplicationStateService {
     const data = this.parsedComposeData();
     if (!data) return;
 
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
+    const serviceName = this.getSelectedServiceName();
     if (!serviceName) return;
 
     const service = data.services.find((s: ComposeService) => s.name === serviceName);
@@ -398,13 +508,9 @@ export class CreateApplicationStateService {
     }
 
     if (cmdStr && this.parameterForm.get('initial_command')) {
-       // Resolve environment variables in the command string
-       const envFileContent = this.parameterForm.get('env_file')?.value ?? '';
-       const effectiveEnvs = this.composeService.getEffectiveServiceEnvironment(
-         service!.config, data, serviceName, envFileContent
-       );
+       const effectiveEnvs = this.getEffectiveEnvsForSelectedService();
        const resolvedCmd = this.composeService.resolveVariables(cmdStr, effectiveEnvs);
-       this.parameterForm.patchValue({ initial_command: resolvedCmd }, { emitEvent: false });
+       this.parameterForm.patchValue({ initial_command: resolvedCmd });
     }
   }
 
@@ -417,37 +523,23 @@ export class CreateApplicationStateService {
     const data = this.parsedComposeData();
     if (!data) return;
 
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
+    const serviceName = this.getSelectedServiceName();
     if (!serviceName) return;
 
     const service = data.services.find((s: ComposeService) => s.name === serviceName);
     const user = service?.config?.['user'];
 
     if (typeof user === 'string' || typeof user === 'number') {
-        // Resolve variables in user string
-        const envFileContent = this.parameterForm.get('env_file')?.value ?? '';
-        const effectiveEnvs = this.composeService.getEffectiveServiceEnvironment(service!.config, data, serviceName, envFileContent);
-
-        // Manual substitution
-        let resolvedUser = String(user);
-        for(const [key, value] of effectiveEnvs.entries()) {
-            resolvedUser = resolvedUser.replace(`\${${key}}`, value);
-        }
-
+        const effectiveEnvs = this.getEffectiveEnvsForSelectedService();
+        const resolvedUser = this.composeService.resolveVariables(String(user), effectiveEnvs);
         const parts = resolvedUser.split(':');
 
-        // Map first part to uid
-        if (parts.length > 0 && parts[0].trim()) {
-             if (this.parameterForm.get('uid')) {
-                 this.parameterForm.patchValue({ uid: parts[0].trim() }, { emitEvent: false });
-             }
+        if (parts.length > 0 && parts[0].trim() && this.parameterForm.get('uid')) {
+          this.parameterForm.patchValue({ uid: parts[0].trim() });
         }
 
-        // Map second part to gid
-        if (parts.length > 1 && parts[1].trim()) {
-             if (this.parameterForm.get('gid')) {
-                 this.parameterForm.patchValue({ gid: parts[1].trim() }, { emitEvent: false });
-             }
+        if (parts.length > 1 && parts[1].trim() && this.parameterForm.get('gid')) {
+          this.parameterForm.patchValue({ gid: parts[1].trim() });
         }
     }
   }
@@ -456,26 +548,25 @@ export class CreateApplicationStateService {
    * Fills environment variables for selected service.
    */
   fillEnvsForSelectedService(): void {
-    const data = this.parsedComposeData();
-    if (!data || !this.isOciComposeMode()) return;
+    if (!this.isOciComposeMode()) return;
 
-    const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
-    if (!serviceName) return;
-
-    const service = data.services.find(s => s.name === serviceName);
-    if (!service) return;
-
-    const envFileContent = this.parameterForm.get('env_file')?.value ?? '';
-    const effectiveEnvs = this.composeService.getEffectiveServiceEnvironment(service.config, data, serviceName, envFileContent);
+    const effectiveEnvs = this.getEffectiveEnvsForSelectedService();
+    if (effectiveEnvs.size === 0) return;
 
     const lines: string[] = [];
     for (const [key, value] of effectiveEnvs.entries()) {
-        lines.push(`${key}=${value}`);
+      lines.push(`${key}=${value}`);
     }
 
-    const envsCtrl = this.parameterForm.get('envs');
-    if (envsCtrl) {
-      envsCtrl.patchValue(lines.join('\n'), { emitEvent: false });
+    const envsValue = lines.join('\n');
+    const envsControl = this.parameterForm.get('envs');
+
+    if (envsControl) {
+      // Control exists - set value directly
+      envsControl.patchValue(envsValue);
+    } else {
+      // Control doesn't exist yet - store as pending (will be applied when parameters are loaded)
+      this.pendingControlValues['envs'] = envsValue;
     }
   }
 
@@ -545,7 +636,7 @@ export class CreateApplicationStateService {
     if (this.isDockerComposeFramework()) {
       vars = data.environmentVariablesRequired ?? data.environmentVariables ?? [];
     } else if (this.isOciComposeMode()) {
-      const serviceName = this.selectedServiceName() || data.services?.[0]?.name || '';
+      const serviceName = this.getSelectedServiceName();
       if (!serviceName) return;
       vars = data.serviceEnvironmentVariablesRequired?.[serviceName] ?? data.serviceEnvironmentVariables?.[serviceName] ?? [];
     }
@@ -700,14 +791,24 @@ export class CreateApplicationStateService {
   /**
    * Loads parameters for a given framework.
    */
+  /** Controls to preserve when switching frameworks in compose mode */
+  private readonly COMPOSE_PRESERVED_CONTROLS = ['compose_file', 'env_file', 'volumes', 'envs'] as const;
+
   loadParameters(frameworkId: string): void {
     this.loadingParameters.set(true);
     this.parameters.set([]);
 
+    // Preserve ALL current form values (not just compose controls)
+    // This handles going back from Step 3 to Step 2 and then forward again
+    const preservedValues: Record<string, unknown> = {};
+    for (const controlId of Object.keys(this.parameterForm.controls)) {
+      const value = this.parameterForm.get(controlId)?.value;
+      if (value !== null && value !== undefined && value !== '') {
+        preservedValues[controlId] = value;
+      }
+    }
+
     const preserveCompose = this.usesComposeControls();
-    const composeFileValue = preserveCompose ? (this.parameterForm.get('compose_file')?.value || '') : '';
-    const envFileValue = preserveCompose ? (this.parameterForm.get('env_file')?.value || '') : '';
-    const volumesValue = preserveCompose ? (this.parameterForm.get('volumes')?.value || '') : '';
 
     this.parameterForm = this.fb.group({});
     this.groupedParameters.set({});
@@ -715,10 +816,20 @@ export class CreateApplicationStateService {
     if (preserveCompose) {
       // re-create controls + validators consistently after reset
       this.ensureComposeControls({ requireComposeFile: true });
-      this.parameterForm.patchValue(
-        { compose_file: composeFileValue, env_file: envFileValue, volumes: volumesValue },
-        { emitEvent: false }
-      );
+      // Restore compose controls that had values
+      for (const controlId of this.COMPOSE_PRESERVED_CONTROLS) {
+        if (preservedValues[controlId] && !this.parameterForm.get(controlId)) {
+          this.parameterForm.addControl(controlId, new FormControl(''));
+        }
+      }
+      // Patch compose controls first
+      const composeValues: Record<string, unknown> = {};
+      for (const controlId of this.COMPOSE_PRESERVED_CONTROLS) {
+        if (preservedValues[controlId]) {
+          composeValues[controlId] = preservedValues[controlId];
+        }
+      }
+      this.parameterForm.patchValue(composeValues, { emitEvent: false });
       this.updateEnvFileRequirement();
     }
 
@@ -734,9 +845,12 @@ export class CreateApplicationStateService {
           }
           grouped[group].push(param);
 
-          // Don't overwrite compose_file, env_file, and volumes if they already exist
-          if ((this.isDockerComposeFramework() || this.isOciComposeMode()) && (param.id === 'compose_file' || param.id === 'env_file' || param.id === 'volumes')) {
-            continue;
+          // Don't overwrite preserved controls if they already exist with a value
+          if ((this.isDockerComposeFramework() || this.isOciComposeMode()) && this.COMPOSE_PRESERVED_CONTROLS.includes(param.id as typeof this.COMPOSE_PRESERVED_CONTROLS[number])) {
+            const existingControl = this.parameterForm.get(param.id);
+            if (existingControl && existingControl.value) {
+              continue;
+            }
           }
 
           // NOTE: "Neue Property für Textfeld-Validierung" NICHT im Framework-Flow aktivieren.
@@ -746,6 +860,24 @@ export class CreateApplicationStateService {
           const defaultValue = param.default !== undefined ? param.default : '';
           this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
         }
+
+        // Apply preserved values from previous form state (e.g., when going back from Step 3 to Step 2)
+        for (const [controlId, value] of Object.entries(preservedValues)) {
+          const ctrl = this.parameterForm.get(controlId);
+          if (ctrl && value !== null && value !== undefined && value !== '') {
+            ctrl.patchValue(value, { emitEvent: false });
+          }
+        }
+
+        // Apply pending values (set before parameters were loaded)
+        for (const [controlId, value] of Object.entries(this.pendingControlValues)) {
+          const ctrl = this.parameterForm.get(controlId);
+          if (ctrl && value) {
+            ctrl.patchValue(value, { emitEvent: false });
+          }
+        }
+        this.pendingControlValues = {};
+
         // Sort parameters in each group: required first, then optional
         for (const group in grouped) {
           grouped[group] = grouped[group].slice().sort(
@@ -779,11 +911,8 @@ export class CreateApplicationStateService {
         this.parsedComposeData.set(parsed);
 
         if (this.isOciComposeMode() && parsed.services.length > 0) {
-          const first = parsed.services[0].name;
-          this.selectedServiceName.set(first);
-          this.updateImageFromCompose();
-          this.updateInitialCommandFromCompose();
-          this.updateUserFromCompose();
+          this.selectedServiceName.set(parsed.services[0].name);
+          this.updateFieldsFromComposeService();
         }
 
         this.updateEnvFileRequirement();

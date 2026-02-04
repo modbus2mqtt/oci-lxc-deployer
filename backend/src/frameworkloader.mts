@@ -102,13 +102,13 @@ export class FrameworkLoader {
           } else if (propId === 'compose_project') {
             cloned.required = false; // Force optional for docker-compose
           } else {
-            // For other parameters, keep original required value or default to true
-            cloned.required = match.required !== undefined ? match.required : true;
+            // For other parameters, keep original required value (default to false if not defined)
+            cloned.required = match.required === true;
           }
         } else {
           // For other frameworks, respect template-defined required value
-          // Default to true if not explicitly defined (original behavior for framework properties)
-          cloned.required = match.required !== undefined ? match.required : true;
+          // Only mark as required if explicitly set to true in template
+          cloned.required = match.required === true;
         }
         
         result.push(cloned);

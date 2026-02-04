@@ -258,16 +258,13 @@ export class CreateApplication implements OnInit, OnDestroy {
     });
   }
 
-  onFrameworkSelected(frameworkId: string): void {
+  onFrameworkSelected(_frameworkId: string): void {
     // Ensure compose controls exist immediately for docker-compose framework
     // This prevents template errors before loadParameters() completes
     if (this.isDockerComposeFramework()) {
       this.state.ensureComposeControls({ requireComposeFile: true });
     }
-
-    if (this.state.selectedFramework()) {
-      this.state.loadParameters(frameworkId);
-    }
+    // Parameters are loaded when transitioning from Step 1 to Step 2 (onStepChange)
   }
 
   onInstallModeChanged(mode: 'image' | 'compose'): void {
@@ -317,13 +314,21 @@ export class CreateApplication implements OnInit, OnDestroy {
   }
 
   onStepChange(event: { selectedIndex: number }): void {
-    // When Step 2 is entered, fill fields from annotations if they were already loaded
-    const lastResponse = this.state.lastAnnotationsResponse();
-    if (event.selectedIndex === 1 && lastResponse) {
-      // Use setTimeout to ensure the form is fully rendered
-      setTimeout(() => {
-        this.state.fillFieldsFromAnnotations(lastResponse);
-      }, 0);
+    // When leaving Step 1 (Framework), load parameters with all compose data
+    if (event.selectedIndex === 1) {
+      const framework = this.state.selectedFramework();
+      if (framework) {
+        this.state.loadParameters(framework.id);
+      }
+
+      // Fill fields from annotations if they were already loaded
+      const lastResponse = this.state.lastAnnotationsResponse();
+      if (lastResponse) {
+        // Use setTimeout to ensure the form is fully rendered
+        setTimeout(() => {
+          this.state.fillFieldsFromAnnotations(lastResponse);
+        }, 0);
+      }
     }
   }
 
