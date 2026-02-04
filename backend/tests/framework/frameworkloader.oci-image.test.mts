@@ -3,7 +3,7 @@ import { FrameworkLoader } from "@src/frameworkloader.mjs";
 import { VEConfigurationError, IVEContext } from "@src/backend-types.mjs";
 import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
 
-describe("FrameworkLoader", () => {
+describe("FrameworkLoader - oci-image", () => {
   let env: TestEnvironment;
   let loader: FrameworkLoader;
   let contextManager: ReturnType<TestEnvironment["initPersistence"]>["ctx"];
@@ -12,8 +12,8 @@ describe("FrameworkLoader", () => {
   beforeAll(() => {
     env = createTestEnvironment(import.meta.url, {
       jsonIncludePatterns: [
-        "^frameworks/npm-nodejs\\.json$",
-        "^applications/npm-nodejs/.*",
+        "^frameworks/oci-image\\.json$",
+        "^applications/oci-image/.*",
         "^shared/.*",
       ],
     });
@@ -36,35 +36,52 @@ describe("FrameworkLoader", () => {
   });
 
   it(
-    "should load framework and get parameters",
+    "should mark volumes parameter as optional (not required) for oci-image framework",
     async () => {
-      const framework = loader.readFrameworkJson("npm-nodejs", {
-        error: new VEConfigurationError("", "npm-nodejs"),
-      });
       const veContext: IVEContext = {
         host: "validation-dummy",
         getStorageContext: () => contextManager as any,
         getKey: () => "ve_validation",
       };
 
-      // getParameters can be slow due to:
-      // - Template processing (loadApplication)
-      // - Script validation (may attempt SSH connections with retries)
-      // - File system operations
       const parameters = await loader.getParameters(
-        "npm-nodejs",
+        "oci-image",
         "installation",
         veContext,
       );
-      expect(parameters.length).toBe(framework.properties.length);
-      for (const param of parameters) {
-        // Parameters respect template-defined required value
-        // Default to true if not defined, but some may be explicitly false
-        expect(typeof param.required).toBe("boolean");
-        expect((param as any).advanced).toBeUndefined();
-      }
+
+      // Find the volumes parameter
+      const volumesParam = parameters.find(p => p.id === "volumes");
+
+      expect(volumesParam).toBeDefined();
+
+      // volumes should be optional in create-application workflow
+      // because the user may not need volumes for simple OCI containers
+      expect(volumesParam?.required).toBe(false);
     },
-    60000, // 60 second timeout - getParameters can be slow due to template processing and SSH retries
+    60000, // 60 second timeout
+  );
+
+  it(
+    "should mark required parameters (like oci_image) as required",
+    async () => {
+      const veContext: IVEContext = {
+        host: "validation-dummy",
+        getStorageContext: () => contextManager as any,
+        getKey: () => "ve_validation",
+      };
+
+      const parameters = await loader.getParameters(
+        "oci-image",
+        "installation",
+        veContext,
+      );
+
+      // oci_image should be required - it's essential for the framework
+      const ociImageParam = parameters.find(p => p.id === "oci_image");
+      expect(ociImageParam).toBeDefined();
+      expect(ociImageParam?.required).toBe(true);
+    },
+    60000,
   );
 });
-

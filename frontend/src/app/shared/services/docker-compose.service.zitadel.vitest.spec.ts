@@ -220,6 +220,72 @@ services:
   });
 
   /**
+   * CRITICAL TEST: Object-style environment with ${VAR:-default} syntax
+   *
+   * This test reproduces the issue where:
+   * - Environment uses object-style: KEY: ${VAR:-default}
+   * - The .env file is empty
+   * - EXPECTATION: The KEY should be resolved to the default value
+   *
+   * Bug: The regex in getEffectiveServiceEnvironment only matches ${VAR} but not ${VAR:-default}
+   */
+  it('should resolve object-style environment ${VAR:-default} to default when .env is empty', () => {
+    const composeYaml = `
+version: '3.8'
+services:
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:latest
+    environment:
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: \${ADMIN_PASSWORD:-secret123}
+`;
+    const envFileContent = ''; // Empty .env file
+    const parsedData = service.parseComposeFile(btoa(composeYaml));
+    expect(parsedData).not.toBeNull();
+
+    const serviceConfig = parsedData!.services.find(s => s.name === 'zitadel')?.config;
+    expect(serviceConfig).toBeTruthy();
+
+    const effectiveEnvs = service.getEffectiveServiceEnvironment(
+      serviceConfig!,
+      parsedData!,
+      'zitadel',
+      envFileContent
+    );
+
+    // CRITICAL: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD should be resolved to 'secret123'
+    // (the default value from ${ADMIN_PASSWORD:-secret123})
+    // NOT the unresolved string '${ADMIN_PASSWORD:-secret123}'
+    expect(effectiveEnvs.get('ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD')).toBe('secret123');
+  });
+
+  it('should resolve object-style environment ${VAR:-default} with .env value when provided', () => {
+    const composeYaml = `
+version: '3.8'
+services:
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:latest
+    environment:
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: \${ADMIN_PASSWORD:-secret123}
+`;
+    const envFileContent = 'ADMIN_PASSWORD=mySecurePassword';
+    const parsedData = service.parseComposeFile(btoa(composeYaml));
+    expect(parsedData).not.toBeNull();
+
+    const serviceConfig = parsedData!.services.find(s => s.name === 'zitadel')?.config;
+    expect(serviceConfig).toBeTruthy();
+
+    const effectiveEnvs = service.getEffectiveServiceEnvironment(
+      serviceConfig!,
+      parsedData!,
+      'zitadel',
+      envFileContent
+    );
+
+    // When ADMIN_PASSWORD is provided in .env, it should be used
+    expect(effectiveEnvs.get('ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD')).toBe('mySecurePassword');
+  });
+
+  /**
    * CRITICAL TEST: Real Zitadel scenario
    *
    * This test reproduces the real-world Zitadel use case where:

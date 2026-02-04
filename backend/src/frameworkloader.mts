@@ -106,8 +106,9 @@ export class FrameworkLoader {
             cloned.required = match.required !== undefined ? match.required : true;
           }
         } else {
-          // For other frameworks, force required: true (original behavior)
-          cloned.required = true;
+          // For other frameworks, respect template-defined required value
+          // Default to true if not explicitly defined (original behavior for framework properties)
+          cloned.required = match.required !== undefined ? match.required : true;
         }
         
         result.push(cloned);

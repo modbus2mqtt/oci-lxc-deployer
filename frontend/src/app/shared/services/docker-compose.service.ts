@@ -833,22 +833,9 @@ export class DockerComposeService {
                         if (equalIndex > 0) {
                             const entryKey = envEntry.substring(0, equalIndex).trim();
                             if (entryKey === key) {
-                                let value = envEntry.substring(equalIndex + 1).trim();
-
-                                // Resolve variable references in the value
-                                // If value is ${VAR} and VAR is not defined, resolve to empty string
-                                const varRefMatch = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
-                                if (varRefMatch) {
-                                    const referencedVar = varRefMatch[1];
-                                    if (envVarsFromFile.has(referencedVar)) {
-                                        value = envVarsFromFile.get(referencedVar)!;
-                                    } else if (parsedData.serviceEnvironmentVariableDefaults?.[serviceName]?.[referencedVar] !== undefined) {
-                                        value = parsedData.serviceEnvironmentVariableDefaults[serviceName][referencedVar];
-                                    } else {
-                                        value = '';
-                                    }
-                                }
-
+                                const rawValue = envEntry.substring(equalIndex + 1).trim();
+                                // Use resolveVariables to handle all patterns: ${VAR}, ${VAR:-default}, $VAR
+                                const value = this.resolveVariables(rawValue, envVarsFromFile);
                                 effectiveEnvs.set(key, value);
                                 break;
                             }
@@ -858,21 +845,9 @@ export class DockerComposeService {
             } else if (typeof environment === 'object') {
                 const envObj = environment as Record<string, unknown>;
                 if (key in envObj) {
-                    let value = String(envObj[key] ?? '');
-
-                    // Resolve variable references in the value
-                    const varRefMatch = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
-                    if (varRefMatch) {
-                        const referencedVar = varRefMatch[1];
-                        if (envVarsFromFile.has(referencedVar)) {
-                            value = envVarsFromFile.get(referencedVar)!;
-                        } else if (parsedData.serviceEnvironmentVariableDefaults?.[serviceName]?.[referencedVar] !== undefined) {
-                            value = parsedData.serviceEnvironmentVariableDefaults[serviceName][referencedVar];
-                        } else {
-                            value = '';
-                        }
-                    }
-
+                    const rawValue = String(envObj[key] ?? '');
+                    // Use resolveVariables to handle all patterns: ${VAR}, ${VAR:-default}, $VAR
+                    const value = this.resolveVariables(rawValue, envVarsFromFile);
                     effectiveEnvs.set(key, value);
                 }
             }

@@ -7,6 +7,7 @@
     "name": "Volumes",
     "type": "string",
     "multiline": true,
+    "required": false,
     "description": "Volume mappings for the container (one per line, format: name=path or name=path,mode)"
   }],
   "commands": [

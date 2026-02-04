@@ -42,7 +42,8 @@
       "id": "volumes",
       "name": "Volumes",
       "type": "string",
-      "multiline": true
+      "multiline": true,
+      "required": false
     },
     {
       "id": "addon_volumes",
