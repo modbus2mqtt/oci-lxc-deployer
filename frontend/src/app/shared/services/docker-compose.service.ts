@@ -83,7 +83,7 @@ export class DockerComposeService {
    * ${VAR:-default} -> uses env value if set, otherwise default
    * ${VAR} or $VAR -> uses env value if set, otherwise empty string
    */
-  public resolveVariables(value: string, envValues: Map<string, string> = new Map()): string {
+  public resolveVariables(value: string, envValues = new Map<string, string>()): string {
     let result = value;
 
     // First resolve ${VAR:-default} and ${VAR-default} patterns

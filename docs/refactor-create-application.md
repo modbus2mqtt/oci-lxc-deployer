@@ -1,5 +1,26 @@
 # Refactoring Plan: create-application.ts aufteilen
 
+## Nächste Phase starten
+
+Um die nächste Phase in einer neuen Claude-Session zu starten:
+
+```bash
+Lies docs/refactor-create-application.md und führe Phase 3 aus.
+```
+
+**Relevante Dateien für Phase 3:**
+- `frontend/src/app/create-application/create-application.ts` - Hauptkomponente (Tags-Methoden extrahieren)
+- `frontend/src/app/create-application/create-application.html` - Template (Tags-HTML extrahieren)
+- `frontend/src/app/create-application/services/create-application-state.service.ts` - State Service (Tags-Signals/Methoden)
+- `frontend/src/app/create-application/components/icon-upload.component.ts` - Pattern-Vorlage für neue Komponente
+
+**Verifizierung nach Abschluss:**
+```bash
+./frontend/scripts/verify-build.sh
+```
+
+---
+
 ## Ziel
 
 `create-application.ts` (1370 Zeilen) in kleinere Komponenten aufteilen (max. 500-600 Zeilen).
@@ -25,72 +46,78 @@ create-application/
 
 ---
 
+## Test-Script
+
+Nach jeder Phase das Verifikations-Script ausführen:
+
+```bash
+./frontend/scripts/verify-build.sh
+```
+
+Das Script führt automatisch aus:
+1. `pnpm run lint:fix` - Lint-Fehler beheben
+2. `pnpm run build` - Build verifizieren
+3. `pnpm test` - Tests ausführen
+
+---
+
 ## Phasen-Plan (9 Schritte)
 
-### Phase 1: State Service erstellen (Fundament)
+### Phase 1: State Service erstellen (Fundament) ✅ ABGESCHLOSSEN
 
 **Ziel:** Gemeinsamen State in einen Service extrahieren
 
 **Neue Datei:** `services/create-application-state.service.ts`
 
-**Was wird verschoben:**
-- Alle Signals (Zeilen 72-145): `editMode`, `imageReference`, `parsedComposeData`, etc.
+**Was wurde verschoben:**
+- Alle Signals: `editMode`, `imageReference`, `parsedComposeData`, etc.
 - Forms: `appPropertiesForm`, `parameterForm`
 - Compose-State: `composeServices`, `requiredEnvVars`, `missingEnvVars`
+- Helper-Methoden: `isOciImageFramework()`, `isDockerComposeFramework()`, `isOciComposeMode()`, `toggleTag()`, `isTagSelected()`, `reset()`, `clearError()`
 
-**Pattern (wie CacheService):**
-```typescript
-@Injectable({ providedIn: 'root' })
-export class CreateApplicationStateService {
-  // Signals
-  editMode = signal(false);
-  selectedFramework = signal<IFrameworkName | null>(null);
-  imageReference = signal('');
-  // ... weitere Signals
+**Änderungen an create-application.ts:**
+- State Service wird injiziert: `readonly state = inject(CreateApplicationStateService)`
+- Alle Signals werden über Getter/Setter an den State Service delegiert
 
-  // Forms
-  appPropertiesForm: FormGroup;
-  parameterForm: FormGroup;
-
-  // Methoden
-  reset(): void { ... }
-}
-```
-
-**Test:** `npm run build && npm test`
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
 
 ---
 
-### Phase 2: Icon Upload Component
+### Phase 2: Icon Upload Component ✅ ABGESCHLOSSEN
 
 **Ziel:** Erste kleine Komponente extrahieren
 
 **Neue Datei:** `components/icon-upload.component.ts`
 
-**Was wird verschoben (Zeilen 831-882):**
-- `onIconFileSelected()`
-- `removeIcon()`
-- `openIconFileDialog()`
-- `resetIconFileInput()`
+**Was wurde verschoben aus create-application.ts:**
+- `onIconFileSelected()` → `onFileSelected()` in IconUploadComponent
+- `removeIcon()` → `onRemoveIcon()` in IconUploadComponent
+- `openIconFileDialog()` → `openFileDialog()` in IconUploadComponent
+- `resetIconFileInput()` → `resetFileInput()` in IconUploadComponent
 
-**Interface:**
-```typescript
-@Input() iconPreview: Signal<string | null>;
-@Output() iconSelected = new EventEmitter<{file: File, content: string, preview: string}>();
-@Output() iconRemoved = new EventEmitter<void>();
-```
+**Was wurde verschoben aus create-application.html:**
+- Icon-Upload Section (25 Zeilen) → Template in IconUploadComponent
 
-**Test:** Unit-Test für IconUploadComponent + Integration-Tests
+**Änderungen an create-application.ts:**
+- Import `IconUploadComponent` und `IconSelectedEvent` hinzugefügt
+- `IconUploadComponent` zu imports-Array hinzugefügt
+- Neue Event-Handler: `onIconSelected(event)`, `onIconRemoved()`
+- Alte Methoden entfernt (ca. 45 Zeilen reduziert)
+
+**Änderungen an create-application.html:**
+- Icon-Upload Section ersetzt durch: `<app-icon-upload [iconPreview]="iconPreview()" (iconSelected)="onIconSelected($event)" (iconRemoved)="onIconRemoved()"></app-icon-upload>`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh` ✅ (Lint ✅, Build ✅, 63 Tests ✅)
 
 ---
 
-### Phase 3: Tags Selector Component
+### Phase 3: Tags Selector Component ⏳ NÄCHSTE PHASE
 
 **Ziel:** Zweite kleine Komponente extrahieren
 
 **Neue Datei:** `components/tags-selector.component.ts`
 
-**Was wird verschoben (Zeilen 220-242):**
+**Was wird verschoben (aus State Service):**
 - `toggleTag()`
 - `isTagSelected()`
 
@@ -101,6 +128,8 @@ selectedTags = input<string[]>([]);
 @Output() tagToggled = new EventEmitter<string>();
 ```
 
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
+
 ---
 
 ### Phase 4: App Properties Step (Step 2)
@@ -110,8 +139,8 @@ selectedTags = input<string[]>([]);
 **Neue Datei:** `steps/app-properties-step.component.ts`
 
 **Was wird verschoben:**
-- Application ID Validierung (Zeilen 750-807)
-- Template-Teil (create-application.html Zeilen 83-200)
+- Application ID Validierung
+- Template-Teil für Step 2
 - Integration von IconUpload und TagsSelector
 
 **Interface:**
@@ -119,6 +148,8 @@ selectedTags = input<string[]>([]);
 // Nutzt StateService für Form
 get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 ```
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
 
 ---
 
@@ -129,12 +160,12 @@ get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 **Neue Datei:** `steps/framework-step.component.ts`
 
 **Was wird verschoben:**
-- `loadFrameworks()` (Zeilen 196-218)
-- `onFrameworkSelected()` (Zeilen 383-407)
-- `setOciInstallMode()` (Zeilen 409-421)
-- `onServiceSelected()` (Zeilen 423-432)
+- `loadFrameworks()`
+- `onFrameworkSelected()`
+- `setOciInstallMode()`
+- `onServiceSelected()`
 - Framework-Helper: `isOciImageFramework()`, `isDockerComposeFramework()`, `isOciComposeMode()`
-- Template-Teil (create-application.html Zeilen 8-81)
+- Template-Teil für Step 1
 
 **Interface:**
 ```typescript
@@ -143,6 +174,8 @@ get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 @Output() envFileSelected = new EventEmitter<File>();
 @Output() serviceSelected = new EventEmitter<string>();
 ```
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
 
 ---
 
@@ -153,12 +186,14 @@ get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 **Neue Datei:** `steps/parameters-step.component.ts`
 
 **Was wird verschoben:**
-- `loadParameters()` (Zeilen 434-509)
-- `setupParameterForm()` (Zeilen 342-381)
-- Volume-Storage-Validierung (Zeilen 1029-1066)
-- Env-File-Requirement (Zeilen 1068-1108)
+- `loadParameters()`
+- `setupParameterForm()`
+- Volume-Storage-Validierung
+- Env-File-Requirement
 - `toggleAdvanced()`, `hasAdvancedParams()`, `groupNames`
-- Template-Teil (create-application.html Zeilen 202-237)
+- Template-Teil für Step 3
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
 
 ---
 
@@ -169,16 +204,18 @@ get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 **Neue Datei:** `steps/summary-step.component.ts`
 
 **Was wird verschoben:**
-- `createApplication()` (Zeilen 595-711)
-- `navigateToErrorStep()` (Zeilen 713-732)
-- `clearError()` (Zeilen 734-737)
-- Template-Teil (create-application.html Zeilen 239-329)
+- `createApplication()`
+- `navigateToErrorStep()`
+- `clearError()`
+- Template-Teil für Step 4
 
 **Interface:**
 ```typescript
 @Output() navigateToStep = new EventEmitter<number>();
 @Output() applicationCreated = new EventEmitter<void>();
 ```
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
 
 ---
 
@@ -187,14 +224,16 @@ get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 **Ziel:** Komplexe Integration-Logik in Service verschieben
 
 **Was wird in StateService verschoben:**
-- `onComposeFileSelected()` (Zeilen 941-976)
-- `onEnvFileSelected()` (Zeilen 978-994)
-- `fetchImageAnnotations()` (Zeilen 1113-1148)
-- `fillFieldsFromAnnotations()` (Zeilen 1151-1186)
-- `updateImageFromCompose()` (Zeilen 1189-1216)
-- `updateInitialCommandFromCompose()` (Zeilen 1218-1240)
-- `updateUserFromCompose()` (Zeilen 1248-1287)
-- `fillEnvsForSelectedService()` (Zeilen 1298-1320)
+- `onComposeFileSelected()`
+- `onEnvFileSelected()`
+- `fetchImageAnnotations()`
+- `fillFieldsFromAnnotations()`
+- `updateImageFromCompose()`
+- `updateInitialCommandFromCompose()`
+- `updateUserFromCompose()`
+- `fillEnvsForSelectedService()`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
 
 ---
 
@@ -209,6 +248,8 @@ get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 - `canProceedToStep*()` Methoden
 - `onStepChange()`
 - `cancel()`
+
+**Verifizierung:** `./frontend/scripts/verify-build.sh`
 
 ---
 
@@ -234,11 +275,6 @@ get appPropertiesForm() { return this.stateService.appPropertiesForm; }
 ---
 
 ## Test-Strategie
-
-Nach jeder Phase:
-```bash
-cd frontend && npm run lint:fix && npm run build && npm test
-```
 
 **Bestehende Tests müssen bestehen bleiben:**
 - `create-application.integration.vitest.spec.ts` (340 Zeilen)

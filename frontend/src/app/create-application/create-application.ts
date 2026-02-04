@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnDestroy, OnInit, ViewChild, inject, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
 import {
   AbstractControl,
   AsyncValidatorFn,
@@ -24,7 +24,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { Observable, Subject, debounceTime, distinctUntilChanged, of, takeUntil } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 
-import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse, ITagsConfig } from '../../shared/types';
+import { IFrameworkName, IParameter, IParameterValue, IPostFrameworkFromImageResponse } from '../../shared/types';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { CacheService } from '../shared/services/cache.service';
 import { DockerComposeService, ComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';
@@ -32,6 +32,8 @@ import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { ComposeEnvSelectorComponent } from '../shared/components/compose-env-selector/compose-env-selector.component';
 import { ParameterGroupComponent } from '../ve-configuration-dialog/parameter-group.component';
 import { OciImageStepComponent } from './oci-image-step.component';
+import { CreateApplicationStateService } from './services/create-application-state.service';
+import { IconUploadComponent, IconSelectedEvent } from './components/icon-upload.component';
 
 @Component({
   selector: 'app-create-application',
@@ -51,14 +53,16 @@ import { OciImageStepComponent } from './oci-image-step.component';
     MatChipsModule,
     ParameterGroupComponent,
     ComposeEnvSelectorComponent,
-    OciImageStepComponent
+    OciImageStepComponent,
+    IconUploadComponent
   ],
   templateUrl: './create-application.html',
   styleUrls: ['./create-application.scss']
 })
 export class CreateApplication implements OnInit, OnDestroy {
   @ViewChild('stepper') stepper!: MatStepper;
-  
+
+  // Inject services
   private fb = inject(FormBuilder);
   private configService = inject(VeConfigurationService);
   private router = inject(Router);
@@ -68,80 +72,78 @@ export class CreateApplication implements OnInit, OnDestroy {
   private composeService = inject(DockerComposeService);
   private cdr = inject(ChangeDetectorRef);
 
-  // Edit mode: when editing an existing application
-  editMode = signal(false);
-  editApplicationId = signal<string | null>(null);
-  loadingEditData = signal(false);
+  // State Service - holds all shared state
+  readonly state = inject(CreateApplicationStateService);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Delegate to State Service signals
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // Edit mode
+  get editMode() { return this.state.editMode; }
+  get editApplicationId() { return this.state.editApplicationId; }
+  get loadingEditData() { return this.state.loadingEditData; }
 
   // Step 1: Framework selection
-  frameworks: IFrameworkName[] = [];
-  selectedFramework: IFrameworkName | null = null;
-  loadingFrameworks = signal(true);
-  
-  // OCI Image input (only for oci-image framework)
-  imageReference = signal('');
-  loadingImageAnnotations = signal(false);
-  imageError = signal<string | null>(null);
-  imageAnnotationsReceived = signal(false);
+  get frameworks() { return this.state.frameworks(); }
+  get selectedFramework() { return this.state.selectedFramework(); }
+  set selectedFramework(value: IFrameworkName | null) { this.state.selectedFramework.set(value); }
+  get loadingFrameworks() { return this.state.loadingFrameworks; }
+
+  // OCI Image
+  get imageReference() { return this.state.imageReference; }
+  get loadingImageAnnotations() { return this.state.loadingImageAnnotations; }
+  get imageError() { return this.state.imageError; }
+  get imageAnnotationsReceived() { return this.state.imageAnnotationsReceived; }
+
+  // OCI install mode
+  get ociInstallMode() { return this.state.ociInstallMode; }
+
+  // Step 2: App properties
+  get appPropertiesForm() { return this.state.appPropertiesForm; }
+  get applicationIdError() { return this.state.applicationIdError; }
+
+  // Icon
+  get selectedIconFile() { return this.state.selectedIconFile(); }
+  set selectedIconFile(value: File | null) { this.state.selectedIconFile.set(value); }
+  get iconPreview() { return this.state.iconPreview; }
+  get iconContent() { return this.state.iconContent; }
+
+  // Tags
+  get tagsConfig() { return this.state.tagsConfig; }
+  get selectedTags() { return this.state.selectedTags; }
+
+  // Docker Compose
+  get parsedComposeData() { return this.state.parsedComposeData; }
+  get selectedServiceName() { return this.state.selectedServiceName; }
+  get composeServices() { return this.state.composeServices; }
+  get requiredEnvVars() { return this.state.requiredEnvVars; }
+  get missingEnvVars() { return this.state.missingEnvVars; }
+  get composeProperties() { return this.state.composeProperties; }
+
+  // Step 3: Parameters
+  get parameters() { return this.state.parameters(); }
+  set parameters(value: IParameter[]) { this.state.parameters.set(value); }
+  get parameterForm() { return this.state.parameterForm; }
+  set parameterForm(value: FormGroup) { this.state.parameterForm = value; }
+  get groupedParameters() { return this.state.groupedParameters(); }
+  set groupedParameters(value: Record<string, IParameter[]>) { this.state.groupedParameters.set(value); }
+  get showAdvanced() { return this.state.showAdvanced; }
+  get loadingParameters() { return this.state.loadingParameters; }
+
+  // Step 4: Summary
+  get creating() { return this.state.creating; }
+  get createError() { return this.state.createError; }
+  get createErrorStep() { return this.state.createErrorStep; }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Local state (component-specific, not shared)
+  // ─────────────────────────────────────────────────────────────────────────────
   private imageInputSubject = new Subject<string>();
   private destroy$ = new Subject<void>();
   private imageAnnotationsTimeout: ReturnType<typeof setTimeout> | null = null;
   private lastAnnotationsResponse: IPostFrameworkFromImageResponse | null = null;
-
-  // OCI framework install mode
-  ociInstallMode = signal<'image' | 'compose'>('compose');
-
-  // Step 2: Application properties
-  appPropertiesForm: FormGroup = this.fb.group({
-    name: ['', [Validators.required]],
-    applicationId: ['', [Validators.required, Validators.pattern(/^[a-z0-9-]+$/)]],
-    description: ['', [Validators.required]],
-    url: [''],
-    documentation: [''],
-    source: [''],
-    vendor: [''],
-  });
-  
-  // Application ID validation
-  applicationIdError = signal<string | null>(null);
   private applicationIdSubject = new Subject<string>();
-  
-  // Icon upload
-  selectedIconFile: File | null = null;
-  iconPreview = signal<string | null>(null);
-  iconContent = signal<string | null>(null);
-
-  // Tags
-  tagsConfig = signal<ITagsConfig | null>(null);
-  selectedTags = signal<string[]>([]);
-
-  // Docker Compose specific
-  parsedComposeData = signal<ParsedComposeData | null>(null);
-  selectedServiceName = signal<string>('');
-
-  // Expose signals for child display
-  composeServices = signal<ComposeService[]>([]);
-  requiredEnvVars = signal<string[]>([]);
-  missingEnvVars = signal<string[]>([]);
-  composeProperties = signal<{
-    services?: string;
-    ports?: string;
-    images?: string;
-    networks?: string;
-    volumes?: string;
-  } | null>(null);
-
-  // Step 3: Parameters
-  parameters: IParameter[] = [];
-  parameterForm: FormGroup = this.fb.group({});
-  groupedParameters: Record<string, IParameter[]> = {};
-  showAdvanced = signal(false);
-  loadingParameters = signal(false);
-
-  // Step 4: Summary
-  creating = signal(false);
-  createError = signal<string | null>(null);
-  createErrorStep = signal<number | null>(null); // Step number to navigate to on error
 
   ngOnInit(): void {
     this.cacheService.preloadAll();
@@ -196,13 +198,13 @@ export class CreateApplication implements OnInit, OnDestroy {
     this.loadingFrameworks.set(true);
 
     this.cacheService.getFrameworks().subscribe({
-      next: (frameworks) => {
-        this.frameworks = frameworks;
+      next: (fws) => {
+        this.state.frameworks.set(fws);
         this.loadingFrameworks.set(false);
 
         // In edit mode, don't auto-select - wait for loadEditData to set framework
         if (!this.editMode()) {
-          const defaultFramework = frameworks.find(f => f.id === 'oci-image');
+          const defaultFramework = fws.find(f => f.id === 'oci-image');
           if (defaultFramework && !this.selectedFramework) {
             this.selectedFramework = defaultFramework;
             this.loadParameters(defaultFramework.id);
@@ -803,57 +805,16 @@ The system will automatically fetch metadata from the image and pre-fill applica
   }
 
   // --- CONSOLIDATED: icon handlers used by template ---
-  onIconFileSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    if (!input.files || input.files.length === 0) return;
-
-    const file = input.files[0];
-
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
-      input.value = '';
-      return;
-    }
-    if (file.size > 1024 * 1024) {
-      alert('Image file size must be less than 1MB');
-      input.value = '';
-      return;
-    }
-
-    this.selectedIconFile = file;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      const base64Content = result.split(',')[1] || result;
-      this.iconContent.set(base64Content);
-      this.iconPreview.set(result);
-    };
-    reader.onerror = () => {
-      alert('Failed to read image file');
-      this.selectedIconFile = null;
-      this.iconContent.set(null);
-      this.iconPreview.set(null);
-      input.value = '';
-    };
-    reader.readAsDataURL(file);
+  onIconSelected(event: IconSelectedEvent): void {
+    this.selectedIconFile = event.file;
+    this.iconContent.set(event.content);
+    this.iconPreview.set(event.preview);
   }
 
-  removeIcon(): void {
+  onIconRemoved(): void {
     this.selectedIconFile = null;
     this.iconContent.set(null);
     this.iconPreview.set(null);
-    this.resetIconFileInput();
-  }
-
-  openIconFileDialog(): void {
-    const fileInput = document.getElementById('icon-file-input') as HTMLInputElement | null;
-    fileInput?.click();
-  }
-
-  private resetIconFileInput(): void {
-    const fileInput = document.getElementById('icon-file-input') as HTMLInputElement | null;
-    if (fileInput) fileInput.value = '';
   }
 
   // --- CONSOLIDATED: env summary + requirement helpers used by template/logic ---

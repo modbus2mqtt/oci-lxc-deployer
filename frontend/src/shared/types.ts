@@ -312,7 +312,7 @@ export interface IManagedOciContainer {
   disk_size?: string;
   bridge?: string;
   // Mount points for existing volumes display
-  mount_points?: Array<{ source: string; target: string }>;
+  mount_points?: { source: string; target: string }[];
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];

@@ -21,7 +21,7 @@ export interface VeConfigurationDialogData {
   app: IApplicationWeb;
   task?: string;
   presetValues?: Record<string, string | number>;
-  existingMountPoints?: Array<{ source: string; target: string }>;
+  existingMountPoints?: { source: string; target: string }[];
 }
 @Component({
   selector: 'app-ve-configuration-dialog',
@@ -57,7 +57,7 @@ export class VeConfigurationDialog implements OnInit {
   public data = inject(MAT_DIALOG_DATA) as VeConfigurationDialogData;
   private task = this.data.task ?? 'installation';
   private presetValues = this.data.presetValues ?? {};
-  existingMountPoints: Array<{ source: string; target: string }> = this.data.existingMountPoints ?? [];
+  existingMountPoints: { source: string; target: string }[] = this.data.existingMountPoints ?? [];
   constructor(  ) {
     this.form = this.fb.group({});
   }

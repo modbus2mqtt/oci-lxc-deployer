@@ -107,7 +107,7 @@ export class ApplicationsList implements OnInit {
     }
 
     // Parse existing mount points from JSON string
-    let existingMountPoints: Array<{ source: string; target: string }> | undefined;
+    let existingMountPoints: { source: string; target: string }[] | undefined;
     if (params['mount_points']) {
       try {
         existingMountPoints = JSON.parse(params['mount_points']);

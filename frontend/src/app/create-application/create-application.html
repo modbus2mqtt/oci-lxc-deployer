@@ -167,30 +167,11 @@
           }
 
           <!-- Icon Upload -->
-          <div class="icon-upload-section">
-            <div class="icon-upload-label">Application Icon (Optional)</div>
-            <div class="icon-upload-container">
-              @if (iconPreview()) {
-                <div class="icon-preview">
-                  <img [src]="iconPreview()!" alt="Icon preview" />
-                  <button type="button" mat-icon-button (click)="removeIcon()" class="remove-icon-btn">
-                    <mat-icon>close</mat-icon>
-                  </button>
-                </div>
-              }
-              <input
-                type="file"
-                id="icon-file-input"
-                accept="image/*"
-                (change)="onIconFileSelected($event)"
-                style="display: none;"
-              />
-              <button type="button" mat-stroked-button (click)="openIconFileDialog()">
-                <mat-icon>upload</mat-icon>
-                {{ iconPreview() ? 'Change Icon' : 'Upload Icon' }}
-              </button>
-            </div>
-          </div>
+          <app-icon-upload
+            [iconPreview]="iconPreview()"
+            (iconSelected)="onIconSelected($event)"
+            (iconRemoved)="onIconRemoved()"
+          ></app-icon-upload>
         </form>
       </div>
       <div class="step-actions">
