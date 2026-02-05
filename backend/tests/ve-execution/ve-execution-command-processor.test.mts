@@ -600,12 +600,12 @@ describe("VeExecutionCommandProcessor", () => {
     /**
      * Test scenarios for execute_on: "application:<app-id>"
      *
-     * The application: prefix allows executing commands on a container
+     * The application: prefix allows executing commands on a running container
      * that has a specific application_id in its notes/config.
      *
-     * - 0 containers with matching app-id → Error
-     * - 1 container with matching app-id → Execute on that container
-     * - 2+ containers with matching app-id → Error (ambiguous)
+     * - 0 running containers with matching app-id → Error
+     * - 1 running container with matching app-id → Execute on that container
+     * - 2+ running containers with matching app-id → Error (ambiguous)
      */
 
     it("should throw error when no container matches the application_id", async () => {
@@ -638,9 +638,9 @@ describe("VeExecutionCommandProcessor", () => {
         },
         outputsRaw: undefined,
         setOutputsRaw: () => {},
-        // Mock: No containers match the application_id
+        // Mock: No running containers match the application_id
         resolveApplicationToVmId: async () => {
-          throw new Error("No container found with application_id 'my-app'. Expected exactly 1 container, found 0.");
+          throw new Error("No running container found with application_id 'my-app'. Expected exactly 1 running container, found 0.");
         },
       });
 
@@ -651,7 +651,7 @@ describe("VeExecutionCommandProcessor", () => {
       };
 
       await expect(processor.executeCommandByTarget(cmd, "echo 'test'")).rejects.toThrow(
-        /No container found with application_id 'my-app'/
+        /No running container found with application_id 'my-app'/
       );
       expect(runOnLxcCalled).toBe(false);
     });
@@ -688,12 +688,12 @@ describe("VeExecutionCommandProcessor", () => {
         },
         outputsRaw: undefined,
         setOutputsRaw: () => {},
-        // Mock: Exactly one container matches the application_id
+        // Mock: Exactly one running container matches the application_id
         resolveApplicationToVmId: async (appId) => {
           if (appId === "postgres-db") {
-            return 105; // vm_id of the matching container
+            return 105; // vm_id of the matching running container
           }
-          throw new Error(`No container found with application_id '${appId}'`);
+          throw new Error(`No running container found with application_id '${appId}'`);
         },
       });
 
@@ -739,9 +739,9 @@ describe("VeExecutionCommandProcessor", () => {
         },
         outputsRaw: undefined,
         setOutputsRaw: () => {},
-        // Mock: Multiple containers match the application_id
+        // Mock: Multiple running containers match the application_id
         resolveApplicationToVmId: async () => {
-          throw new Error("Multiple containers found with application_id 'duplicated-app'. Expected exactly 1 container, found 2 (vm_ids: 101, 102).");
+          throw new Error("Multiple running containers found with application_id 'duplicated-app'. Expected exactly 1 running container, found 2 (vm_ids: 101, 102).");
         },
       });
 
@@ -752,7 +752,7 @@ describe("VeExecutionCommandProcessor", () => {
       };
 
       await expect(processor.executeCommandByTarget(cmd, "echo 'test'")).rejects.toThrow(
-        /Multiple containers found with application_id 'duplicated-app'/
+        /Multiple running containers found with application_id 'duplicated-app'/
       );
       expect(runOnLxcCalled).toBe(false);
     });

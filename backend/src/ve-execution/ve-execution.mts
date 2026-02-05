@@ -207,9 +207,9 @@ export class VeExecution extends EventEmitter {
   }
 
   /**
-   * Resolves an application_id to a vm_id by finding the container with that app-id.
-   * Uses list-managed-oci-containers.py to get all containers and filters by application_id.
-   * @throws Error if 0 or 2+ containers match the application_id
+   * Resolves an application_id to a vm_id by finding running containers with that app-id.
+   * Uses find-containers-by-app-id.py which only checks status for matching containers.
+   * @throws Error if 0 or 2+ running containers match the application_id
    */
   private async resolveApplicationToVmId(appId: string): Promise<number> {
     const repositories = this.resolveRepositories();
@@ -218,11 +218,11 @@ export class VeExecution extends EventEmitter {
     }
 
     const scriptContent = repositories.getScript({
-      name: "list-managed-oci-containers.py",
+      name: "find-containers-by-app-id.py",
       scope: "shared",
     });
     if (!scriptContent) {
-      throw new Error("list-managed-oci-containers.py not found");
+      throw new Error("find-containers-by-app-id.py not found");
     }
 
     const libraryContent = repositories.getScript({
@@ -233,16 +233,22 @@ export class VeExecution extends EventEmitter {
       throw new Error("lxc_config_parser_lib.py not found");
     }
 
+    // Replace template variable in script
+    const scriptWithAppId = scriptContent.replace(
+      /\{\{\s*application_id\s*\}\}/g,
+      appId,
+    );
+
     const cmd: ICommand = {
-      name: "List Managed OCI Containers",
+      name: "Find Containers by App ID",
       execute_on: "ve",
-      script: "list-managed-oci-containers.py",
-      scriptContent,
+      script: "find-containers-by-app-id.py",
+      scriptContent: scriptWithAppId,
       libraryContent,
       outputs: ["containers"],
     };
 
-    // Execute the script to get the container list
+    // Execute the script to get running containers with this app_id
     const ve = new VeExecution(
       [cmd],
       [],
@@ -259,22 +265,20 @@ export class VeExecution extends EventEmitter {
         ? JSON.parse(containersRaw)
         : [];
 
-    // Filter by application_id
-    const matching = containers.filter((c) => c.application_id === appId);
-
-    if (matching.length === 0) {
+    // Script already filters by application_id and returns only running containers
+    if (containers.length === 0) {
       throw new Error(
-        `No container found with application_id '${appId}'. Expected exactly 1 container, found 0.`
+        `No running container found with application_id '${appId}'. Expected exactly 1 running container, found 0.`
       );
     }
-    if (matching.length > 1) {
-      const vmIds = matching.map((c) => c.vm_id).join(", ");
+    if (containers.length > 1) {
+      const vmIds = containers.map((c) => c.vm_id).join(", ");
       throw new Error(
-        `Multiple containers found with application_id '${appId}'. Expected exactly 1 container, found ${matching.length} (vm_ids: ${vmIds}).`
+        `Multiple running containers found with application_id '${appId}'. Expected exactly 1 running container, found ${containers.length} (vm_ids: ${vmIds}).`
       );
     }
 
-    return matching[0]!.vm_id;
+    return containers[0]!.vm_id;
   }
 
   /**
