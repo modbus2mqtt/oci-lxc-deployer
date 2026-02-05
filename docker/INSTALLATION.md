@@ -1,240 +1,223 @@
 # Docker Compose Installation Guide
 
-## Übersicht
+## Overview
 
-Dieses Verzeichnis enthält Docker Compose Konfigurationen für verschiedene Services. Alle Compose-Dateien sind so konzipiert, dass sie mit einer gemeinsamen `.env` Datei funktionieren.
+This directory contains Docker Compose configurations for various services.
 
-**Wichtig:** Die `.env` Datei wird aus Sicherheitsgründen **nicht** in der `application.json` gespeichert. Sie muss beim Deployment im **ve-configuration-dialog** hochgeladen werden.
+**Marker System:** The `docker-compose.yml` files contain `{{ PLACEHOLDER }}` markers for sensitive values. During deployment, the system detects these markers and requires a `.env` file.
 
-## Verfügbare Services
+## Available Services
 
-| Service | Compose-Datei | Standard-Port | Beschreibung |
-|---------|--------------|---------------|--------------|
-| PostgreSQL | `postgres.docker-compose.yml` | 5432 | Relationale Datenbank |
-| MariaDB | `mariadb.docker-compose.yml` | 3306 | MySQL-kompatible Datenbank |
-| pgAdmin | `pgadmin.docker-compose.yml` | 5050 | PostgreSQL Web-Admin |
-| phpMyAdmin | `phpmyadmin.docker-compose.yml` | 8080 | MariaDB/MySQL Web-Admin |
-| PostgREST | `postgrest.docker-compose.yml` | 3000 | REST API für PostgreSQL |
-| Zitadel | `Zitadel.docker-compose.yml` | 8080 | Identity Provider |
-| Mosquitto | `mosquitto.docker-compose.yml` | 1883/9001 | MQTT Broker |
-| Node-RED | `node-red.docker-compose.yml` | 1880 | Flow-basierte Entwicklung |
-| Modbus2MQTT | `modbus2mqtt.docker-compose.yml` | 3000 | Modbus zu MQTT Bridge |
-
----
-
-## Installationsreihenfolge
-
-### Gruppe 1: Standalone-Datenbanken (können unabhängig installiert werden)
-
-```
-1. postgres.docker-compose.yml    - PostgreSQL Datenbank
-2. mariadb.docker-compose.yml     - MariaDB Datenbank
-```
-
-### Gruppe 2: Datenbank-Abhängige Services
-
-```
-3. pgadmin.docker-compose.yml     - Benötigt: PostgreSQL
-4. phpmyadmin.docker-compose.yml  - Benötigt: MariaDB
-5. postgrest.docker-compose.yml   - Benötigt: PostgreSQL + .env (POSTGRES_PASSWORD, JWT_SECRET)
-6. Zitadel.docker-compose.yml     - Benötigt: PostgreSQL + .env (POSTGRES_PASSWORD, ZITADEL_MASTERKEY)
-```
-
-### Gruppe 3: MQTT-Basierte Services
-
-```
-7. mosquitto.docker-compose.yml   - MQTT Broker (standalone)
-8. node-red.docker-compose.yml    - Kann mit Mosquitto verbunden werden
-9. modbus2mqtt.docker-compose.yml - Kann mit Mosquitto verbunden werden
-```
+| Service | Compose File | Default Port | Description |
+|---------|--------------|--------------|-------------|
+| PostgreSQL | `postgres.docker-compose.yml` | 5432 | Relational database |
+| MariaDB | `mariadb.docker-compose.yml` | 3306 | MySQL-compatible database |
+| pgAdmin | `pgadmin.docker-compose.yml` | 5050 | PostgreSQL web admin |
+| phpMyAdmin | `phpmyadmin.docker-compose.yml` | 8080 | MariaDB/MySQL web admin |
+| PostgREST | `postgrest.docker-compose.yml` | 3000 | REST API for PostgreSQL |
+| Zitadel | `Zitadel.docker-compose.yml` | 8080 | Identity provider |
+| Mosquitto | `mosquitto.docker-compose.yml` | 1883/9001 | MQTT broker |
+| Node-RED | `node-red.docker-compose.yml` | 1880 | Flow-based development |
+| Modbus2MQTT | `modbus2mqtt.docker-compose.yml` | 3000 | Modbus to MQTT bridge |
 
 ---
 
-## .env Datei erstellen
+## How the Marker System Works
 
-### Schritt 1: Template kopieren
+### docker-compose.yml (contains markers)
+
+```yaml
+environment:
+  POSTGRES_PASSWORD: "{{ POSTGRES_PASSWORD }}"
+```
+
+### .env.template (contains example values)
+
+```env
+POSTGRES_PASSWORD=postgres123
+```
+
+### During Deployment
+
+1. **create-application**: docker-compose.yml is uploaded
+2. **Marker Detection**: System detects `{{ }}` markers
+3. **Deployment**: User must upload `.env` with actual values
+4. **Substitution**: Markers are replaced with values from `.env`
+
+---
+
+## Creating the .env File
+
+### Step 1: Copy Template
 
 ```bash
 cp .env.template .env
 ```
 
-### Schritt 2: Platzhalter ersetzen
+### Step 2: Update Passwords
 
-Ersetzen Sie die `{{ PLACEHOLDER }}` Werte durch Ihre echten Credentials:
+The `.env.template` contains working example passwords. For production, replace with secure passwords:
 
 ```env
-# Template:
-POSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}
+# Example (insecure - for testing only):
+POSTGRES_PASSWORD=postgres123
 
-# Ersetzen durch:
-POSTGRES_PASSWORD=MeinSicheresPasswort123!
+# Production (secure):
+POSTGRES_PASSWORD=Kj8#mP2$vL9@nQ4&xR7!
 ```
 
-### Pflicht-Variablen für verschiedene Services
+### Required Variables
 
-| Variable | Benötigt für | Beschreibung |
-|----------|-------------|--------------|
-| `POSTGRES_PASSWORD` | postgrest, zitadel, pgadmin | PostgreSQL Datenbank-Passwort |
-| `JWT_SECRET` | postgrest | JWT-Validierung (min. 32 Zeichen) |
-| `ZITADEL_MASTERKEY` | zitadel | Verschlüsselung (min. 32 Zeichen) |
+| Variable | Required for | Description |
+|----------|-------------|-------------|
+| `POSTGRES_PASSWORD` | postgres, zitadel, pgadmin | PostgreSQL password |
+| `API_LOGIN_PASSWORD` | postgrest | PostgREST login (from create-app-db.sh) |
+| `JWT_SECRET` | postgrest | JWT validation (min. 32 characters) |
+| `ZITADEL_MASTERKEY` | zitadel | Encryption (min. 32 characters) |
+| `MARIADB_ROOT_PASSWORD` | mariadb, phpmyadmin | MariaDB root password |
+| `MARIADB_PASSWORD` | mariadb | MariaDB app user password |
+| `PGADMIN_DEFAULT_PASSWORD` | pgadmin | pgAdmin login password |
 
 ---
 
-## Deployment via OCI LXC Deployer
+## PostgreSQL: Database Structure
 
-### 1. Application erstellen
+The default configuration starts PostgreSQL with the `postgres` superuser. This is fine for quick tests.
 
-```bash
-# Im OCI LXC Deployer: create-application mit docker-compose.yml
-# Die .env wird NICHT in application.json gespeichert (Sicherheit)
+**For Production:** Create separate schemas and users per app.
+
+```
+postgres (DB)
+   ├── nebenkosten_data     ← App data (nebenkosten_app user)
+   ├── nebenkosten_api      ← PostgREST API
+   ├── homeassistant_data   ← App data (homeassistant_app user)
+   ├── homeassistant_api    ← PostgREST API
+   └── zitadel (separate DB, own schemas)
 ```
 
-### 2. Deployment im ve-configuration-dialog
+**Benefits:**
+- One PostgREST instance for all APIs
+- Schema-based isolation
+- Audit trail shows which user/role was active
 
-1. **VE Configuration Dialog** öffnen
-2. Im Feld **"Environment File (.env)"** die `.env` Datei hochladen
-3. **Deploy** klicken
-
-Die `.env` Datei wird erst beim Deployment direkt in den Container geschrieben:
-`/opt/docker-compose/<project>/.env`
+➡️ **Detailed Guide:** [POSTGRES-SETUP.md](POSTGRES-SETUP.md)
 
 ---
 
-## Passwörter, die NICHT in .env sein müssen
+## Service-Specific Notes
 
-Diese Passwörter werden nur **einmalig beim ersten Start** verwendet und können dann in der jeweiligen Anwendung geändert werden:
+### Zitadel
+
+- **Schema**: Automatically created (`start-from-init`)
+- **Database**: Separately configurable via `ZITADEL_DB` (default: `zitadel`)
+- **Admin User**: `admin` / `Password1!` (change after login!)
 
 ### pgAdmin
 
-- **Initial-Passwort**: `admin` (fest im Compose)
-- **Initial-E-Mail**: `admin@local.dev`
-- **Ändern**: Nach Login im pgAdmin Web-Interface unter "Change Password"
-
-### Zitadel Admin
-
-- **Initial-Benutzer**: `admin`
-- **Initial-Passwort**: `Password1!`
-- **Ändern**: Nach Login in Zitadel Console unter "Account Settings"
+- **Login**: Email from `PGADMIN_EMAIL` (default: `admin@local.dev`)
+- **Password**: From `.env` (`PGADMIN_DEFAULT_PASSWORD`)
+- PostgreSQL server must be added manually
 
 ### MariaDB
 
-- **Root-Passwort**: `secret123` (Default)
-- **Ändern nach Start**:
-  ```sql
-  ALTER USER 'root'@'localhost' IDENTIFIED BY 'neues_passwort';
-  ALTER USER 'root'@'%' IDENTIFIED BY 'neues_passwort';
-  FLUSH PRIVILEGES;
-  ```
+Automatically creates:
+- Root user with `MARIADB_ROOT_PASSWORD`
+- App user (`MARIADB_USER`) with `MARIADB_PASSWORD`
+- Database (`MARIADB_DATABASE`) with full privileges for app user
 
-### PostgreSQL (Standalone)
+### Mosquitto / Node-RED / Modbus2MQTT
 
-- **Passwort**: `secret123` (Default für `postgres.docker-compose.yml`)
-- **Ändern nach Start**:
-  ```sql
-  ALTER USER postgres WITH PASSWORD 'neues_passwort';
-  ```
-
-### Mosquitto MQTT
-
-- Standardmäßig **keine Authentifizierung**
-- **Aktivieren**: Erstellen Sie `./config/mosquitto.conf`:
-  ```
-  listener 1883
-  allow_anonymous false
-  password_file /mosquitto/config/passwd
-  ```
-- **Passwort setzen**:
-  ```bash
-  docker exec -it mosquitto mosquitto_passwd -c /mosquitto/config/passwd mqtt_user
-  ```
-
-### Node-RED
-
-- Standardmäßig **keine Authentifizierung**
-- **Aktivieren**: Bearbeiten Sie `./data/settings.js`:
-  ```javascript
-  adminAuth: {
-      type: "credentials",
-      users: [{
-          username: "admin",
-          password: "$2b$08$...", // bcrypt hash
-          permissions: "*"
-      }]
-  }
-  ```
-- **Passwort-Hash generieren**:
-  ```bash
-  docker exec -it node-red npx node-red admin hash-pw
-  ```
+- No passwords required in `.env`
+- Authentication optional (see section below)
 
 ---
 
-## Optionale Variablen
+## Optional Authentication
 
-Diese Variablen haben sinnvolle Defaults und müssen nur bei Bedarf angepasst werden:
+### Mosquitto MQTT
+
+```bash
+# Create config
+mkdir -p ./config
+cat > ./config/mosquitto.conf << 'EOF'
+listener 1883
+allow_anonymous false
+password_file /mosquitto/config/passwd
+EOF
+
+# Create user
+docker exec -it mosquitto mosquitto_passwd -c /mosquitto/config/passwd mqtt_user
+```
+
+### Node-RED
+
+```bash
+# Generate password hash
+docker exec -it node-red npx node-red admin hash-pw
+
+# Add to ./data/settings.js:
+adminAuth: {
+    type: "credentials",
+    users: [{
+        username: "admin",
+        password: "$2b$08$...",  // Hash from above
+        permissions: "*"
+    }]
+}
+```
+
+---
+
+## Optional Variables
+
+These have sensible defaults and only need adjustment if required:
 
 ```env
 # Ports
 POSTGRES_PORT=5432
 MARIADB_PORT=3306
 PGADMIN_PORT=5050
-PHPMYADMIN_PORT=8080
 POSTGREST_PORT=3000
 ZITADEL_PORT=8080
-MQTT_PORT=1883
-MQTT_WS_PORT=9001
-NODERED_PORT=1880
-MODBUS2MQTT_PORT=3000
 
-# Versionen
+# Versions
 POSTGRES_VERSION=16-alpine
 MARIADB_VERSION=11
-PGADMIN_VERSION=latest
-PHPMYADMIN_VERSION=latest
-POSTGREST_VERSION=latest
-ZITADEL_VERSION=latest
-MOSQUITTO_VERSION=2
-NODERED_VERSION=latest
-MODBUS2MQTT_VERSION=latest
 
-# PostgreSQL
+# PostgreSQL (optional)
 POSTGRES_USER=postgres
 POSTGRES_DB=postgres
 
-# MariaDB
+# MariaDB (optional)
 MARIADB_DATABASE=appdb
 MARIADB_USER=appuser
 
-# Zitadel
+# Zitadel (optional)
 ZITADEL_EXTERNALDOMAIN=localhost
-ZITADEL_EXTERNALSECURE=false
 ZITADEL_DB=zitadel
-
-# PostgREST
-PGRST_SCHEMAS=public
-PGRST_ANON_ROLE=anon
-
-# pgAdmin
-PGADMIN_EMAIL=admin@local.dev
 ```
 
 ---
 
-## Sicherheitshinweise
+## Security Notes
 
-1. **Keine Passwörter in application.json**: Die `.env` wird aus Sicherheitsgründen nicht gespeichert
-2. **Template verwenden**: Kopieren Sie `.env.template` zu `.env` und ersetzen Sie die Platzhalter
-3. **Sichere Passwörter**: Verwenden Sie starke, zufällige Passwörter (min. 16 Zeichen)
-4. **Backup der .env**: Die `.env` Datei sicher aufbewahren (nicht in Git committen!)
-5. **Firewall**: Nur benötigte Ports nach außen freigeben
+1. **Marker System**: docker-compose.yml contains `{{ }}` markers, `.env` contains actual values
+2. **No Superusers**: Create separate users with minimal privileges for apps
+3. **Secure Passwords**: Min. 16 characters, special characters, randomly generated
+4. **Backup .env**: Store securely, do not commit to Git!
+5. **Firewall**: Only expose required ports externally
 
 ---
 
-## Dateien in diesem Verzeichnis
+## Files
 
-| Datei | Beschreibung |
-|-------|--------------|
-| `*.docker-compose.yml` | Docker Compose Konfigurationen |
-| `.env.template` | Template mit Platzhaltern (sicher versionierbar) |
-| `.env` | Echte Credentials (NICHT committen!) |
-| `INSTALLATION.md` | Diese Dokumentation |
+| File | Description |
+|------|-------------|
+| `*.docker-compose.yml` | Docker Compose with `{{ }}` markers |
+| `.env.template` | All variables with example values |
+| `.env.postgres-stack.insecure` | Shared variables for postgres/postgrest/pgadmin/zitadel |
+| `.env.mariadb-stack.insecure` | Shared variables for mariadb/phpmyadmin |
+| `.env` | Actual credentials (DO NOT commit!) |
+| `INSTALLATION.md` | This documentation |
+| `POSTGRES-SETUP.md` | PostgreSQL database/schema/user setup |
+| `create-app-db.sh` | Script for creating app databases |

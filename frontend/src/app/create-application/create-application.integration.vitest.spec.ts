@@ -544,3 +544,196 @@ services:
     expect(component.state.imageReference()).toBe('postgres:16-alpine');
   });
 });
+
+/**
+ * Tests for resolveParameterDefault() - Parameter defaults with ${VAR:-default} syntax
+ *
+ * These tests validate that template parameter defaults (from backend API)
+ * are resolved against the loaded .env file. This enables secure configuration
+ * where sensitive defaults come from .env.
+ */
+describe('CreateApplication - Parameter Default Resolution', () => {
+  let component: CreateApplication;
+  let fixture: ComponentFixture<CreateApplication>;
+
+  /**
+   * Helper to setup component with custom parameter defaults
+   */
+  async function setupWithParameters(parameters: { id: string; name: string; type: 'string' | 'number' | 'boolean' | 'enum'; default?: string; multiline?: boolean }[]): Promise<void> {
+    const mockConfigService = {
+      getFrameworkParameters: () => of({ parameters }),
+      createApplicationFromFramework: () => of({ success: true }),
+      getFrameworkFromImage: () => of({}),
+      getTagsConfig: () => of({ groups: [] })
+    };
+
+    const mockCacheService = {
+      preloadAll: () => undefined,
+      getFrameworks: () => of([{ id: 'oci-image', name: 'OCI Image' }]).pipe(delay(0)),
+      isApplicationIdTaken: () => of(false)
+    };
+
+    const mockErrorHandler = {
+      handleError: () => undefined
+    };
+
+    await TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [CreateApplication, NoopAnimationsModule],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        DockerComposeService,
+        { provide: VeConfigurationService, useValue: mockConfigService },
+        { provide: CacheService, useValue: mockCacheService },
+        { provide: ErrorHandlerService, useValue: mockErrorHandler },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => null } }, queryParams: of({}) } }
+      ],
+      schemas: [NO_ERRORS_SCHEMA]
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(CreateApplication);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  /**
+   * Test: Parameter defaults with ${VAR:-default} syntax resolved against .env
+   */
+  it('should resolve parameter defaults with ${VAR:-default} syntax against .env file', async () => {
+    // Setup component with a parameter that has ${VAR:-default} in its default
+    await setupWithParameters([
+      { id: 'initial_command', name: 'Initial Command', type: 'string' },
+      { id: 'envs', name: 'Environment Variables', type: 'string', multiline: true },
+      { id: 'uid', name: 'UID', type: 'string' },
+      { id: 'gid', name: 'GID', type: 'string' },
+      {
+        id: 'connection_string',
+        name: 'Connection String',
+        type: 'string',
+        default: 'postgresql://user:${DB_PASSWORD:-defaultpw}@${DB_HOST:-localhost}:${DB_PORT:-5432}/db'
+      }
+    ]);
+
+    // Setup OCI compose mode
+    component.onFrameworkSelected('oci-image');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Load compose file to establish context
+    const composeYaml = `
+services:
+  myservice:
+    image: myimage
+    environment:
+      - DB_HOST=\${DB_HOST:-localhost}
+      - DB_PORT=\${DB_PORT:-5432}
+`;
+    const composeFile = new File([composeYaml], 'docker-compose.yml');
+    await component.onComposeFileSelected(composeFile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Load .env file with values that should override defaults
+    const envFileContent = `DB_HOST=postgres.cluster.local
+DB_PORT=5433
+DB_PASSWORD=supersecret`;
+    const envFile = new File([envFileContent], '.env');
+    await component.onEnvFileSelected(envFile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Assert - The default should be resolved using .env values
+    const connectionStringValue = component.parameterForm.get('connection_string')?.value;
+    expect(connectionStringValue).toBe('postgresql://user:supersecret@postgres.cluster.local:5433/db');
+  });
+
+  /**
+   * Test: Parameter defaults without ${} patterns are passed through unchanged
+   */
+  it('should pass through parameter defaults without ${} patterns unchanged', async () => {
+    await setupWithParameters([
+      { id: 'initial_command', name: 'Initial Command', type: 'string' },
+      { id: 'envs', name: 'Environment Variables', type: 'string', multiline: true },
+      { id: 'uid', name: 'UID', type: 'string' },
+      { id: 'gid', name: 'GID', type: 'string' },
+      {
+        id: 'plain_param',
+        name: 'Plain Parameter',
+        type: 'string',
+        default: 'just a plain default value'
+      }
+    ]);
+
+    component.onFrameworkSelected('oci-image');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Load .env file
+    const envFileContent = 'SOME_VAR=some_value';
+    const envFile = new File([envFileContent], '.env');
+    await component.onEnvFileSelected(envFile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Trigger loadParameters
+    component.onStepChange({ selectedIndex: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Assert - Plain default should be unchanged
+    expect(component.parameterForm.get('plain_param')?.value).toBe('just a plain default value');
+  });
+
+  /**
+   * Test: Parameter defaults with ${VAR:-default} use fallback when .env missing the variable
+   */
+  it('should use fallback default when .env does not contain the variable', async () => {
+    await setupWithParameters([
+      { id: 'initial_command', name: 'Initial Command', type: 'string' },
+      { id: 'envs', name: 'Environment Variables', type: 'string', multiline: true },
+      { id: 'uid', name: 'UID', type: 'string' },
+      { id: 'gid', name: 'GID', type: 'string' },
+      {
+        id: 'missing_var_param',
+        name: 'Missing Var Parameter',
+        type: 'string',
+        default: 'prefix_${MISSING_VAR:-fallback_value}_suffix'
+      }
+    ]);
+
+    component.onFrameworkSelected('oci-image');
+    component.state.ociInstallMode.set('compose');
+    component.onInstallModeChanged('compose');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Load .env file WITHOUT the variable we'll reference
+    const envFileContent = 'OTHER_VAR=other_value';
+    const envFile = new File([envFileContent], '.env');
+    await component.onEnvFileSelected(envFile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Trigger loadParameters
+    component.onStepChange({ selectedIndex: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Assert - Should use the fallback default from the pattern
+    expect(component.parameterForm.get('missing_var_param')?.value).toBe('prefix_fallback_value_suffix');
+  });
+});

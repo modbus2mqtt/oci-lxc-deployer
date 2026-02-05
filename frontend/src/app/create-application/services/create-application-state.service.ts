@@ -223,10 +223,31 @@ export class CreateApplicationStateService {
     for (const controlName of Object.keys(this.parameterForm.controls)) {
       if (!preserveControls.includes(controlName)) {
         const param = this.parameters().find(p => p.id === controlName);
-        const defaultValue = param?.default ?? '';
+        const defaultValue = this.resolveParameterDefault(param?.default ?? '');
         this.parameterForm.get(controlName)?.setValue(defaultValue);
       }
     }
+  }
+
+  /**
+   * Resolves ${VAR:-default} patterns in parameter default values using .env file.
+   * Enables parameter defaults to reference environment variables from the secure .env.
+   *
+   * Uses the raw .env file values directly, not the service-specific environment,
+   * because parameter defaults may reference variables not defined in the compose service.
+   */
+  private resolveParameterDefault(defaultValue: string | number | boolean | undefined): string | number | boolean {
+    if (typeof defaultValue !== 'string') {
+      return defaultValue ?? '';
+    }
+    // Only resolve if the default contains ${...} patterns
+    if (!defaultValue.includes('${')) {
+      return defaultValue;
+    }
+    // Parse the raw .env file to get all defined variables
+    const envFileValue = this.parameterForm.get('env_file')?.value ?? '';
+    const envVarsMap = this.composeService.parseEnvFile(envFileValue);
+    return this.composeService.resolveVariables(defaultValue, envVarsMap);
   }
 
   /**
@@ -774,7 +795,7 @@ export class CreateApplicationStateService {
       }
 
       const validators = param.required ? [Validators.required] : [];
-      const defaultValue = param.default !== undefined ? param.default : '';
+      const defaultValue = this.resolveParameterDefault(param.default);
       this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
     }
 
@@ -857,7 +878,7 @@ export class CreateApplicationStateService {
           // Hier bewusst nur `required` berücksichtigen (Validation soll nur im ve-configuration-dialog laufen).
           const validators = param.required ? [Validators.required] : [];
 
-          const defaultValue = param.default !== undefined ? param.default : '';
+          const defaultValue = this.resolveParameterDefault(param.default);
           this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
         }
 

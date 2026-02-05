@@ -3,10 +3,10 @@ services:
     image: postgrest/postgrest:${POSTGREST_VERSION:-latest}
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-postgres}
+      PGRST_DB_URI: "postgres://api_login:{{ API_LOGIN_PASSWORD }}@postgres:5432/${POSTGRES_DB:-postgres}"
       PGRST_DB_SCHEMAS: ${PGRST_SCHEMAS:-public}
-      PGRST_DB_ANON_ROLE: ${PGRST_ANON_ROLE:-anon}
-      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_ANON_ROLE: ${PGRST_ANON_ROLE:-api_anon}
+      PGRST_JWT_SECRET: "{{ JWT_SECRET }}"
       PGRST_SERVER_PORT: 3000
     ports:
       - "${POSTGREST_PORT:-3000}:3000"
@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: "{{ POSTGRES_PASSWORD }}"
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       PGDATA: /var/lib/postgresql/data/pgdata
