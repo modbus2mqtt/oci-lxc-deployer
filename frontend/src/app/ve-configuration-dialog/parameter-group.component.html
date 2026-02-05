@@ -94,6 +94,22 @@
 								</mat-card-content>
 							</mat-card>
 						}
+						<!-- Secret env file upload for env_file: appears when env_file contains {{ }} markers -->
+						@if (param.id === 'env_file' && envFileHasMarkers()) {
+							<div class="param-field secret-env-upload">
+								<mat-form-field appearance="outline">
+									<mat-label>Secret Environment File (.env)</mat-label>
+									<input type="file" #secretEnvFileInput id="secret-env-file-for-envfile" (change)="onSecretEnvFileSelectedForEnvFile($event)" accept=".env,text/plain" style="display: none;" />
+									<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
+									<button mat-icon-button matSuffix type="button" (click)="secretEnvFileInput.click()" matTooltip="Upload .env file with secret values">
+										<mat-icon>vpn_key</mat-icon>
+									</button>
+								</mat-form-field>
+								<div class="secret-env-hint">
+									Detected markers: {{ getEnvFileMarkers().join(', ') }}
+								</div>
+							</div>
+						}
 						</div>
 						} @else {
 						<mat-form-field appearance="outline" class="param-field" [class.param-field-multiline]="param.multiline">
@@ -114,6 +130,22 @@
 						</mat-form-field>
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
+						}
+						<!-- Secret env file upload: appears when envs contains {{ }} markers -->
+						@if (param.id === 'envs' && envsHasMarkers()) {
+							<div class="param-field secret-env-upload">
+								<mat-form-field appearance="outline">
+									<mat-label>Secret Environment File (.env)</mat-label>
+									<input type="file" #secretEnvInput id="secret-env-file" (change)="onSecretEnvFileSelected($event)" accept=".env,text/plain" style="display: none;" />
+									<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
+									<button mat-icon-button matSuffix type="button" (click)="secretEnvInput.click()" matTooltip="Upload .env file with secret values">
+										<mat-icon>vpn_key</mat-icon>
+									</button>
+								</mat-form-field>
+								<div class="secret-env-hint">
+									Detected markers: {{ getEnvMarkers().join(', ') }}
+								</div>
+							</div>
 						}
 						}
 						}

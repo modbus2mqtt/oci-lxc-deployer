@@ -7,6 +7,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters } from '../../shared/types';
 import { VeConfigurationService, VeConfigurationParam } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
+import { DockerComposeService } from '../shared/services/docker-compose.service';
 import { ParameterGroupComponent } from './parameter-group.component';
 import { TemplateTraceDialog } from './template-trace-dialog';
 import type { NavigationExtras } from '@angular/router';
@@ -54,6 +55,7 @@ export class VeConfigurationDialog implements OnInit {
   private errorHandler: ErrorHandlerService = inject(ErrorHandlerService);
   private fb: FormBuilder = inject(FormBuilder);
   private dialog = inject(MatDialog);
+  private composeService = inject(DockerComposeService);
   public data = inject(MAT_DIALOG_DATA) as VeConfigurationDialogData;
   private task = this.data.task ?? 'installation';
   private presetValues = this.data.presetValues ?? {};
@@ -94,6 +96,7 @@ export class VeConfigurationDialog implements OnInit {
         for (const group in this.groupedParameters) {
           this.groupedParameters[group] = this.groupedParameters[group].slice().sort((a, b) => Number(!!b.required) - Number(!!a.required));
         }
+
         this.form.markAllAsTouched();
         this.loading.set(false);
         this.loadEnumValues();
@@ -331,9 +334,40 @@ export class VeConfigurationDialog implements OnInit {
   }
 
   get missingRequiredParams(): IParameter[] {
-    return this.unresolvedParameters.filter((p) =>
-      p.required === true && (p.default === undefined || p.default === null || p.default === ''),
-    );
+    return this.unresolvedParameters.filter((p) => {
+      // Skip if not required or has a default value
+      if (p.required !== true || (p.default !== undefined && p.default !== null && p.default !== '')) {
+        return false;
+      }
+      // Skip if param has an 'if' condition and the condition is not met
+      if (p.if && !this.evaluateCondition(p.if)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Evaluates a condition for param.if.
+   * Special conditions like 'env_file_has_markers' are computed from other controls.
+   */
+  private evaluateCondition(condition: string): boolean {
+    // Special: env_file_has_markers - check if envs or env_file contains {{ }} markers
+    if (condition === 'env_file_has_markers') {
+      // Check envs for markers (oci-image case)
+      const envsValue = this.form.get('envs')?.value;
+      if (this.composeService.hasMarkers(envsValue)) {
+        return true;
+      }
+      // Check env_file for markers (docker-compose case)
+      const envFileValue = this.form.get('env_file')?.value;
+      if (envFileValue && this.composeService.hasMarkersInBase64(envFileValue)) {
+        return true;
+      }
+      return false;
+    }
+    // Default: check form control value
+    return !!this.form.get(condition)?.value;
   }
 
   get showMissingRequiredHint(): boolean {

@@ -498,10 +498,19 @@ export class ApplicationPersistenceHandler {
     for (const iconName of iconNames) {
       const iconPath = path.join(appPath, iconName);
       if (fs.existsSync(iconPath)) {
-        const iconContent = fs.readFileSync(iconPath, { encoding: "base64" });
         const ext = path.extname(iconName).toLowerCase();
         const iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
-        return { iconContent, iconType };
+
+        if (ext === ".svg") {
+          // For SVG: normalize size to 64x64 before base64 encoding
+          const svgContent = fs.readFileSync(iconPath, { encoding: "utf-8" });
+          const normalizedSvg = this.normalizeSvgSize(svgContent, 64);
+          const iconContent = Buffer.from(normalizedSvg, "utf-8").toString("base64");
+          return { iconContent, iconType };
+        } else {
+          const iconContent = fs.readFileSync(iconPath, { encoding: "base64" });
+          return { iconContent, iconType };
+        }
       }
     }
 
@@ -533,6 +542,24 @@ export class ApplicationPersistenceHandler {
       `<rect x="${pad}" y="${pad}" width="${size - pad * 2}" height="${size - pad * 2}" rx="14" ry="14" fill="none" stroke="${fg}" stroke-width="6"/>`,
       `</svg>`,
     ].join("");
+  }
+
+  /**
+   * Normalizes SVG size by replacing width/height attributes with a fixed size.
+   * Preserves viewBox for proper scaling.
+   */
+  private normalizeSvgSize(svgContent: string, size: number): string {
+    // Replace width and height attributes in the <svg> tag
+    // Handles values with units like "432.071pt" or "100px" or just "100"
+    let normalized = svgContent.replace(
+      /<svg([^>]*)\swidth\s*=\s*["'][^"']*["']/i,
+      `<svg$1 width="${size}"`
+    );
+    normalized = normalized.replace(
+      /<svg([^>]*)\sheight\s*=\s*["'][^"']*["']/i,
+      `<svg$1 height="${size}"`
+    );
+    return normalized;
   }
 
   writeApplication(applicationName: string, application: IApplication): void {

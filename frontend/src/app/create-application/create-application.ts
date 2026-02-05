@@ -313,9 +313,9 @@ export class CreateApplication implements OnInit, OnDestroy {
     return true;
   }
 
-  onStepChange(event: { selectedIndex: number }): void {
-    // When leaving Step 1 (Framework), load parameters with all compose data
-    if (event.selectedIndex === 1) {
+  onStepChange(event: { selectedIndex: number; previouslySelectedIndex: number }): void {
+    // When moving FROM Step 1 TO Step 2 (not when going back from Step 3 to Step 2)
+    if (event.selectedIndex === 1 && event.previouslySelectedIndex === 0) {
       const framework = this.state.selectedFramework();
       if (framework) {
         this.state.loadParameters(framework.id);

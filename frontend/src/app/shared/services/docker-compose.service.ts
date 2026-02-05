@@ -128,6 +128,95 @@ export class DockerComposeService {
     return btoa(bin);
   }
 
+  // ==================== Marker Functions ====================
+
+  /**
+   * Checks if a string contains {{ }} markers
+   */
+  hasMarkers(value: string): boolean {
+    return typeof value === 'string' && /\{\{.*?\}\}/.test(value);
+  }
+
+  /**
+   * Extracts marker names from a string (e.g., {{ POSTGRES_PASSWORD }} -> POSTGRES_PASSWORD)
+   */
+  extractMarkers(value: string): string[] {
+    if (typeof value !== 'string') return [];
+    const matches = value.match(/\{\{\s*(\w+)\s*\}\}/g) || [];
+    return [...new Set(matches.map(m => m.replace(/\{\{\s*|\s*\}\}/g, '')))];
+  }
+
+  /**
+   * Replaces {{ MARKER }} placeholders with values from the map
+   */
+  replaceMarkers(template: string, values: Map<string, string>): string {
+    if (typeof template !== 'string') return template;
+    let result = template;
+    for (const [key, value] of values) {
+      const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+      result = result.replace(regex, value);
+    }
+    return result;
+  }
+
+  /**
+   * Decodes a base64-encoded value (with optional file metadata format)
+   * Returns null if decoding fails
+   */
+  decodeBase64Value(value: string): string | null {
+    if (!value || typeof value !== 'string') return null;
+    try {
+      // Extract base64 content if value has file metadata format: file:filename:content:base64content
+      const match = value.match(/^file:[^:]+:content:(.+)$/);
+      const base64 = match ? match[1] : value;
+      return this.base64ToUtf8(base64);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Encodes a string to base64 with file metadata format
+   */
+  encodeToBase64WithMetadata(content: string, filename: string): string {
+    const base64 = this.utf8ToBase64(content);
+    return `file:${filename}:content:${base64}`;
+  }
+
+  /**
+   * Checks if a base64-encoded value contains {{ }} markers
+   */
+  hasMarkersInBase64(value: string): boolean {
+    const decoded = this.decodeBase64Value(value);
+    return decoded !== null && this.hasMarkers(decoded);
+  }
+
+  /**
+   * Extracts marker names from a base64-encoded value
+   */
+  extractMarkersFromBase64(value: string): string[] {
+    const decoded = this.decodeBase64Value(value);
+    return decoded ? this.extractMarkers(decoded) : [];
+  }
+
+  /**
+   * Replaces markers in a base64-encoded value and returns the new base64 value
+   */
+  replaceMarkersInBase64(base64Value: string, values: Map<string, string>): string {
+    const decoded = this.decodeBase64Value(base64Value);
+    if (!decoded) return base64Value;
+
+    const replaced = this.replaceMarkers(decoded, values);
+
+    // Preserve original filename if present
+    const filenameMatch = base64Value.match(/^file:([^:]+):content:/);
+    const filename = filenameMatch ? filenameMatch[1] : '.env';
+
+    return this.encodeToBase64WithMetadata(replaced, filename);
+  }
+
+  // ==================== End Marker Functions ====================
+
   private stripInlineCommentOutsideQuotes(s: string): string {
     let inSingle = false;
     let inDouble = false;

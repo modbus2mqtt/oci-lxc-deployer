@@ -1,13 +1,13 @@
 {
   "name": "Postgres",
-  "description": "Postgres SQL",
+  "description": "PostgreSQL (often shortened to Postgres) is a powerful, open-source object-relational database system. With over 35 years of active development, it has earned a strong reputation for reliability, feature robustness, and performance. ",
   "extends": "oci-image",
-  "icon": "icon.png",
+  "icon": "Postgresql_elephant.svg",
   "parameters": [
     {
       "id": "hostname",
       "name": "Hostname",
-      "required": true,
+      "required": false,
       "type": "string",
       "description": "Hostname for the LXC container",
       "template": "100-conf-create-configure-lxc.json",
@@ -34,7 +34,7 @@
       "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
       "template": "170-conf-set-environment-variables-in-lxc.json",
       "templatename": "Env Variables in LXC",
-      "default": "DB_NAME=appdb\nDB_PASSWORD=secret123\nDB_USER=appuser\nGID=1000\nPGDATA=/var/lib/postgresql/data/pgdata\nPOSTGRES_DB=appdb\nPOSTGRES_PASSWORD=secret123\nPOSTGRES_PORT=5432\nPOSTGRES_USER=appuser\nPOSTGRES_VERSION=16-alpine\nUID=1000"
+      "default": "GID=1000\nPGDATA=/var/lib/postgresql/data/pgdata\nPOSTGRES_DB=postgres\nPOSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}\nPOSTGRES_PORT=5432\nPOSTGRES_USER=postgres\nPOSTGRES_VERSION=16-alpine\nUID=1000"
     }
   ],
   "properties": [

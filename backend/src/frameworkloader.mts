@@ -83,6 +83,7 @@ export class FrameworkLoader {
       typeof p === "string" ? p : p.id,
     );
     const isDockerCompose = framework === 'docker-compose' || frameworkData.extends === 'docker-compose';
+    const isOciImage = framework === 'oci-image' || frameworkData.extends === 'oci-image';
     const result: IParameter[] = [];
     for (const propId of propertyIds) {
       const match = loaded.find((p) => p.id === propId);
@@ -92,11 +93,11 @@ export class FrameworkLoader {
         // - set required based on framework-specific rules
         const cloned: IParameter = { ...match };
         delete (cloned as any).advanced;
-        
-        // Special handling for docker-compose framework:
-        // - hostname should be optional (Application ID can be used as default)
+
+        // Special handling for docker-compose and oci-image frameworks:
+        // - hostname should be optional (Application ID can be used as default in frontend)
         // - compose_project should be optional
-        if (isDockerCompose) {
+        if (isDockerCompose || isOciImage) {
           if (propId === 'hostname') {
             cloned.required = false; // Optional - Application ID can be used as default
           } else if (propId === 'compose_project') {
@@ -110,7 +111,7 @@ export class FrameworkLoader {
           // Only mark as required if explicitly set to true in template
           cloned.required = match.required === true;
         }
-        
+
         result.push(cloned);
       }
     }
@@ -205,17 +206,22 @@ export class FrameworkLoader {
           param.default = paramDef.default;
         }
         
-        // Special handling for docker-compose framework:
-        // - hostname should be optional (Application ID can be used as default)
-        // - compose_project should always be optional
-        if (framework.id === 'docker-compose') {
-          if (propId === 'hostname') {
+        // Special handling for hostname: use Application ID as default if not provided
+        // This applies to both docker-compose and oci-image frameworks
+        if (propId === 'hostname') {
+          if (framework.id === 'docker-compose' || framework.id === 'oci-image') {
             param.required = false; // Optional - Application ID can be used as default
             // If hostname is not provided, use Application ID as default
             if (paramValue === undefined && paramDef.default === undefined) {
               param.default = request.applicationId;
             }
-          } else if (propId === 'compose_project') {
+          }
+        }
+
+        // Special handling for docker-compose framework:
+        // - compose_project should always be optional
+        if (framework.id === 'docker-compose') {
+          if (propId === 'compose_project') {
             param.required = false;
           }
         }
@@ -267,10 +273,10 @@ export class FrameworkLoader {
       }
     }
     
-    // For docker-compose framework: store env_file template and detect markers
+    // For docker-compose and oci-image frameworks: store env_file template and detect markers
     // If env_file contains {{ }} markers, user must upload a new .env at deployment time
     // If no markers, the stored template can be used directly
-    if (framework.id === 'docker-compose') {
+    if (framework.id === 'docker-compose' || framework.id === 'oci-image') {
       const envFileValue = paramValuesMap.get('env_file');
       if (envFileValue && typeof envFileValue === 'string') {
         // Decode base64 and check for {{ }} markers
@@ -287,9 +293,9 @@ export class FrameworkLoader {
       }
     }
 
-    // For docker-compose framework: ensure hostname is set as property if not provided
+    // For docker-compose and oci-image frameworks: ensure hostname is set as property if not provided
     // Use Application ID as default so it can be passed to templates
-    if (framework.id === 'docker-compose') {
+    if (framework.id === 'docker-compose' || framework.id === 'oci-image') {
       const hostnameValue = paramValuesMap.get('hostname');
       if (hostnameValue === undefined) {
         // hostname not provided, use Application ID as default

@@ -117,6 +117,29 @@ export class CreateApplicationStateService {
     return this.isDockerComposeFramework() || this.isOciComposeMode();
   }
 
+  /**
+   * Syncs hostname with applicationId for oci-image and docker-compose frameworks.
+   * If hostname is empty and applicationId is set, hostname will be set to applicationId.
+   */
+  syncHostnameWithApplicationId(): void {
+    if (!this.isOciImageFramework() && !this.isDockerComposeFramework()) {
+      return;
+    }
+
+    const hostnameCtrl = this.parameterForm.get('hostname');
+    if (!hostnameCtrl) {
+      return;
+    }
+
+    const currentHostname = hostnameCtrl.value;
+    const applicationId = this.appPropertiesForm.get('applicationId')?.value;
+
+    // Only set hostname if it's empty and applicationId is set
+    if ((!currentHostname || currentHostname.trim() === '') && applicationId && applicationId.trim()) {
+      hostnameCtrl.patchValue(applicationId.trim(), { emitEvent: false });
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Tag methods
   // ─────────────────────────────────────────────────────────────────────────────
@@ -528,10 +551,14 @@ export class CreateApplicationStateService {
       cmdStr = command;
     }
 
-    if (cmdStr && this.parameterForm.get('initial_command')) {
+    if (cmdStr) {
        const effectiveEnvs = this.getEffectiveEnvsForSelectedService();
        const resolvedCmd = this.composeService.resolveVariables(cmdStr, effectiveEnvs);
-       this.parameterForm.patchValue({ initial_command: resolvedCmd });
+       if (this.parameterForm.get('initial_command')) {
+         this.parameterForm.patchValue({ initial_command: resolvedCmd });
+       } else {
+         this.pendingControlValues['initial_command'] = resolvedCmd;
+       }
     }
   }
 
@@ -555,12 +582,22 @@ export class CreateApplicationStateService {
         const resolvedUser = this.composeService.resolveVariables(String(user), effectiveEnvs);
         const parts = resolvedUser.split(':');
 
-        if (parts.length > 0 && parts[0].trim() && this.parameterForm.get('uid')) {
-          this.parameterForm.patchValue({ uid: parts[0].trim() });
+        if (parts.length > 0 && parts[0].trim()) {
+          const uidValue = parts[0].trim();
+          if (this.parameterForm.get('uid')) {
+            this.parameterForm.patchValue({ uid: uidValue });
+          } else {
+            this.pendingControlValues['uid'] = uidValue;
+          }
         }
 
-        if (parts.length > 1 && parts[1].trim() && this.parameterForm.get('gid')) {
-          this.parameterForm.patchValue({ gid: parts[1].trim() });
+        if (parts.length > 1 && parts[1].trim()) {
+          const gidValue = parts[1].trim();
+          if (this.parameterForm.get('gid')) {
+            this.parameterForm.patchValue({ gid: gidValue });
+          } else {
+            this.pendingControlValues['gid'] = gidValue;
+          }
         }
     }
   }
@@ -635,6 +672,9 @@ export class CreateApplicationStateService {
     if (!v) return;
     if (this.parameterForm.get('oci_image')) {
       this.parameterForm.patchValue({ oci_image: v }, { emitEvent: false });
+    } else {
+      // Control doesn't exist yet - store as pending (will be applied when parameters are loaded)
+      this.pendingControlValues['oci_image'] = v;
     }
   }
 
@@ -794,7 +834,10 @@ export class CreateApplicationStateService {
         continue;
       }
 
-      const validators = param.required ? [Validators.required] : [];
+      // Don't set required validator if param has an 'if' condition and the control doesn't exist
+      // (e.g., env_file with if: env_file_has_markers - that flag is a backend property, not a form control)
+      const shouldBeRequired = param.required && !param.if;
+      const validators = shouldBeRequired ? [Validators.required] : [];
       const defaultValue = this.resolveParameterDefault(param.default);
       this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
     }
@@ -812,8 +855,10 @@ export class CreateApplicationStateService {
   /**
    * Loads parameters for a given framework.
    */
-  /** Controls to preserve when switching frameworks in compose mode */
-  private readonly COMPOSE_PRESERVED_CONTROLS = ['compose_file', 'env_file', 'volumes', 'envs'] as const;
+  /** Controls to preserve for docker-compose framework */
+  private readonly DOCKER_COMPOSE_PRESERVED_CONTROLS = ['compose_file', 'env_file', 'volumes', 'envs'] as const;
+  /** Controls to preserve for oci-image framework */
+  private readonly OCI_IMAGE_PRESERVED_CONTROLS = ['oci_image', 'volumes', 'envs'] as const;
 
   loadParameters(frameworkId: string): void {
     this.loadingParameters.set(true);
@@ -829,29 +874,27 @@ export class CreateApplicationStateService {
       }
     }
 
-    const preserveCompose = this.usesComposeControls();
-
     this.parameterForm = this.fb.group({});
     this.groupedParameters.set({});
 
-    if (preserveCompose) {
-      // re-create controls + validators consistently after reset
-      this.ensureComposeControls({ requireComposeFile: true });
-      // Restore compose controls that had values
-      for (const controlId of this.COMPOSE_PRESERVED_CONTROLS) {
-        if (preservedValues[controlId] && !this.parameterForm.get(controlId)) {
-          this.parameterForm.addControl(controlId, new FormControl(''));
+    if (this.isDockerComposeFramework()) {
+      // re-create controls with preserved values for docker-compose
+      for (const controlId of this.DOCKER_COMPOSE_PRESERVED_CONTROLS) {
+        if (!this.parameterForm.get(controlId)) {
+          const preservedValue = preservedValues[controlId] ?? '';
+          this.parameterForm.addControl(controlId, new FormControl(preservedValue));
         }
       }
-      // Patch compose controls first
-      const composeValues: Record<string, unknown> = {};
-      for (const controlId of this.COMPOSE_PRESERVED_CONTROLS) {
-        if (preservedValues[controlId]) {
-          composeValues[controlId] = preservedValues[controlId];
-        }
-      }
-      this.parameterForm.patchValue(composeValues, { emitEvent: false });
+      this.setComposeFileRequired(true);
       this.updateEnvFileRequirement();
+    } else if (this.isOciImageFramework()) {
+      // re-create controls with preserved values for oci-image
+      for (const controlId of this.OCI_IMAGE_PRESERVED_CONTROLS) {
+        if (!this.parameterForm.get(controlId)) {
+          const preservedValue = preservedValues[controlId] ?? '';
+          this.parameterForm.addControl(controlId, new FormControl(preservedValue));
+        }
+      }
     }
 
     this.configService.getFrameworkParameters(frameworkId).subscribe({
@@ -867,7 +910,11 @@ export class CreateApplicationStateService {
           grouped[group].push(param);
 
           // Don't overwrite preserved controls if they already exist with a value
-          if ((this.isDockerComposeFramework() || this.isOciComposeMode()) && this.COMPOSE_PRESERVED_CONTROLS.includes(param.id as typeof this.COMPOSE_PRESERVED_CONTROLS[number])) {
+          const isDockerComposePreserved = this.isDockerComposeFramework() &&
+            this.DOCKER_COMPOSE_PRESERVED_CONTROLS.includes(param.id as typeof this.DOCKER_COMPOSE_PRESERVED_CONTROLS[number]);
+          const isOciImagePreserved = this.isOciImageFramework() &&
+            this.OCI_IMAGE_PRESERVED_CONTROLS.includes(param.id as typeof this.OCI_IMAGE_PRESERVED_CONTROLS[number]);
+          if (isDockerComposePreserved || isOciImagePreserved) {
             const existingControl = this.parameterForm.get(param.id);
             if (existingControl && existingControl.value) {
               continue;
@@ -876,7 +923,9 @@ export class CreateApplicationStateService {
 
           // NOTE: "Neue Property für Textfeld-Validierung" NICHT im Framework-Flow aktivieren.
           // Hier bewusst nur `required` berücksichtigen (Validation soll nur im ve-configuration-dialog laufen).
-          const validators = param.required ? [Validators.required] : [];
+          // Don't set required validator if param has an 'if' condition (conditional visibility/requirement)
+          const shouldBeRequired = param.required && !param.if;
+          const validators = shouldBeRequired ? [Validators.required] : [];
 
           const defaultValue = this.resolveParameterDefault(param.default);
           this.parameterForm.addControl(param.id, new FormControl(defaultValue, validators));
@@ -910,7 +959,10 @@ export class CreateApplicationStateService {
 
         this.updateEnvFileRequirement();
 
-        if (preserveCompose) {
+        // Sync hostname with applicationId for oci-image and docker-compose frameworks
+        this.syncHostnameWithApplicationId();
+
+        if (this.isDockerComposeFramework()) {
           setTimeout(() => this.hydrateComposeDataFromForm(), 0);
         }
       },

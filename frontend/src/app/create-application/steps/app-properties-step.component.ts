@@ -179,6 +179,8 @@ export class AppPropertiesStepComponent implements OnInit, OnDestroy {
   onApplicationIdInput(event: Event): void {
     const applicationId = (event.target as HTMLInputElement).value;
     this.state.applicationIdSubject.next(applicationId);
+    // Sync hostname with applicationId for oci-image and docker-compose frameworks
+    this.state.syncHostnameWithApplicationId();
   }
 
   validateApplicationId(applicationId: string): void {
