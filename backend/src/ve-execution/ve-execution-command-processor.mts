@@ -13,6 +13,11 @@ export interface CommandProcessorDependencies {
   executeOnHost: (hostname: string, command: string, tmplCommand: ICommand) => Promise<void>;
   outputsRaw: { name: string; value: string | number | boolean }[] | undefined;
   setOutputsRaw: (raw: { name: string; value: string | number | boolean }[]) => void;
+  /**
+   * Resolves an application_id to a vm_id by finding the container with that app-id.
+   * Throws if 0 or 2+ containers match.
+   */
+  resolveApplicationToVmId?: (appId: string) => Promise<number>;
 }
 
 /**
@@ -212,6 +217,16 @@ export class VeExecutionCommandProcessor {
           const hostname = cmd.execute_on.split(":")[1] ?? "";
           // Pass raw (unreplaced) string; executeOnHost will replace with vmctx.data
           await this.deps.executeOnHost(hostname, rawStr, cmd);
+          return undefined;
+        } else if (typeof cmd.execute_on === "string" && /^application:.*/.test(cmd.execute_on)) {
+          // Execute on a container identified by application_id
+          const appId = cmd.execute_on.slice("application:".length).trim();
+          if (!this.deps.resolveApplicationToVmId) {
+            throw new Error("resolveApplicationToVmId is not configured");
+          }
+          const vm_id = await this.deps.resolveApplicationToVmId(appId);
+          const execStr = this.deps.variableResolver.replaceVars(rawStr);
+          await this.deps.runOnLxc(vm_id, execStr, cmd);
           return undefined;
         } else {
           throw new Error(cmd.name + " has invalid execute_on: " + cmd.execute_on);

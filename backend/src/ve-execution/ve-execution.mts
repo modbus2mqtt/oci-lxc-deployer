@@ -194,6 +194,7 @@ export class VeExecution extends EventEmitter {
       setOutputsRaw: (raw) => {
         this.outputsRaw = raw;
       },
+      resolveApplicationToVmId: (appId) => this.resolveApplicationToVmId(appId),
     });
     this.stateManager = new VeExecutionStateManager({
       outputs: this.outputs,
@@ -203,6 +204,77 @@ export class VeExecution extends EventEmitter {
       veContext: this.veContext,
       initializeVariableResolver: () => this.initializeVariableResolver(),
     });
+  }
+
+  /**
+   * Resolves an application_id to a vm_id by finding the container with that app-id.
+   * Uses list-managed-oci-containers.py to get all containers and filters by application_id.
+   * @throws Error if 0 or 2+ containers match the application_id
+   */
+  private async resolveApplicationToVmId(appId: string): Promise<number> {
+    const repositories = this.resolveRepositories();
+    if (!repositories) {
+      throw new Error("Cannot resolve application to vm_id: repositories not available");
+    }
+
+    const scriptContent = repositories.getScript({
+      name: "list-managed-oci-containers.py",
+      scope: "shared",
+    });
+    if (!scriptContent) {
+      throw new Error("list-managed-oci-containers.py not found");
+    }
+
+    const libraryContent = repositories.getScript({
+      name: "lxc_config_parser_lib.py",
+      scope: "shared",
+    });
+    if (!libraryContent) {
+      throw new Error("lxc_config_parser_lib.py not found");
+    }
+
+    const cmd: ICommand = {
+      name: "List Managed OCI Containers",
+      execute_on: "ve",
+      script: "list-managed-oci-containers.py",
+      scriptContent,
+      libraryContent,
+      outputs: ["containers"],
+    };
+
+    // Execute the script to get the container list
+    const ve = new VeExecution(
+      [cmd],
+      [],
+      this.veContext,
+      new Map(),
+      undefined,
+      this.executionMode,
+    );
+    await ve.run(null);
+
+    const containersRaw = ve.outputs.get("containers");
+    const containers: Array<{ vm_id: number; application_id?: string }> =
+      typeof containersRaw === "string" && containersRaw.trim().length > 0
+        ? JSON.parse(containersRaw)
+        : [];
+
+    // Filter by application_id
+    const matching = containers.filter((c) => c.application_id === appId);
+
+    if (matching.length === 0) {
+      throw new Error(
+        `No container found with application_id '${appId}'. Expected exactly 1 container, found 0.`
+      );
+    }
+    if (matching.length > 1) {
+      const vmIds = matching.map((c) => c.vm_id).join(", ");
+      throw new Error(
+        `Multiple containers found with application_id '${appId}'. Expected exactly 1 container, found ${matching.length} (vm_ids: ${vmIds}).`
+      );
+    }
+
+    return matching[0]!.vm_id;
   }
 
   /**

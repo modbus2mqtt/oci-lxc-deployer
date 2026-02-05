@@ -595,5 +595,213 @@ describe("VeExecutionCommandProcessor", () => {
       expect(markerIndex).toBeLessThan(scriptCallIndex);
     });
   });
+
+  describe("execute_on: application:<app-id>", () => {
+    /**
+     * Test scenarios for execute_on: "application:<app-id>"
+     *
+     * The application: prefix allows executing commands on a container
+     * that has a specific application_id in its notes/config.
+     *
+     * - 0 containers with matching app-id → Error
+     * - 1 container with matching app-id → Execute on that container
+     * - 2+ containers with matching app-id → Error (ambiguous)
+     */
+
+    it("should throw error when no container matches the application_id", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let runOnLxcCalled = false;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async () => {
+          runOnLxcCalled = true;
+          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        // Mock: No containers match the application_id
+        resolveApplicationToVmId: async () => {
+          throw new Error("No container found with application_id 'my-app'. Expected exactly 1 container, found 0.");
+        },
+      });
+
+      const cmd: ICommand = {
+        name: "test-app-command",
+        command: "echo 'test'",
+        execute_on: "application:my-app",
+      };
+
+      await expect(processor.executeCommandByTarget(cmd, "echo 'test'")).rejects.toThrow(
+        /No container found with application_id 'my-app'/
+      );
+      expect(runOnLxcCalled).toBe(false);
+    });
+
+    it("should execute command on the container when exactly one matches the application_id", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let runOnLxcVmId: string | number | undefined;
+      let runOnLxcCommand: string | undefined;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async (vm_id, command) => {
+          runOnLxcVmId = vm_id;
+          runOnLxcCommand = command;
+          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        // Mock: Exactly one container matches the application_id
+        resolveApplicationToVmId: async (appId) => {
+          if (appId === "postgres-db") {
+            return 105; // vm_id of the matching container
+          }
+          throw new Error(`No container found with application_id '${appId}'`);
+        },
+      });
+
+      const cmd: ICommand = {
+        name: "run-on-postgres",
+        command: "psql -c 'SELECT 1'",
+        execute_on: "application:postgres-db",
+      };
+
+      await processor.executeCommandByTarget(cmd, "psql -c 'SELECT 1'");
+
+      expect(runOnLxcVmId).toBe(105);
+      expect(runOnLxcCommand).toBe("psql -c 'SELECT 1'");
+    });
+
+    it("should throw error when multiple containers match the application_id", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let runOnLxcCalled = false;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async () => {
+          runOnLxcCalled = true;
+          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        // Mock: Multiple containers match the application_id
+        resolveApplicationToVmId: async () => {
+          throw new Error("Multiple containers found with application_id 'duplicated-app'. Expected exactly 1 container, found 2 (vm_ids: 101, 102).");
+        },
+      });
+
+      const cmd: ICommand = {
+        name: "test-duplicated-app",
+        command: "echo 'test'",
+        execute_on: "application:duplicated-app",
+      };
+
+      await expect(processor.executeCommandByTarget(cmd, "echo 'test'")).rejects.toThrow(
+        /Multiple containers found with application_id 'duplicated-app'/
+      );
+      expect(runOnLxcCalled).toBe(false);
+    });
+
+    it("should replace variables in command before execution on application container", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {
+        db_name: "production",
+      };
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let capturedCommand: string | undefined;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async (vm_id, command) => {
+          capturedCommand = command;
+          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        resolveApplicationToVmId: async () => 200,
+      });
+
+      const cmd: ICommand = {
+        name: "backup-db",
+        command: "pg_dump {{ db_name }}",
+        execute_on: "application:postgres",
+      };
+
+      await processor.executeCommandByTarget(cmd, "pg_dump {{ db_name }}");
+
+      expect(capturedCommand).toBe("pg_dump production");
+    });
+  });
 });
 
