@@ -4,10 +4,10 @@ services:
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
     environment:
-      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:-secret123}
-      MARIADB_DATABASE: ${DB_NAME:-appdb}
-      MARIADB_USER: ${DB_USER:-appuser}
-      MARIADB_PASSWORD: ${DB_PASSWORD:-secret123}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-secret123}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-appdb}
+      MARIADB_USER: ${MARIADB_USER:-appuser}
+      MARIADB_PASSWORD: ${MARIADB_USER_PASSWORD:-secret123}
     volumes:
       - ./data:/var/lib/mysql
     ports:

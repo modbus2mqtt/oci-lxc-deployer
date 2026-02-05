@@ -222,13 +222,15 @@ export class FrameworkLoader {
         
         templateParameters.push(param);
       } else if (paramValue !== undefined) {
-        // For docker-compose framework: volumes is output by 310-extract-volumes-from-compose.json,
-        // so don't set it as property in set-parameters.json to avoid conflicts
-        if (framework.id === 'docker-compose' && propId === 'volumes') {
-          // Skip volumes - it will be set by 310-extract-volumes-from-compose.json template
-          continue;
+        // For docker-compose framework: skip certain properties
+        if (framework.id === 'docker-compose') {
+          // volumes is output by 310-extract-volumes-from-compose.json template
+          if (propId === 'volumes') {
+            continue;
+          }
+          // env_file is handled separately below (marker detection)
         }
-        
+
         // Create property/output entry
         templateProperties.push({
           id: propId,
@@ -237,52 +239,51 @@ export class FrameworkLoader {
       }
     }
 
-    // For docker-compose framework: ensure compose_file and env_file are included
-    // These are base64-encoded file contents that need to be written to set-parameters.json
-    const composeFileValue = paramValuesMap.get('compose_file');
-    const envFileValue = paramValuesMap.get('env_file');
-    
-    // Ensure compose_file is in properties (even if not in framework.properties)
-    if (composeFileValue && typeof composeFileValue === 'string') {
-      const composeFileIndex = templateProperties.findIndex(p => p.id === 'compose_file');
-      if (composeFileIndex >= 0 && templateProperties[composeFileIndex]) {
-        templateProperties[composeFileIndex].value = composeFileValue;
-      } else {
-        templateProperties.push({ id: 'compose_file', value: composeFileValue });
-      }
-      
-      // Also ensure it's in parameters if not already there
-      const composeParamIndex = templateParameters.findIndex(p => p.id === 'compose_file');
-      if (composeParamIndex < 0) {
-        const composeParamDef = allParameters.find((p) => p.id === 'compose_file');
-        if (composeParamDef) {
-          templateParameters.push({
-            ...composeParamDef,
-            default: composeFileValue,
-          });
+    // For docker-compose framework ONLY: store compose_file in application.json
+    // compose_file is base64-encoded and used as default at deployment (user doesn't need to re-upload)
+    // Note: For oci-image framework, compose_file is NOT stored (not needed)
+    if (framework.id === 'docker-compose') {
+      const composeFileValue = paramValuesMap.get('compose_file');
+
+      if (composeFileValue && typeof composeFileValue === 'string') {
+        const composeFileIndex = templateProperties.findIndex(p => p.id === 'compose_file');
+        if (composeFileIndex >= 0 && templateProperties[composeFileIndex]) {
+          templateProperties[composeFileIndex].value = composeFileValue;
+        } else {
+          templateProperties.push({ id: 'compose_file', value: composeFileValue });
+        }
+
+        // Also ensure it's in parameters if not already there
+        const composeParamIndex = templateParameters.findIndex(p => p.id === 'compose_file');
+        if (composeParamIndex < 0) {
+          const composeParamDef = allParameters.find((p) => p.id === 'compose_file');
+          if (composeParamDef) {
+            templateParameters.push({
+              ...composeParamDef,
+              default: composeFileValue,
+            });
+          }
         }
       }
     }
     
-    // Ensure env_file is in properties (even if not in framework.properties)
-    if (envFileValue && typeof envFileValue === 'string') {
-      const envFileIndex = templateProperties.findIndex(p => p.id === 'env_file');
-      if (envFileIndex >= 0 && templateProperties[envFileIndex]) {
-        templateProperties[envFileIndex].value = envFileValue;
-      } else {
-        templateProperties.push({ id: 'env_file', value: envFileValue });
-      }
-      
-      // Also ensure it's in parameters if not already there
-      const envParamIndex = templateParameters.findIndex(p => p.id === 'env_file');
-      if (envParamIndex < 0) {
-        const envParamDef = allParameters.find((p) => p.id === 'env_file');
-        if (envParamDef) {
-          templateParameters.push({
-            ...envParamDef,
-            default: envFileValue,
-          });
+    // For docker-compose framework: store env_file template and detect markers
+    // If env_file contains {{ }} markers, user must upload a new .env at deployment time
+    // If no markers, the stored template can be used directly
+    if (framework.id === 'docker-compose') {
+      const envFileValue = paramValuesMap.get('env_file');
+      if (envFileValue && typeof envFileValue === 'string') {
+        // Decode base64 and check for {{ }} markers
+        const envContent = Buffer.from(envFileValue, 'base64').toString('utf8');
+        const hasMarkers = /\{\{.*?\}\}/.test(envContent);
+
+        // Store marker flag as property (for dynamic required check at deployment)
+        if (hasMarkers) {
+          templateProperties.push({ id: 'env_file_has_markers', value: 'true' });
         }
+
+        // Store env_file template
+        templateProperties.push({ id: 'env_file', value: envFileValue });
       }
     }
 

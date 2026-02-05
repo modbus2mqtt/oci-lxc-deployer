@@ -73,12 +73,13 @@ export class TemplateValidator {
     templateRef: TemplateRef,
   ): Promise<void> {
     if (tmplData.parameters) {
-      const paramNames = tmplData.parameters.map((p) => p.id);
       for (const param of tmplData.parameters) {
-        if (param.if && (param.if === param.id || !paramNames.includes(param.if))) {
+        // 'if' must not refer to itself
+        // It can refer to another parameter in the same template OR to a property (stored in application.json)
+        if (param.if && param.if === param.id) {
           opts.errors?.push(
             new JsonError(
-              `Parameter '${param.name}': 'if' must refer to another parameter name in the same template (not itself).`,
+              `Parameter '${param.name}': 'if' must not refer to itself.`,
             ),
           );
         }

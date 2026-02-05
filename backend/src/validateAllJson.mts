@@ -8,8 +8,19 @@ import { TemplateProcessor } from "./templates/templateprocessor.mjs";
 import { ExecutionMode } from "./ve-execution/ve-execution-constants.mjs";
 
 /**
+ * Error thrown when validation fails.
+ */
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+/**
  * Validates all JSON files (templates, applications, frameworks, addons)
  * Uses PersistenceManager for consistent path handling and validation.
+ * @throws {ValidationError} if validation fails
  */
 export async function validateAllJson(localPathArg?: string): Promise<void> {
   const __filename = fileURLToPath(import.meta.url);
@@ -55,7 +66,7 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   } catch (err: any) {
     console.error("Failed to initialize PersistenceManager:");
     console.error(`  ${err.message || err}`);
-    process.exit(2);
+    throw new ValidationError(`Failed to initialize PersistenceManager: ${err.message || err}`);
   }
 
   const pathes = pm.getPathes();
@@ -292,10 +303,9 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   console.log("");
   if (hasError) {
     console.error("✖ Validation failed.");
-    process.exit(1);
+    throw new ValidationError("Validation failed");
   } else {
     console.log("✔ All validations passed.");
-    process.exit(0);
   }
 }
 

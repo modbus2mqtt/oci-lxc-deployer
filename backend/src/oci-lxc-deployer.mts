@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
 import { exec as execCommand } from "./lxc-exec.mjs";
-import { validateAllJson } from "./validateAllJson.mjs";
+import { validateAllJson, ValidationError } from "./validateAllJson.mjs";
 import { DocumentationGenerator } from "./documentation-generator.mjs";
 import { VEWebApp } from "./webapp/webapp.mjs";
 import type { TaskType } from "./types.mjs";
@@ -195,7 +195,15 @@ async function runExecCommand(
 }
 
 async function runValidateCommand(localPath?: string) {
-  await validateAllJson(localPath);
+  try {
+    await validateAllJson(localPath);
+    process.exit(0);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      process.exit(1);
+    }
+    throw err;
+  }
 }
 
 async function runUpdatedocCommand(applicationName?: string, localPathArg?: string) {
@@ -210,9 +218,16 @@ async function runUpdatedocCommand(applicationName?: string, localPathArg?: stri
   const localPath = localPathArg || path.join(projectRoot, "local", "json");
 
   // Validate all JSON files before generating documentation
-  // If validation fails, process.exit(1) will be called and documentation won't be generated
+  // If validation fails, exit and documentation won't be generated
   console.log("Validating all JSON files before generating documentation...\n");
-  await validateAllJson(localPathArg);
+  try {
+    await validateAllJson(localPathArg);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      process.exit(1);
+    }
+    throw err;
+  }
   console.log("\n✓ Validation successful. Proceeding with documentation generation...\n");
 
   // Initialize PersistenceManager

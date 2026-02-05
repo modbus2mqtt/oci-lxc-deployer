@@ -30,6 +30,10 @@ test-results/
 **/secret.txt
 **/storagecontext.json
 docker/oci-lxc-deployer.tgz
+
+# Environment files with credentials (keep .env.template)
+**/.env
+!**/.env.template
 **/__pycache__/*
 
 

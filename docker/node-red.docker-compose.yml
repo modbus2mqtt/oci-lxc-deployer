@@ -5,7 +5,6 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       TZ: ${TZ:-Europe/Berlin}
-      NODE_RED_CREDENTIAL_SECRET: ${CREDENTIAL_SECRET:-secret123}
     volumes:
       - ./data:/data
     ports:

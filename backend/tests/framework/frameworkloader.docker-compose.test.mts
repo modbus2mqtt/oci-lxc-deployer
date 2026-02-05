@@ -88,7 +88,8 @@ describe("FrameworkLoader - docker-compose", () => {
       expect(composeFileParam).toBeDefined();
       expect(composeFileParam?.required).toBe(true);
 
-      // env_file should be optional (from base application)
+      // env_file should be optional in create-application (from application.json)
+      // At deployment time, the 320-post-upload template uses if: env_file_has_markers
       const envFileParam = parameters.find((p) => p.id === "env_file");
       expect(envFileParam).toBeDefined();
       expect(envFileParam?.required).toBe(false);
@@ -151,6 +152,172 @@ describe("FrameworkLoader - docker-compose", () => {
         "test-app-123-parameters.json",
       );
       expect(require("fs").existsSync(templatePath)).toBe(false);
+    },
+    60000,
+  );
+
+  it(
+    "should store env_file with markers and set env_file_has_markers flag",
+    async () => {
+      // When env_file contains {{ }} markers, it should be stored along with env_file_has_markers flag
+      // This signals that user must upload a new .env at deployment time
+      const envWithMarkers = "POSTGRES_PASSWORD={{ DB_PASSWORD }}\nJWT_SECRET={{ JWT_SECRET }}";
+      const envWithMarkersBase64 = Buffer.from(envWithMarkers).toString("base64");
+
+      const request: IPostFrameworkCreateApplicationBody = {
+        frameworkId: "docker-compose",
+        applicationId: "test-env-with-markers",
+        name: "Test Env With Markers",
+        description: "Test that env_file with markers is stored with flag",
+        parameterValues: [
+          {
+            id: "compose_file",
+            value: "c2VydmljZXM6CiAgdGVzdDoKICAgIGltYWdlOiBhbHBpbmU=", // base64 encoded minimal compose
+          },
+          {
+            id: "env_file",
+            value: envWithMarkersBase64,
+          },
+        ],
+      };
+
+      const applicationId = await loader.createApplicationFromFramework(request);
+      expect(applicationId).toBe("test-env-with-markers");
+
+      // Read generated application.json
+      const appJsonPath = path.join(
+        env.localDir,
+        "applications",
+        "test-env-with-markers",
+        "application.json",
+      );
+      const appJson = JSON.parse(require("fs").readFileSync(appJsonPath, "utf-8"));
+
+      // env_file should be stored in properties
+      const envFileProperty = appJson.properties?.find(
+        (p: any) => p.id === "env_file",
+      );
+      expect(envFileProperty).toBeDefined();
+      expect(envFileProperty?.value).toBe(envWithMarkersBase64);
+
+      // env_file_has_markers flag should be set
+      const markersFlag = appJson.properties?.find(
+        (p: any) => p.id === "env_file_has_markers",
+      );
+      expect(markersFlag).toBeDefined();
+      expect(markersFlag?.value).toBe("true");
+
+      // compose_file should still be stored
+      const composeFileProperty = appJson.properties?.find(
+        (p: any) => p.id === "compose_file",
+      );
+      expect(composeFileProperty).toBeDefined();
+      expect(composeFileProperty?.value).toBeDefined();
+    },
+    60000,
+  );
+
+  it(
+    "should store env_file without markers and NOT set env_file_has_markers flag",
+    async () => {
+      // When env_file does not contain {{ }} markers, it should be stored without the flag
+      // At deployment, the stored env_file can be used directly (no user upload needed)
+      const envWithoutMarkers = "POSTGRES_PASSWORD=actualpassword123\nJWT_SECRET=actualsecret456";
+      const envWithoutMarkersBase64 = Buffer.from(envWithoutMarkers).toString("base64");
+
+      const request: IPostFrameworkCreateApplicationBody = {
+        frameworkId: "docker-compose",
+        applicationId: "test-env-without-markers",
+        name: "Test Env Without Markers",
+        description: "Test that env_file without markers is stored without flag",
+        parameterValues: [
+          {
+            id: "compose_file",
+            value: "c2VydmljZXM6CiAgdGVzdDoKICAgIGltYWdlOiBhbHBpbmU=", // base64 encoded minimal compose
+          },
+          {
+            id: "env_file",
+            value: envWithoutMarkersBase64,
+          },
+        ],
+      };
+
+      const applicationId = await loader.createApplicationFromFramework(request);
+      expect(applicationId).toBe("test-env-without-markers");
+
+      // Read generated application.json
+      const appJsonPath = path.join(
+        env.localDir,
+        "applications",
+        "test-env-without-markers",
+        "application.json",
+      );
+      const appJson = JSON.parse(require("fs").readFileSync(appJsonPath, "utf-8"));
+
+      // env_file should be stored in properties
+      const envFileProperty = appJson.properties?.find(
+        (p: any) => p.id === "env_file",
+      );
+      expect(envFileProperty).toBeDefined();
+      expect(envFileProperty?.value).toBe(envWithoutMarkersBase64);
+
+      // env_file_has_markers flag should NOT be set
+      const markersFlag = appJson.properties?.find(
+        (p: any) => p.id === "env_file_has_markers",
+      );
+      expect(markersFlag).toBeUndefined();
+
+      // compose_file should still be stored
+      const composeFileProperty = appJson.properties?.find(
+        (p: any) => p.id === "compose_file",
+      );
+      expect(composeFileProperty).toBeDefined();
+      expect(composeFileProperty?.value).toBeDefined();
+    },
+    60000,
+  );
+
+  it(
+    "should NOT store env_file or flag when no env_file is provided",
+    async () => {
+      // When no env_file is provided, neither env_file nor env_file_has_markers should be stored
+      const request: IPostFrameworkCreateApplicationBody = {
+        frameworkId: "docker-compose",
+        applicationId: "test-no-env-file",
+        name: "Test No Env File",
+        description: "Test that nothing is stored when no env_file provided",
+        parameterValues: [
+          {
+            id: "compose_file",
+            value: "c2VydmljZXM6CiAgdGVzdDoKICAgIGltYWdlOiBhbHBpbmU=", // base64 encoded minimal compose
+          },
+          // No env_file provided
+        ],
+      };
+
+      const applicationId = await loader.createApplicationFromFramework(request);
+      expect(applicationId).toBe("test-no-env-file");
+
+      // Read generated application.json
+      const appJsonPath = path.join(
+        env.localDir,
+        "applications",
+        "test-no-env-file",
+        "application.json",
+      );
+      const appJson = JSON.parse(require("fs").readFileSync(appJsonPath, "utf-8"));
+
+      // env_file should NOT be in properties
+      const envFileProperty = appJson.properties?.find(
+        (p: any) => p.id === "env_file",
+      );
+      expect(envFileProperty).toBeUndefined();
+
+      // env_file_has_markers flag should NOT be set
+      const markersFlag = appJson.properties?.find(
+        (p: any) => p.id === "env_file_has_markers",
+      );
+      expect(markersFlag).toBeUndefined();
     },
     60000,
   );
