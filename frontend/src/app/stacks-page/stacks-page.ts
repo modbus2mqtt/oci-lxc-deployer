@@ -12,11 +12,11 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
-import { ITrack, ITrackEntry, ITracktypeEntry } from '../../shared/types';
+import { IStack, IStackEntry, IStacktypeEntry } from '../../shared/types';
 import { KeyValueTableComponent, KeyValuePair } from '../shared/components/key-value-table.component';
 
 @Component({
-  selector: 'app-tracks-page',
+  selector: 'app-stacks-page',
   standalone: true,
   imports: [
     CommonModule,
@@ -33,175 +33,215 @@ import { KeyValueTableComponent, KeyValuePair } from '../shared/components/key-v
     MatTooltipModule,
     KeyValueTableComponent
   ],
-  templateUrl: './tracks-page.html',
-  styleUrl: './tracks-page.scss'
+  templateUrl: './stacks-page.html',
+  styleUrl: './stacks-page.scss'
 })
-export class TracksPage implements OnInit {
+export class StacksPage implements OnInit {
   private configService = inject(VeConfigurationService);
   private errorHandler = inject(ErrorHandlerService);
 
   loading = signal(false);
-  tracktypes = signal<ITracktypeEntry[]>([]);
-  tracks = signal<ITrack[]>([]);
-  selectedTracktype = signal<string>('');
+  stacktypes = signal<IStacktypeEntry[]>([]);
+  stacks = signal<IStack[]>([]);
+  selectedStacktype = signal<string>('');
 
-  // For creating/editing a track
-  editingTrack = signal<ITrack | null>(null);
+  // For creating/editing a stack
+  editingStack = signal<IStack | null>(null);
   isCreating = signal(false);
 
-  // Form for new/edit track
-  trackForm = new FormGroup({
+  // Form for new/edit stack
+  stackForm = new FormGroup({
     name: new FormControl('', Validators.required),
-    tracktype: new FormControl('', Validators.required)
+    stacktype: new FormControl('', Validators.required)
   });
 
-  // Track entries as signal for KeyValueTableComponent
-  trackEntries = signal<KeyValuePair[]>([]);
+  // Stack entries as signal for KeyValueTableComponent
+  stackEntries = signal<KeyValuePair[]>([]);
 
   ngOnInit(): void {
-    this.loadTracktypes();
+    this.loadStacktypes();
   }
 
-  loadTracktypes(): void {
+  loadStacktypes(): void {
     this.loading.set(true);
-    this.configService.getTracktypes().subscribe({
+    this.configService.getStacktypes().subscribe({
       next: (res) => {
-        this.tracktypes.set(res.tracktypes);
-        // Auto-select first tracktype
-        if (res.tracktypes.length > 0) {
-          this.selectedTracktype.set(res.tracktypes[0].name);
-          this.loadTracks();
+        this.stacktypes.set(res.stacktypes);
+        // Auto-select first stacktype
+        if (res.stacktypes.length > 0) {
+          this.selectedStacktype.set(res.stacktypes[0].name);
+          this.loadStacks();
         } else {
           this.loading.set(false);
         }
       },
       error: (err) => {
-        this.errorHandler.handleError('Failed to load track types', err);
+        this.errorHandler.handleError('Failed to load stack types', err);
         this.loading.set(false);
       }
     });
   }
 
-  loadTracks(): void {
-    const tracktype = this.selectedTracktype();
-    if (!tracktype) {
+  loadStacks(): void {
+    const stacktype = this.selectedStacktype();
+    if (!stacktype) {
       this.loading.set(false);
       return;
     }
 
     this.loading.set(true);
-    this.configService.getTracks(tracktype).subscribe({
+    this.configService.getStacks(stacktype).subscribe({
       next: (res) => {
-        this.tracks.set(res.tracks);
+        this.stacks.set(res.stacks);
         this.loading.set(false);
       },
       error: (err) => {
-        this.errorHandler.handleError('Failed to load tracks', err);
+        this.errorHandler.handleError('Failed to load stacks', err);
         this.loading.set(false);
       }
     });
   }
 
-  onTracktypeChange(tracktype: string): void {
-    this.selectedTracktype.set(tracktype);
+  onStacktypeChange(stacktype: string): void {
+    this.selectedStacktype.set(stacktype);
     this.cancelEdit();
-    this.loadTracks();
+    this.loadStacks();
   }
 
   startCreate(): void {
     this.isCreating.set(true);
-    this.editingTrack.set(null);
-    this.trackForm.reset();
-    this.trackForm.patchValue({ tracktype: this.selectedTracktype() });
-    this.trackEntries.set([]);
+    this.editingStack.set(null);
+    this.stackForm.reset();
+    this.stackForm.patchValue({ stacktype: this.selectedStacktype() });
+
+    // Load variables from stacktype definition
+    const stacktype = this.stacktypes().find(st => st.name === this.selectedStacktype());
+    if (stacktype) {
+      // Sort: external (required) first, then auto-generate
+      const sorted = [...stacktype.entries].sort((a, b) => {
+        if (a.external && !b.external) return -1;
+        if (!a.external && b.external) return 1;
+        return 0;
+      });
+      // Create KeyValuePairs with placeholder info
+      this.stackEntries.set(sorted.map(v => ({
+        key: v.name,
+        value: '',
+        placeholder: v.external ? '' : 'Wird automatisch generiert',
+        required: v.external ?? false,
+        readonly: true  // Key is readonly (defined by stacktype)
+      })));
+    } else {
+      this.stackEntries.set([]);
+    }
   }
 
-  startEdit(track: ITrack): void {
+  startEdit(stack: IStack): void {
     this.isCreating.set(false);
-    this.editingTrack.set(track);
-    this.trackForm.patchValue({
-      name: track.name,
-      tracktype: track.tracktype
+    this.editingStack.set(stack);
+    this.stackForm.patchValue({
+      name: stack.name,
+      stacktype: stack.stacktype
     });
-    // Convert ITrackEntry[] to KeyValuePair[]
-    this.trackEntries.set(track.entries.map(e => ({
-      key: e.name,
-      value: String(e.value)
-    })));
+
+    // Load stacktype definition for metadata
+    const stacktype = this.stacktypes().find(st => st.name === stack.stacktype);
+    const variableMap = new Map(stacktype?.entries.map(v => [v.name, v]) ?? []);
+
+    // Sort entries: external first, then auto-generate
+    const sortedEntries = [...stack.entries].sort((a, b) => {
+      const aExternal = variableMap.get(a.name)?.external ?? false;
+      const bExternal = variableMap.get(b.name)?.external ?? false;
+      if (aExternal && !bExternal) return -1;
+      if (!aExternal && bExternal) return 1;
+      return 0;
+    });
+
+    // Convert IStackEntry[] to KeyValuePair[] with metadata
+    this.stackEntries.set(sortedEntries.map(e => {
+      const varDef = variableMap.get(e.name);
+      return {
+        key: e.name,
+        value: String(e.value),
+        placeholder: varDef?.external ? '' : 'Wird automatisch generiert',
+        required: varDef?.external ?? false,
+        readonly: true
+      };
+    }));
   }
 
   cancelEdit(): void {
     this.isCreating.set(false);
-    this.editingTrack.set(null);
-    this.trackForm.reset();
-    this.trackEntries.set([]);
+    this.editingStack.set(null);
+    this.stackForm.reset();
+    this.stackEntries.set([]);
   }
 
-  saveTrack(): void {
-    if (this.trackForm.invalid) return;
+  saveStack(): void {
+    if (this.stackForm.invalid) return;
 
-    const formValue = this.trackForm.value;
-    const entries: ITrackEntry[] = this.trackEntries().map(kv => ({
+    const formValue = this.stackForm.value;
+    const entries: IStackEntry[] = this.stackEntries().map(kv => ({
       name: kv.key,
       value: kv.value
     }));
 
-    const track: Omit<ITrack, 'id'> = {
+    const stack: Omit<IStack, 'id'> = {
       name: formValue.name!,
-      tracktype: formValue.tracktype!,
+      stacktype: formValue.stacktype!,
       entries
     };
 
     this.loading.set(true);
 
-    if (this.editingTrack()) {
-      // Update existing track
-      this.configService.updateTrack({ ...track, id: this.editingTrack()!.id }).subscribe({
+    if (this.editingStack()) {
+      // Update existing stack
+      this.configService.updateStack({ ...stack, id: this.editingStack()!.id }).subscribe({
         next: () => {
           this.cancelEdit();
-          this.loadTracks();
+          this.loadStacks();
         },
         error: (err) => {
-          this.errorHandler.handleError('Failed to update track', err);
+          this.errorHandler.handleError('Failed to update stack', err);
           this.loading.set(false);
         }
       });
     } else {
-      // Create new track
-      this.configService.createTrack(track).subscribe({
+      // Create new stack
+      this.configService.createStack(stack).subscribe({
         next: () => {
           this.cancelEdit();
-          this.loadTracks();
+          this.loadStacks();
         },
         error: (err) => {
-          this.errorHandler.handleError('Failed to create track', err);
+          this.errorHandler.handleError('Failed to create stack', err);
           this.loading.set(false);
         }
       });
     }
   }
 
-  deleteTrack(track: ITrack, event: Event): void {
+  deleteStack(stack: IStack, event: Event): void {
     event.stopPropagation();
-    if (!confirm(`Delete track "${track.name}"?`)) return;
+    if (!confirm(`Delete stack "${stack.name}"?`)) return;
 
     this.loading.set(true);
-    this.configService.deleteTrack(track.name).subscribe({
+    this.configService.deleteStack(stack.name).subscribe({
       next: () => {
-        this.loadTracks();
+        this.loadStacks();
       },
       error: (err) => {
-        this.errorHandler.handleError('Failed to delete track', err);
+        this.errorHandler.handleError('Failed to delete stack', err);
         this.loading.set(false);
       }
     });
   }
 
   onEntriesChange(entries: KeyValuePair[]): void {
-    this.trackEntries.set(entries);
+    this.stackEntries.set(entries);
   }
 
   isEditing(): boolean {
-    return this.isCreating() || this.editingTrack() !== null;
+    return this.isCreating() || this.editingStack() !== null;
   }
 }

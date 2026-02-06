@@ -1,4 +1,4 @@
-.tracks-page {
+.stacks-page {
   padding: 1.5rem;
   max-width: 900px;
   margin: 0 auto;
@@ -21,14 +21,14 @@
   }
 }
 
-.tracks-controls {
+.stacks-controls {
   display: flex;
   gap: 1rem;
   align-items: flex-start;
   margin-bottom: 1.5rem;
   flex-wrap: wrap;
 
-  .tracktype-selector {
+  .stacktype-selector {
     min-width: 200px;
     flex: 0 1 auto;
   }
@@ -44,7 +44,7 @@
   padding: 2rem;
 }
 
-.track-form-card {
+.stack-form-card {
   margin-bottom: 1.5rem;
 
   mat-card-header {
@@ -64,7 +64,7 @@
       flex: 1 1 200px;
     }
 
-    .tracktype-field {
+    .stacktype-field {
       flex: 0 1 200px;
     }
   }
@@ -93,8 +93,8 @@
   }
 }
 
-.tracks-list {
-  .no-tracks {
+.stacks-list {
+  .no-stacks {
     text-align: center;
     padding: 3rem 1rem;
     color: #666;
@@ -123,7 +123,7 @@
   }
 }
 
-.track-entries {
+.stack-entries {
   .no-entries {
     color: #999;
     font-style: italic;

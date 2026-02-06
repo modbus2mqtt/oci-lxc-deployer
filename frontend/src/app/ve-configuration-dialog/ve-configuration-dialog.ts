@@ -4,13 +4,13 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialog } from '@angu
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters, ITrack, ITracktypeEntry } from '../../shared/types';
+import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters, IStack, IStacktypeEntry } from '../../shared/types';
 import { VeConfigurationService, VeConfigurationParam } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { DockerComposeService } from '../shared/services/docker-compose.service';
 import { ParameterGroupComponent } from './parameter-group.component';
 import { TemplateTraceDialog } from './template-trace-dialog';
-import { CreateTrackDialog, CreateTrackDialogData, CreateTrackDialogResult } from '../tracks-page/create-track-dialog';
+import { CreateStackDialog, CreateStackDialogData, CreateStackDialogResult } from '../stacks-page/create-stack-dialog';
 import type { NavigationExtras } from '@angular/router';
 
 /**
@@ -50,10 +50,10 @@ export class VeConfigurationDialog implements OnInit {
   expandedAddons = signal<string[]>([]);
   addonsLoading = signal(false);
 
-  // Track selection state
-  availableTracks = signal<ITrack[]>([]);
-  availableTracktypes = signal<ITracktypeEntry[]>([]);
-  tracksLoading = signal(false);
+  // Stack selection state
+  availableStacks = signal<IStack[]>([]);
+  availableStacktypes = signal<IStacktypeEntry[]>([]);
+  stacksLoading = signal(false);
   private initialValues = new Map<string, IParameterValue>();
   private enumRefreshAttempted = false;
   private configService: VeConfigurationService = inject(VeConfigurationService);
@@ -70,9 +70,9 @@ export class VeConfigurationDialog implements OnInit {
     this.form = this.fb.group({});
   }
   ngOnInit(): void {
-    // Load compatible addons and tracks in parallel with parameters
+    // Load compatible addons and stacks in parallel with parameters
     this.loadCompatibleAddons();
-    this.loadTracks();
+    this.loadStacks();
 
     // For demo purposes: use 'installation' as the default task, can be extended
     this.configService.getUnresolvedParameters(this.data.app.id, this.task).subscribe({
@@ -195,35 +195,35 @@ export class VeConfigurationDialog implements OnInit {
     });
   }
 
-  private loadTracks(): void {
-    this.tracksLoading.set(true);
-    // Load tracktypes first, then load all tracks
-    this.configService.getTracktypes().subscribe({
+  private loadStacks(): void {
+    this.stacksLoading.set(true);
+    // Load stacktypes first, then load all stacks
+    this.configService.getStacktypes().subscribe({
       next: (res) => {
-        this.availableTracktypes.set(res.tracktypes);
-        // Load all tracks (no filter - show all available)
-        this.configService.getTracks().subscribe({
-          next: (tracksRes) => {
-            this.availableTracks.set(tracksRes.tracks);
-            this.tracksLoading.set(false);
+        this.availableStacktypes.set(res.stacktypes);
+        // Load all stacks (no filter - show all available)
+        this.configService.getStacks().subscribe({
+          next: (stacksRes) => {
+            this.availableStacks.set(stacksRes.stacks);
+            this.stacksLoading.set(false);
           },
           error: () => {
-            // Don't show error for tracks - they're optional
-            this.tracksLoading.set(false);
+            // Don't show error for stacks - they're optional
+            this.stacksLoading.set(false);
           }
         });
       },
       error: () => {
-        // Don't show error for tracktypes - they're optional
-        this.tracksLoading.set(false);
+        // Don't show error for stacktypes - they're optional
+        this.stacksLoading.set(false);
       }
     });
   }
 
-  onTrackSelected(track: ITrack): void {
-    // Convert track entries to Map for marker replacement
+  onStackSelected(stack: IStack): void {
+    // Convert stack entries to Map for marker replacement
     const envVars = new Map<string, string>();
-    for (const entry of track.entries) {
+    for (const entry of stack.entries) {
       envVars.set(entry.name, String(entry.value));
     }
 
@@ -240,27 +240,27 @@ export class VeConfigurationDialog implements OnInit {
     }
   }
 
-  onCreateTrackRequested(): void {
+  onCreateStackRequested(): void {
     // Get markers that need to be filled
     const envMarkers = this.composeService.extractMarkers(this.form.get('envs')?.value || '');
     const envFileMarkers = this.composeService.extractMarkersFromBase64(this.form.get('env_file')?.value || '');
     const suggestedEntries = [...new Set([...envMarkers, ...envFileMarkers])];
 
-    const dialogData: CreateTrackDialogData = {
-      tracktypes: this.availableTracktypes(),
+    const dialogData: CreateStackDialogData = {
+      stacktypes: this.availableStacktypes(),
       suggestedEntries
     };
 
-    const dialogRef = this.dialog.open(CreateTrackDialog, {
+    const dialogRef = this.dialog.open(CreateStackDialog, {
       width: '600px',
       data: dialogData
     });
 
-    dialogRef.afterClosed().subscribe((result: CreateTrackDialogResult | undefined) => {
-      if (result?.track) {
-        // Add to available tracks and apply it
-        this.availableTracks.update(tracks => [...tracks, result.track]);
-        this.onTrackSelected(result.track);
+    dialogRef.afterClosed().subscribe((result: CreateStackDialogResult | undefined) => {
+      if (result?.stack) {
+        // Add to available stacks and apply it
+        this.availableStacks.update(stacks => [...stacks, result.stack]);
+        this.onStackSelected(result.stack);
       }
     });
   }

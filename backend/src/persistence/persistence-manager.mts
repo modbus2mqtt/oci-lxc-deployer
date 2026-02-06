@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { JsonValidator } from "../jsonvalidator.mjs";
 import { IConfiguredPathes } from "../backend-types.mjs";
-import { ITagsConfig, ITracktypeEntry } from "../types.mjs";
+import { ITagsConfig, IStacktypeEntry } from "../types.mjs";
 import { FileSystemPersistence } from "./filesystem-persistence.mjs";
 import {
   IApplicationPersistence,
@@ -206,15 +206,21 @@ export class PersistenceManager {
   }
 
   /**
-   * Returns the tracktypes configuration from json/tracktypes.json
+   * Returns the stacktypes configuration from json/stacktypes/ directory.
+   * Each .json file in the directory represents a stacktype (filename = name).
    */
-  getTracktypes(): ITracktypeEntry[] {
-    const tracktypesPath = path.join(this.pathes.jsonPath, "tracktypes.json");
-    if (!fs.existsSync(tracktypesPath)) {
+  getStacktypes(): IStacktypeEntry[] {
+    const stacktypesDir = path.join(this.pathes.jsonPath, "stacktypes");
+    if (!fs.existsSync(stacktypesDir)) {
       return [];
     }
-    const content = fs.readFileSync(tracktypesPath, "utf-8");
-    return JSON.parse(content) as ITracktypeEntry[];
+    const files = fs.readdirSync(stacktypesDir).filter(f => f.endsWith(".json"));
+    return files.map(file => {
+      const name = path.basename(file, ".json");
+      const content = fs.readFileSync(path.join(stacktypesDir, file), "utf-8");
+      const entries = JSON.parse(content) as { name: string }[];
+      return { name, entries };
+    });
   }
 
   // Alias für Rückwärtskompatibilität (kann später entfernt werden)

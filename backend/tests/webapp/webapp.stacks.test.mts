@@ -4,7 +4,7 @@ import express from "express";
 import { ApiUri } from "@src/types.mjs";
 import { createWebAppTestSetup, type WebAppTestSetup } from "../helper/webapp-test-helper.mjs";
 
-describe("Track API", () => {
+describe("Stack API", () => {
   let app: express.Application;
   let setup: WebAppTestSetup;
 
@@ -17,213 +17,213 @@ describe("Track API", () => {
     setup.cleanup();
   });
 
-  describe("POST /api/tracks", () => {
-    it("creates a new track and stores it in context", async () => {
-      const track = {
-        id: "track1",
-        name: "Test Track",
-        tracktype: "music",
+  describe("POST /api/stacks", () => {
+    it("creates a new stack and stores it in context", async () => {
+      const stack = {
+        id: "stack1",
+        name: "Test Stack",
+        stacktype: "music",
         entries: [{ name: "artist", value: "Test Artist" }],
       };
-      const res = await request(app).post(ApiUri.Tracks).send(track);
+      const res = await request(app).post(ApiUri.Stacks).send(stack);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.key).toBe("track_Test Track");
+      expect(res.body.key).toBe("stack_Test Stack");
 
-      // Verify track is stored in context
-      const storedTrack = setup.ctx.getTrack("Test Track");
-      expect(storedTrack).not.toBeNull();
-      expect(storedTrack?.id).toBe("track1");
-      expect(storedTrack?.name).toBe("Test Track");
-      expect(storedTrack?.tracktype).toBe("music");
-      expect(storedTrack?.entries).toEqual([{ name: "artist", value: "Test Artist" }]);
+      // Verify stack is stored in context
+      const storedStack = setup.ctx.getStack("Test Stack");
+      expect(storedStack).not.toBeNull();
+      expect(storedStack?.id).toBe("stack1");
+      expect(storedStack?.name).toBe("Test Stack");
+      expect(storedStack?.stacktype).toBe("music");
+      expect(storedStack?.entries).toEqual([{ name: "artist", value: "Test Artist" }]);
     });
 
     it("returns error for missing id", async () => {
       const res = await request(app)
-        .post(ApiUri.Tracks)
-        .send({ name: "Test", tracktype: "music", entries: [] });
+        .post(ApiUri.Stacks)
+        .send({ name: "Test", stacktype: "music", entries: [] });
       expect(res.status).toBe(400);
       expect(res.body.error).toContain("Missing required fields");
     });
 
     it("returns error for missing name", async () => {
       const res = await request(app)
-        .post(ApiUri.Tracks)
-        .send({ id: "t1", tracktype: "music", entries: [] });
+        .post(ApiUri.Stacks)
+        .send({ id: "t1", stacktype: "music", entries: [] });
       expect(res.status).toBe(400);
       expect(res.body.error).toContain("Missing required fields");
     });
 
-    it("returns error for missing tracktype", async () => {
+    it("returns error for missing stacktype", async () => {
       const res = await request(app)
-        .post(ApiUri.Tracks)
+        .post(ApiUri.Stacks)
         .send({ id: "t1", name: "Test", entries: [] });
       expect(res.status).toBe(400);
       expect(res.body.error).toContain("Missing required fields");
     });
   });
 
-  describe("GET /api/tracks", () => {
+  describe("GET /api/stacks", () => {
     it("returns empty list initially", async () => {
-      const res = await request(app).get(ApiUri.Tracks);
+      const res = await request(app).get(ApiUri.Stacks);
       expect(res.status).toBe(200);
-      expect(res.body.tracks).toEqual([]);
+      expect(res.body.stacks).toEqual([]);
     });
 
-    it("returns all tracks", async () => {
-      await request(app).post(ApiUri.Tracks).send({
+    it("returns all stacks", async () => {
+      await request(app).post(ApiUri.Stacks).send({
         id: "t1",
-        name: "Track 1",
-        tracktype: "music",
+        name: "Stack 1",
+        stacktype: "music",
         entries: [],
       });
-      await request(app).post(ApiUri.Tracks).send({
+      await request(app).post(ApiUri.Stacks).send({
         id: "t2",
-        name: "Track 2",
-        tracktype: "video",
+        name: "Stack 2",
+        stacktype: "video",
         entries: [],
       });
 
-      const res = await request(app).get(ApiUri.Tracks);
+      const res = await request(app).get(ApiUri.Stacks);
       expect(res.status).toBe(200);
-      expect(res.body.tracks.length).toBe(2);
+      expect(res.body.stacks.length).toBe(2);
     });
 
-    it("filters by tracktype", async () => {
-      await request(app).post(ApiUri.Tracks).send({
+    it("filters by stacktype", async () => {
+      await request(app).post(ApiUri.Stacks).send({
         id: "t1",
-        name: "Track 1",
-        tracktype: "music",
+        name: "Stack 1",
+        stacktype: "music",
         entries: [],
       });
-      await request(app).post(ApiUri.Tracks).send({
+      await request(app).post(ApiUri.Stacks).send({
         id: "t2",
-        name: "Track 2",
-        tracktype: "video",
+        name: "Stack 2",
+        stacktype: "video",
         entries: [],
       });
-      await request(app).post(ApiUri.Tracks).send({
+      await request(app).post(ApiUri.Stacks).send({
         id: "t3",
-        name: "Track 3",
-        tracktype: "music",
+        name: "Stack 3",
+        stacktype: "music",
         entries: [],
       });
 
-      const res = await request(app).get(`${ApiUri.Tracks}?tracktype=music`);
+      const res = await request(app).get(`${ApiUri.Stacks}?stacktype=music`);
       expect(res.status).toBe(200);
-      expect(res.body.tracks.length).toBe(2);
-      expect(res.body.tracks.every((t: { tracktype: string }) => t.tracktype === "music")).toBe(true);
+      expect(res.body.stacks.length).toBe(2);
+      expect(res.body.stacks.every((t: { stacktype: string }) => t.stacktype === "music")).toBe(true);
     });
 
-    it("returns empty list when filtering by non-existent tracktype", async () => {
-      await request(app).post(ApiUri.Tracks).send({
+    it("returns empty list when filtering by non-existent stacktype", async () => {
+      await request(app).post(ApiUri.Stacks).send({
         id: "t1",
-        name: "Track 1",
-        tracktype: "music",
+        name: "Stack 1",
+        stacktype: "music",
         entries: [],
       });
 
-      const res = await request(app).get(`${ApiUri.Tracks}?tracktype=nonexistent`);
+      const res = await request(app).get(`${ApiUri.Stacks}?stacktype=nonexistent`);
       expect(res.status).toBe(200);
-      expect(res.body.tracks).toEqual([]);
+      expect(res.body.stacks).toEqual([]);
     });
   });
 
-  describe("GET /api/track/:id", () => {
-    it("returns 404 for non-existent track", async () => {
-      const res = await request(app).get(ApiUri.Track.replace(":id", "unknown"));
+  describe("GET /api/stack/:id", () => {
+    it("returns 404 for non-existent stack", async () => {
+      const res = await request(app).get(ApiUri.Stack.replace(":id", "unknown"));
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe("Track not found");
+      expect(res.body.error).toBe("Stack not found");
     });
 
-    it("returns track by name", async () => {
-      await request(app).post(ApiUri.Tracks).send({
-        id: "mytrack",
-        name: "My Track",
-        tracktype: "audio",
+    it("returns stack by name", async () => {
+      await request(app).post(ApiUri.Stacks).send({
+        id: "mystack",
+        name: "My Stack",
+        stacktype: "audio",
         entries: [{ name: "duration", value: 180 }],
       });
 
-      const res = await request(app).get(ApiUri.Track.replace(":id", "My Track"));
+      const res = await request(app).get(ApiUri.Stack.replace(":id", "My Stack"));
       expect(res.status).toBe(200);
-      expect(res.body.track.id).toBe("mytrack");
-      expect(res.body.track.name).toBe("My Track");
-      expect(res.body.track.tracktype).toBe("audio");
-      expect(res.body.track.entries).toEqual([{ name: "duration", value: 180 }]);
+      expect(res.body.stack.id).toBe("mystack");
+      expect(res.body.stack.name).toBe("My Stack");
+      expect(res.body.stack.stacktype).toBe("audio");
+      expect(res.body.stack.entries).toEqual([{ name: "duration", value: 180 }]);
     });
 
-    it("returns track by key with track_ prefix", async () => {
-      await request(app).post(ApiUri.Tracks).send({
-        id: "mytrack",
-        name: "My Track",
-        tracktype: "audio",
+    it("returns stack by key with stack_ prefix", async () => {
+      await request(app).post(ApiUri.Stacks).send({
+        id: "mystack",
+        name: "My Stack",
+        stacktype: "audio",
         entries: [],
       });
 
-      const res = await request(app).get(ApiUri.Track.replace(":id", "track_My Track"));
+      const res = await request(app).get(ApiUri.Stack.replace(":id", "stack_My Stack"));
       expect(res.status).toBe(200);
-      expect(res.body.track.name).toBe("My Track");
+      expect(res.body.stack.name).toBe("My Stack");
     });
   });
 
-  describe("DELETE /api/track/:id", () => {
-    it("deletes existing track from context", async () => {
-      await request(app).post(ApiUri.Tracks).send({
+  describe("DELETE /api/stack/:id", () => {
+    it("deletes existing stack from context", async () => {
+      await request(app).post(ApiUri.Stacks).send({
         id: "todelete",
         name: "Delete Me",
-        tracktype: "test",
+        stacktype: "test",
         entries: [],
       });
 
-      // Verify track exists in context before deletion
-      expect(setup.ctx.getTrack("Delete Me")).not.toBeNull();
+      // Verify stack exists in context before deletion
+      expect(setup.ctx.getStack("Delete Me")).not.toBeNull();
 
-      const res = await request(app).delete(ApiUri.Track.replace(":id", "Delete Me"));
+      const res = await request(app).delete(ApiUri.Stack.replace(":id", "Delete Me"));
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.deleted).toBe(true);
 
-      // Verify track is removed from context
-      expect(setup.ctx.getTrack("Delete Me")).toBeNull();
+      // Verify stack is removed from context
+      expect(setup.ctx.getStack("Delete Me")).toBeNull();
 
       // Verify via API as well
-      const getRes = await request(app).get(ApiUri.Track.replace(":id", "Delete Me"));
+      const getRes = await request(app).get(ApiUri.Stack.replace(":id", "Delete Me"));
       expect(getRes.status).toBe(404);
     });
 
-    it("returns deleted=false for non-existent track", async () => {
-      const res = await request(app).delete(ApiUri.Track.replace(":id", "nonexistent"));
+    it("returns deleted=false for non-existent stack", async () => {
+      const res = await request(app).delete(ApiUri.Stack.replace(":id", "nonexistent"));
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
       expect(res.body.deleted).toBe(false);
     });
 
-    it("deletes track using track_ prefix and removes from context", async () => {
-      await request(app).post(ApiUri.Tracks).send({
+    it("deletes stack using stack_ prefix and removes from context", async () => {
+      await request(app).post(ApiUri.Stacks).send({
         id: "todelete",
         name: "Delete Me",
-        tracktype: "test",
+        stacktype: "test",
         entries: [],
       });
 
-      // Verify track exists in context
-      expect(setup.ctx.getTrack("Delete Me")).not.toBeNull();
+      // Verify stack exists in context
+      expect(setup.ctx.getStack("Delete Me")).not.toBeNull();
 
-      const res = await request(app).delete(ApiUri.Track.replace(":id", "track_Delete Me"));
+      const res = await request(app).delete(ApiUri.Stack.replace(":id", "stack_Delete Me"));
       expect(res.status).toBe(200);
       expect(res.body.deleted).toBe(true);
 
-      // Verify track is removed from context
-      expect(setup.ctx.getTrack("Delete Me")).toBeNull();
+      // Verify stack is removed from context
+      expect(setup.ctx.getStack("Delete Me")).toBeNull();
     });
   });
 
-  describe("GET /api/tracktypes", () => {
-    it("returns empty list when no tracktypes.json exists", async () => {
-      const res = await request(app).get(ApiUri.Tracktypes);
+  describe("GET /api/stacktypes", () => {
+    it("returns empty list when no stacktypes.json exists", async () => {
+      const res = await request(app).get(ApiUri.Stacktypes);
       expect(res.status).toBe(200);
-      expect(res.body.tracktypes).toEqual([]);
+      expect(res.body.stacktypes).toEqual([]);
     });
   });
 });

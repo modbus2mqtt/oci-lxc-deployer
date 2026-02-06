@@ -12,7 +12,7 @@ import { MatCardModule } from '@angular/material/card';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked } from 'marked';
 import * as yaml from 'js-yaml';
-import { IParameter, IJsonError, ITrack } from '../../shared/types';
+import { IParameter, IJsonError, IStack } from '../../shared/types';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { DockerComposeService } from '../shared/services/docker-compose.service';
 
@@ -40,17 +40,17 @@ export class ParameterGroupComponent implements OnInit {
   @Input({ required: true }) form!: FormGroup;
   @Input({ required: true }) showAdvanced!: boolean;
 
-  // Track selection inputs/outputs
-  @Input() availableTracks: ITrack[] = [];
-  @Output() trackSelected = new EventEmitter<ITrack>();
-  @Output() createTrackRequested = new EventEmitter<void>();
+  // Stack selection inputs/outputs
+  @Input() availableStacks: IStack[] = [];
+  @Output() stackSelected = new EventEmitter<IStack>();
+  @Output() createStackRequested = new EventEmitter<void>();
 
   private errorHandler = inject(ErrorHandlerService);
   private sanitizer = inject(DomSanitizer);
   private composeService = inject(DockerComposeService);
   expandedHelp: Record<string, boolean> = {};
   
-  // Track uploaded file names for display
+  // Stack uploaded file names for display
   uploadedFileNames: Record<string, string> = {};
   
   // Extracted compose properties
@@ -61,23 +61,23 @@ export class ParameterGroupComponent implements OnInit {
     networks?: string;
   } | null>(null);
 
-  // Secret env file upload - tracks uploaded filename for display
+  // Secret env file upload - stacks uploaded filename for display
   secretEnvFileName = '';
 
-  // Track selection state
-  selectedTrack: ITrack | null = null;
+  // Stack selection state
+  selectedStack: IStack | null = null;
 
-  onTrackSelect(track: ITrack): void {
-    this.selectedTrack = track;
-    this.trackSelected.emit(track);
+  onStackSelect(stack: IStack): void {
+    this.selectedStack = stack;
+    this.stackSelected.emit(stack);
   }
 
-  onCreateTrack(): void {
-    this.createTrackRequested.emit();
+  onCreateStack(): void {
+    this.createStackRequested.emit();
   }
 
-  hasTracksAvailable(): boolean {
-    return this.availableTracks.length > 0;
+  hasStacksAvailable(): boolean {
+    return this.availableStacks.length > 0;
   }
 
   // ==================== Marker Detection (delegates to service) ====================

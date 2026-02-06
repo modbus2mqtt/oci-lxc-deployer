@@ -10,6 +10,9 @@ import { MatRadioModule } from '@angular/material/radio';
 export interface KeyValuePair {
   key: string;
   value: string | number;
+  placeholder?: string;  // Optional per-row placeholder for value field
+  required?: boolean;    // Optional required flag (shows visual indicator)
+  readonly?: boolean;    // Optional per-row readonly flag for key field
 }
 
 @Component({
@@ -40,36 +43,41 @@ export interface KeyValuePair {
             }
             <div class="col key">
               <mat-form-field appearance="fill" class="field">
-                <input 
-                  matInput 
-                  [(ngModel)]="item.key" 
-                  [name]="'key' + idx" 
+                <input
+                  matInput
+                  [(ngModel)]="item.key"
+                  [name]="'key' + idx"
                   [placeholder]="keyPlaceholder"
                   (blur)="onKeyChange(idx, item.key)"
-                  [readonly]="readonly"
+                  [readonly]="readonly || item.readonly"
                 />
+                @if (item.required) {
+                  <span matSuffix class="required-indicator">*</span>
+                }
               </mat-form-field>
             </div>
             <div class="col value">
               <mat-form-field appearance="fill" class="field">
                 @if (valueType === 'number') {
-                  <input 
-                    matInput 
-                    type="number" 
-                    [(ngModel)]="item.value" 
-                    [name]="'value' + idx" 
-                    [placeholder]="valuePlaceholder"
+                  <input
+                    matInput
+                    type="number"
+                    [(ngModel)]="item.value"
+                    [name]="'value' + idx"
+                    [placeholder]="item.placeholder || valuePlaceholder"
                     (blur)="onValueChange(idx, item.value)"
                     [readonly]="readonly"
+                    [required]="item.required ?? false"
                   />
                 } @else {
-                  <input 
-                    matInput 
-                    [(ngModel)]="item.value" 
-                    [name]="'value' + idx" 
-                    [placeholder]="valuePlaceholder"
+                  <input
+                    matInput
+                    [(ngModel)]="item.value"
+                    [name]="'value' + idx"
+                    [placeholder]="item.placeholder || valuePlaceholder"
                     (blur)="onValueChange(idx, item.value)"
                     [readonly]="readonly"
+                    [required]="item.required ?? false"
                   />
                 }
               </mat-form-field>
@@ -199,6 +207,12 @@ export interface KeyValuePair {
     
     .add-row {
       margin-top: 0.5rem;
+    }
+
+    .required-indicator {
+      color: #f44336;
+      font-weight: bold;
+      margin-left: 4px;
     }
   `]
 })

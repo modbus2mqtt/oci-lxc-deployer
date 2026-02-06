@@ -206,8 +206,8 @@
   }
 }
 
-// Track selector and env file upload section
-.track-or-env-upload {
+// Stack selector and env file upload section
+.stack-or-env-upload {
   width: 100%;
   min-width: 100%;
   max-width: 100%;
@@ -225,18 +225,18 @@
     font-family: monospace;
   }
 
-  .track-selector-row {
+  .stack-selector-row {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
 
-    .track-select-field {
+    .stack-select-field {
       flex: 1;
       min-width: 200px;
     }
 
-    .create-track-btn {
+    .create-stack-btn {
       margin-top: 4px;
     }
   }

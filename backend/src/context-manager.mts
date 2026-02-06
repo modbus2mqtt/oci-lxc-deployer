@@ -8,7 +8,7 @@ import {
   storageKey as storageContextKey,
 } from "./backend-types.mjs";
 import { TemplateProcessor } from "./templates/templateprocessor.mjs";
-import { ISsh, TaskType, ITrack, ITrackEntry } from "./types.mjs";
+import { ISsh, TaskType, IStack, IStackEntry } from "./types.mjs";
 import { Context } from "./context.mjs";
 import { Ssh } from "./ssh.mjs";
 import { IApplicationPersistence, ITemplatePersistence } from "./persistence/interfaces.mjs";
@@ -43,21 +43,21 @@ export class VMInstallContext implements IVMInstallContext {
   }
 }
 
-export class TrackContext implements ITrack {
+export class StackContext implements IStack {
   id: string;
   name: string;
-  tracktype: string;
-  entries: ITrackEntry[];
+  stacktype: string;
+  entries: IStackEntry[];
 
-  constructor(data: ITrack) {
+  constructor(data: IStack) {
     this.id = data.id;
     this.name = data.name;
-    this.tracktype = data.tracktype;
+    this.stacktype = data.stacktype;
     this.entries = data.entries || [];
   }
 
   getKey(): string {
-    return `track_${this.name}`;
+    return `stack_${this.name}`;
   }
 }
 
@@ -122,7 +122,7 @@ export class ContextManager extends Context implements IContext {
       }
     }
     this.loadContexts("vminstall", VMInstallContext);
-    this.loadContexts("track", TrackContext);
+    this.loadContexts("stack", StackContext);
   }
   getLocalPath(): string {
     return this.pathes.localPath;
@@ -225,36 +225,36 @@ export class ContextManager extends Context implements IContext {
     return null;
   }
 
-  // Track methods
-  addTrack(track: ITrack): string {
-    const ctx = new TrackContext(track);
+  // Stack methods
+  addStack(stack: IStack): string {
+    const ctx = new StackContext(stack);
     this.set(ctx.getKey(), ctx);
     return ctx.getKey();
   }
 
-  getTrack(id: string): ITrack | null {
-    // id is "track_<name>" or just the name
-    const key = id.startsWith("track_") ? id : `track_${id}`;
+  getStack(id: string): IStack | null {
+    // id is "stack_<name>" or just the name
+    const key = id.startsWith("stack_") ? id : `stack_${id}`;
     const value = this.get(key);
-    if (value instanceof TrackContext) return value;
+    if (value instanceof StackContext) return value;
     return null;
   }
 
-  listTracks(tracktype?: string): ITrack[] {
-    const tracks: ITrack[] = [];
-    for (const key of this.keys().filter((k) => k.startsWith("track_"))) {
+  listStacks(stacktype?: string): IStack[] {
+    const stacks: IStack[] = [];
+    for (const key of this.keys().filter((k) => k.startsWith("stack_"))) {
       const value = this.get(key);
-      if (value instanceof TrackContext) {
-        if (!tracktype || value.tracktype === tracktype) {
-          tracks.push(value);
+      if (value instanceof StackContext) {
+        if (!stacktype || value.stacktype === stacktype) {
+          stacks.push(value);
         }
       }
     }
-    return tracks;
+    return stacks;
   }
 
-  deleteTrack(id: string): boolean {
-    const key = id.startsWith("track_") ? id : `track_${id}`;
+  deleteStack(id: string): boolean {
+    const key = id.startsWith("stack_") ? id : `stack_${id}`;
     if (this.has(key)) {
       this.remove(key);
       return true;

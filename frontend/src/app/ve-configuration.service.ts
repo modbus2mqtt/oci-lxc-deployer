@@ -1,6 +1,6 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, ITracktypesResponse, ITracksResponse, ITrackResponse, ITrack, ICreateTrackResponse } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, IStacktypesResponse, IStacksResponse, IStackResponse, IStack, ICreateStackResponse } from '../shared/types';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -38,7 +38,7 @@ export class VeConfigurationService {
     this.router.navigate(['/']);
     return throwError(() => err);
   }
-  // Track VE context key returned by backend so we can append it to future calls when required
+  // Stack VE context key returned by backend so we can append it to future calls when required
   private setVeContextKeyFrom(response: unknown) {
     if (response && typeof response === 'object') {
       const obj = response as Record<string, unknown>;
@@ -225,34 +225,34 @@ export class VeConfigurationService {
     return this.http.get<ICompatibleAddonsResponse>(url);
   }
 
-  // Track management methods
-  getTracktypes(): Observable<ITracktypesResponse> {
-    return this.http.get<ITracktypesResponse>(ApiUri.Tracktypes);
+  // Stack management methods
+  getStacktypes(): Observable<IStacktypesResponse> {
+    return this.http.get<IStacktypesResponse>(ApiUri.Stacktypes);
   }
 
-  getTracks(tracktype?: string): Observable<ITracksResponse> {
-    let url = ApiUri.Tracks;
-    if (tracktype) {
-      url += `?tracktype=${encodeURIComponent(tracktype)}`;
+  getStacks(stacktype?: string): Observable<IStacksResponse> {
+    let url: string = ApiUri.Stacks;
+    if (stacktype) {
+      url += `?stacktype=${encodeURIComponent(stacktype)}`;
     }
-    return this.http.get<ITracksResponse>(url);
+    return this.http.get<IStacksResponse>(url);
   }
 
-  getTrack(id: string): Observable<ITrackResponse> {
-    const url = ApiUri.Track.replace(':id', encodeURIComponent(id));
-    return this.http.get<ITrackResponse>(url);
+  getStack(id: string): Observable<IStackResponse> {
+    const url = ApiUri.Stack.replace(':id', encodeURIComponent(id));
+    return this.http.get<IStackResponse>(url);
   }
 
-  createTrack(track: Omit<ITrack, 'id'>): Observable<ICreateTrackResponse> {
-    return this.http.post<ICreateTrackResponse>(ApiUri.Tracks, track);
+  createStack(stack: Omit<IStack, 'id'>): Observable<ICreateStackResponse> {
+    return this.http.post<ICreateStackResponse>(ApiUri.Stacks, stack);
   }
 
-  updateTrack(track: ITrack): Observable<ICreateTrackResponse> {
-    return this.http.post<ICreateTrackResponse>(ApiUri.Tracks, track);
+  updateStack(stack: IStack): Observable<ICreateStackResponse> {
+    return this.http.post<ICreateStackResponse>(ApiUri.Stacks, stack);
   }
 
-  deleteTrack(id: string): Observable<{ success: boolean; deleted: boolean }> {
-    const url = ApiUri.Track.replace(':id', encodeURIComponent(id));
+  deleteStack(id: string): Observable<{ success: boolean; deleted: boolean }> {
+    const url = ApiUri.Stack.replace(':id', encodeURIComponent(id));
     return this.http.delete<{ success: boolean; deleted: boolean }>(url);
   }
 }

@@ -1,22 +1,22 @@
-<div class="tracks-page">
+<div class="stacks-page">
   <header class="page-header">
-    <h1>Environment Tracks</h1>
+    <h1>Environment Stacks</h1>
     <p class="subtitle">Manage reusable environment variable sets</p>
   </header>
 
-  <div class="tracks-controls">
-    <mat-form-field appearance="outline" class="tracktype-selector">
-      <mat-label>Track Type</mat-label>
-      <mat-select [value]="selectedTracktype()" (selectionChange)="onTracktypeChange($event.value)">
-        @for (tt of tracktypes(); track tt.name) {
+  <div class="stacks-controls">
+    <mat-form-field appearance="outline" class="stacktype-selector">
+      <mat-label>Stack Type</mat-label>
+      <mat-select [value]="selectedStacktype()" (selectionChange)="onStacktypeChange($event.value)">
+        @for (tt of stacktypes(); track tt.name) {
           <mat-option [value]="tt.name">{{ tt.name }}</mat-option>
         }
       </mat-select>
     </mat-form-field>
 
-    <button mat-flat-button color="primary" (click)="startCreate()" [disabled]="isEditing() || tracktypes().length === 0">
+    <button mat-flat-button color="primary" (click)="startCreate()" [disabled]="isEditing() || stacktypes().length === 0">
       <mat-icon>add</mat-icon>
-      Create Track
+      Create Stack
     </button>
   </div>
 
@@ -28,22 +28,22 @@
 
   <!-- Create/Edit Form -->
   @if (isEditing()) {
-    <mat-card class="track-form-card">
+    <mat-card class="stack-form-card">
       <mat-card-header>
-        <mat-card-title>{{ isCreating() ? 'Create New Track' : 'Edit Track' }}</mat-card-title>
+        <mat-card-title>{{ isCreating() ? 'Create New Stack' : 'Edit Stack' }}</mat-card-title>
       </mat-card-header>
       <mat-card-content>
-        <form [formGroup]="trackForm" (ngSubmit)="saveTrack()">
+        <form [formGroup]="stackForm" (ngSubmit)="saveStack()">
           <div class="form-row">
             <mat-form-field appearance="outline" class="name-field">
-              <mat-label>Track Name</mat-label>
+              <mat-label>Stack Name</mat-label>
               <input matInput formControlName="name" required placeholder="e.g., production, staging" />
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="tracktype-field">
-              <mat-label>Track Type</mat-label>
-              <mat-select formControlName="tracktype" required>
-                @for (tt of tracktypes(); track tt.name) {
+            <mat-form-field appearance="outline" class="stacktype-field">
+              <mat-label>Stack Type</mat-label>
+              <mat-select formControlName="stacktype" required>
+                @for (tt of stacktypes(); track tt.name) {
                   <mat-option [value]="tt.name">{{ tt.name }}</mat-option>
                 }
               </mat-select>
@@ -52,7 +52,7 @@
 
           <h4>Environment Variables</h4>
           <app-key-value-table
-            [items]="trackEntries"
+            [items]="stackEntries"
             keyPlaceholder="Variable Name"
             valuePlaceholder="Value"
             keyLabel="variable"
@@ -61,7 +61,7 @@
 
           <div class="form-actions">
             <button mat-stroked-button type="button" (click)="cancelEdit()">Cancel</button>
-            <button mat-flat-button color="primary" type="submit" [disabled]="trackForm.invalid || loading()">
+            <button mat-flat-button color="primary" type="submit" [disabled]="stackForm.invalid || loading()">
               @if (loading()) {
                 <mat-spinner diameter="20"></mat-spinner>
               } @else {
@@ -74,36 +74,36 @@
     </mat-card>
   }
 
-  <!-- Tracks List -->
+  <!-- Stacks List -->
   @if (!loading() || isEditing()) {
-    <div class="tracks-list">
-      @if (tracks().length === 0 && !isEditing()) {
-        <div class="no-tracks">
-          @if (tracktypes().length === 0) {
+    <div class="stacks-list">
+      @if (stacks().length === 0 && !isEditing()) {
+        <div class="no-stacks">
+          @if (stacktypes().length === 0) {
             <mat-icon>info</mat-icon>
-            <p>No track types defined. Add track types in <code>json/tracktypes.json</code>.</p>
+            <p>No stack types defined. Add stack types in <code>json/stacktypes.json</code>.</p>
           } @else {
             <mat-icon>folder_open</mat-icon>
-            <p>No tracks found for type "{{ selectedTracktype() }}". Create your first track.</p>
+            <p>No stacks found for type "{{ selectedStacktype() }}". Create your first stack.</p>
           }
         </div>
       }
 
       <mat-accordion>
-        @for (track of tracks(); track track.id) {
+        @for (stack of stacks(); track stack.id) {
           <mat-expansion-panel>
             <mat-expansion-panel-header>
-              <mat-panel-title>{{ track.name }}</mat-panel-title>
+              <mat-panel-title>{{ stack.name }}</mat-panel-title>
               <mat-panel-description>
-                {{ track.entries.length }} variable{{ track.entries.length !== 1 ? 's' : '' }}
+                {{ stack.entries.length }} variable{{ stack.entries.length !== 1 ? 's' : '' }}
               </mat-panel-description>
             </mat-expansion-panel-header>
 
-            <div class="track-entries">
-              @if (track.entries.length === 0) {
+            <div class="stack-entries">
+              @if (stack.entries.length === 0) {
                 <p class="no-entries">No variables defined</p>
               } @else {
-                @for (entry of track.entries; track entry.name) {
+                @for (entry of stack.entries; track entry.name) {
                   <div class="entry-row">
                     <span class="entry-name">{{ entry.name }}</span>
                     <span class="entry-value">{{ entry.value }}</span>
@@ -113,11 +113,11 @@
             </div>
 
             <mat-action-row>
-              <button mat-button (click)="startEdit(track)" [disabled]="isEditing()">
+              <button mat-button (click)="startEdit(stack)" [disabled]="isEditing()">
                 <mat-icon>edit</mat-icon>
                 Edit
               </button>
-              <button mat-button color="warn" (click)="deleteTrack(track, $event)" [disabled]="isEditing()">
+              <button mat-button color="warn" (click)="deleteStack(stack, $event)" [disabled]="isEditing()">
                 <mat-icon>delete</mat-icon>
                 Delete
               </button>

@@ -94,23 +94,23 @@
 								</mat-card-content>
 							</mat-card>
 						}
-						<!-- Track selector or secret env file upload for env_file: appears when env_file contains {{ }} markers -->
+						<!-- Stack selector or secret env file upload for env_file: appears when env_file contains {{ }} markers -->
 						@if (param.id === 'env_file' && envFileHasMarkers()) {
-							<div class="param-field track-or-env-upload">
+							<div class="param-field stack-or-env-upload">
 								<div class="secret-env-hint">
 									Detected markers: {{ getEnvFileMarkers().join(', ') }}
 								</div>
-								<!-- Track selector (primary option) -->
-								<div class="track-selector-row">
-									<mat-form-field appearance="outline" class="track-select-field">
-										<mat-label>Select Environment Track</mat-label>
-										<mat-select [value]="selectedTrack" (selectionChange)="onTrackSelect($event.value)">
-											@for (track of availableTracks; track track.id) {
-												<mat-option [value]="track">{{ track.name }} ({{ track.entries.length }} vars)</mat-option>
+								<!-- Stack selector (primary option) -->
+								<div class="stack-selector-row">
+									<mat-form-field appearance="outline" class="stack-select-field">
+										<mat-label>Select Environment Stack</mat-label>
+										<mat-select [value]="selectedStack" (selectionChange)="onStackSelect($event.value)">
+											@for (stack of availableStacks; track stack.id) {
+												<mat-option [value]="stack">{{ stack.name }} ({{ stack.entries.length }} vars)</mat-option>
 											}
 										</mat-select>
 									</mat-form-field>
-									<button mat-icon-button type="button" (click)="onCreateTrack()" matTooltip="Create new track" class="create-track-btn">
+									<button mat-icon-button type="button" (click)="onCreateStack()" matTooltip="Create new stack" class="create-stack-btn">
 										<mat-icon>add</mat-icon>
 									</button>
 								</div>
@@ -149,23 +149,23 @@
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
 						}
-						<!-- Track selector or secret env file upload: appears when envs contains {{ }} markers -->
+						<!-- Stack selector or secret env file upload: appears when envs contains {{ }} markers -->
 						@if (param.id === 'envs' && envsHasMarkers()) {
-							<div class="param-field track-or-env-upload">
+							<div class="param-field stack-or-env-upload">
 								<div class="secret-env-hint">
 									Detected markers: {{ getEnvMarkers().join(', ') }}
 								</div>
-								<!-- Track selector (primary option) -->
-								<div class="track-selector-row">
-									<mat-form-field appearance="outline" class="track-select-field">
-										<mat-label>Select Environment Track</mat-label>
-										<mat-select [value]="selectedTrack" (selectionChange)="onTrackSelect($event.value)">
-											@for (track of availableTracks; track track.id) {
-												<mat-option [value]="track">{{ track.name }} ({{ track.entries.length }} vars)</mat-option>
+								<!-- Stack selector (primary option) -->
+								<div class="stack-selector-row">
+									<mat-form-field appearance="outline" class="stack-select-field">
+										<mat-label>Select Environment Stack</mat-label>
+										<mat-select [value]="selectedStack" (selectionChange)="onStackSelect($event.value)">
+											@for (stack of availableStacks; track stack.id) {
+												<mat-option [value]="stack">{{ stack.name }} ({{ stack.entries.length }} vars)</mat-option>
 											}
 										</mat-select>
 									</mat-form-field>
-									<button mat-icon-button type="button" (click)="onCreateTrack()" matTooltip="Create new track" class="create-track-btn">
+									<button mat-icon-button type="button" (click)="onCreateStack()" matTooltip="Create new stack" class="create-stack-btn">
 										<mat-icon>add</mat-icon>
 									</button>
 								</div>

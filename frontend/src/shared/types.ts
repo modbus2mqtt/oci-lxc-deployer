@@ -137,9 +137,9 @@ export enum ApiUri {
   ApplicationFrameworkData = "/api/application/:applicationId/framework-data",
   CompatibleAddons = "/api/addons/compatible/:application",
   AddonInstall = "/api/addons/install/:addonId/:veContext",
-  Tracktypes = "/api/tracktypes",
-  Tracks = "/api/tracks",
-  Track = "/api/track/:id",
+  Stacktypes = "/api/stacktypes",
+  Stacks = "/api/stacks",
+  Stack = "/api/stack/:id",
 }
 
 export interface IPostAddonInstallBody {
@@ -478,37 +478,43 @@ export interface ICompatibleAddonsResponse {
   addons: IAddonWithParameters[];
 }
 
-// Track types (for environment variable management)
-export interface ITrackEntry {
+// Stack types (for environment variable management)
+export interface IStackEntry {
   name: string;
   value: string | number | boolean;
 }
 
-export interface ITrack {
+export interface IStack {
   id: string;
   name: string;
-  tracktype: string;
-  entries: ITrackEntry[];
+  stacktype: string;
+  entries: IStackEntry[];
 }
 
-export interface ITracktypeEntry {
+export interface IStacktypeVariable {
   name: string;
-  external?: boolean;
+  external?: boolean;  // true = manual input required, false/undefined = auto-generate
+  length?: number;     // length of generated secret (default: 32)
 }
 
-export interface ITracktypesResponse {
-  tracktypes: ITracktypeEntry[];
+export interface IStacktypeEntry {
+  name: string;        // derived from filename
+  entries: IStacktypeVariable[];
 }
 
-export interface ITracksResponse {
-  tracks: ITrack[];
+export interface IStacktypesResponse {
+  stacktypes: IStacktypeEntry[];
 }
 
-export interface ITrackResponse {
-  track: ITrack;
+export interface IStacksResponse {
+  stacks: IStack[];
 }
 
-export interface ICreateTrackResponse {
+export interface IStackResponse {
+  stack: IStack;
+}
+
+export interface ICreateStackResponse {
   success: boolean;
   key: string;
 }

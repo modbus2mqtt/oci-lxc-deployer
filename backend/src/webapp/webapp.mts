@@ -10,7 +10,7 @@ import { registerAddonRoutes } from "./webapp-addon-routes.mjs";
 import { registerLogsHtmlRoute } from "./webapp-logs-html.mjs";
 import { setupStaticRoutes } from "./webapp-static.mjs";
 import { WebAppVE } from "./webapp-ve.mjs";
-import { WebAppTrack } from "./webapp-track-routes.mjs";
+import { WebAppStack } from "./webapp-stack-routes.mjs";
 
 export class VEWebApp {
   app: express.Application;
@@ -48,8 +48,8 @@ export class VEWebApp {
     const webAppVE = new WebAppVE(this.app);
     webAppVE.init();
 
-    const webAppTrack = new WebAppTrack(this.app, this.storageContext);
-    webAppTrack.init();
+    const webAppStack = new WebAppStack(this.app, this.storageContext);
+    webAppStack.init();
 
     // Catch-all route for Angular routing - must be after all API routes
     // This ensures that routes like /ssh-config work correctly.

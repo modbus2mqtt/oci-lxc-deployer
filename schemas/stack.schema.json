@@ -1,11 +1,11 @@
 {
-  "$id": "track",
+  "$id": "stack",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
     "id": { "type": "string" },
     "name": { "type": "string" },
-    "tracktype": { "type": "string" },
+    "stacktype": { "type": "string" },
     "entries": {
       "type": "array",
       "items": {
@@ -19,6 +19,6 @@
       }
     }
   },
-  "required": ["id", "name", "tracktype", "entries"],
+  "required": ["id", "name", "stacktype", "entries"],
   "additionalProperties": false
 }

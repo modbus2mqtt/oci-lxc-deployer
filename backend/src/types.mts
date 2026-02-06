@@ -156,9 +156,9 @@ export enum ApiUri {
   CompatibleAddons = "/api/addons/compatible/:application",
   AddonInstall = "/api/addons/install/:addonId/:veContext",
 
-  Tracktypes = "/api/tracktypes",
-  Tracks = "/api/tracks",
-  Track = "/api/track/:id",
+  Stacktypes = "/api/stacktypes",
+  Stacks = "/api/stacks",
+  Stack = "/api/stack/:id",
 }
 
 // Tags definition interfaces
@@ -442,35 +442,42 @@ export interface ICompatibleAddonsResponse {
   addons: IAddonWithParameters[];
 }
 
-// Tracktype entry (from tracktype.schema.json)
-export interface ITracktypeEntry {
+// Stacktype variable definition (items in stacktype json files)
+export interface IStacktypeVariable {
   name: string;
-  external?: boolean;
+  external?: boolean;  // true = manual input required, false/undefined = auto-generate
+  length?: number;     // length of generated secret (default: 32)
 }
 
-// Track entry (items in track.entries array)
-export interface ITrackEntry {
+// Stacktype entry (aggregated from json/stacktypes/*.json)
+export interface IStacktypeEntry {
+  name: string;        // derived from filename
+  entries: IStacktypeVariable[];
+}
+
+// Stack entry (items in stack.entries array)
+export interface IStackEntry {
   name: string;
   value: string | number | boolean;
 }
 
-// Track (from track.schema.json)
-export interface ITrack {
+// Stack (from stack.schema.json)
+export interface IStack {
   id: string;
   name: string;
-  tracktype: string;
-  entries: ITrackEntry[];
+  stacktype: string;
+  entries: IStackEntry[];
 }
 
-// API Response types for tracks
-export interface ITracktypesResponse {
-  tracktypes: ITracktypeEntry[];
+// API Response types for stacks
+export interface IStacktypesResponse {
+  stacktypes: IStacktypeEntry[];
 }
 
-export interface ITracksResponse {
-  tracks: ITrack[];
+export interface IStacksResponse {
+  stacks: IStack[];
 }
 
-export interface ITrackResponse {
-  track: ITrack;
+export interface IStackResponse {
+  stack: IStack;
 }

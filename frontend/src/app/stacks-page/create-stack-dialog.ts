@@ -10,20 +10,20 @@ import { CommonModule } from '@angular/common';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { KeyValueTableComponent, KeyValuePair } from '../shared/components/key-value-table.component';
-import { ITrack, ITrackEntry, ITracktypeEntry } from '../../shared/types';
+import { IStack, IStackEntry, IStacktypeEntry } from '../../shared/types';
 
-export interface CreateTrackDialogData {
-  tracktypes: ITracktypeEntry[];
-  defaultTracktype?: string;
+export interface CreateStackDialogData {
+  stacktypes: IStacktypeEntry[];
+  defaultStacktype?: string;
   suggestedEntries?: string[]; // Marker names to pre-fill
 }
 
-export interface CreateTrackDialogResult {
-  track: ITrack;
+export interface CreateStackDialogResult {
+  stack: IStack;
 }
 
 @Component({
-  selector: 'app-create-track-dialog',
+  selector: 'app-create-stack-dialog',
   standalone: true,
   imports: [
     CommonModule,
@@ -37,18 +37,18 @@ export interface CreateTrackDialogResult {
     KeyValueTableComponent
   ],
   template: `
-    <h2 mat-dialog-title>Create Environment Track</h2>
+    <h2 mat-dialog-title>Create Environment Stack</h2>
     <mat-dialog-content>
-      <form [formGroup]="trackForm">
+      <form [formGroup]="stackForm">
         <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Track Name</mat-label>
+          <mat-label>Stack Name</mat-label>
           <input matInput formControlName="name" required placeholder="e.g., production, staging" />
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Track Type</mat-label>
-          <mat-select formControlName="tracktype" required>
-            @for (tt of data.tracktypes; track tt.name) {
+          <mat-label>Stack Type</mat-label>
+          <mat-select formControlName="stacktype" required>
+            @for (tt of data.stacktypes; track tt.name) {
               <mat-option [value]="tt.name">{{ tt.name }}</mat-option>
             }
           </mat-select>
@@ -59,7 +59,7 @@ export interface CreateTrackDialogResult {
           <p class="hint">Pre-filled from detected markers. Add values for each variable.</p>
         }
         <app-key-value-table
-          [items]="trackEntries"
+          [items]="stackEntries"
           keyPlaceholder="Variable Name"
           valuePlaceholder="Value"
           keyLabel="variable"
@@ -69,7 +69,7 @@ export interface CreateTrackDialogResult {
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-flat-button color="primary" (click)="save()" [disabled]="trackForm.invalid || loading()">
+      <button mat-flat-button color="primary" (click)="save()" [disabled]="stackForm.invalid || loading()">
         @if (loading()) {
           <mat-spinner diameter="20"></mat-spinner>
         } @else {
@@ -108,31 +108,31 @@ export interface CreateTrackDialogResult {
     }
   `]
 })
-export class CreateTrackDialog implements OnInit {
-  dialogRef = inject(MatDialogRef<CreateTrackDialog, CreateTrackDialogResult>);
-  data = inject<CreateTrackDialogData>(MAT_DIALOG_DATA);
+export class CreateStackDialog implements OnInit {
+  dialogRef = inject(MatDialogRef<CreateStackDialog, CreateStackDialogResult>);
+  data = inject<CreateStackDialogData>(MAT_DIALOG_DATA);
   private configService = inject(VeConfigurationService);
   private errorHandler = inject(ErrorHandlerService);
 
   loading = signal(false);
-  trackEntries = signal<KeyValuePair[]>([]);
+  stackEntries = signal<KeyValuePair[]>([]);
 
-  trackForm = new FormGroup({
+  stackForm = new FormGroup({
     name: new FormControl('', Validators.required),
-    tracktype: new FormControl('', Validators.required)
+    stacktype: new FormControl('', Validators.required)
   });
 
   ngOnInit(): void {
-    // Set default tracktype
-    if (this.data.defaultTracktype) {
-      this.trackForm.patchValue({ tracktype: this.data.defaultTracktype });
-    } else if (this.data.tracktypes.length > 0) {
-      this.trackForm.patchValue({ tracktype: this.data.tracktypes[0].name });
+    // Set default stacktype
+    if (this.data.defaultStacktype) {
+      this.stackForm.patchValue({ stacktype: this.data.defaultStacktype });
+    } else if (this.data.stacktypes.length > 0) {
+      this.stackForm.patchValue({ stacktype: this.data.stacktypes[0].name });
     }
 
     // Pre-fill entries from suggested markers
     if (this.data.suggestedEntries && this.data.suggestedEntries.length > 0) {
-      this.trackEntries.set(this.data.suggestedEntries.map(name => ({
+      this.stackEntries.set(this.data.suggestedEntries.map(name => ({
         key: name,
         value: ''
       })));
@@ -140,38 +140,38 @@ export class CreateTrackDialog implements OnInit {
   }
 
   onEntriesChange(entries: KeyValuePair[]): void {
-    this.trackEntries.set(entries);
+    this.stackEntries.set(entries);
   }
 
   save(): void {
-    if (this.trackForm.invalid) return;
+    if (this.stackForm.invalid) return;
 
-    const formValue = this.trackForm.value;
-    const entries: ITrackEntry[] = this.trackEntries().map(kv => ({
+    const formValue = this.stackForm.value;
+    const entries: IStackEntry[] = this.stackEntries().map(kv => ({
       name: kv.key,
       value: kv.value
     }));
 
-    const track: Omit<ITrack, 'id'> = {
+    const stack: Omit<IStack, 'id'> = {
       name: formValue.name!,
-      tracktype: formValue.tracktype!,
+      stacktype: formValue.stacktype!,
       entries
     };
 
     this.loading.set(true);
-    this.configService.createTrack(track).subscribe({
+    this.configService.createStack(stack).subscribe({
       next: (res) => {
-        // Construct the full track object to return
-        const createdTrack: ITrack = {
+        // Construct the full stack object to return
+        const createdStack: IStack = {
           id: res.key,
-          name: track.name,
-          tracktype: track.tracktype,
-          entries: track.entries
+          name: stack.name,
+          stacktype: stack.stacktype,
+          entries: stack.entries
         };
-        this.dialogRef.close({ track: createdTrack });
+        this.dialogRef.close({ stack: createdStack });
       },
       error: (err) => {
-        this.errorHandler.handleError('Failed to create track', err);
+        this.errorHandler.handleError('Failed to create stack', err);
         this.loading.set(false);
       }
     });
