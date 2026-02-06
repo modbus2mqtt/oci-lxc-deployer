@@ -345,6 +345,9 @@ export class FrameworkLoader {
     if (request.tags && request.tags.length > 0) {
       applicationJson.tags = request.tags;
     }
+    if (request.stacktype) {
+      applicationJson.tracktype = request.stacktype;
+    }
 
     // Write application.json using persistence
     // Note: We pass applicationJson without 'id' - it will be added when reading

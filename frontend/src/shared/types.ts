@@ -366,6 +366,7 @@ export interface IPostFrameworkCreateApplicationBody {
   icon?: string;
   iconContent?: string;
   tags?: string[];
+  stacktype?: string;
   parameterValues: { id: string; value: string | number | boolean }[];
   update?: boolean; // If true, overwrite existing application
 }
@@ -417,6 +418,7 @@ export interface IApplicationFrameworkDataResponse {
   icon?: string;
   iconContent?: string;
   tags?: string[];
+  stacktype?: string;
   parameterValues: { id: string; value: string | number | boolean }[];
 }
 

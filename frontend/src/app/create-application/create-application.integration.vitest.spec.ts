@@ -28,7 +28,8 @@ describe('CreateApplication Integration', () => {
       }),
       createApplicationFromFramework: () => of({ success: true }),
       getFrameworkFromImage: () => of({}),
-      getTagsConfig: () => of({ groups: [] })
+      getTagsConfig: () => of({ groups: [] }),
+      getStacktypes: () => of({ stacktypes: [] })
     };
 
     const mockCacheService = {

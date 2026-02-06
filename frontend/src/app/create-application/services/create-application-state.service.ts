@@ -2,7 +2,7 @@ import { Injectable, signal, inject } from '@angular/core';
 import { FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
 import { Subject } from 'rxjs';
 
-import { IFrameworkName, IParameter, IPostFrameworkFromImageResponse, ITagsConfig } from '../../../shared/types';
+import { IFrameworkName, IParameter, IPostFrameworkFromImageResponse, IStacktypeEntry, ITagsConfig } from '../../../shared/types';
 import { ComposeService, DockerComposeService, ParsedComposeData } from '../../shared/services/docker-compose.service';
 import { ErrorHandlerService } from '../../shared/services/error-handler.service';
 import { VeConfigurationService } from '../../ve-configuration.service';
@@ -60,6 +60,10 @@ export class CreateApplicationStateService {
   // Tags
   tagsConfig = signal<ITagsConfig | null>(null);
   selectedTags = signal<string[]>([]);
+
+  // Stacktypes
+  stacktypes = signal<IStacktypeEntry[]>([]);
+  selectedStacktype = signal<string | null>(null);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Docker Compose specific
@@ -203,6 +207,9 @@ export class CreateApplicationStateService {
 
     // Tags
     this.selectedTags.set([]);
+
+    // Stacktypes
+    this.selectedStacktype.set(null);
 
     // Docker Compose
     this.parsedComposeData.set(null);
@@ -811,6 +818,24 @@ export class CreateApplicationStateService {
       },
       error: (err) => {
         console.error('Failed to load tags config', err);
+      }
+    });
+  }
+
+  /**
+   * Loads stacktypes from backend.
+   */
+  loadStacktypes(): void {
+    // Guard for test environments where configService might be mocked without this method
+    if (typeof this.configService.getStacktypes !== 'function') {
+      return;
+    }
+    this.configService.getStacktypes().subscribe({
+      next: (res) => {
+        this.stacktypes.set(res.stacktypes);
+      },
+      error: (err) => {
+        console.error('Failed to load stacktypes', err);
       }
     });
   }

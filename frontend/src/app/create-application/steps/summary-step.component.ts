@@ -202,6 +202,7 @@ export class SummaryStepComponent {
         iconContent: iconContent,
       }),
       ...(this.state.selectedTags().length > 0 && { tags: this.state.selectedTags() }),
+      ...(this.state.selectedStacktype() && { stacktype: this.state.selectedStacktype() ?? undefined }),
       parameterValues,
       ...(this.state.editMode() && { update: true }),
     };

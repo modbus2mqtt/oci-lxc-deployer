@@ -287,6 +287,7 @@ export function registerApplicationRoutes(
       if (application.icon) response.icon = application.icon;
       if (iconContent) response.iconContent = iconContent;
       if (application.tags && application.tags.length > 0) response.tags = application.tags;
+      if ((application as any).tracktype) response.stacktype = (application as any).tracktype;
 
       returnResponse<IApplicationFrameworkDataResponse>(res, response);
     } catch (err: any) {

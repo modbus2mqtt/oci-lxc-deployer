@@ -122,6 +122,7 @@ export class CreateApplication implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.cacheService.preloadAll();
     this.state.loadTagsConfig();
+    this.state.loadStacktypes();
 
     // Subscribe to debounced image input from state service
     this.state.imageInputSubject.pipe(
@@ -200,6 +201,11 @@ export class CreateApplication implements OnInit, OnDestroy {
               // Fill tags if present
               if (data.tags && data.tags.length > 0) {
                 this.selectedTags.set(data.tags);
+              }
+
+              // Fill stacktype if present
+              if (data.stacktype) {
+                this.state.selectedStacktype.set(data.stacktype);
               }
 
               // Fill parameter values

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, AsyncValidatorFn, AbstractControl, ValidationErrors } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { Observable, Subject, of } from 'rxjs';
 import { map, catchError, takeUntil, debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
@@ -19,6 +20,7 @@ import { CacheService } from '../../shared/services/cache.service';
     ReactiveFormsModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
     IconUploadComponent,
     TagsSelectorComponent
   ],
@@ -81,6 +83,20 @@ import { CacheService } from '../../shared/services/cache.service';
           <mat-label>Vendor</mat-label>
           <input matInput formControlName="vendor" />
         </mat-form-field>
+
+        <!-- Stacktype Selection -->
+        @if (state.stacktypes().length > 0) {
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Stacktype</mat-label>
+            <mat-select [value]="state.selectedStacktype()" (selectionChange)="onStacktypeChange($event.value)">
+              <mat-option [value]="null">-- No Stacktype --</mat-option>
+              @for (st of state.stacktypes(); track st.name) {
+                <mat-option [value]="st.name">{{ st.name }}</mat-option>
+              }
+            </mat-select>
+            <mat-hint>Optional: Link to a stack for shared environment variables</mat-hint>
+          </mat-form-field>
+        }
 
         <!-- Tags Selection -->
         <app-tags-selector
@@ -232,5 +248,9 @@ export class AppPropertiesStepComponent implements OnInit, OnDestroy {
 
   onTagToggle(tagId: string): void {
     this.state.toggleTag(tagId);
+  }
+
+  onStacktypeChange(stacktype: string | null): void {
+    this.state.selectedStacktype.set(stacktype);
   }
 }
