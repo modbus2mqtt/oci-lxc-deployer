@@ -330,6 +330,15 @@ h2, p {
   font-size: 0.9rem;
 }
 
+.secrets-selector {
+  width: calc(100% - 2rem);
+  margin: 0 1rem 1.5rem 1rem;
+
+  mat-form-field {
+    width: 100%;
+  }
+}
+
 /* Addon parameters section (shown when addon is selected) */
 .addon-parameters-section {
   width: calc(100% - 2rem);

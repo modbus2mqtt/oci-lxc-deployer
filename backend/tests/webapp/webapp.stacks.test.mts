@@ -39,12 +39,13 @@ describe("Stack API", () => {
       expect(storedStack?.entries).toEqual([{ name: "artist", value: "Test Artist" }]);
     });
 
-    it("returns error for missing id", async () => {
+    it("auto-generates id from name when not provided", async () => {
       const res = await request(app)
         .post(ApiUri.Stacks)
         .send({ name: "Test", stacktype: "music", entries: [] });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("Missing required fields");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.key).toBe("stack_Test");
     });
 
     it("returns error for missing name", async () => {

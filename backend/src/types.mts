@@ -21,6 +21,7 @@ export interface IApplicationBase {
   documentation?: string;
   source?: string;
   vendor?: string;
+  stacktype?: string;
   errors?: string[];
   /** User-configurable parameters defined directly in application.json (new approach) */
   parameters?: IParameter[];
@@ -38,6 +39,7 @@ export interface IApplicationWeb {
   source: "local" | "json";
   framework?: string | undefined;
   extends?: string | undefined;
+  stacktype?: string | undefined;
   errors?: IJsonError[];
 }
 export type TaskType =

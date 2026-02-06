@@ -86,6 +86,21 @@
 			@if (addonsLoading()) {
 				<div class="addons-loading">Loading addons...</div>
 			}
+			@if (data.app.stacktype && filteredStacks().length > 0) {
+				<div class="secrets-selector">
+					<mat-form-field appearance="outline">
+						<mat-label>Secrets</mat-label>
+						<mat-select [value]="selectedStack?.id" (selectionChange)="onStackSelectChange($event.value)">
+							@for (stack of filteredStacks(); track stack.id) {
+								<mat-option [value]="stack.id">{{ stack.name }}</mat-option>
+							}
+						</mat-select>
+						<a mat-icon-button matSuffix href="/stacks" target="_blank" matTooltip="Manage secrets (new tab)" (click)="$event.stopPropagation()">
+							<mat-icon>edit</mat-icon>
+						</a>
+					</mat-form-field>
+				</div>
+			}
 			@for (groupName of groupNames; track groupName) {
 				<app-parameter-group
 					[groupName]="groupName"

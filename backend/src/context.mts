@@ -79,8 +79,7 @@ export class Context {
 
   // ===== Encryption / Decryption helpers (used by StorageContext and consumers) =====
   private getSecretFilePath(): string {
-    const baseDir = path.dirname(this.secretFilePath);
-    return path.join(baseDir, "secret.txt");
+    return this.secretFilePath;
   }
 
   private readOrCreateSecret(): Buffer {
@@ -187,6 +186,8 @@ export class Context {
       const json = JSON.stringify(this.context, null, 2);
       const enc = this.encrypt(json);
       writeFileSync(this.storageContextFilePath, enc, "utf-8");
-    } catch {}
+    } catch (err) {
+      console.error("Failed to write context:", err);
+    }
   }
 }

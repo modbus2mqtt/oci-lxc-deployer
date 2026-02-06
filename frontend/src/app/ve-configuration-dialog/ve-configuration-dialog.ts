@@ -1,9 +1,13 @@
-import { Component, OnInit, inject, signal, Input } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, signal, Input, computed } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialog } from '@angular/material/dialog';
 
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatIconModule } from '@angular/material/icon';
+import { MatSelectModule } from '@angular/material/select';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters, IStack, IStacktypeEntry } from '../../shared/types';
 import { VeConfigurationService, VeConfigurationParam } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
@@ -33,12 +37,16 @@ export interface VeConfigurationDialogData {
     ReactiveFormsModule,
     MatButtonModule,
     MatCheckboxModule,
+    MatIconModule,
+    MatSelectModule,
+    MatFormFieldModule,
+    MatTooltipModule,
     ParameterGroupComponent
 ],
   templateUrl: './ve-configuration-dialog.html',
   styleUrl: './ve-configuration-dialog.scss',
 })
-export class VeConfigurationDialog implements OnInit {
+export class VeConfigurationDialog implements OnInit, OnDestroy {
   form: FormGroup;
   unresolvedParameters: IParameter[] = [];
   groupedParameters: Record<string, IParameter[]> = {};
@@ -52,10 +60,17 @@ export class VeConfigurationDialog implements OnInit {
 
   // Stack selection state
   availableStacks = signal<IStack[]>([]);
+  filteredStacks = computed(() => {
+    const stacktype = this.data.app.stacktype;
+    if (!stacktype) return [];
+    return this.availableStacks().filter(s => s.stacktype === stacktype);
+  });
   availableStacktypes = signal<IStacktypeEntry[]>([]);
   stacksLoading = signal(false);
+  selectedStack: IStack | null = null;
   private initialValues = new Map<string, IParameterValue>();
   private enumRefreshAttempted = false;
+  private visibilityHandler = () => this.onVisibilityChange();
   private configService: VeConfigurationService = inject(VeConfigurationService);
   public dialogRef: MatDialogRef<VeConfigurationDialog> = inject(MatDialogRef<VeConfigurationDialog>);
   private errorHandler: ErrorHandlerService = inject(ErrorHandlerService);
@@ -70,6 +85,9 @@ export class VeConfigurationDialog implements OnInit {
     this.form = this.fb.group({});
   }
   ngOnInit(): void {
+    // Listen for tab focus to reload stacks after editing in new tab
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+
     // Load compatible addons and stacks in parallel with parameters
     this.loadCompatibleAddons();
     this.loadStacks();
@@ -206,6 +224,11 @@ export class VeConfigurationDialog implements OnInit {
           next: (stacksRes) => {
             this.availableStacks.set(stacksRes.stacks);
             this.stacksLoading.set(false);
+            // Auto-select if only one stack matches
+            const filtered = this.filteredStacks();
+            if (filtered.length === 1) {
+              this.selectedStack = filtered[0];
+            }
           },
           error: () => {
             // Don't show error for stacks - they're optional
@@ -221,22 +244,15 @@ export class VeConfigurationDialog implements OnInit {
   }
 
   onStackSelected(stack: IStack): void {
-    // Convert stack entries to Map for marker replacement
-    const envVars = new Map<string, string>();
-    for (const entry of stack.entries) {
-      envVars.set(entry.name, String(entry.value));
-    }
+    // Stack is selected - marker replacement happens in backend
+    // Store the selected stack for later use
+    this.selectedStack = stack;
+  }
 
-    // Replace markers in envs field (if present)
-    const envsControl = this.form.get('envs');
-    if (envsControl && typeof envsControl.value === 'string') {
-      envsControl.setValue(this.composeService.replaceMarkers(envsControl.value, envVars));
-    }
-
-    // Replace markers in env_file field (if present)
-    const envFileControl = this.form.get('env_file');
-    if (envFileControl && typeof envFileControl.value === 'string') {
-      envFileControl.setValue(this.composeService.replaceMarkersInBase64(envFileControl.value, envVars));
+  onStackSelectChange(stackId: string): void {
+    const stack = this.filteredStacks().find(s => s.id === stackId);
+    if (stack) {
+      this.onStackSelected(stack);
     }
   }
 
@@ -483,4 +499,35 @@ export class VeConfigurationDialog implements OnInit {
     return Object.keys(this.groupedParameters);
   }
 
+  ngOnDestroy(): void {
+    document.removeEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  private onVisibilityChange(): void {
+    if (document.visibilityState === 'visible') {
+      // Reload stacks when tab becomes visible again
+      this.reloadStacks();
+    }
+  }
+
+  private reloadStacks(): void {
+    const previousSelectedId = this.selectedStack?.id;
+    this.configService.getStacks().subscribe({
+      next: (res) => {
+        this.availableStacks.set(res.stacks);
+        // Re-select previously selected stack or auto-select if only one
+        const filtered = this.filteredStacks();
+        if (previousSelectedId) {
+          const found = filtered.find(s => s.id === previousSelectedId);
+          if (found) {
+            this.selectedStack = found;
+          } else if (filtered.length === 1) {
+            this.selectedStack = filtered[0];
+          }
+        } else if (filtered.length === 1) {
+          this.selectedStack = filtered[0];
+        }
+      }
+    });
+  }
 }

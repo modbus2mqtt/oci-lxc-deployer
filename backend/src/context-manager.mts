@@ -78,6 +78,13 @@ class VEContext implements IVEContext {
   getKey(): string {
     return `ve_${this.host}`;
   }
+  toJSON(): object {
+    return {
+      host: this.host,
+      port: this.port,
+      current: this.current,
+    };
+  }
 }
 
 /**

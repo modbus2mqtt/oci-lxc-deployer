@@ -1,6 +1,6 @@
 {
   "name": "Postgres",
-  "description": "PostgreSQL (often shortened to Postgres) is a powerful, open-source object-relational database system. With over 35 years of active development, it has earned a strong reputation for reliability, feature robustness, and performance. ",
+  "description": "Postgres SQL",
   "extends": "oci-image",
   "icon": "Postgresql_elephant.svg",
   "parameters": [
@@ -54,5 +54,6 @@
   "installation": [],
   "tags": [
     "database"
-  ]
+  ],
+  "stacktype": "postgres"
 }

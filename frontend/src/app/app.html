@@ -3,13 +3,16 @@
   <span class="app-title">Proxmox WebApp</span>
   <span class="header-actions">
     @if (sshConfigs.length > 0) {
-      <mat-form-field appearance="outline" class="host-selector">
+      <mat-form-field appearance="outline" class="header-selector" matTooltip="Proxmox host for deployments">
         <mat-label>Host</mat-label>
         <mat-select [(ngModel)]="currentHost" (selectionChange)="onHostChange($event.value)" [value]="currentHost">
           @for (ssh of sshConfigs; track ssh.host) {
             <mat-option [value]="ssh.host">{{ getHostDisplay(ssh) }}</mat-option>
           }
         </mat-select>
+        <button mat-icon-button matSuffix routerLink="/ssh-config" matTooltip="Manage hosts" type="button">
+          <mat-icon>edit</mat-icon>
+        </button>
       </mat-form-field>
     }
     <button class="create-app-btn header-btn" type="button" aria-label="Create Application" routerLink="/create-application" matTooltip="Create Application">
@@ -23,17 +26,11 @@
         <rect x="13" y="13" width="8" height="8" rx="2" fill="#FB8C00"/>
       </svg>
     </button>
-    <button class="installed-btn header-btn" type="button" aria-label="Installations" routerLink="/installations" matTooltip="Installierte Container">
+    <button class="installed-btn header-btn" type="button" aria-label="Installations" routerLink="/installations" matTooltip="Installed Containers">
       <span aria-hidden="true">📦</span>
     </button>
     <button class="monitor-btn header-btn" type="button" aria-label="Process Monitor" routerLink="/monitor" matTooltip="Process Monitor">
       <span aria-hidden="true">📊</span>
-    </button>
-    <button class="settings-btn header-btn" type="button" aria-label="Settings" routerLink="/ssh-config" matTooltip="Settings">
-      <span class="gear" aria-hidden="true">⚙️</span>
-    </button>
-    <button class="stacks-btn header-btn" type="button" aria-label="Environment Stacks" routerLink="/stacks" matTooltip="Environment Stacks">
-      <mat-icon aria-hidden="true">vpn_key</mat-icon>
     </button>
   </span>
 </header>

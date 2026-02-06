@@ -146,6 +146,7 @@ export class ApplicationPersistenceHandler {
           source,
           framework,
           extends: app.extends,
+          stacktype: app.stacktype,
           ...(app.errors && app.errors.length > 0 && {
             errors: app.errors.map(e => ({ message: e, name: "Error", details: undefined }))
           }),

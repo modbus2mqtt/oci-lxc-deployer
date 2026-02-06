@@ -10,7 +10,7 @@
     "documentation": { "type": "string" },
     "source": { "type": "string" },
     "vendor": { "type": "string" },
-    "tracktype": { "type": "string" },
+    "stacktype": { "type": "string" },
     "installation": { "$ref": "templatelist" },
     "copy-upgrade": { "$ref": "templatelist" },
     "copy-rollback": { "$ref": "templatelist" },

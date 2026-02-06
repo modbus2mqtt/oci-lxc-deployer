@@ -21,6 +21,7 @@ export interface IApplicationBase {
   documentation?: string;
   source?: string;
   vendor?: string;
+  stacktype?: string;
   errors?: string[];
 }
 export interface IApplicationWeb {
@@ -33,6 +34,7 @@ export interface IApplicationWeb {
   tags?: string[] | undefined;
   source: "local" | "json";
   framework?: string | undefined;
+  stacktype?: string | undefined;
   errors?: IJsonError[];
 }
 export type TaskType =

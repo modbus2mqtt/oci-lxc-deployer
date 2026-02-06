@@ -94,8 +94,8 @@
 								</mat-card-content>
 							</mat-card>
 						}
-						<!-- Stack selector or secret env file upload for env_file: appears when env_file contains {{ }} markers -->
-						@if (param.id === 'env_file' && envFileHasMarkers()) {
+						<!-- Stack selector or secret env file upload for env_file: appears when env_file contains {{ }} markers AND stacks are available -->
+						@if (param.id === 'env_file' && envFileHasMarkers() && hasStacksAvailable()) {
 							<div class="param-field stack-or-env-upload">
 								<div class="secret-env-hint">
 									Detected markers: {{ getEnvFileMarkers().join(', ') }}
@@ -113,18 +113,6 @@
 									<button mat-icon-button type="button" (click)="onCreateStack()" matTooltip="Create new stack" class="create-stack-btn">
 										<mat-icon>add</mat-icon>
 									</button>
-								</div>
-								<!-- Fallback: upload .env file -->
-								<div class="env-upload-fallback">
-									<span class="fallback-label">or upload file:</span>
-									<mat-form-field appearance="outline" class="env-file-field">
-										<mat-label>Secret Environment File (.env)</mat-label>
-										<input type="file" #secretEnvFileInput id="secret-env-file-for-envfile" (change)="onSecretEnvFileSelectedForEnvFile($event)" accept=".env,text/plain" style="display: none;" />
-										<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
-										<button mat-icon-button matSuffix type="button" (click)="secretEnvFileInput.click()" matTooltip="Upload .env file with secret values">
-											<mat-icon>attach_file</mat-icon>
-										</button>
-									</mat-form-field>
 								</div>
 							</div>
 						}
@@ -149,8 +137,8 @@
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
 						}
-						<!-- Stack selector or secret env file upload: appears when envs contains {{ }} markers -->
-						@if (param.id === 'envs' && envsHasMarkers()) {
+						<!-- Stack selector or secret env file upload: appears when envs contains {{ }} markers AND stacks are available -->
+						@if (param.id === 'envs' && envsHasMarkers() && hasStacksAvailable()) {
 							<div class="param-field stack-or-env-upload">
 								<div class="secret-env-hint">
 									Detected markers: {{ getEnvMarkers().join(', ') }}
@@ -168,18 +156,6 @@
 									<button mat-icon-button type="button" (click)="onCreateStack()" matTooltip="Create new stack" class="create-stack-btn">
 										<mat-icon>add</mat-icon>
 									</button>
-								</div>
-								<!-- Fallback: upload .env file -->
-								<div class="env-upload-fallback">
-									<span class="fallback-label">or upload file:</span>
-									<mat-form-field appearance="outline" class="env-file-field">
-										<mat-label>Secret Environment File (.env)</mat-label>
-										<input type="file" #secretEnvInput id="secret-env-file" (change)="onSecretEnvFileSelected($event)" accept=".env,text/plain" style="display: none;" />
-										<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
-										<button mat-icon-button matSuffix type="button" (click)="secretEnvInput.click()" matTooltip="Upload .env file with secret values">
-											<mat-icon>attach_file</mat-icon>
-										</button>
-									</mat-form-field>
 								</div>
 							</div>
 						}

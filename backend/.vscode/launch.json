@@ -25,9 +25,9 @@
         "--local",
         "${workspaceFolder}/examples",
         "--storageContextFilePath",
-        "${workspaceFolder}/../examples/storagecontext.json",
+        "${workspaceFolder}/../storagecontext.json",
         "--secretsFilePath",
-        "${workspaceFolder}/../examples/secret.txt"
+        "${workspaceFolder}/../secret.txt"
       ],
 
       "trace": true,
