@@ -155,6 +155,10 @@ export enum ApiUri {
 
   CompatibleAddons = "/api/addons/compatible/:application",
   AddonInstall = "/api/addons/install/:addonId/:veContext",
+
+  Tracktypes = "/api/tracktypes",
+  Tracks = "/api/tracks",
+  Track = "/api/track/:id",
 }
 
 // Tags definition interfaces
@@ -436,4 +440,37 @@ export interface IAddonWithParameters extends IAddon {
 
 export interface ICompatibleAddonsResponse {
   addons: IAddonWithParameters[];
+}
+
+// Tracktype entry (from tracktype.schema.json)
+export interface ITracktypeEntry {
+  name: string;
+  external?: boolean;
+}
+
+// Track entry (items in track.entries array)
+export interface ITrackEntry {
+  name: string;
+  value: string | number | boolean;
+}
+
+// Track (from track.schema.json)
+export interface ITrack {
+  id: string;
+  name: string;
+  tracktype: string;
+  entries: ITrackEntry[];
+}
+
+// API Response types for tracks
+export interface ITracktypesResponse {
+  tracktypes: ITracktypeEntry[];
+}
+
+export interface ITracksResponse {
+  tracks: ITrack[];
+}
+
+export interface ITrackResponse {
+  track: ITrack;
 }

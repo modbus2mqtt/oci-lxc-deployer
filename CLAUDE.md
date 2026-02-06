@@ -86,22 +86,31 @@ Use for all package installation tasks:
 - All file content, variables, keys, strings in English
 - German only in user-facing chat or UI localization
 
+## Package Manager
+
+This project uses **pnpm** (not npm or yarn).
+
+```bash
+pnpm install          # Install dependencies
+pnpm run <script>     # Run scripts
+```
+
 ## Testing and Quality
 
 After significant changes:
 
 ```bash
 # Backend
-cd backend && npm run lint:fix && npm run build && npm test
+cd backend && pnpm run lint:fix && pnpm run build && pnpm test
 
 # Frontend
-cd frontend && npm run lint:fix && npm run build && npm test
+cd frontend && pnpm run lint:fix && pnpm run build && pnpm test
 ```
 
 **Execution order:**
-1. `npm run lint:fix` - Fix style issues
-2. `npm run build` - Verify compilation
-3. `npm test` - Run tests
+1. `pnpm run lint:fix` - Fix style issues
+2. `pnpm run build` - Verify compilation
+3. `pnpm test` - Run tests
 
 **What to test:**
 - Services with complex logic (parsing, validation, transformation)
@@ -137,5 +146,5 @@ The test creates a real container on a Proxmox host and verifies:
 
 If imports fail:
 1. Manually correct based on file structure
-2. Delete import, run `npm run lint:fix`
+2. Delete import, run `pnpm run lint:fix`
 3. Use IDE Quick Fix (Cmd/Ctrl+.)

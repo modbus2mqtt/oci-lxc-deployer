@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { JsonValidator } from "../jsonvalidator.mjs";
 import { IConfiguredPathes } from "../backend-types.mjs";
-import { ITagsConfig } from "../types.mjs";
+import { ITagsConfig, ITracktypeEntry } from "../types.mjs";
 import { FileSystemPersistence } from "./filesystem-persistence.mjs";
 import {
   IApplicationPersistence,
@@ -203,6 +203,18 @@ export class PersistenceManager {
     }
     const content = fs.readFileSync(tagsFilePath, "utf-8");
     return JSON.parse(content) as ITagsConfig;
+  }
+
+  /**
+   * Returns the tracktypes configuration from json/tracktypes.json
+   */
+  getTracktypes(): ITracktypeEntry[] {
+    const tracktypesPath = path.join(this.pathes.jsonPath, "tracktypes.json");
+    if (!fs.existsSync(tracktypesPath)) {
+      return [];
+    }
+    const content = fs.readFileSync(tracktypesPath, "utf-8");
+    return JSON.parse(content) as ITracktypeEntry[];
   }
 
   // Alias für Rückwärtskompatibilität (kann später entfernt werden)
