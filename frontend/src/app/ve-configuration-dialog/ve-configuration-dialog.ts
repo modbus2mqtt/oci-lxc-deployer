@@ -70,6 +70,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
   selectedStack: IStack | null = null;
   private initialValues = new Map<string, IParameterValue>();
   private enumRefreshAttempted = false;
+  private hostnameManuallyChanged = false;
   private visibilityHandler = () => this.onVisibilityChange();
   private configService: VeConfigurationService = inject(VeConfigurationService);
   public dialogRef: MatDialogRef<VeConfigurationDialog> = inject(MatDialogRef<VeConfigurationDialog>);
@@ -125,6 +126,14 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
         this.form.markAllAsTouched();
         this.loading.set(false);
         this.loadEnumValues();
+
+        // Track manual hostname changes
+        this.form.get('hostname')?.valueChanges.subscribe(value => {
+          const initial = this.initialValues.get('hostname');
+          if (value !== initial && value !== `${initial}-${this.selectedStack?.id}`) {
+            this.hostnameManuallyChanged = true;
+          }
+        });
       },
       error: (err: unknown) => {
         this.errorHandler.handleError('Failed to load parameters', err);
@@ -227,7 +236,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
             // Auto-select if only one stack matches
             const filtered = this.filteredStacks();
             if (filtered.length === 1) {
-              this.selectedStack = filtered[0];
+              this.onStackSelected(filtered[0]);
             }
           },
           error: () => {
@@ -247,6 +256,15 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
     // Stack is selected - marker replacement happens in backend
     // Store the selected stack for later use
     this.selectedStack = stack;
+
+    // Auto-update hostname if not manually modified and stack is not "default"
+    if (!this.hostnameManuallyChanged && stack.name.toLowerCase() !== 'default') {
+      const hostnameControl = this.form.get('hostname');
+      const baseHostname = this.initialValues.get('hostname');
+      if (hostnameControl && baseHostname) {
+        hostnameControl.setValue(`${baseHostname}-${stack.id}`);
+      }
+    }
   }
 
   onStackSelectChange(stackId: string): void {
