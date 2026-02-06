@@ -18,6 +18,12 @@
       <mat-icon>add</mat-icon>
       Create Stack
     </button>
+    @if (showCreateDefaultButton()) {
+      <button mat-stroked-button color="accent" (click)="startCreateDefault()" [disabled]="isEditing()" matTooltip="Create a 'default' stack that keeps the original hostname">
+        <mat-icon>bookmark_add</mat-icon>
+        Create Default Stack
+      </button>
+    }
   </div>
 
   @if (loading() && !isEditing()) {
@@ -93,7 +99,12 @@
         @for (stack of stacks(); track stack.id) {
           <mat-expansion-panel>
             <mat-expansion-panel-header>
-              <mat-panel-title>{{ stack.name }}</mat-panel-title>
+              <mat-panel-title>
+                {{ stack.name }}
+                @if (isDefaultStack(stack)) {
+                  <span class="default-badge" matTooltip="Keeps original hostname during deployment">default</span>
+                }
+              </mat-panel-title>
               <mat-panel-description>
                 {{ stack.entries.length }} variable{{ stack.entries.length !== 1 ? 's' : '' }}
               </mat-panel-description>

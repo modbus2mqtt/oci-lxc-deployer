@@ -42,7 +42,8 @@ export interface CreateStackDialogResult {
       <form [formGroup]="stackForm">
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Stack Name</mat-label>
-          <input matInput formControlName="name" required placeholder="e.g., production, staging" />
+          <input matInput formControlName="name" required placeholder="e.g., production, staging, default" />
+          <mat-hint>Name "default" keeps the original hostname during deployment</mat-hint>
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="full-width">

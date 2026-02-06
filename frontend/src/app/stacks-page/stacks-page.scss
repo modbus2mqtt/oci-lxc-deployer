@@ -162,6 +162,9 @@ mat-expansion-panel {
 
   mat-panel-title {
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   mat-panel-description {
@@ -171,4 +174,16 @@ mat-expansion-panel {
   mat-action-row {
     padding: 0.5rem 1rem;
   }
+}
+
+.default-badge {
+  display: inline-block;
+  background: #e3f2fd;
+  color: #1565c0;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }

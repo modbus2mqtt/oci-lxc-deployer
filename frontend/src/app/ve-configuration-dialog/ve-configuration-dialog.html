@@ -92,7 +92,12 @@
 						<mat-label>Secrets</mat-label>
 						<mat-select [value]="selectedStack?.id" (selectionChange)="onStackSelectChange($event.value)">
 							@for (stack of filteredStacks(); track stack.id) {
-								<mat-option [value]="stack.id">{{ stack.name }}</mat-option>
+								<mat-option [value]="stack.id">
+									{{ stack.name }}
+									@if (stack.name.toLowerCase() === 'default') {
+										<span class="default-stack-hint">(keeps hostname)</span>
+									}
+								</mat-option>
 							}
 						</mat-select>
 						<a mat-icon-button matSuffix href="/stacks" target="_blank" matTooltip="Manage secrets (new tab)" (click)="$event.stopPropagation()">

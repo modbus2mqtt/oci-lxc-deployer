@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { FormGroup, FormControl, Validators, ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -58,6 +58,22 @@ export class StacksPage implements OnInit {
   // Stack entries as signal for KeyValueTableComponent
   stackEntries = signal<KeyValuePair[]>([]);
 
+  // Check if a 'default' stack exists for current stacktype
+  hasDefaultStack = computed(() => {
+    return this.stacks().some(s => s.name.toLowerCase() === 'default');
+  });
+
+  // Check if current stacktype has external entries (requires manual input)
+  currentStacktypeHasExternalEntries = computed(() => {
+    const stacktype = this.stacktypes().find(st => st.name === this.selectedStacktype());
+    return stacktype?.entries.some(e => e.external) ?? false;
+  });
+
+  // Show "Create default" button only if no default exists AND has external entries
+  showCreateDefaultButton = computed(() => {
+    return !this.hasDefaultStack() && this.currentStacktypeHasExternalEntries();
+  });
+
   ngOnInit(): void {
     this.loadStacktypes();
   }
@@ -83,21 +99,54 @@ export class StacksPage implements OnInit {
   }
 
   loadStacks(): void {
-    const stacktype = this.selectedStacktype();
-    if (!stacktype) {
+    const stacktypeName = this.selectedStacktype();
+    if (!stacktypeName) {
       this.loading.set(false);
       return;
     }
 
     this.loading.set(true);
-    this.configService.getStacks(stacktype).subscribe({
+    this.configService.getStacks(stacktypeName).subscribe({
       next: (res) => {
         this.stacks.set(res.stacks);
         this.loading.set(false);
+        // Auto-create 'default' stack if none exists and no external entries required
+        this.autoCreateDefaultStackIfNeeded();
       },
       error: (err) => {
         this.errorHandler.handleError('Failed to load stacks', err);
         this.loading.set(false);
+      }
+    });
+  }
+
+  private autoCreateDefaultStackIfNeeded(): void {
+    // Only auto-create if no default exists and stacktype has no external entries
+    if (this.hasDefaultStack() || this.currentStacktypeHasExternalEntries()) {
+      return;
+    }
+
+    const stacktypeName = this.selectedStacktype();
+    if (!stacktypeName) return;
+
+    // Create default stack with empty entries (backend will auto-generate secrets)
+    const defaultStack: Omit<IStack, 'id'> = {
+      name: 'default',
+      stacktype: stacktypeName,
+      entries: []
+    };
+
+    this.configService.createStack(defaultStack).subscribe({
+      next: () => {
+        // Reload stacks to show the new default stack
+        this.configService.getStacks(stacktypeName).subscribe({
+          next: (res) => {
+            this.stacks.set(res.stacks);
+          }
+        });
+      },
+      error: (err) => {
+        this.errorHandler.handleError('Failed to auto-create default stack', err);
       }
     });
   }
@@ -243,5 +292,40 @@ export class StacksPage implements OnInit {
 
   isEditing(): boolean {
     return this.isCreating() || this.editingStack() !== null;
+  }
+
+  startCreateDefault(): void {
+    this.isCreating.set(true);
+    this.editingStack.set(null);
+    this.stackForm.reset();
+    this.stackForm.patchValue({
+      name: 'default',
+      stacktype: this.selectedStacktype()
+    });
+
+    // Load variables from stacktype definition
+    const stacktype = this.stacktypes().find(st => st.name === this.selectedStacktype());
+    if (stacktype) {
+      // Sort: external (required) first, then auto-generate
+      const sorted = [...stacktype.entries].sort((a, b) => {
+        if (a.external && !b.external) return -1;
+        if (!a.external && b.external) return 1;
+        return 0;
+      });
+      // Create KeyValuePairs with placeholder info
+      this.stackEntries.set(sorted.map(v => ({
+        key: v.name,
+        value: '',
+        placeholder: v.external ? '' : 'Wird automatisch generiert',
+        required: v.external ?? false,
+        readonly: true
+      })));
+    } else {
+      this.stackEntries.set([]);
+    }
+  }
+
+  isDefaultStack(stack: IStack): boolean {
+    return stack.name.toLowerCase() === 'default';
   }
 }
