@@ -1,0 +1,130 @@
+<div class="tracks-page">
+  <header class="page-header">
+    <h1>Environment Tracks</h1>
+    <p class="subtitle">Manage reusable environment variable sets</p>
+  </header>
+
+  <div class="tracks-controls">
+    <mat-form-field appearance="outline" class="tracktype-selector">
+      <mat-label>Track Type</mat-label>
+      <mat-select [value]="selectedTracktype()" (selectionChange)="onTracktypeChange($event.value)">
+        @for (tt of tracktypes(); track tt.name) {
+          <mat-option [value]="tt.name">{{ tt.name }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <button mat-flat-button color="primary" (click)="startCreate()" [disabled]="isEditing() || tracktypes().length === 0">
+      <mat-icon>add</mat-icon>
+      Create Track
+    </button>
+  </div>
+
+  @if (loading() && !isEditing()) {
+    <div class="loading-container">
+      <mat-spinner diameter="40"></mat-spinner>
+    </div>
+  }
+
+  <!-- Create/Edit Form -->
+  @if (isEditing()) {
+    <mat-card class="track-form-card">
+      <mat-card-header>
+        <mat-card-title>{{ isCreating() ? 'Create New Track' : 'Edit Track' }}</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <form [formGroup]="trackForm" (ngSubmit)="saveTrack()">
+          <div class="form-row">
+            <mat-form-field appearance="outline" class="name-field">
+              <mat-label>Track Name</mat-label>
+              <input matInput formControlName="name" required placeholder="e.g., production, staging" />
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" class="tracktype-field">
+              <mat-label>Track Type</mat-label>
+              <mat-select formControlName="tracktype" required>
+                @for (tt of tracktypes(); track tt.name) {
+                  <mat-option [value]="tt.name">{{ tt.name }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          </div>
+
+          <h4>Environment Variables</h4>
+          <app-key-value-table
+            [items]="trackEntries"
+            keyPlaceholder="Variable Name"
+            valuePlaceholder="Value"
+            keyLabel="variable"
+            (itemsChange)="onEntriesChange($event)"
+          />
+
+          <div class="form-actions">
+            <button mat-stroked-button type="button" (click)="cancelEdit()">Cancel</button>
+            <button mat-flat-button color="primary" type="submit" [disabled]="trackForm.invalid || loading()">
+              @if (loading()) {
+                <mat-spinner diameter="20"></mat-spinner>
+              } @else {
+                {{ isCreating() ? 'Create' : 'Save' }}
+              }
+            </button>
+          </div>
+        </form>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  <!-- Tracks List -->
+  @if (!loading() || isEditing()) {
+    <div class="tracks-list">
+      @if (tracks().length === 0 && !isEditing()) {
+        <div class="no-tracks">
+          @if (tracktypes().length === 0) {
+            <mat-icon>info</mat-icon>
+            <p>No track types defined. Add track types in <code>json/tracktypes.json</code>.</p>
+          } @else {
+            <mat-icon>folder_open</mat-icon>
+            <p>No tracks found for type "{{ selectedTracktype() }}". Create your first track.</p>
+          }
+        </div>
+      }
+
+      <mat-accordion>
+        @for (track of tracks(); track track.id) {
+          <mat-expansion-panel>
+            <mat-expansion-panel-header>
+              <mat-panel-title>{{ track.name }}</mat-panel-title>
+              <mat-panel-description>
+                {{ track.entries.length }} variable{{ track.entries.length !== 1 ? 's' : '' }}
+              </mat-panel-description>
+            </mat-expansion-panel-header>
+
+            <div class="track-entries">
+              @if (track.entries.length === 0) {
+                <p class="no-entries">No variables defined</p>
+              } @else {
+                @for (entry of track.entries; track entry.name) {
+                  <div class="entry-row">
+                    <span class="entry-name">{{ entry.name }}</span>
+                    <span class="entry-value">{{ entry.value }}</span>
+                  </div>
+                }
+              }
+            </div>
+
+            <mat-action-row>
+              <button mat-button (click)="startEdit(track)" [disabled]="isEditing()">
+                <mat-icon>edit</mat-icon>
+                Edit
+              </button>
+              <button mat-button color="warn" (click)="deleteTrack(track, $event)" [disabled]="isEditing()">
+                <mat-icon>delete</mat-icon>
+                Delete
+              </button>
+            </mat-action-row>
+          </mat-expansion-panel>
+        }
+      </mat-accordion>
+    </div>
+  }
+</div>

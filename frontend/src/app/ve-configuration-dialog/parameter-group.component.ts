@@ -1,4 +1,4 @@
-import { Component, Input, inject, signal, OnInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, inject, signal, OnInit } from '@angular/core';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -12,7 +12,7 @@ import { MatCardModule } from '@angular/material/card';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked } from 'marked';
 import * as yaml from 'js-yaml';
-import { IParameter, IJsonError } from '../../shared/types';
+import { IParameter, IJsonError, ITrack } from '../../shared/types';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { DockerComposeService } from '../shared/services/docker-compose.service';
 
@@ -40,6 +40,11 @@ export class ParameterGroupComponent implements OnInit {
   @Input({ required: true }) form!: FormGroup;
   @Input({ required: true }) showAdvanced!: boolean;
 
+  // Track selection inputs/outputs
+  @Input() availableTracks: ITrack[] = [];
+  @Output() trackSelected = new EventEmitter<ITrack>();
+  @Output() createTrackRequested = new EventEmitter<void>();
+
   private errorHandler = inject(ErrorHandlerService);
   private sanitizer = inject(DomSanitizer);
   private composeService = inject(DockerComposeService);
@@ -58,6 +63,22 @@ export class ParameterGroupComponent implements OnInit {
 
   // Secret env file upload - tracks uploaded filename for display
   secretEnvFileName = '';
+
+  // Track selection state
+  selectedTrack: ITrack | null = null;
+
+  onTrackSelect(track: ITrack): void {
+    this.selectedTrack = track;
+    this.trackSelected.emit(track);
+  }
+
+  onCreateTrack(): void {
+    this.createTrackRequested.emit();
+  }
+
+  hasTracksAvailable(): boolean {
+    return this.availableTracks.length > 0;
+  }
 
   // ==================== Marker Detection (delegates to service) ====================
 

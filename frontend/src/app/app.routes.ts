@@ -6,6 +6,7 @@ import { ProcessMonitor } from './process-monitor/process-monitor';
 import { SshConfigPage } from './ssh-config-page/ssh-config-page';
 import { CreateApplication } from './create-application/create-application';
 import { InstalledList } from './installed-list/installed-list';
+import { TracksPage } from './tracks-page/tracks-page';
 
 export const routes: Routes = [
 	{ path: '', component: ApplicationsList },
@@ -15,4 +16,5 @@ export const routes: Routes = [
   { path: 'ssh-config', component: SshConfigPage },
   { path: 'create-application', component: CreateApplication },
 	{ path: 'installations', component: InstalledList },
+  { path: 'tracks', component: TracksPage },
 ];

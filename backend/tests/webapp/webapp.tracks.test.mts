@@ -18,7 +18,7 @@ describe("Track API", () => {
   });
 
   describe("POST /api/tracks", () => {
-    it("creates a new track", async () => {
+    it("creates a new track and stores it in context", async () => {
       const track = {
         id: "track1",
         name: "Test Track",
@@ -29,6 +29,14 @@ describe("Track API", () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.key).toBe("track_Test Track");
+
+      // Verify track is stored in context
+      const storedTrack = setup.ctx.getTrack("Test Track");
+      expect(storedTrack).not.toBeNull();
+      expect(storedTrack?.id).toBe("track1");
+      expect(storedTrack?.name).toBe("Test Track");
+      expect(storedTrack?.tracktype).toBe("music");
+      expect(storedTrack?.entries).toEqual([{ name: "artist", value: "Test Artist" }]);
     });
 
     it("returns error for missing id", async () => {
@@ -160,7 +168,7 @@ describe("Track API", () => {
   });
 
   describe("DELETE /api/track/:id", () => {
-    it("deletes existing track", async () => {
+    it("deletes existing track from context", async () => {
       await request(app).post(ApiUri.Tracks).send({
         id: "todelete",
         name: "Delete Me",
@@ -168,12 +176,18 @@ describe("Track API", () => {
         entries: [],
       });
 
+      // Verify track exists in context before deletion
+      expect(setup.ctx.getTrack("Delete Me")).not.toBeNull();
+
       const res = await request(app).delete(ApiUri.Track.replace(":id", "Delete Me"));
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.deleted).toBe(true);
 
-      // Verify deletion
+      // Verify track is removed from context
+      expect(setup.ctx.getTrack("Delete Me")).toBeNull();
+
+      // Verify via API as well
       const getRes = await request(app).get(ApiUri.Track.replace(":id", "Delete Me"));
       expect(getRes.status).toBe(404);
     });
@@ -185,7 +199,7 @@ describe("Track API", () => {
       expect(res.body.deleted).toBe(false);
     });
 
-    it("deletes track using track_ prefix", async () => {
+    it("deletes track using track_ prefix and removes from context", async () => {
       await request(app).post(ApiUri.Tracks).send({
         id: "todelete",
         name: "Delete Me",
@@ -193,9 +207,15 @@ describe("Track API", () => {
         entries: [],
       });
 
+      // Verify track exists in context
+      expect(setup.ctx.getTrack("Delete Me")).not.toBeNull();
+
       const res = await request(app).delete(ApiUri.Track.replace(":id", "track_Delete Me"));
       expect(res.status).toBe(200);
       expect(res.body.deleted).toBe(true);
+
+      // Verify track is removed from context
+      expect(setup.ctx.getTrack("Delete Me")).toBeNull();
     });
   });
 

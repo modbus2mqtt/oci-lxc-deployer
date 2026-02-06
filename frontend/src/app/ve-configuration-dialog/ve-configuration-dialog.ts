@@ -4,12 +4,13 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialog } from '@angu
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters } from '../../shared/types';
+import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters, ITrack, ITracktypeEntry } from '../../shared/types';
 import { VeConfigurationService, VeConfigurationParam } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { DockerComposeService } from '../shared/services/docker-compose.service';
 import { ParameterGroupComponent } from './parameter-group.component';
 import { TemplateTraceDialog } from './template-trace-dialog';
+import { CreateTrackDialog, CreateTrackDialogData, CreateTrackDialogResult } from '../tracks-page/create-track-dialog';
 import type { NavigationExtras } from '@angular/router';
 
 /**
@@ -48,6 +49,11 @@ export class VeConfigurationDialog implements OnInit {
   selectedAddons = signal<string[]>([]);
   expandedAddons = signal<string[]>([]);
   addonsLoading = signal(false);
+
+  // Track selection state
+  availableTracks = signal<ITrack[]>([]);
+  availableTracktypes = signal<ITracktypeEntry[]>([]);
+  tracksLoading = signal(false);
   private initialValues = new Map<string, IParameterValue>();
   private enumRefreshAttempted = false;
   private configService: VeConfigurationService = inject(VeConfigurationService);
@@ -64,8 +70,9 @@ export class VeConfigurationDialog implements OnInit {
     this.form = this.fb.group({});
   }
   ngOnInit(): void {
-    // Load compatible addons in parallel with parameters
+    // Load compatible addons and tracks in parallel with parameters
     this.loadCompatibleAddons();
+    this.loadTracks();
 
     // For demo purposes: use 'installation' as the default task, can be extended
     this.configService.getUnresolvedParameters(this.data.app.id, this.task).subscribe({
@@ -184,6 +191,76 @@ export class VeConfigurationDialog implements OnInit {
         // Don't show error for addons - they're optional
         // Just set loading to false and continue without addons
         this.addonsLoading.set(false);
+      }
+    });
+  }
+
+  private loadTracks(): void {
+    this.tracksLoading.set(true);
+    // Load tracktypes first, then load all tracks
+    this.configService.getTracktypes().subscribe({
+      next: (res) => {
+        this.availableTracktypes.set(res.tracktypes);
+        // Load all tracks (no filter - show all available)
+        this.configService.getTracks().subscribe({
+          next: (tracksRes) => {
+            this.availableTracks.set(tracksRes.tracks);
+            this.tracksLoading.set(false);
+          },
+          error: () => {
+            // Don't show error for tracks - they're optional
+            this.tracksLoading.set(false);
+          }
+        });
+      },
+      error: () => {
+        // Don't show error for tracktypes - they're optional
+        this.tracksLoading.set(false);
+      }
+    });
+  }
+
+  onTrackSelected(track: ITrack): void {
+    // Convert track entries to Map for marker replacement
+    const envVars = new Map<string, string>();
+    for (const entry of track.entries) {
+      envVars.set(entry.name, String(entry.value));
+    }
+
+    // Replace markers in envs field (if present)
+    const envsControl = this.form.get('envs');
+    if (envsControl && typeof envsControl.value === 'string') {
+      envsControl.setValue(this.composeService.replaceMarkers(envsControl.value, envVars));
+    }
+
+    // Replace markers in env_file field (if present)
+    const envFileControl = this.form.get('env_file');
+    if (envFileControl && typeof envFileControl.value === 'string') {
+      envFileControl.setValue(this.composeService.replaceMarkersInBase64(envFileControl.value, envVars));
+    }
+  }
+
+  onCreateTrackRequested(): void {
+    // Get markers that need to be filled
+    const envMarkers = this.composeService.extractMarkers(this.form.get('envs')?.value || '');
+    const envFileMarkers = this.composeService.extractMarkersFromBase64(this.form.get('env_file')?.value || '');
+    const suggestedEntries = [...new Set([...envMarkers, ...envFileMarkers])];
+
+    const dialogData: CreateTrackDialogData = {
+      tracktypes: this.availableTracktypes(),
+      suggestedEntries
+    };
+
+    const dialogRef = this.dialog.open(CreateTrackDialog, {
+      width: '600px',
+      data: dialogData
+    });
+
+    dialogRef.afterClosed().subscribe((result: CreateTrackDialogResult | undefined) => {
+      if (result?.track) {
+        // Add to available tracks and apply it
+        this.availableTracks.update(tracks => [...tracks, result.track]);
+        this.onTrackSelected(result.track);
       }
     });
   }

@@ -137,6 +137,9 @@ export enum ApiUri {
   ApplicationFrameworkData = "/api/application/:applicationId/framework-data",
   CompatibleAddons = "/api/addons/compatible/:application",
   AddonInstall = "/api/addons/install/:addonId/:veContext",
+  Tracktypes = "/api/tracktypes",
+  Tracks = "/api/tracks",
+  Track = "/api/track/:id",
 }
 
 export interface IPostAddonInstallBody {
@@ -473,4 +476,39 @@ export interface IAddonWithParameters extends IAddon {
 
 export interface ICompatibleAddonsResponse {
   addons: IAddonWithParameters[];
+}
+
+// Track types (for environment variable management)
+export interface ITrackEntry {
+  name: string;
+  value: string | number | boolean;
+}
+
+export interface ITrack {
+  id: string;
+  name: string;
+  tracktype: string;
+  entries: ITrackEntry[];
+}
+
+export interface ITracktypeEntry {
+  name: string;
+  external?: boolean;
+}
+
+export interface ITracktypesResponse {
+  tracktypes: ITracktypeEntry[];
+}
+
+export interface ITracksResponse {
+  tracks: ITrack[];
+}
+
+export interface ITrackResponse {
+  track: ITrack;
+}
+
+export interface ICreateTrackResponse {
+  success: boolean;
+  key: string;
 }

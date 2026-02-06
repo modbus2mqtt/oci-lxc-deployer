@@ -70,6 +70,9 @@
 													[groupedParameters]="getAddonGroupedParameters(addon.name, param)"
 													[form]="form"
 													[showAdvanced]="showAdvanced()"
+													[availableTracks]="availableTracks()"
+													(trackSelected)="onTrackSelected($event)"
+													(createTrackRequested)="onCreateTrackRequested()"
 												/>
 											}
 										}
@@ -89,6 +92,9 @@
 					[groupedParameters]="groupedParameters"
 					[form]="form"
 					[showAdvanced]="showAdvanced()"
+					[availableTracks]="availableTracks()"
+					(trackSelected)="onTrackSelected($event)"
+					(createTrackRequested)="onCreateTrackRequested()"
 				/>
 			}
 		</div>

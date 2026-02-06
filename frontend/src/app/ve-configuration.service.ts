@@ -1,6 +1,6 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, ITracktypesResponse, ITracksResponse, ITrackResponse, ITrack, ICreateTrackResponse } from '../shared/types';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -223,5 +223,36 @@ export class VeConfigurationService {
     const url = ApiUri.CompatibleAddons
       .replace(':application', encodeURIComponent(application));
     return this.http.get<ICompatibleAddonsResponse>(url);
+  }
+
+  // Track management methods
+  getTracktypes(): Observable<ITracktypesResponse> {
+    return this.http.get<ITracktypesResponse>(ApiUri.Tracktypes);
+  }
+
+  getTracks(tracktype?: string): Observable<ITracksResponse> {
+    let url = ApiUri.Tracks;
+    if (tracktype) {
+      url += `?tracktype=${encodeURIComponent(tracktype)}`;
+    }
+    return this.http.get<ITracksResponse>(url);
+  }
+
+  getTrack(id: string): Observable<ITrackResponse> {
+    const url = ApiUri.Track.replace(':id', encodeURIComponent(id));
+    return this.http.get<ITrackResponse>(url);
+  }
+
+  createTrack(track: Omit<ITrack, 'id'>): Observable<ICreateTrackResponse> {
+    return this.http.post<ICreateTrackResponse>(ApiUri.Tracks, track);
+  }
+
+  updateTrack(track: ITrack): Observable<ICreateTrackResponse> {
+    return this.http.post<ICreateTrackResponse>(ApiUri.Tracks, track);
+  }
+
+  deleteTrack(id: string): Observable<{ success: boolean; deleted: boolean }> {
+    const url = ApiUri.Track.replace(':id', encodeURIComponent(id));
+    return this.http.delete<{ success: boolean; deleted: boolean }>(url);
   }
 }

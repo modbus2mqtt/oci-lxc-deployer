@@ -94,19 +94,37 @@
 								</mat-card-content>
 							</mat-card>
 						}
-						<!-- Secret env file upload for env_file: appears when env_file contains {{ }} markers -->
+						<!-- Track selector or secret env file upload for env_file: appears when env_file contains {{ }} markers -->
 						@if (param.id === 'env_file' && envFileHasMarkers()) {
-							<div class="param-field secret-env-upload">
-								<mat-form-field appearance="outline">
-									<mat-label>Secret Environment File (.env)</mat-label>
-									<input type="file" #secretEnvFileInput id="secret-env-file-for-envfile" (change)="onSecretEnvFileSelectedForEnvFile($event)" accept=".env,text/plain" style="display: none;" />
-									<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
-									<button mat-icon-button matSuffix type="button" (click)="secretEnvFileInput.click()" matTooltip="Upload .env file with secret values">
-										<mat-icon>vpn_key</mat-icon>
-									</button>
-								</mat-form-field>
+							<div class="param-field track-or-env-upload">
 								<div class="secret-env-hint">
 									Detected markers: {{ getEnvFileMarkers().join(', ') }}
+								</div>
+								<!-- Track selector (primary option) -->
+								<div class="track-selector-row">
+									<mat-form-field appearance="outline" class="track-select-field">
+										<mat-label>Select Environment Track</mat-label>
+										<mat-select [value]="selectedTrack" (selectionChange)="onTrackSelect($event.value)">
+											@for (track of availableTracks; track track.id) {
+												<mat-option [value]="track">{{ track.name }} ({{ track.entries.length }} vars)</mat-option>
+											}
+										</mat-select>
+									</mat-form-field>
+									<button mat-icon-button type="button" (click)="onCreateTrack()" matTooltip="Create new track" class="create-track-btn">
+										<mat-icon>add</mat-icon>
+									</button>
+								</div>
+								<!-- Fallback: upload .env file -->
+								<div class="env-upload-fallback">
+									<span class="fallback-label">or upload file:</span>
+									<mat-form-field appearance="outline" class="env-file-field">
+										<mat-label>Secret Environment File (.env)</mat-label>
+										<input type="file" #secretEnvFileInput id="secret-env-file-for-envfile" (change)="onSecretEnvFileSelectedForEnvFile($event)" accept=".env,text/plain" style="display: none;" />
+										<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
+										<button mat-icon-button matSuffix type="button" (click)="secretEnvFileInput.click()" matTooltip="Upload .env file with secret values">
+											<mat-icon>attach_file</mat-icon>
+										</button>
+									</mat-form-field>
 								</div>
 							</div>
 						}
@@ -131,19 +149,37 @@
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
 						}
-						<!-- Secret env file upload: appears when envs contains {{ }} markers -->
+						<!-- Track selector or secret env file upload: appears when envs contains {{ }} markers -->
 						@if (param.id === 'envs' && envsHasMarkers()) {
-							<div class="param-field secret-env-upload">
-								<mat-form-field appearance="outline">
-									<mat-label>Secret Environment File (.env)</mat-label>
-									<input type="file" #secretEnvInput id="secret-env-file" (change)="onSecretEnvFileSelected($event)" accept=".env,text/plain" style="display: none;" />
-									<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
-									<button mat-icon-button matSuffix type="button" (click)="secretEnvInput.click()" matTooltip="Upload .env file with secret values">
-										<mat-icon>vpn_key</mat-icon>
-									</button>
-								</mat-form-field>
+							<div class="param-field track-or-env-upload">
 								<div class="secret-env-hint">
 									Detected markers: {{ getEnvMarkers().join(', ') }}
+								</div>
+								<!-- Track selector (primary option) -->
+								<div class="track-selector-row">
+									<mat-form-field appearance="outline" class="track-select-field">
+										<mat-label>Select Environment Track</mat-label>
+										<mat-select [value]="selectedTrack" (selectionChange)="onTrackSelect($event.value)">
+											@for (track of availableTracks; track track.id) {
+												<mat-option [value]="track">{{ track.name }} ({{ track.entries.length }} vars)</mat-option>
+											}
+										</mat-select>
+									</mat-form-field>
+									<button mat-icon-button type="button" (click)="onCreateTrack()" matTooltip="Create new track" class="create-track-btn">
+										<mat-icon>add</mat-icon>
+									</button>
+								</div>
+								<!-- Fallback: upload .env file -->
+								<div class="env-upload-fallback">
+									<span class="fallback-label">or upload file:</span>
+									<mat-form-field appearance="outline" class="env-file-field">
+										<mat-label>Secret Environment File (.env)</mat-label>
+										<input type="file" #secretEnvInput id="secret-env-file" (change)="onSecretEnvFileSelected($event)" accept=".env,text/plain" style="display: none;" />
+										<input matInput [value]="secretEnvFileName" placeholder="Upload .env to replace markers" readonly (focus)="$event.target.blur()" />
+										<button mat-icon-button matSuffix type="button" (click)="secretEnvInput.click()" matTooltip="Upload .env file with secret values">
+											<mat-icon>attach_file</mat-icon>
+										</button>
+									</mat-form-field>
 								</div>
 							</div>
 						}
