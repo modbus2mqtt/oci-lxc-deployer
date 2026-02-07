@@ -55,34 +55,53 @@ export class AddonService {
    * Prefers parameters defined directly in addon JSON over extracting from templates.
    */
   extractAddonParameters(addon: IAddon): IAddonWithParameters {
+    let parameters: IParameter[];
+
     // If addon has parameters defined directly, use those (new approach)
     if (addon.parameters && addon.parameters.length > 0) {
-      return addon as IAddonWithParameters;
+      parameters = [...addon.parameters];
+    } else if (!this.templatePersistence) {
+      // No template persistence, no parameters to extract
+      return this.applyParameterOverrides(addon, []);
+    } else {
+      // Fallback: extract parameters from addon templates (legacy approach)
+      const allTemplateRefs: AddonTemplateReference[] = [
+        ...(addon.pre_start ?? []),
+        ...(addon.post_start ?? []),
+        ...(addon.upgrade ?? []),
+      ];
+
+      parameters = [];
+      const seenParamIds = new Set<string>();
+
+      for (const templateRef of allTemplateRefs) {
+        const templateName = this.getTemplateName(templateRef);
+        const extractedParams = this.extractParametersFromTemplate(templateName);
+
+        for (const param of extractedParams) {
+          // Avoid duplicate parameters
+          if (!seenParamIds.has(param.id)) {
+            seenParamIds.add(param.id);
+            parameters.push(param);
+          }
+        }
+      }
     }
 
-    // Fallback: extract parameters from addon templates (legacy approach)
-    if (!this.templatePersistence) {
-      return addon;
-    }
+    return this.applyParameterOverrides(addon, parameters);
+  }
 
-    const allTemplateRefs: AddonTemplateReference[] = [
-      ...(addon.pre_start ?? []),
-      ...(addon.post_start ?? []),
-      ...(addon.upgrade ?? []),
-    ];
-
-    const parameters: IParameter[] = [];
-    const seenParamIds = new Set<string>();
-
-    for (const templateRef of allTemplateRefs) {
-      const templateName = this.getTemplateName(templateRef);
-      const extractedParams = this.extractParametersFromTemplate(templateName);
-
-      for (const param of extractedParams) {
-        // Avoid duplicate parameters
-        if (!seenParamIds.has(param.id)) {
-          seenParamIds.add(param.id);
-          parameters.push(param);
+  /**
+   * Applies parameterOverrides from addon to the given parameters
+   */
+  private applyParameterOverrides(addon: IAddon, parameters: IParameter[]): IAddonWithParameters {
+    // Apply addon-level parameter overrides
+    if (addon.parameterOverrides) {
+      for (const override of addon.parameterOverrides) {
+        const param = parameters.find((p) => p.id === override.id);
+        if (param) {
+          if (override.name) param.name = override.name;
+          if (override.description) param.description = override.description;
         }
       }
     }

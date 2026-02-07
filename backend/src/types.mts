@@ -27,6 +27,8 @@ export interface IApplicationBase {
   parameters?: IParameter[];
   /** Fixed property values set by this application (same format as template command properties) */
   properties?: IOutputObject[];
+  /** Override name/description of parameters defined in templates */
+  parameterOverrides?: IParameterOverride[];
 }
 export interface IApplicationWeb {
   name: string;
@@ -112,6 +114,12 @@ export interface IParameter {
   templatename?: string;
   template?: string;
   if?: string;
+}
+
+export interface IParameterOverride {
+  id: string;
+  name?: string;
+  description?: string;
 }
 
 export interface ITemplate {
@@ -429,6 +437,8 @@ export interface IAddon {
   upgrade?: AddonTemplateReference[];
   /** Key for notes persistence */
   notes_key: string;
+  /** Override name/description of parameters defined in templates */
+  parameterOverrides?: IParameterOverride[];
 }
 
 export interface IActiveAddon {

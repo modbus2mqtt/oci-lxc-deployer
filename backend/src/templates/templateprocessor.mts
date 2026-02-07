@@ -228,6 +228,18 @@ export class TemplateProcessor extends EventEmitter {
     const traceInfo = this.traceBuilder.buildTraceInfo(applicationName, task);
     // Save resolvedParams for getUnresolvedParameters
     this.resolvedParams = resolvedParams;
+
+    // Apply application-level parameter overrides
+    if (application?.parameterOverrides) {
+      for (const override of application.parameterOverrides) {
+        const param = outParameters.find((p) => p.id === override.id);
+        if (param) {
+          if (override.name) param.name = override.name;
+          if (override.description) param.description = override.description;
+        }
+      }
+    }
+
     if (errors.length > 0) {
       const appBase = {
         name: applicationName,

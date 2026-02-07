@@ -56,13 +56,27 @@
         "properties": {
           "id": { "type": "string" },
           "value": { "type": ["string", "number", "boolean"] },
-          "default": { "type": ["string", "number", "boolean"] }
+          "default": { "type": ["string", "number", "boolean"] },
+          "description": { "type": "string" }
         },
         "required": ["id"],
         "anyOf": [
           { "required": ["value"] },
           { "required": ["default"] }
         ]
+      }
+    },
+    "parameterOverrides": {
+      "type": "array",
+      "description": "Override name/description of parameters defined in templates",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["id"]
       }
     }
   },

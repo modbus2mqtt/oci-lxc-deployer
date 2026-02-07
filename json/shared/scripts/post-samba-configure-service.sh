@@ -1,53 +1,40 @@
 #!/bin/sh
-# Upload Samba configuration and create Samba user
+# Configure Samba service: create user and start service
 #
 # This script:
-# 1. Decodes base64-encoded smb.conf file
-# 2. Writes it to /etc/samba/smb.conf
-# 3. Creates UNIX user if not exists
-# 4. Creates/updates Samba user with smbpasswd
-# 5. Starts/restarts Samba service
+# 1. Creates UNIX user if not exists
+# 2. Creates/updates Samba user with smbpasswd
+# 3. Starts/restarts Samba service
+#
+# Expects smb.conf already in place (via 155-conf-upload-pre-start-files.json)
 #
 # Requires:
-#   - samba_config: Base64-encoded smb.conf file (from upload parameter)
 #   - smb_user: Username for Samba authentication
 #   - smb_password: Password for Samba authentication
 #
-# Output: JSON to stdout (errors to stderr)
+# Output: errors to stderr only
 
-SAMBA_CONFIG_B64="{{ samba_config }}"
 SMB_USER="{{ smb_user }}"
 SMB_PASSWORD="{{ smb_password }}"
 
-if [ -z "$SAMBA_CONFIG_B64" ] || [ "$SAMBA_CONFIG_B64" = "" ]; then
-  echo "Error: Required parameter 'samba_config' must be set" >&2
-  exit 1
-fi
+# Helper: check if value is defined
+is_defined() {
+  [ -n "$1" ] && [ "$1" != "NOT_DEFINED" ]
+}
 
-if [ -z "$SMB_USER" ] || [ "$SMB_USER" = "" ]; then
+if ! is_defined "$SMB_USER"; then
   echo "Error: Required parameter 'smb_user' must be set" >&2
   exit 1
 fi
 
-if [ -z "$SMB_PASSWORD" ] || [ "$SMB_PASSWORD" = "" ]; then
+if ! is_defined "$SMB_PASSWORD"; then
   echo "Error: Required parameter 'smb_password' must be set" >&2
   exit 1
 fi
 
-# Ensure samba directory exists
+# Ensure samba directories exist
 mkdir -p /etc/samba
 mkdir -p /var/lib/samba/private
-
-# Decode and write smb.conf
-echo "Writing smb.conf to /etc/samba/smb.conf..." >&2
-echo "$SAMBA_CONFIG_B64" | base64 -d > /etc/samba/smb.conf
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to decode or write smb.conf" >&2
-  exit 1
-fi
-
-# Set permissions
-chmod 644 /etc/samba/smb.conf
 
 # Create UNIX user if not exists (required for smbpasswd)
 if ! id "$SMB_USER" >/dev/null 2>&1; then
@@ -99,5 +86,4 @@ elif command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
-echo "Samba configuration and user setup completed successfully" >&2
-echo '[{"id": "samba_configured", "value": "true"}]'
+echo "Samba user setup and service start completed successfully" >&2

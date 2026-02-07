@@ -305,4 +305,79 @@ describe("AddonService", () => {
       expect(service.getTemplateName({ name: "template.json", before: "other.json" })).toBe("template.json");
     });
   });
+
+  describe("extractAddonParameters() with parameterOverrides", () => {
+    it("should override parameter name and description", () => {
+      persistenceHelper.writeJsonSync(Volume.JsonAddons, "override-test.json", createAddonJson({
+        name: "Override Test Addon",
+        notes_key: "override-test",
+        parameters: [
+          {
+            id: "generic_file",
+            name: "Generic File",
+            type: "string",
+            upload: true,
+            description: "A generic file upload",
+          },
+          {
+            id: "other_param",
+            name: "Other Parameter",
+            type: "string",
+            description: "Another parameter",
+          },
+        ],
+        parameterOverrides: [
+          {
+            id: "generic_file",
+            name: "Samba Configuration File",
+            description: "Upload your smb.conf file",
+          },
+        ],
+      }));
+
+      const addon = service.getAddon("override-test");
+      const result = service.extractAddonParameters(addon);
+
+      // Check that the overridden parameter has new name and description
+      const overriddenParam = result.parameters?.find(p => p.id === "generic_file");
+      expect(overriddenParam).toBeDefined();
+      expect(overriddenParam?.name).toBe("Samba Configuration File");
+      expect(overriddenParam?.description).toBe("Upload your smb.conf file");
+
+      // Check that other parameters are unchanged
+      const otherParam = result.parameters?.find(p => p.id === "other_param");
+      expect(otherParam).toBeDefined();
+      expect(otherParam?.name).toBe("Other Parameter");
+      expect(otherParam?.description).toBe("Another parameter");
+    });
+
+    it("should only override name when description is not provided", () => {
+      persistenceHelper.writeJsonSync(Volume.JsonAddons, "partial-override.json", createAddonJson({
+        name: "Partial Override Addon",
+        notes_key: "partial-override",
+        parameters: [
+          {
+            id: "config_file",
+            name: "Config File",
+            type: "string",
+            description: "Original description",
+          },
+        ],
+        parameterOverrides: [
+          {
+            id: "config_file",
+            name: "MQTT Configuration",
+            // no description override
+          },
+        ],
+      }));
+
+      const addon = service.getAddon("partial-override");
+      const result = service.extractAddonParameters(addon);
+
+      const param = result.parameters?.find(p => p.id === "config_file");
+      expect(param?.name).toBe("MQTT Configuration");
+      expect(param?.description).toBe("Original description");
+    });
+  });
 });

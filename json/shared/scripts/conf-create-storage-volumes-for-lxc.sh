@@ -374,7 +374,7 @@ if [ "$ATTACH_TO_CT" -eq 1 ]; then
   if [ "$WAS_RUNNING" -eq 1 ]; then
     pct start "$VMID" >/dev/null 2>&1 || true
   fi
-  echo '[{"id":"volumes_attached","value":"true"}]'
+  printf '[{"id":"volumes_attached","value":"true"},{"id":"shared_volpath","value":"%s"}]\n' "$SHARED_VOLPATH"
 else
-  echo '[{"id":"volumes_attached","value":"false"}]'
+  printf '[{"id":"volumes_attached","value":"false"},{"id":"shared_volpath","value":"%s"}]\n' "$SHARED_VOLPATH"
 fi

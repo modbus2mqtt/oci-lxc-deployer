@@ -97,7 +97,8 @@
       "name": "Create Storage Volumes",
       "script": "conf-create-storage-volumes-for-lxc.sh",
       "outputs": [
-        "volumes_attached"
+        "volumes_attached",
+        "shared_volpath"
       ]
     }
   ]
