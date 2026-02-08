@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { FrameworkLoader } from "@src/frameworkloader.mjs";
-import { VEConfigurationError, IVEContext } from "@src/backend-types.mjs";
+import { IVEContext } from "@src/backend-types.mjs";
 import { IPostFrameworkCreateApplicationBody } from "@src/types.mjs";
 import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
 import * as path from "path";

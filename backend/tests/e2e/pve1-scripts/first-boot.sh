@@ -1,0 +1,172 @@
+#!/bin/bash
+# First boot script for E2E test Proxmox installation
+# This script runs after network is up to configure:
+# - APT repositories for latest packages
+# - NAT networking for isolated container network
+
+set -e
+
+echo "=== E2E Test: First Boot Configuration ===" >&2
+
+# ============================================
+# Configure Static IP on External Interface
+# ============================================
+# Replace DHCP with static IP for reliable access
+# This VM runs on pve1's vmbr1 NAT network (10.99.0.0/24)
+
+STATIC_IP="10.99.0.10"
+GATEWAY="10.99.0.1"
+NETMASK="255.255.255.0"
+
+echo "Configuring static IP: $STATIC_IP..." >&2
+
+# Find the primary network interface (the one bridged to vmbr0)
+# At first boot, vmbr0 already exists with the physical interface as bridge-port
+PRIMARY_IF=$(grep -A5 "iface vmbr0" /etc/network/interfaces 2>/dev/null | grep bridge-ports | awk '{print $2}')
+if [ -z "$PRIMARY_IF" ] || [ "$PRIMARY_IF" = "none" ]; then
+    # Fallback: find first ethernet interface that's not a bridge
+    PRIMARY_IF=$(ip link show | grep -E "^[0-9]+: (ens|eth|enp)" | head -1 | cut -d: -f2 | tr -d ' ')
+fi
+if [ -z "$PRIMARY_IF" ]; then
+    PRIMARY_IF="ens18"  # Last resort fallback for virtio
+fi
+echo "Primary interface: $PRIMARY_IF" >&2
+
+# Update /etc/network/interfaces for vmbr0 with static IP
+# Proxmox creates vmbr0 bridging the primary interface
+cat > /etc/network/interfaces << NETCFG
+# Network configuration - Static IP for E2E testing
+auto lo
+iface lo inet loopback
+
+auto $PRIMARY_IF
+iface $PRIMARY_IF inet manual
+
+auto vmbr0
+iface vmbr0 inet static
+    address $STATIC_IP
+    netmask $NETMASK
+    gateway $GATEWAY
+    bridge-ports $PRIMARY_IF
+    bridge-stp off
+    bridge-fd 0
+NETCFG
+
+# Apply network configuration
+echo "Applying static IP configuration..." >&2
+ip addr flush dev vmbr0 2>/dev/null || true
+ip addr add $STATIC_IP/$NETMASK dev vmbr0 2>/dev/null || true
+ip route add default via $GATEWAY dev vmbr0 2>/dev/null || true
+
+# Configure DNS
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+
+echo "Static IP configured: $STATIC_IP" >&2
+
+# Get Proxmox version
+PVE_VERSION=$(pveversion | grep -oP 'pve-manager/\K[0-9]+')
+DEBIAN_VERSION=$(cat /etc/debian_version | cut -d. -f1)
+
+echo "Proxmox VE major version: $PVE_VERSION" >&2
+echo "Debian version: $DEBIAN_VERSION" >&2
+
+# Determine Debian codename
+case "$DEBIAN_VERSION" in
+    12) CODENAME="bookworm" ;;
+    11) CODENAME="bullseye" ;;
+    *)  CODENAME="bookworm" ;;  # Default to latest
+esac
+
+echo "Using Debian codename: $CODENAME" >&2
+
+# Configure Proxmox no-subscription repository (free)
+cat > /etc/apt/sources.list.d/pve-no-subscription.list << EOF
+# Proxmox VE No-Subscription Repository
+# This is NOT recommended for production, but fine for testing
+deb http://download.proxmox.com/debian/pve $CODENAME pve-no-subscription
+EOF
+
+# Disable enterprise repository if present
+if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
+    mv /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/pve-enterprise.list.disabled
+    echo "Disabled pve-enterprise.list" >&2
+fi
+
+# Configure Debian repositories for latest packages
+cat > /etc/apt/sources.list << EOF
+# Debian $CODENAME repositories
+deb http://deb.debian.org/debian $CODENAME main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian $CODENAME-updates main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security $CODENAME-security main contrib non-free-firmware
+EOF
+
+# Update package lists
+echo "Updating apt package lists..." >&2
+apt-get update -qq
+
+# Install useful tools for E2E testing
+echo "Installing additional tools..." >&2
+apt-get install -y -qq jq curl netcat-openbsd
+
+# Enable QEMU guest agent for VM introspection from pve1
+systemctl enable qemu-guest-agent
+systemctl start qemu-guest-agent || true
+
+# ============================================
+# Configure NAT Network for Container Isolation
+# ============================================
+# This creates an isolated network (10.0.0.0/24) for LXC containers
+# Containers can access internet via NAT but don't conflict with pve1's network
+
+echo "Configuring NAT network for containers..." >&2
+
+# Create vmbr1 as NAT bridge for containers
+if ! grep -q "vmbr1" /etc/network/interfaces; then
+    cat >> /etc/network/interfaces << 'NETEOF'
+
+# NAT bridge for E2E test containers
+auto vmbr1
+iface vmbr1 inet static
+    address 10.0.0.1/24
+    bridge-ports none
+    bridge-stp off
+    bridge-fd 0
+    post-up   echo 1 > /proc/sys/net/ipv4/ip_forward
+    post-up   iptables -t nat -A POSTROUTING -s '10.0.0.0/24' -o vmbr0 -j MASQUERADE
+    post-down iptables -t nat -D POSTROUTING -s '10.0.0.0/24' -o vmbr0 -j MASQUERADE
+NETEOF
+    echo "NAT bridge vmbr1 configured" >&2
+fi
+
+# Bring up vmbr1
+ifup vmbr1 2>/dev/null || true
+
+# Enable IP forwarding permanently
+echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/99-e2e-nat.conf
+sysctl -p /etc/sysctl.d/99-e2e-nat.conf
+
+# Configure dnsmasq for DHCP on vmbr1
+apt-get install -y -qq dnsmasq
+
+cat > /etc/dnsmasq.d/e2e-nat.conf << 'DNSEOF'
+# E2E Test NAT Network DHCP
+interface=vmbr1
+bind-interfaces
+dhcp-range=10.0.0.100,10.0.0.200,24h
+dhcp-option=option:router,10.0.0.1
+dhcp-option=option:dns-server,10.0.0.1,8.8.8.8
+# Local DNS for containers
+local=/e2e.local/
+domain=e2e.local
+expand-hosts
+DNSEOF
+
+# Restart dnsmasq
+systemctl enable dnsmasq
+systemctl restart dnsmasq
+
+echo "NAT network configured: 10.0.0.0/24 on vmbr1" >&2
+echo "Containers should use: bridge=vmbr1, ip=dhcp" >&2
+
+echo "=== E2E Test: First boot configuration complete ===" >&2

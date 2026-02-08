@@ -174,6 +174,26 @@ export class VeTestHelper {
     fs.writeFileSync(path.join(appScriptDir, scriptName), content, "utf-8");
   }
 
+  writeAddon(addonId: string, data: Record<string, unknown>): void {
+    const addonsDir = path.join(this.jsonDir, "addons");
+    fs.ensureDirSync(addonsDir);
+    const addonPath = path.join(addonsDir, `${addonId}.json`);
+    fs.writeFileSync(addonPath, JSON.stringify(data, null, 2), "utf-8");
+  }
+
+  writeSharedTemplate(tmplName: string, data: ITemplate): void {
+    const sharedTmplDir = path.join(this.jsonDir, "shared", "templates");
+    fs.ensureDirSync(sharedTmplDir);
+    const tmplPath = path.join(sharedTmplDir, tmplName);
+    fs.writeFileSync(tmplPath, JSON.stringify(data, null, 2), "utf-8");
+  }
+
+  writeSharedScript(scriptName: string, content: string): void {
+    const sharedScriptDir = path.join(this.jsonDir, "shared", "scripts");
+    fs.ensureDirSync(sharedScriptDir);
+    fs.writeFileSync(path.join(sharedScriptDir, scriptName), content, "utf-8");
+  }
+
   createStorageContext(): ContextManager {
     // Create a valid storagecontext.json file
     const storageContextPath = path.join(this.localDir, "storagecontext.json");

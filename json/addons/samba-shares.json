@@ -53,7 +53,10 @@
     "335-post-samba-configure-service.json"
   ],
 
-  "upgrade": [],
+  "upgrade": [
+    "330-post-install-packages.json",
+    "335-post-samba-configure-service.json"
+  ],
 
   "notes_key": "samba-shares"
 }

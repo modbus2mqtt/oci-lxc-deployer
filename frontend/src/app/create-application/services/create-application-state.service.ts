@@ -920,6 +920,15 @@ export class CreateApplicationStateService {
           this.parameterForm.addControl(controlId, new FormControl(preservedValue));
         }
       }
+      // Also preserve compose controls when in OCI compose mode
+      if (this.isOciComposeMode()) {
+        for (const controlId of this.DOCKER_COMPOSE_PRESERVED_CONTROLS) {
+          if (!this.parameterForm.get(controlId)) {
+            const preservedValue = preservedValues[controlId] ?? '';
+            this.parameterForm.addControl(controlId, new FormControl(preservedValue));
+          }
+        }
+      }
     }
 
     this.configService.getFrameworkParameters(frameworkId).subscribe({

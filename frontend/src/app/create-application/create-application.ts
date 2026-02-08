@@ -283,7 +283,7 @@ export class CreateApplication implements OnInit, OnDestroy {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   onServiceSelected(_serviceName: string): void {
     if (this.isOciComposeMode()) {
       this.state.updateImageFromCompose();

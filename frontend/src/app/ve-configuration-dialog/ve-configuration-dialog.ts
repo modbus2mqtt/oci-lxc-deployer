@@ -407,8 +407,14 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
     const application = this.data.app.id;
     const task = this.task;
     
-    // Pass changedParams to backend for vmInstallContext
-        this.configService.postVeConfiguration(application, task, params, changedParams.length > 0 ? changedParams : undefined).subscribe({
+    // Pass changedParams and selectedAddons to backend for vmInstallContext
+        this.configService.postVeConfiguration(
+          application,
+          task,
+          params,
+          changedParams.length > 0 ? changedParams : undefined,
+          this.selectedAddons().length > 0 ? this.selectedAddons() : undefined
+        ).subscribe({
           next: (res) => {
             this.loading.set(false);
             // Navigate to process monitor; pass restartKey, vmInstallKey and original parameters

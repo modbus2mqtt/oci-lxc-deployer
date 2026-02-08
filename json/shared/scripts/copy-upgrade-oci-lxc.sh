@@ -101,4 +101,32 @@ else
 fi
 log "Copy-upgrade prepared: source=$SOURCE_VMID target=$TARGET_VMID"
 
-printf '{ "id": "vm_id", "value": "%s" }' "$TARGET_VMID"
+# Extract installed addons from source container notes
+# Addon markers are in format "addon:<addon-key>" (URL-encoded or plain)
+extract_addons() {
+  python3 - <<'PY' "$1"
+import sys
+import re
+from urllib.parse import unquote
+
+text = sys.argv[1] if len(sys.argv) > 1 else ""
+decoded = unquote(text)
+
+# Find addon markers: addon:addon-id patterns
+# Support both URL-encoded (addon%3A) and plain (addon:) format
+addons = set()
+for match in re.findall(r'addon[:%]3[Aa]([a-zA-Z0-9_-]+)', text):
+    addons.add(match)
+for match in re.findall(r'addon:([a-zA-Z0-9_-]+)', decoded):
+    addons.add(match)
+
+# Output comma-separated list
+print(",".join(sorted(addons)))
+PY
+}
+
+INSTALLED_ADDONS=$(extract_addons "$SOURCE_DESC$SOURCE_CONF_TEXT")
+log "Installed addons from source: $INSTALLED_ADDONS"
+
+# Output JSON with vm_id and installed_addons
+printf '[{ "id": "vm_id", "value": "%s" }, { "id": "installed_addons", "value": "%s" }]' "$TARGET_VMID" "$INSTALLED_ADDONS"

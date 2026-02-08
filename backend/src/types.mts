@@ -228,6 +228,7 @@ export interface IPostVeConfigurationBody {
   params: { name: string; value: IParameterValue }[];
   outputs?: { id: string; value: IParameterValue }[];
   changedParams?: { name: string; value: IParameterValue }[];
+  selectedAddons?: string[];
 }
 export interface IPostEnumValuesBody {
   params?: { id: string; value: IParameterValue }[];

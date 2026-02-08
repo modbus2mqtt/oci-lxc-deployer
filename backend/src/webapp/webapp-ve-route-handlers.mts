@@ -1,5 +1,5 @@
 import os from "os";
-import { TaskType, IPostVeConfigurationBody, IVeExecuteMessagesResponse, IJsonError } from "@src/types.mjs";
+import { TaskType, IPostVeConfigurationBody, IVeExecuteMessagesResponse, IJsonError, ICommand, ITemplate } from "@src/types.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
@@ -150,6 +150,9 @@ export class WebAppVeRouteHandlers {
     if (body.changedParams !== undefined && !Array.isArray(body.changedParams)) {
       return { valid: false, error: "Invalid changedParams" };
     }
+    if (body.selectedAddons !== undefined && !Array.isArray(body.selectedAddons)) {
+      return { valid: false, error: "Invalid selectedAddons" };
+    }
     return { valid: true };
   }
 
@@ -209,7 +212,7 @@ export class WebAppVeRouteHandlers {
         executionMode,
         initialInputs, // Pass initialInputs so skip_if_all_missing can check user inputs
       );
-      const commands = loaded.commands;
+      let commands = loaded.commands;
       if (!commands || commands.length === 0) {
         return {
           success: false,
@@ -217,6 +220,17 @@ export class WebAppVeRouteHandlers {
           statusCode: 422,
         };
       }
+
+      // Load and append addon templates if selectedAddons are provided
+      const selectedAddons = body.selectedAddons ?? [];
+      if (selectedAddons.length > 0) {
+        const addonCommands = await this.loadAddonCommands(
+          selectedAddons,
+          task as TaskType,
+        );
+        commands = [...commands, ...addonCommands];
+      }
+
       const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);
 
       // Built-in context variables (available to scripts as {{ application_id }}, etc.)
@@ -245,6 +259,11 @@ export class WebAppVeRouteHandlers {
       if (appData?.iconContent && appData?.iconType) {
         defaults.set("icon_base64", appData.iconContent);
         defaults.set("icon_mime_type", appData.iconType);
+      }
+
+      // Store selected addon IDs for notes update (comma-separated for shell script)
+      if (selectedAddons.length > 0) {
+        defaults.set("selected_addons", selectedAddons.join(","));
       }
 
       const contextManager = PersistenceManager.getInstance().getContextManager();
@@ -548,11 +567,159 @@ export class WebAppVeRouteHandlers {
       this.messageManager.setVmInstallKeyForGroup(installCtx.application, installCtx.task, vmInstallKey);
     }
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       restartKey,
       ...(vmInstallKey && { vmInstallKey }),
     };
+  }
+
+  /**
+   * Maps task types to addon phases for template loading.
+   */
+  private getAddonPhaseForTask(task: TaskType): "pre_start" | "post_start" | "upgrade" | null {
+    switch (task) {
+      case "installation":
+        return "post_start";
+      case "copy-upgrade":
+        return "upgrade";
+      case "addon-reconfigure":
+        return "post_start";
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Loads addon commands for the given addon IDs and task phase.
+   * Returns an array of ICommand objects ready for execution.
+   */
+  private async loadAddonCommands(
+    addonIds: string[],
+    task: TaskType,
+  ): Promise<ICommand[]> {
+    const phase = this.getAddonPhaseForTask(task);
+    if (!phase) {
+      return [];
+    }
+
+    const pm = PersistenceManager.getInstance();
+    const addonService = pm.getAddonService();
+    const repositories = pm.getRepositories();
+    const commands: ICommand[] = [];
+
+    for (const addonId of addonIds) {
+      let addon;
+      try {
+        addon = addonService.getAddon(addonId);
+      } catch {
+        console.warn(`Addon not found: ${addonId}, skipping`);
+        continue;
+      }
+
+      // Get templates for the phase
+      const templateRefs = addon[phase];
+      if (!templateRefs || templateRefs.length === 0) {
+        continue;
+      }
+
+      // Add addon properties as commands first
+      if (addon.properties && addon.properties.length > 0) {
+        const propertiesCommand: ICommand = {
+          name: `${addon.name} Properties`,
+          properties: addon.properties.map((prop) => ({
+            id: prop.id,
+            value: prop.value as string | number | boolean,
+          })),
+        };
+        commands.push(propertiesCommand);
+      }
+
+      // Load templates and build commands
+      for (const templateRef of templateRefs) {
+        const templateName =
+          typeof templateRef === "string" ? templateRef : templateRef.name;
+
+        try {
+          const template = repositories.getTemplate({
+            name: templateName,
+            scope: "shared",
+          }) as ITemplate | null;
+
+          if (template && template.commands) {
+            for (const cmd of template.commands) {
+              const command: ICommand = { ...cmd };
+
+              // Set execute_on from template if not on command
+              if (!command.execute_on && template.execute_on) {
+                command.execute_on = template.execute_on;
+              }
+
+              // Resolve script content
+              if (cmd.script && !cmd.scriptContent) {
+                const scriptContent = repositories.getScript({
+                  name: cmd.script,
+                  scope: "shared",
+                });
+                if (scriptContent) {
+                  command.scriptContent = scriptContent;
+                }
+              }
+
+              // Resolve library content
+              if (cmd.library && !cmd.libraryContent) {
+                const libraryContent = repositories.getScript({
+                  name: cmd.library,
+                  scope: "shared",
+                });
+                if (libraryContent) {
+                  command.libraryContent = libraryContent;
+                }
+              }
+
+              commands.push(command);
+            }
+          }
+        } catch (e) {
+          console.error(`Failed to load addon template ${templateName}:`, e);
+        }
+      }
+    }
+
+    // Add notes update command for addons at the end
+    if (commands.length > 0 && addonIds.length > 0) {
+      const notesUpdateScript = repositories.getScript({
+        name: "host-update-lxc-notes-addon.py",
+        scope: "shared",
+      });
+      const notesUpdateLibrary = repositories.getScript({
+        name: "lxc_config_parser_lib.py",
+        scope: "shared",
+      });
+
+      if (notesUpdateScript && notesUpdateLibrary) {
+        // Add command to update notes with all addon markers
+        for (const addonId of addonIds) {
+          let addon;
+          try {
+            addon = addonService.getAddon(addonId);
+          } catch {
+            continue;
+          }
+          commands.push({
+            name: `Update LXC Notes with Addon: ${addon.name}`,
+            execute_on: "ve",
+            script: "host-update-lxc-notes-addon.py",
+            scriptContent: notesUpdateScript,
+            libraryContent: notesUpdateLibrary,
+            properties: [{ id: "addon_id", value: addonId }],
+            outputs: ["success"],
+          });
+        }
+      }
+    }
+
+    return commands;
   }
 }
 

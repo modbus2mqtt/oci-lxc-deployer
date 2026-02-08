@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { CreateApplication } from './create-application';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { DockerComposeService } from '../shared/services/docker-compose.service';
+import { CreateApplicationStateService } from './services/create-application-state.service';
 import { of } from 'rxjs';
 import { delay } from 'rxjs/operators';
 import { NO_ERRORS_SCHEMA } from '@angular/core';
@@ -63,17 +64,6 @@ describe('CreateApplication Integration', () => {
   });
 
   /**
-   * Helper: Simulate step change to trigger loadParameters
-   */
-  async function simulateStepChange(): Promise<void> {
-    component.onStepChange({ selectedIndex: 1 });
-    fixture.detectChanges();
-    await fixture.whenStable();
-    // Wait for async operations
-    await new Promise(resolve => setTimeout(resolve, 20));
-  }
-
-  /**
    * Test: Variable resolution with .env file overriding defaults
    *
    * This test validates the complete integration chain:
@@ -116,8 +106,15 @@ describe('CreateApplication Integration', () => {
     await component.onEnvFileSelected(envFile);
     fixture.detectChanges();
     await fixture.whenStable();
-    // Wait for setTimeout in updateUserFromCompose
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Wait for setTimeout in onEnvFileSelected to complete
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Assert
     // Command should have variables resolved (MY_KEY from .env, UNDEFINED_VAR -> empty)
@@ -173,7 +170,14 @@ describe('CreateApplication Integration', () => {
     await component.onEnvFileSelected(envFile);
     fixture.detectChanges();
     await fixture.whenStable();
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Wait for setTimeout in onEnvFileSelected to complete
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Assert - command should have variable resolved with .env value
     const cmdValue = component.parameterForm.get('initial_command')?.value;
@@ -211,6 +215,12 @@ describe('CreateApplication Integration', () => {
     await component.onComposeFileSelected(composeFile);
     fixture.detectChanges();
     await fixture.whenStable();
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Assert
     const envsValue = component.parameterForm.get('envs')?.value;
@@ -260,8 +270,14 @@ describe('CreateApplication Integration', () => {
     await component.onEnvFileSelected(envFile);
     fixture.detectChanges();
     await fixture.whenStable();
-    // Wait for setTimeout in updateUserFromCompose
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Wait for setTimeout in onEnvFileSelected to complete
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Assert
     const envsValue = component.parameterForm.get('envs')?.value;
@@ -306,6 +322,12 @@ describe('CreateApplication Integration', () => {
     await component.onComposeFileSelected(composeFile);
     fixture.detectChanges();
     await fixture.whenStable();
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Initially should have service1 selected (first service)
     let envsValue = component.parameterForm.get('envs')?.value;
@@ -373,8 +395,14 @@ CMD_VAR=start --server`;
     await component.onEnvFileSelected(envFile);
     fixture.detectChanges();
     await fixture.whenStable();
-    // Wait for setTimeout in updateUserFromCompose
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Wait for setTimeout in onEnvFileSelected to complete
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Assert environment variables
     const envsValue = component.parameterForm.get('envs')?.value;
@@ -432,6 +460,12 @@ CMD_VAR=start --server`;
     await component.onComposeFileSelected(composeFile1);
     fixture.detectChanges();
     await fixture.whenStable();
+
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Assert first file values - envs must NOT be empty
     let envsValue = component.parameterForm.get('envs')?.value;
@@ -524,6 +558,12 @@ services:
     fixture.detectChanges();
     await fixture.whenStable();
 
+    // Trigger loadParameters by simulating step change
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     // Assert - envs should contain resolved defaults
     const envsValue = component.parameterForm.get('envs')?.value;
     expect(envsValue, 'envs should not be falsy').toBeTruthy();
@@ -585,6 +625,7 @@ describe('CreateApplication - Parameter Default Resolution', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         DockerComposeService,
+        CreateApplicationStateService, // Provide fresh instance for each test
         { provide: VeConfigurationService, useValue: mockConfigService },
         { provide: CacheService, useValue: mockCacheService },
         { provide: ErrorHandlerService, useValue: mockErrorHandler },
@@ -646,9 +687,11 @@ DB_PASSWORD=supersecret`;
     await component.onEnvFileSelected(envFile);
     fixture.detectChanges();
     await fixture.whenStable();
+    // Wait for setTimeout in onEnvFileSelected to complete
+    await new Promise(resolve => setTimeout(resolve, 20));
 
     // Trigger loadParameters by simulating step change
-    component.onStepChange({ selectedIndex: 1 });
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
     fixture.detectChanges();
     await fixture.whenStable();
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -689,7 +732,7 @@ DB_PASSWORD=supersecret`;
     await fixture.whenStable();
 
     // Trigger loadParameters
-    component.onStepChange({ selectedIndex: 1 });
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
     fixture.detectChanges();
     await fixture.whenStable();
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -729,7 +772,7 @@ DB_PASSWORD=supersecret`;
     await fixture.whenStable();
 
     // Trigger loadParameters
-    component.onStepChange({ selectedIndex: 1 });
+    component.onStepChange({ selectedIndex: 1, previouslySelectedIndex: 0 });
     fixture.detectChanges();
     await fixture.whenStable();
     await new Promise(resolve => setTimeout(resolve, 50));
