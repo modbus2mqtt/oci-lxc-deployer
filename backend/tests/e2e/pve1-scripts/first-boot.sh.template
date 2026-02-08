@@ -14,8 +14,8 @@ echo "=== E2E Test: First Boot Configuration ===" >&2
 # Replace DHCP with static IP for reliable access
 # This VM runs on pve1's vmbr1 NAT network (10.99.0.0/24)
 
-STATIC_IP="10.99.0.10"
-GATEWAY="10.99.0.1"
+STATIC_IP="{{STATIC_IP}}"
+GATEWAY="{{GATEWAY}}"
 NETMASK="255.255.255.0"
 
 echo "Configuring static IP: $STATIC_IP..." >&2

@@ -19,11 +19,27 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NESTED_IP_FILE="$SCRIPT_DIR/.nested-vm-ip"
 
+# PVE host for port forwarding (required for access from dev machine)
+PVE_HOST="${PVE_HOST:-}"
+
+# Host-specific network configuration
+get_host_subnet() {
+    local host="$1"
+    case "$host" in
+        *ubuntupve*) echo "10.99.1" ;;
+        *pve1*)      echo "10.99.0" ;;
+        *)           echo "10.99.0" ;;
+    esac
+}
+
 # Get nested VM IP
 if [ -n "$1" ]; then
     NESTED_IP="$1"
 elif [ -f "$NESTED_IP_FILE" ]; then
     NESTED_IP=$(cat "$NESTED_IP_FILE")
+elif [ -n "$PVE_HOST" ]; then
+    SUBNET=$(get_host_subnet "$PVE_HOST")
+    NESTED_IP="${SUBNET}.10"
 else
     NESTED_IP="10.99.0.10"  # Default static IP
 fi
@@ -49,11 +65,23 @@ error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 header() { echo -e "\n${BLUE}═══════════════════════════════════════════════════════${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n"; }
 
 # SSH wrapper for nested VM
+# Uses port forwarding via PVE_HOST if set, otherwise direct connection
 nested_ssh() {
-    ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 "root@$NESTED_IP" "$@"
+    if [ -n "$PVE_HOST" ]; then
+        # Connect via port 1022 on PVE host
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 -p 1022 "root@$PVE_HOST" "$@"
+    else
+        # Direct connection (when running on PVE host itself)
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 "root@$NESTED_IP" "$@"
+    fi
 }
 
 header "Step 2: Install oci-lxc-deployer"
+if [ -n "$PVE_HOST" ]; then
+    echo "Connection: via $PVE_HOST:1022"
+else
+    echo "Connection: direct to $NESTED_IP"
+fi
 echo "Nested VM IP: $NESTED_IP"
 echo "Owner: $OWNER"
 echo "OCI Owner: $OCI_OWNER"

@@ -56,12 +56,23 @@ backend/tests/e2e/
 
 ### Answer File Configuration
 
-- **Network**: DHCP
+- **Network**: DHCP during install, then static IP via first-boot.sh
 - **Keyboard/Timezone**: German (de)
 - **Filesystem**: ext4 on LVM
 - **Root Password**: `e2e-test-2024`
-- **SSH Keys**: Automatically includes pve1's SSH key
-- **First Boot**: Configures Proxmox no-subscription repo
+- **SSH Keys**: Automatically includes host's SSH key
+- **First Boot**: Configures static IP, Proxmox no-subscription repo
+
+### Host-Specific Network Configuration
+
+Each host has its own NAT subnet to avoid IP conflicts when running E2E tests in parallel:
+
+| Host | NAT Subnet | Nested VM IP | Container DHCP Range |
+|------|------------|--------------|---------------------|
+| pve1.cluster | 10.99.0.0/24 | 10.99.0.10 | 10.99.0.100-200 |
+| ubuntupve | 10.99.1.0/24 | 10.99.1.10 | 10.99.1.100-200 |
+
+The scripts automatically detect the target host and use the appropriate subnet.
 
 ### Result
 

@@ -24,12 +24,23 @@ VM_MEMORY=2048
 VM_CORES=2
 VM_DISK_SIZE=32
 VM_STORAGE="${VM_STORAGE:-local-zfs}"  # Can be overridden with VM_STORAGE env var
-ISO_NAME="proxmox-ve-e2e-autoinstall.iso"
-# VM uses NAT network vmbr1 (10.99.0.0/24)
 VM_BRIDGE="vmbr1"
-# Static IP configured in answer-e2e.toml
-NESTED_STATIC_IP="10.99.0.10"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Host-specific network configuration
+# Each host has its own NAT subnet to avoid IP conflicts
+get_host_subnet() {
+    local host="$1"
+    case "$host" in
+        *ubuntupve*) echo "10.99.1" ;;
+        *pve1*)      echo "10.99.0" ;;
+        *)           echo "10.99.0" ;;  # Default fallback
+    esac
+}
+
+SUBNET=$(get_host_subnet "$PVE_HOST")
+NESTED_STATIC_IP="${SUBNET}.10"
+ISO_NAME="proxmox-ve-e2e-autoinstall.iso"
 
 # Colors
 RED='\033[0;31m'
@@ -173,7 +184,7 @@ echo "  - IP Address: $NESTED_IP"
 echo "  - Root Password: e2e-test-2024"
 echo ""
 echo "Network Configuration:"
-echo "  - vmbr1 on pve1: NAT network (10.99.0.0/24)"
+echo "  - vmbr1 on $PVE_HOST: NAT network (${SUBNET}.0/24)"
 echo "  - vmbr0 in nested VM: External network"
 echo "  - vmbr1 in nested VM: NAT for containers (10.0.0.0/24)"
 echo ""

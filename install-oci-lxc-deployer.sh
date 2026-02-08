@@ -336,19 +336,22 @@ fi
 
 oci_outputs=$(execute_script_from_github \
   "json/shared/scripts/host-get-oci-image.py" \
-  "ostype,application_id,application_name,oci_image,oci_image_tag" \
+  "ostype,arch,application_id,application_name,oci_image,oci_image_tag" \
   "oci_image=${OCI_IMAGE}" \
   "storage=${storage}" \
   "registry_username=" \
   "registry_password=" \
   "platform=linux/amd64")
 
-IFS=',' read -r ostype application_id application_name resolved_oci_image oci_image_tag <<EOF
+IFS=',' read -r ostype arch application_id application_name resolved_oci_image oci_image_tag <<EOF
 $oci_outputs
 EOF
 
 if [ -z "$application_id" ]; then
   application_id="oci-lxc-deployer"
+fi
+if [ -z "$arch" ]; then
+  arch="amd64"
 fi
 if [ -z "$resolved_oci_image" ]; then
   resolved_oci_image="${OCI_IMAGE}"
@@ -376,7 +379,8 @@ vm_id=$(execute_script_from_github \
   "application_name=${application_name}" \
   "oci_image=${resolved_oci_image}" \
   "oci_image_tag=${oci_image_tag}" \
-  "ostype=${ostype}")
+  "ostype=${ostype}" \
+  "arch=${arch}")
 
 if [ -z "$vm_id" ]; then
   echo "Error: Failed to create LXC container" >&2

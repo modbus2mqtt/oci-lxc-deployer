@@ -18,7 +18,22 @@ set -e
 PVE_HOST="${PVE_HOST:-${1:-pve1.cluster}}"
 WORK_DIR="/tmp/e2e-iso-build"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PVE1_SCRIPTS="$SCRIPT_DIR/pve1-scripts"
+HOST_SCRIPTS="$SCRIPT_DIR/pve1-scripts"
+
+# Host-specific network configuration
+# Each host has its own NAT subnet to avoid IP conflicts
+get_host_subnet() {
+    local host="$1"
+    case "$host" in
+        *ubuntupve*) echo "10.99.1" ;;
+        *pve1*)      echo "10.99.0" ;;
+        *)           echo "10.99.0" ;;  # Default fallback
+    esac
+}
+
+SUBNET=$(get_host_subnet "$PVE_HOST")
+NESTED_STATIC_IP="${SUBNET}.10"
+GATEWAY="${SUBNET}.1"
 
 # Colors
 RED='\033[0;31m'
@@ -44,7 +59,9 @@ pve_scp() {
 header "Step 0: Create Proxmox E2E Test ISO"
 echo "Target Host: $PVE_HOST"
 echo "Work Directory: $WORK_DIR"
-echo "Script Source: $PVE1_SCRIPTS"
+echo "Script Source: $HOST_SCRIPTS"
+echo "NAT Subnet: ${SUBNET}.0/24"
+echo "Nested VM IP: $NESTED_STATIC_IP"
 echo ""
 
 # Step 1: Verify SSH connection
@@ -70,41 +87,65 @@ info "Checking NAT network (vmbr1) on $PVE_HOST..."
 if pve_ssh "ip link show vmbr1" &>/dev/null; then
     success "NAT network vmbr1 already exists"
 else
-    info "Creating NAT network vmbr1 (10.99.0.0/24)..."
+    info "Creating NAT network vmbr1 (${SUBNET}.0/24)..."
 
     # Get node name
     PVE_NODE=$(pve_ssh "hostname")
 
     # Create vmbr1 bridge via Proxmox API
-    pve_ssh "pvesh create /nodes/$PVE_NODE/network \
+    pve_ssh "pvesh create /nodes/\$PVE_NODE/network \
         --iface vmbr1 \
         --type bridge \
-        --address 10.99.0.1 \
+        --address $GATEWAY \
         --netmask 255.255.255.0 \
         --autostart 1 \
         --comments 'NAT bridge for E2E test VMs'"
 
     # Apply network config
-    pve_ssh "pvesh set /nodes/$PVE_NODE/network"
+    pve_ssh "pvesh set /nodes/\$PVE_NODE/network"
     sleep 2
 
     # Enable IP forwarding and NAT masquerading
     pve_ssh "
         echo 1 > /proc/sys/net/ipv4/ip_forward
         echo 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-e2e-nat.conf
-        iptables -t nat -C POSTROUTING -s '10.99.0.0/24' -o vmbr0 -j MASQUERADE 2>/dev/null || \
-        iptables -t nat -A POSTROUTING -s '10.99.0.0/24' -o vmbr0 -j MASQUERADE
+        iptables -t nat -C POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE 2>/dev/null || \
+        iptables -t nat -A POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE
     "
 
     # Make NAT rules persistent
-    pve_ssh "cat > /etc/network/interfaces.d/e2e-nat << 'EOF'
+    pve_ssh "cat > /etc/network/interfaces.d/e2e-nat << EOF
 # NAT rules for E2E test network (vmbr1)
-post-up iptables -t nat -A POSTROUTING -s '10.99.0.0/24' -o vmbr0 -j MASQUERADE
-post-down iptables -t nat -D POSTROUTING -s '10.99.0.0/24' -o vmbr0 -j MASQUERADE
+post-up iptables -t nat -A POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE
+post-down iptables -t nat -D POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE
 EOF"
 
-    success "NAT network vmbr1 created (10.99.0.0/24)"
+    success "NAT network vmbr1 created (${SUBNET}.0/24)"
 fi
+
+# Step 3c: Setup port forwarding to nested VM
+info "Setting up port forwarding to nested VM..."
+# Port 1022 -> nested VM SSH (22)
+# Port 1008 -> nested VM Proxmox Web UI (8006)
+pve_ssh "
+    # Remove existing rules if present (ignore errors)
+    iptables -t nat -D PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006 2>/dev/null || true
+
+    # Add port forwarding rules
+    iptables -t nat -A PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22
+    iptables -t nat -A PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006
+"
+
+# Make port forwarding persistent
+pve_ssh "cat >> /etc/network/interfaces.d/e2e-nat << EOF
+# Port forwarding to nested VM at ${NESTED_STATIC_IP}
+post-up iptables -t nat -A PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22
+post-up iptables -t nat -A PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006
+post-down iptables -t nat -D PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22
+post-down iptables -t nat -D PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006
+EOF"
+success "Port forwarding configured: 1022->SSH, 1008->WebUI"
 
 # Step 3b: Setup DHCP server on vmbr1
 info "Checking DHCP server (dnsmasq) on vmbr1..."
@@ -117,12 +158,12 @@ else
         which dnsmasq >/dev/null 2>&1 || apt-get install -y -qq dnsmasq
 
         # Configure DHCP for vmbr1
-        cat > /etc/dnsmasq.d/vmbr1-dhcp.conf << 'EOF'
+        cat > /etc/dnsmasq.d/vmbr1-dhcp.conf << EOF
 # DHCP for E2E test VMs on vmbr1
 interface=vmbr1
 bind-interfaces
-dhcp-range=10.99.0.100,10.99.0.200,24h
-dhcp-option=option:router,10.99.0.1
+dhcp-range=${SUBNET}.100,${SUBNET}.200,24h
+dhcp-option=option:router,$GATEWAY
 dhcp-option=option:dns-server,8.8.8.8,8.8.4.4
 EOF
 
@@ -130,28 +171,35 @@ EOF
         systemctl enable dnsmasq
         systemctl restart dnsmasq
     "
-    success "DHCP server configured on vmbr1 (10.99.0.100-200)"
+    success "DHCP server configured on vmbr1 (${SUBNET}.100-200)"
 fi
 
 # Step 4: Check local files exist
 info "Checking local script files..."
-for file in answer-e2e.toml create-iso.sh first-boot.sh; do
-    if [ ! -f "$PVE1_SCRIPTS/$file" ]; then
-        error "Required file not found: $PVE1_SCRIPTS/$file"
+for file in answer-e2e.toml create-iso.sh first-boot.sh.template; do
+    if [ ! -f "$HOST_SCRIPTS/$file" ]; then
+        error "Required file not found: $HOST_SCRIPTS/$file"
     fi
 done
 success "All required files present"
+
+# Generate first-boot.sh with host-specific IP
+info "Generating first-boot.sh with IP $NESTED_STATIC_IP..."
+sed -e "s/{{STATIC_IP}}/$NESTED_STATIC_IP/g" \
+    -e "s/{{GATEWAY}}/$GATEWAY/g" \
+    "$HOST_SCRIPTS/first-boot.sh.template" > "/tmp/first-boot.sh"
+success "first-boot.sh generated"
 
 # Step 4: Create work directory on pve1
 info "Creating work directory on $PVE_HOST..."
 pve_ssh "mkdir -p $WORK_DIR"
 success "Work directory created: $WORK_DIR"
 
-# Step 5: Copy files to pve1
+# Step 5: Copy files to target host
 info "Copying files to $PVE_HOST:$WORK_DIR/..."
-pve_scp "$PVE1_SCRIPTS/answer-e2e.toml" "root@$PVE_HOST:$WORK_DIR/"
-pve_scp "$PVE1_SCRIPTS/create-iso.sh" "root@$PVE_HOST:$WORK_DIR/"
-pve_scp "$PVE1_SCRIPTS/first-boot.sh" "root@$PVE_HOST:$WORK_DIR/"
+pve_scp "$HOST_SCRIPTS/answer-e2e.toml" "root@$PVE_HOST:$WORK_DIR/"
+pve_scp "$HOST_SCRIPTS/create-iso.sh" "root@$PVE_HOST:$WORK_DIR/"
+pve_scp "/tmp/first-boot.sh" "root@$PVE_HOST:$WORK_DIR/"
 
 # Copy dev machine's SSH public key for direct access to nested VM
 info "Copying dev machine SSH key..."
