@@ -185,6 +185,12 @@ get_existing_volid() {
       echo "${VOLUME_STORAGE}:${name}"
       return 0
     fi
+  elif [ "$storage_type" = "lvmthin" ] || [ "$storage_type" = "lvm" ]; then
+    # LVM/lvmthin uses vm-<vmid>-* naming pattern
+    pvesm list "$VOLUME_STORAGE" --content rootdir 2>/dev/null \
+      | awk '{print $1}' \
+      | grep -Ei -- "vm-[0-9]+-${name}$" \
+      | head -n1 || true
   else
     pvesm list "$VOLUME_STORAGE" --content rootdir 2>/dev/null \
       | awk '{print $1}' \
@@ -281,6 +287,9 @@ SHARED_OWNER_VMID="${SHARED_OWNER_VMID:-999999}"
 SHARED_NAME_KEY="oci-lxc-deployer-volumes"
 if [ "$STORAGE_TYPE" = "zfspool" ]; then
   SHARED_VOLNAME="subvol-${SHARED_OWNER_VMID}-${SHARED_NAME_KEY}"
+elif [ "$STORAGE_TYPE" = "lvmthin" ] || [ "$STORAGE_TYPE" = "lvm" ]; then
+  # LVM/lvmthin requires vm-<vmid>-* naming pattern
+  SHARED_VOLNAME="vm-${SHARED_OWNER_VMID}-${SHARED_NAME_KEY}"
 else
   SHARED_VOLNAME="vol-${SHARED_NAME_KEY}"
 fi

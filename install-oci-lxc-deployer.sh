@@ -446,6 +446,9 @@ shared_owner_vmid=999999
 shared_name_key="oci-lxc-deployer-volumes"
 if [ "$storage_type" = "zfspool" ]; then
   shared_volname="subvol-${shared_owner_vmid}-${shared_name_key}"
+elif [ "$storage_type" = "lvmthin" ] || [ "$storage_type" = "lvm" ]; then
+  # LVM/lvmthin requires vm-<vmid>-* naming pattern
+  shared_volname="vm-${shared_owner_vmid}-${shared_name_key}"
 else
   shared_volname="vol-${shared_name_key}"
 fi
