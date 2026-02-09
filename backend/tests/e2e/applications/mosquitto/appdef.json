@@ -1,0 +1,9 @@
+{
+    "application": {
+        "name": "mosquitto",
+        "description": "Eclipse Mosquitto is an open source message broker that implements the MQTT protocol.",
+        "uploadfiles": [
+            { "filename": "mosquitto.conf" , "destination": "config:mosquitto.conf" }
+        ]
+    }
+}

@@ -1,0 +1,5 @@
+{
+    "name": "postgrest",
+    "description": "PostgreSQL REST API server.",
+    "tasktype": "postgres"
+}

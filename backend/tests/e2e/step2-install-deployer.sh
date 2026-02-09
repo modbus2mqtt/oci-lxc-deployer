@@ -133,8 +133,8 @@ header "Installing oci-lxc-deployer"
 
 # Clean up existing container if present
 if nested_ssh "pct status $DEPLOYER_VMID" &>/dev/null; then
-    info "Removing existing container $DEPLOYER_VMID..."
-    nested_ssh "pct stop $DEPLOYER_VMID 2>/dev/null || true"
+    info "Removing existing container $DEPLOYER_VMID (force)..."
+    nested_ssh "pct stop $DEPLOYER_VMID --skiplock 2>/dev/null || true"
     sleep 2
     nested_ssh "pct unlock $DEPLOYER_VMID 2>/dev/null || true"
     nested_ssh "pct destroy $DEPLOYER_VMID --force --purge 2>/dev/null || true"
@@ -274,10 +274,17 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
 
     # Restart the container to load the new package
     info "Restarting deployer container..."
-    nested_ssh "pct stop $DEPLOYER_VMID" || error "Failed to stop container"
-    sleep 3
+    nested_ssh "pct stop $DEPLOYER_VMID --skiplock" || error "Failed to stop container"
+    sleep 2
     nested_ssh "pct start $DEPLOYER_VMID" || error "Failed to start container"
-    sleep 5
+    sleep 3
+
+    # Reactivate container network interface after restart
+    info "Reactivating container network interface..."
+    nested_ssh "pct exec $DEPLOYER_VMID -- ip link set eth0 up 2>/dev/null || true"
+    nested_ssh "pct exec $DEPLOYER_VMID -- ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null || true"
+    nested_ssh "pct exec $DEPLOYER_VMID -- ip route add default via $DEPLOYER_GATEWAY 2>/dev/null || true"
+    sleep 2
 
     # Wait for API to come back up (max 60s)
     info "Waiting for API to restart..."

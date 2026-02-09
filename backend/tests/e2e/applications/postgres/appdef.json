@@ -1,0 +1,5 @@
+{
+    "name": "postgres",
+    "description": "PostgreSQL is an open source object-relational database system.",
+    "tasktype": "postgres"
+}
