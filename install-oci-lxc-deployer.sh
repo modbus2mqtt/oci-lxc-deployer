@@ -529,7 +529,9 @@ cat > "${storagecontext_file}" <<JSON
   }
 }
 JSON
-echo "  storagecontext.json written at: ${storagecontext_file}" >&2
+# Set ownership to mapped UID/GID so container process can write to it
+chown "${mapped_uid}:${mapped_gid}" "${storagecontext_file}"
+echo "  storagecontext.json written at: ${storagecontext_file} (owner: ${mapped_uid}:${mapped_gid})" >&2
 
 # 5.2) Write LXC notes/description
 echo "Step 5.2: Writing LXC notes..." >&2

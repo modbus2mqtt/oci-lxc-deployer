@@ -121,8 +121,7 @@ export class CreateApplication implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.cacheService.preloadAll();
-    this.state.loadTagsConfig();
-    this.state.loadStacktypes();
+    // Tags are now loaded directly in app-properties-step.component.ts
 
     // Subscribe to debounced image input from state service
     this.state.imageInputSubject.pipe(
@@ -270,6 +269,10 @@ export class CreateApplication implements OnInit, OnDestroy {
     if (this.isDockerComposeFramework()) {
       this.state.ensureComposeControls({ requireComposeFile: true });
     }
+    // Also ensure compose controls for oci-image in compose mode
+    if (this.isOciImageFramework() && this.state.ociInstallMode() === 'compose') {
+      this.state.ensureComposeControls({ requireComposeFile: true });
+    }
     // Parameters are loaded when transitioning from Step 1 to Step 2 (onStepChange)
   }
 
@@ -283,7 +286,7 @@ export class CreateApplication implements OnInit, OnDestroy {
     }
   }
 
-   
+
   onServiceSelected(_serviceName: string): void {
     if (this.isOciComposeMode()) {
       this.state.updateImageFromCompose();

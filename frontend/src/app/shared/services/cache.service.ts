@@ -17,47 +17,15 @@ export interface CacheData {
 })
 export class CacheService {
   private configService = inject(VeConfigurationService);
-  
+
   // Cache with TTL (Time To Live) - 5 minutes
   private readonly CACHE_TTL_MS = 5 * 60 * 1000;
-  
+
   private cache = signal<CacheData | null>(null);
   private loading = signal(false);
-  private loadingFrameworks = signal(false);
   private loadingApplicationIds = signal(false);
   private loadingHostnames = signal(false);
   private loadingInstallations = signal(false);
-
-  /**
-   * Get cached frameworks or load them if cache is empty/expired
-   */
-  getFrameworks(): Observable<IFrameworkName[]> {
-    const cached = this.cache();
-    
-    // Return cached data if fresh
-    if (cached && !this.isExpired(cached.lastUpdated)) {
-      return of(cached.frameworks);
-    }
-    
-    // Load if not already loading
-    if (!this.loadingFrameworks()) {
-      this.loadingFrameworks.set(true);
-      return this.configService.getFrameworkNames().pipe(
-        map(res => res.frameworks),
-        tap(frameworks => {
-          this.updateCache({ frameworks });
-          this.loadingFrameworks.set(false);
-        }),
-        catchError(err => {
-          this.loadingFrameworks.set(false);
-          throw err;
-        })
-      );
-    }
-    
-    // If loading, return cached data even if expired
-    return cached ? of(cached.frameworks) : of([]);
-  }
 
   /**
    * Set application IDs directly (e.g., from Applications-List after loading)
@@ -73,12 +41,12 @@ export class CacheService {
    */
   getApplicationIds(): Observable<Set<string>> {
     const cached = this.cache();
-    
+
     // Return cached data if available (even if expired, to avoid unnecessary API calls)
     if (cached && cached.applicationIds.size > 0) {
       return of(cached.applicationIds);
     }
-    
+
     // Only load if cache is completely empty
     if (!this.loadingApplicationIds()) {
       this.loadingApplicationIds.set(true);
@@ -95,7 +63,7 @@ export class CacheService {
         })
       );
     }
-    
+
     // If loading, return cached data even if expired
     return cached ? of(cached.applicationIds) : of(new Set<string>());
   }
@@ -105,12 +73,12 @@ export class CacheService {
    */
   getHostnames(): Observable<Set<string>> {
     const cached = this.cache();
-    
+
     // Return cached data if fresh
     if (cached && !this.isExpired(cached.lastUpdated)) {
       return of(cached.hostnames);
     }
-    
+
     // Load if not already loading
     if (!this.loadingHostnames()) {
       this.loadingHostnames.set(true);
@@ -121,7 +89,7 @@ export class CacheService {
       this.loadingHostnames.set(false);
       return of(hostnames);
     }
-    
+
     // If loading, return cached data even if expired
     return cached ? of(cached.hostnames) : of(new Set<string>());
   }
@@ -170,22 +138,15 @@ export class CacheService {
     if (this.loading()) {
       return; // Already loading
     }
-    
+
     this.loading.set(true);
-    
-    // Load all data in parallel
-    this.getFrameworks().subscribe({
-      error: () => {
-        this.loading.set(false);
-      }
-    });
-    
+
     this.getApplicationIds().subscribe({
       error: () => {
         this.loading.set(false);
       }
     });
-    
+
     this.getHostnames().subscribe({
       next: () => {
         this.loading.set(false);

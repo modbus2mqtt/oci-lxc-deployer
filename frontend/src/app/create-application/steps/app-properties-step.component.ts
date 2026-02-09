@@ -11,6 +11,8 @@ import { CreateApplicationStateService } from '../services/create-application-st
 import { IconUploadComponent, IconSelectedEvent } from '../components/icon-upload.component';
 import { TagsSelectorComponent } from '../components/tags-selector.component';
 import { CacheService } from '../../shared/services/cache.service';
+import { VeConfigurationService } from '../../ve-configuration.service';
+import { ITagsConfig } from '../../../shared/types';
 
 @Component({
   selector: 'app-properties-step',
@@ -100,7 +102,7 @@ import { CacheService } from '../../shared/services/cache.service';
 
         <!-- Tags Selection -->
         <app-tags-selector
-          [tagsConfig]="state.tagsConfig()"
+          [tagsConfig]="tagsConfig"
           [selectedTags]="state.selectedTags()"
           (tagToggled)="onTagToggle($event)"
         ></app-tags-selector>
@@ -131,13 +133,19 @@ import { CacheService } from '../../shared/services/cache.service';
 export class AppPropertiesStepComponent implements OnInit, OnDestroy {
   readonly state = inject(CreateApplicationStateService);
   private cacheService = inject(CacheService);
+  private configService = inject(VeConfigurationService);
   private destroy$ = new Subject<void>();
+
+  // Tags config loaded directly (simplified, similar to framework names)
+  tagsConfig: ITagsConfig | null = null;
 
   get appPropertiesForm() {
     return this.state.appPropertiesForm;
   }
 
   ngOnInit(): void {
+    // Load tags config directly
+    this.loadTagsConfig();
     // Set up async validator for application ID uniqueness
     const applicationIdControl = this.appPropertiesForm.get('applicationId');
     if (applicationIdControl && !applicationIdControl.asyncValidator) {
@@ -252,5 +260,22 @@ export class AppPropertiesStepComponent implements OnInit, OnDestroy {
 
   onStacktypeChange(stacktype: string | null): void {
     this.state.selectedStacktype.set(stacktype);
+  }
+
+  /**
+   * Load tags configuration directly (simplified, similar to framework names).
+   * This avoids async signal issues in Playwright tests.
+   */
+  private loadTagsConfig(): void {
+    this.configService.getTagsConfig().pipe(
+      takeUntil(this.destroy$)
+    ).subscribe({
+      next: (config) => {
+        this.tagsConfig = config;
+      },
+      error: (err) => {
+        console.error('Failed to load tags config', err);
+      }
+    });
   }
 }

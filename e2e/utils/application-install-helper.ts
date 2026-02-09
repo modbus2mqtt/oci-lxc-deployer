@@ -32,8 +32,37 @@ export class ApplicationInstallHelper {
    * Navigate to create application page
    */
   async goToCreateApplication(): Promise<void> {
-    await this.page.goto('/create-application');
-    await this.page.waitForLoadState('networkidle');
+    // Debug: Log all network requests and console messages
+    this.page.on('console', msg => console.log('BROWSER:', msg.type(), msg.text()));
+    this.page.on('requestfailed', request => {
+      console.log('REQUEST FAILED:', request.url(), request.failure()?.errorText);
+    });
+
+    const response = await this.page.goto('/create-application');
+    console.log('Navigated to:', this.page.url());
+    console.log('Response status:', response?.status());
+
+    // Wait for Angular to fully load
+    await this.page.waitForLoadState('domcontentloaded');
+
+    // Step 1: Wait for framework select to be visible
+    const frameworkSelect = this.page.locator('[data-testid="framework-select"]');
+    await frameworkSelect.waitFor({ state: 'visible', timeout: 15000 });
+    console.log('Framework select visible');
+
+    // Step 2: Wait for frameworks to be loaded by checking if select has a value
+    // The default framework (oci-image) should be auto-selected
+    await this.page.waitForFunction(() => {
+      const select = document.querySelector('[data-testid="framework-select"]');
+      // Check if mat-select has a selected value (not empty placeholder)
+      const valueText = select?.querySelector('.mat-mdc-select-value-text');
+      return valueText && valueText.textContent && valueText.textContent.includes('oci-image');
+    }, { timeout: 15000 });
+    console.log('Framework oci-image is selected');
+
+    // Step 3: Wait for compose file input (rendered after framework selection)
+    await this.page.locator('#compose-file-input').waitFor({ state: 'attached', timeout: 15000 });
+    console.log('Compose file input is attached');
   }
 
   /**
@@ -44,8 +73,14 @@ export class ApplicationInstallHelper {
       this.page.locator('mat-select').first()
     );
     await frameworkSelect.click();
-    await this.page.locator(`mat-option:has-text("${frameworkId}")`).click();
-    await this.page.waitForTimeout(500);
+
+    // Wait for dropdown options to appear
+    const option = this.page.locator(`mat-option:has-text("${frameworkId}")`);
+    await option.waitFor({ state: 'visible' });
+    await option.click();
+
+    // Wait for dropdown to close
+    await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
   }
 
   /**
@@ -56,8 +91,12 @@ export class ApplicationInstallHelper {
       this.page.locator('#compose-file-input')
     );
     await fileInput.setInputFiles(filePath);
-    // Wait for file parsing
-    await this.page.waitForTimeout(1000);
+
+    // Wait for file to be parsed - indicated by services hint appearing or error
+    await this.page.locator('mat-hint:has-text("Services:"), mat-error').first().waitFor({
+      state: 'visible',
+      timeout: 10000
+    }).catch(() => {});
   }
 
   /**
@@ -68,7 +107,9 @@ export class ApplicationInstallHelper {
       this.page.locator('#env-file-input')
     );
     await fileInput.setInputFiles(filePath);
-    await this.page.waitForTimeout(500);
+
+    // Wait for network to settle after file upload
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -79,7 +120,12 @@ export class ApplicationInstallHelper {
       this.page.locator('app-icon-upload input[type="file"]')
     );
     await fileInput.setInputFiles(filePath);
-    await this.page.waitForTimeout(500);
+
+    // Wait for icon preview to appear (indicates successful upload)
+    await this.page.locator('app-icon-upload img, app-icon-upload .icon-preview').first().waitFor({
+      state: 'visible',
+      timeout: 5000
+    }).catch(() => {});
   }
 
   /**
@@ -89,10 +135,20 @@ export class ApplicationInstallHelper {
     const nameInput = this.page.locator('[data-testid="app-name-input"]').or(
       this.page.locator('input[formControlName="name"]')
     );
+    await nameInput.waitFor({ state: 'visible' });
     await nameInput.fill(name);
 
-    // ApplicationId is auto-generated from name, but wait for it
-    await this.page.waitForTimeout(500);
+    // Fill applicationId (derived from name: lowercase, replace spaces with hyphens)
+    const appIdInput = this.page.locator('input[formControlName="applicationId"]');
+    await appIdInput.waitFor({ state: 'visible' });
+
+    // Check if applicationId was auto-filled (e.g., from OCI annotations)
+    const currentValue = await appIdInput.inputValue();
+    if (!currentValue || currentValue.trim() === '') {
+      // Generate applicationId from name
+      const appId = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      await appIdInput.fill(appId);
+    }
 
     if (description) {
       const descInput = this.page.locator('[data-testid="app-description-input"]').or(
@@ -103,23 +159,49 @@ export class ApplicationInstallHelper {
   }
 
   /**
+   * Select tags in the tags selector
+   * @param tags - Array of tag names to select (e.g., ['Database', 'Monitoring'])
+   */
+  async selectTags(tags: string[]): Promise<void> {
+    if (!tags || tags.length === 0) return;
+
+    // Wait for tags selector to be visible
+    const tagsSection = this.page.locator('app-tags-selector');
+    await tagsSection.waitFor({ state: 'visible', timeout: 10000 });
+
+    for (const tag of tags) {
+      // Find mat-chip-option with the tag name and click it
+      const chipOption = this.page.locator(`mat-chip-option:has-text("${tag}")`);
+      if (await chipOption.count() > 0) {
+        await chipOption.click();
+        // Wait a bit for selection animation
+        await this.page.waitForTimeout(100);
+      } else {
+        console.warn(`Tag "${tag}" not found in tags selector`);
+      }
+    }
+  }
+
+  /**
    * Click Next button to proceed to next step
    */
   async clickNext(): Promise<void> {
-    const nextBtn = this.page.locator('[data-testid="next-step-btn"]').or(
-      this.page.locator('button[matStepperNext]')
-    );
+    // Find the visible Next button (mat-stepper hides inactive step content)
+    const nextBtn = this.page.locator('[data-testid="next-step-btn"]:visible');
+    await nextBtn.waitFor({ state: 'visible', timeout: 10000 });
     await nextBtn.click();
-    await this.page.waitForTimeout(500);
+
+    // Wait for step transition animation to complete
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
    * Click Create Application button in summary step
    */
   async clickCreate(): Promise<void> {
-    const createBtn = this.page.locator('[data-testid="create-application-btn"]').or(
-      this.page.locator('button:has-text("Create Application")')
-    );
+    // Find the visible Create Application button
+    const createBtn = this.page.locator('[data-testid="create-application-btn"]:visible');
+    await createBtn.waitFor({ state: 'visible', timeout: 10000 });
     await createBtn.click();
   }
 
@@ -136,33 +218,8 @@ export class ApplicationInstallHelper {
    * 7. Create application
    */
   async createApplication(app: E2EApplication): Promise<void> {
+    // goToCreateApplication already waits for #compose-file-input (framework auto-selected)
     await this.goToCreateApplication();
-
-    // Step 1: Select Framework (default is oci-image, we need docker-compose)
-    // The framework selector should show docker-compose or oci-image with compose mode
-    await this.page.waitForSelector('mat-select');
-
-    // Check if we need to select a specific framework or if oci-image with compose mode works
-    const frameworkSelect = this.page.locator('mat-select').first();
-    await frameworkSelect.click();
-
-    // Look for docker-compose option or oci-image
-    const dockerComposeOption = this.page.locator('mat-option:has-text("docker-compose")');
-    const ociImageOption = this.page.locator('mat-option:has-text("oci-image")');
-
-    if (await dockerComposeOption.isVisible()) {
-      await dockerComposeOption.click();
-    } else if (await ociImageOption.isVisible()) {
-      await ociImageOption.click();
-      // Select compose mode if oci-image
-      await this.page.waitForTimeout(500);
-      const composeToggle = this.page.locator('mat-button-toggle:has-text("docker-compose")');
-      if (await composeToggle.isVisible()) {
-        await composeToggle.click();
-      }
-    }
-
-    await this.page.waitForTimeout(500);
 
     // Upload docker-compose file
     if (app.dockerCompose) {
@@ -180,6 +237,11 @@ export class ApplicationInstallHelper {
     // Step 2: Fill Application Properties
     await this.fillAppProperties(app.name, app.description);
 
+    // Select tags if provided
+    if (app.tags && app.tags.length > 0) {
+      await this.selectTags(app.tags);
+    }
+
     // Upload icon if exists
     if (app.icon) {
       await this.uploadIcon(app.icon);
@@ -189,14 +251,14 @@ export class ApplicationInstallHelper {
     await this.clickNext();
 
     // Step 3: Parameters - usually auto-filled, just proceed
-    await this.page.waitForTimeout(500);
+    await this.page.waitForLoadState('networkidle');
     await this.clickNext();
 
     // Step 4: Summary - Create the application
     await this.clickCreate();
 
-    // Wait for success message or navigation
-    await this.page.waitForTimeout(2000);
+    // Wait for API call to complete
+    await this.page.waitForLoadState('networkidle');
 
     // Check for success - either a success message or navigation to applications list
     const successIndicator = this.page.locator('[data-testid="installation-success"]').or(
@@ -219,11 +281,8 @@ export class ApplicationInstallHelper {
    * Find an application card by name in the applications list
    */
   private getAppCard(appName: string): Locator {
-    return this.page.locator(`[data-testid="app-card-${appName}"]`).or(
-      this.page.locator(`.app-card:has-text("${appName}")`).or(
-        this.page.locator(`mat-card:has-text("${appName}")`)
-      )
-    );
+    // Cards use .card class with h2 containing the app name
+    return this.page.locator(`.card:has(h2:text-is("${appName}"))`).first();
   }
 
   /**
@@ -248,6 +307,9 @@ export class ApplicationInstallHelper {
     // Wait for install dialog to open
     await this.page.waitForSelector('mat-dialog-container', { timeout: 10000 });
 
+    // Wait for dialog content to fully load (async data like storage options)
+    await this.page.waitForLoadState('networkidle');
+
     // Fill in parameters if provided
     if (params) {
       for (const [key, value] of Object.entries(params)) {
@@ -268,14 +330,86 @@ export class ApplicationInstallHelper {
       }
     }
 
+    // Auto-fill required dropdowns that are empty (like volume_storage)
+    await this.autoFillRequiredDropdowns();
+
     // Click Install button in dialog
     const confirmBtn = this.page.locator('[data-testid="confirm-install-btn"]').or(
       this.page.locator('mat-dialog-container button:has-text("Install")')
     );
+
+    // Wait for Install button to be enabled (required fields filled)
+    await expect(confirmBtn).toBeEnabled({ timeout: 10000 });
     await confirmBtn.click();
 
     // Should redirect to monitor page
     await expect(this.page).toHaveURL(/\/monitor/, { timeout: 30000 });
+  }
+
+  /**
+   * Auto-fill required dropdowns that don't have a value selected.
+   * This handles cases like volume_storage where async data needs to load first.
+   */
+  private async autoFillRequiredDropdowns(): Promise<void> {
+    const dialog = this.page.locator('mat-dialog-container');
+
+    // Check for app-enum-select components which are commonly used for storage selection
+    const enumSelects = dialog.locator('app-enum-select');
+    const enumCount = await enumSelects.count();
+
+    for (let i = 0; i < enumCount; i++) {
+      const enumSelect = enumSelects.nth(i);
+
+      // Check if this is a required field by looking for asterisk in label
+      const label = await enumSelect.locator('..').locator('[class*="label"], label').first().textContent().catch(() => '');
+      const isRequired = label?.includes('*') ?? false;
+
+      if (isRequired) {
+        // Find the combobox/select within this component
+        const combobox = enumSelect.locator('[role="combobox"], mat-select');
+        if (await combobox.count() > 0) {
+          // Check if it has a value selected
+          const hasValue = await combobox.locator('.mat-mdc-select-value-text, .mat-select-value-text').count() > 0;
+
+          if (!hasValue) {
+            // Wait for options to be available, then click to open dropdown
+            await combobox.click();
+
+            // Wait for options panel to appear
+            await this.page.locator('.mat-mdc-select-panel, .mat-select-panel, [role="listbox"]').waitFor({
+              state: 'visible',
+              timeout: 5000
+            });
+
+            // Select first available option
+            const firstOption = this.page.locator('mat-option').first();
+            await firstOption.waitFor({ state: 'visible', timeout: 5000 });
+            await firstOption.click();
+
+            // Wait for dropdown to close
+            await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+          }
+        }
+      }
+    }
+
+    // Also handle direct mat-select elements marked as required
+    const matSelects = dialog.locator('mat-select[required], mat-select[ng-reflect-required="true"]');
+    const selectCount = await matSelects.count();
+
+    for (let i = 0; i < selectCount; i++) {
+      const select = matSelects.nth(i);
+      const hasValue = await select.locator('.mat-mdc-select-value-text, .mat-select-value-text').count() > 0;
+
+      if (!hasValue) {
+        await select.click();
+        await this.page.locator('.mat-mdc-select-panel, .mat-select-panel').waitFor({ state: 'visible', timeout: 5000 });
+        const firstOption = this.page.locator('mat-option').first();
+        await firstOption.waitFor({ state: 'visible', timeout: 5000 });
+        await firstOption.click();
+        await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -308,8 +442,9 @@ export class ApplicationInstallHelper {
         throw new Error(`Installation failed: ${errorText}`);
       }
 
-      // Wait before checking again
-      await this.page.waitForTimeout(5000);
+      // Poll every 2 seconds (using networkidle to be more efficient)
+      await this.page.waitForLoadState('networkidle');
+      await this.page.waitForTimeout(2000); // Brief pause between polls
     }
 
     throw new Error(`Installation timed out after ${timeout}ms`);

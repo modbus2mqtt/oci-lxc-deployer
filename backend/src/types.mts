@@ -169,6 +169,11 @@ export enum ApiUri {
   Stacktypes = "/api/stacktypes",
   Stacks = "/api/stacks",
   Stack = "/api/stack/:id",
+
+  // Logger endpoints
+  LoggerConfig = "/api/logger/config",
+  LoggerLevel = "/api/logger/level/:level",
+  LoggerDebugComponents = "/api/logger/debug-components",
 }
 
 // Tags definition interfaces

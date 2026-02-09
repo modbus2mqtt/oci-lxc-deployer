@@ -4,6 +4,7 @@
     "uploadfiles": [
         { "filename": "mosquitto.conf", "destination": "config:mosquitto.conf" }
     ],
+     "tags": ["messaging", "iot"],
     "validation": {
         "waitBeforeValidation": 15,
         "containers": [

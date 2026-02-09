@@ -8,6 +8,7 @@ import { registerInstallationsRoutes } from "./webapp-installations-routes.mjs";
 import { registerSshRoutes } from "./webapp-ssh-routes.mjs";
 import { registerAddonRoutes } from "./webapp-addon-routes.mjs";
 import { registerLogsHtmlRoute } from "./webapp-logs-html.mjs";
+import { registerLoggerRoutes } from "./webapp-logger-routes.mjs";
 import { setupStaticRoutes } from "./webapp-static.mjs";
 import { WebAppVE } from "./webapp-ve.mjs";
 import { WebAppStack } from "./webapp-stack-routes.mjs";
@@ -30,6 +31,7 @@ export class VEWebApp {
     const staticDir = setupStaticRoutes(this.app);
 
     registerLogsHtmlRoute(this.app);
+    registerLoggerRoutes(this.app);
 
     registerSshRoutes(this.app, this.storageContext, this.returnResponse.bind(this));
     registerApplicationRoutes(

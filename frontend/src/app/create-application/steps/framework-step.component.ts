@@ -8,11 +8,10 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { Subject } from 'rxjs';
 
 import { CreateApplicationStateService } from '../services/create-application-state.service';
-import { CacheService } from '../../shared/services/cache.service';
-import { ErrorHandlerService } from '../../shared/services/error-handler.service';
 import { OciImageStepComponent } from '../oci-image-step.component';
 import { ComposeEnvSelectorComponent } from '../../shared/components/compose-env-selector/compose-env-selector.component';
-import { IPostFrameworkFromImageResponse } from '../../../shared/types';
+import { IFrameworkName, IPostFrameworkFromImageResponse } from '../../../shared/types';
+import { VeConfigurationService } from '../../ve-configuration.service';
 
 @Component({
   selector: 'app-framework-step',
@@ -32,8 +31,7 @@ import { IPostFrameworkFromImageResponse } from '../../../shared/types';
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Framework</mat-label>
         <mat-select data-testid="framework-select" (selectionChange)="onFrameworkSelect($event.value)" [value]="state.selectedFramework()?.id">
-          <mat-option [value]="null">-- Select Framework --</mat-option>
-          @for (framework of state.frameworks(); track framework.id) {
+          @for (framework of frameworks; track framework.id) {
             <mat-option [value]="framework.id">{{ framework.name }} ({{ framework.id }})</mat-option>
           }
         </mat-select>
@@ -116,9 +114,11 @@ import { IPostFrameworkFromImageResponse } from '../../../shared/types';
 })
 export class FrameworkStepComponent implements OnInit, OnDestroy {
   readonly state = inject(CreateApplicationStateService);
-  private cacheService = inject(CacheService);
-  private errorHandler = inject(ErrorHandlerService);
+  private configService = inject(VeConfigurationService);
   private destroy$ = new Subject<void>();
+
+  frameworks: IFrameworkName[] = [];
+
 
   // Outputs for parent coordination
   @Output() frameworkSelected = new EventEmitter<string>();
@@ -140,30 +140,33 @@ export class FrameworkStepComponent implements OnInit, OnDestroy {
 
   loadFrameworks(): void {
     this.state.loadingFrameworks.set(true);
+    console.log('[FrameworkStep] Loading frameworks...');
 
-    this.cacheService.getFrameworks().subscribe({
-      next: (fws) => {
-        this.state.frameworks.set(fws);
+    this.configService.getFrameworkNames().subscribe({
+      next: (response) => {
+        this.frameworks = response.frameworks;
         this.state.loadingFrameworks.set(false);
+        console.log('[FrameworkStep] Frameworks loaded:', this.frameworks.length);
 
-        // In edit mode, don't auto-select - wait for loadEditData to set framework
-        if (!this.state.editMode()) {
-          const defaultFramework = fws.find(f => f.id === 'oci-image');
-          if (defaultFramework && !this.state.selectedFramework()) {
+        // Auto-select oci-image framework (unless in edit mode)
+        if (!this.state.editMode() && !this.state.selectedFramework()) {
+          const defaultFramework = this.frameworks.find(f => f.id === 'oci-image');
+          if (defaultFramework) {
             this.state.selectedFramework.set(defaultFramework);
             this.frameworkSelected.emit(defaultFramework.id);
+            console.log('[FrameworkStep] Auto-selected:', defaultFramework.id);
           }
         }
       },
       error: (err) => {
-        this.errorHandler.handleError('Failed to load frameworks', err);
         this.state.loadingFrameworks.set(false);
-      }
+        console.error('[FrameworkStep] Failed to load frameworks:', err);
+       }
     });
   }
 
   onFrameworkSelect(frameworkId: string): void {
-    const framework = this.state.frameworks().find(f => f.id === frameworkId) || null;
+    const framework = this.frameworks.find(f => f.id === frameworkId) || null;
     this.state.selectedFramework.set(framework);
     this.state.imageReference.set('');
     this.state.imageError.set(null);

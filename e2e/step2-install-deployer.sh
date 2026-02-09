@@ -8,20 +8,38 @@
 # 4. Optionally creates a baseline snapshot
 #
 # Usage:
-#   ./step2-install-deployer.sh                          # Use saved nested VM IP
-#   ./step2-install-deployer.sh 10.99.0.10              # Specify IP directly
-#   OWNER=myuser OCI_OWNER=myoci ./step2-install-deployer.sh  # Custom owners
-#   CREATE_SNAPSHOT=1 ./step2-install-deployer.sh       # Create baseline snapshot after install
+#   ./step2-install-deployer.sh                # Full install (creates container + snapshot)
+#   ./step2-install-deployer.sh --update-only  # Fast update: build, deploy, restart (~15s)
 
 set -e
+
+# Parse arguments
+UPDATE_ONLY=false
+POSITIONAL_IP=""
+for arg in "$@"; do
+    case "$arg" in
+        --update-only) UPDATE_ONLY=true ;;
+        -*) ;; # Skip other flags
+        *) POSITIONAL_IP="$arg" ;; # First non-flag is IP
+    esac
+done
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NESTED_IP_FILE="$SCRIPT_DIR/.nested-vm-ip"
 
+# Load environment from .env file if present
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    # shellcheck disable=SC1091
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
 # PVE host for port forwarding (required for access from dev machine)
-PVE_HOST="${PVE_HOST:-}"
+# Default: ubuntupve (connection via ssh -p 1022 root@ubuntupve)
+PVE_HOST="${PVE_HOST:-ubuntupve}"
 
 # Host-specific network configuration
 get_host_subnet() {
@@ -34,8 +52,8 @@ get_host_subnet() {
 }
 
 # Get nested VM IP
-if [ -n "$1" ]; then
-    NESTED_IP="$1"
+if [ -n "$POSITIONAL_IP" ]; then
+    NESTED_IP="$POSITIONAL_IP"
 elif [ -f "$NESTED_IP_FILE" ]; then
     NESTED_IP=$(cat "$NESTED_IP_FILE")
 elif [ -n "$PVE_HOST" ]; then
@@ -68,12 +86,35 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
+# Timing
+SCRIPT_START=$(date +%s)
+STEP_START=$SCRIPT_START
+
+elapsed() {
+    local now=$(date +%s)
+    local total=$((now - SCRIPT_START))
+    echo "${total}s"
+}
+
+step_elapsed() {
+    local now=$(date +%s)
+    local step=$((now - STEP_START))
+    STEP_START=$now
+    echo "${step}s"
+}
+
 info() { echo -e "${YELLOW}[INFO]${NC} $1"; }
-success() { echo -e "${GREEN}[OK]${NC} $1"; }
+success() { echo -e "${GREEN}[OK]${NC} $1 ${CYAN}($(step_elapsed))${NC}"; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
-header() { echo -e "\n${BLUE}═══════════════════════════════════════════════════════${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n"; }
+header() {
+    STEP_START=$(date +%s)
+    echo -e "\n${BLUE}═══════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  $1${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n"
+}
 
 # SSH wrapper for nested VM
 # Uses port forwarding via PVE_HOST if set, otherwise direct connection
@@ -119,27 +160,32 @@ if nested_ssh "pct status $DEPLOYER_VMID" &>/dev/null; then
         if [ -n "$DEPLOYER_IP" ]; then
             if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
                 success "API is healthy at $DEPLOYER_IP:3000"
-                echo ""
-                echo "Deployer already installed and running!"
-                echo "API URL: http://$DEPLOYER_IP:3000"
-                exit 0
+
+                if [ "$UPDATE_ONLY" = "true" ]; then
+                    info "--update-only: Skipping to local package deployment..."
+                else
+                    echo ""
+                    echo "Deployer already installed and running!"
+                    echo "API URL: http://$DEPLOYER_IP:3000"
+                    echo ""
+                    echo "To deploy updated code: ./step2-install-deployer.sh --update-only"
+                    exit 0
+                fi
             fi
         fi
     fi
 fi
 
-# Step 3: Clean up existing container and install oci-lxc-deployer
-header "Installing oci-lxc-deployer"
+# Step 3: Clean up existing container and install oci-lxc-deployer (skip if --update-only)
+if [ "$UPDATE_ONLY" != "true" ]; then
+    header "Installing oci-lxc-deployer"
 
-# Clean up existing container if present
-if nested_ssh "pct status $DEPLOYER_VMID" &>/dev/null; then
-    info "Removing existing container $DEPLOYER_VMID (force)..."
-    nested_ssh "pct stop $DEPLOYER_VMID --skiplock 2>/dev/null || true"
-    sleep 2
-    nested_ssh "pct unlock $DEPLOYER_VMID 2>/dev/null || true"
-    nested_ssh "pct destroy $DEPLOYER_VMID --force --purge 2>/dev/null || true"
-    success "Existing container removed"
-fi
+    # Clean up existing container if present
+    if nested_ssh "pct status $DEPLOYER_VMID" &>/dev/null; then
+        info "Removing existing container $DEPLOYER_VMID (force)..."
+        nested_ssh "pct stop $DEPLOYER_VMID --skiplock 2>/dev/null || true; sleep 1; pct unlock $DEPLOYER_VMID 2>/dev/null || true; pct destroy $DEPLOYER_VMID --force --purge 2>/dev/null || true"
+        success "Existing container removed"
+    fi
 
 # Local script path on nested VM
 LOCAL_SCRIPT_PATH="/tmp/oci-lxc-deployer-scripts"
@@ -176,31 +222,28 @@ fi
 
 success "Installation script completed"
 
-# Step 4: Wait for container to be running (max 120s)
+# Step 4: Wait for container to be running (max 30s)
 info "Waiting for deployer container to start..."
 CONTAINER_STARTED=false
-for i in $(seq 1 60); do
+for i in $(seq 1 30); do
     if nested_ssh "pct status $DEPLOYER_VMID 2>/dev/null" | grep -q "running"; then
         success "Deployer container is running"
         CONTAINER_STARTED=true
         break
     fi
-    printf "\r${YELLOW}[INFO]${NC} Waiting for container... %ds" $((i * 2))
-    sleep 2
+    printf "\r${YELLOW}[INFO]${NC} Waiting for container... %ds" "$i"
+    sleep 1
 done
 echo ""
 if [ "$CONTAINER_STARTED" != "true" ]; then
-    error "Container $DEPLOYER_VMID failed to start within 120 seconds"
+    error "Container $DEPLOYER_VMID failed to start within 30 seconds"
 fi
 
 # Step 4b: Manually bring up container network interfaces
 # Alpine containers with static IP sometimes don't auto-activate the interfaces
 info "Activating container network interfaces..."
-nested_ssh "pct exec $DEPLOYER_VMID -- ip link set lo up 2>/dev/null || true"
-nested_ssh "pct exec $DEPLOYER_VMID -- ip link set eth0 up 2>/dev/null || true"
-nested_ssh "pct exec $DEPLOYER_VMID -- ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null || true"
-nested_ssh "pct exec $DEPLOYER_VMID -- ip route add default via $DEPLOYER_GATEWAY 2>/dev/null || true"
-sleep 2
+nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'ip link set lo up; ip link set eth0 up; ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null; ip route add default via $DEPLOYER_GATEWAY 2>/dev/null' || true"
+sleep 1
 
 # Verify network is up
 if nested_ssh "pct exec $DEPLOYER_VMID -- ping -c 1 $DEPLOYER_GATEWAY" &>/dev/null; then
@@ -213,44 +256,61 @@ fi
 # Extract IP without CIDR suffix
 DEPLOYER_IP="${DEPLOYER_STATIC_IP%/*}"
 info "Deployer static IP: $DEPLOYER_IP"
-info "Waiting for API to be ready (max 120s)..."
-sleep 5  # Give container time to initialize
+info "Waiting for API to be ready (max 30s)..."
+sleep 1  # Brief pause for container init
 
 API_READY=false
-for i in $(seq 1 60); do
-    if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
+for i in $(seq 1 30); do
+    if nested_ssh "curl -s --connect-timeout 1 http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
         success "API is healthy at $DEPLOYER_IP:3000"
         API_READY=true
         break
     fi
-    printf "\r${YELLOW}[INFO]${NC} Waiting for API... %ds" $((i * 2))
-    sleep 2
+    printf "\r${YELLOW}[INFO]${NC} Waiting for API... %ds" "$i"
+    sleep 1
 done
 echo ""
 if [ "$API_READY" != "true" ]; then
-    error "API failed to respond within 120 seconds at $DEPLOYER_IP:3000"
+    error "API failed to respond within 30 seconds at $DEPLOYER_IP:3000"
+fi
+
+fi # end of full install block (skipped with --update-only)
+
+# Ensure DEPLOYER_IP is set (needed for port forwarding and package deployment)
+DEPLOYER_IP="${DEPLOYER_STATIC_IP%/*}"
+
+# In --update-only mode, ensure container network is up (might be down after restart)
+if [ "$UPDATE_ONLY" = "true" ]; then
+    info "Ensuring container network is up..."
+    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'ip link set lo up; ip link set eth0 up; ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null; ip route add default via $DEPLOYER_GATEWAY 2>/dev/null' || true"
+    if nested_ssh "pct exec $DEPLOYER_VMID -- ping -c 1 1.1.1.1" &>/dev/null; then
+        success "Container network is up"
+    else
+        error "Container network failed - cannot reach internet"
+    fi
 fi
 
 # Step 5b: Set up port forwarding on nested VM to deployer container
 header "Setting up Port Forwarding on Nested VM"
 info "Configuring port forwarding to deployer container at $DEPLOYER_IP..."
 
-# Remove any existing forwarding rules
-nested_ssh "iptables -t nat -D PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000 2>/dev/null || true"
-nested_ssh "iptables -D FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT 2>/dev/null || true"
-
-# Add port forwarding: nested_vm:3000 -> deployer:3000 (API/UI)
-nested_ssh "iptables -t nat -A PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000"
-nested_ssh "iptables -A FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT"
+# Configure port forwarding in single SSH call
+nested_ssh "
+  iptables -t nat -D PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000 2>/dev/null || true
+  iptables -D FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT 2>/dev/null || true
+  iptables -t nat -A PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000
+  iptables -A FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT
+"
 success "Port 3000 -> $DEPLOYER_IP:3000 (API/UI)"
 
 # Step 5c: Build and deploy local package (if LOCAL_PACKAGE is set or we're in the project directory)
 if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "$PROJECT_ROOT/package.json"; then
     header "Deploying Local Package"
-    info "Building local oci-lxc-deployer package..."
-
     cd "$PROJECT_ROOT"
+
+    info "Building local oci-lxc-deployer package..."
     pnpm run build || error "Failed to build package"
+
     TARBALL=$(pnpm pack 2>&1 | grep -o 'oci-lxc-deployer-.*\.tgz')
 
     if [ -z "$TARBALL" ] || [ ! -f "$PROJECT_ROOT/$TARBALL" ]; then
@@ -268,41 +328,55 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     nested_ssh "pct push $DEPLOYER_VMID /tmp/$TARBALL /tmp/$TARBALL" || error "Failed to push tarball to container"
     success "Package pushed to container"
 
-    # Install the package globally using pct exec (skip postinstall hooks - they're for dev only)
-    info "Installing package globally..."
-    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'cd /tmp && npm install -g --ignore-scripts $TARBALL'" || error "Failed to install package globally"
-    success "Package installed globally"
+    # Verify network before package install
+    info "Verifying container network..."
+    if ! nested_ssh "pct exec $DEPLOYER_VMID -- ping -c 1 -W 2 1.1.1.1" &>/dev/null; then
+        error "Container has no network - cannot install packages"
+    fi
+    success "Network verified"
 
-    # Restart the container to load the new package
-    info "Restarting deployer container..."
-    nested_ssh "pct stop $DEPLOYER_VMID --skiplock" || error "Failed to stop container"
+    if [ "$UPDATE_ONLY" = "true" ]; then
+        # Fast path: Extract and update package directly (skips dependency resolution)
+        info "Updating package files directly..."
+        nested_ssh "pct exec $DEPLOYER_VMID -- sh -c '
+            cd /tmp && tar -xzf $TARBALL && \
+            rm -rf /usr/local/lib/node_modules/oci-lxc-deployer/backend/dist && \
+            rm -rf /usr/local/lib/node_modules/oci-lxc-deployer/frontend/dist && \
+            cp -r package/backend/dist /usr/local/lib/node_modules/oci-lxc-deployer/backend/ && \
+            cp -r package/frontend/dist /usr/local/lib/node_modules/oci-lxc-deployer/frontend/ && \
+            rm -rf package
+        '" || error "Failed to update package files"
+        success "Package updated"
+    else
+        # Full install: Use npm install (needed for fresh container)
+        info "Installing package globally with npm..."
+        nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'npm install -g --cache /tmp/npm-cache --no-audit --no-fund --ignore-scripts /tmp/$TARBALL'" || error "Failed to install package globally"
+        success "Package installed globally"
+    fi
+
+    # Restart container to reload the updated code (PID 1 is oci-lxc-deployer)
+    info "Restarting container..."
+    nested_ssh "pct stop $DEPLOYER_VMID && sleep 1 && pct start $DEPLOYER_VMID" || error "Failed to restart container"
     sleep 2
-    nested_ssh "pct start $DEPLOYER_VMID" || error "Failed to start container"
-    sleep 3
+    # Re-activate network after restart
+    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'ip link set lo up; ip link set eth0 up; ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null; ip route add default via $DEPLOYER_GATEWAY 2>/dev/null' || true"
+    success "Container restarted"
 
-    # Reactivate container network interfaces after restart
-    info "Reactivating container network interfaces..."
-    nested_ssh "pct exec $DEPLOYER_VMID -- ip link set lo up 2>/dev/null || true"
-    nested_ssh "pct exec $DEPLOYER_VMID -- ip link set eth0 up 2>/dev/null || true"
-    nested_ssh "pct exec $DEPLOYER_VMID -- ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null || true"
-    nested_ssh "pct exec $DEPLOYER_VMID -- ip route add default via $DEPLOYER_GATEWAY 2>/dev/null || true"
-    sleep 2
-
-    # Wait for API to come back up (max 60s)
+    # Wait for API to come back up (max 20s)
     info "Waiting for API to restart..."
     API_RESTARTED=false
-    for i in $(seq 1 30); do
-        if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
+    for i in $(seq 1 20); do
+        if nested_ssh "curl -s --connect-timeout 1 http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
             success "API is healthy after package update"
             API_RESTARTED=true
             break
         fi
-        printf "\r${YELLOW}[INFO]${NC} Waiting for API restart... %ds" $((i * 2))
-        sleep 2
+        printf "\r${YELLOW}[INFO]${NC} Waiting for API restart... %ds" "$i"
+        sleep 1
     done
     echo ""
     if [ "$API_RESTARTED" != "true" ]; then
-        error "API failed to restart within 60 seconds"
+        error "API failed to restart within 20 seconds"
     fi
 
     # Cleanup
@@ -310,40 +384,32 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     nested_ssh "rm -f /tmp/$TARBALL"
 fi
 
-# Step 6: Create snapshot of nested VM for e2e tests
-header "Creating Snapshot"
-# Get the nested VM ID from step1 (default 9000)
-NESTED_VMID="${TEST_VMID:-9000}"
+# Step 6: Create snapshot (only for full install, not for --update-only)
+if [ "$UPDATE_ONLY" != "true" ]; then
+    header "Creating Snapshot"
+    NESTED_VMID="${TEST_VMID:-9000}"
 
-# Delete existing snapshot if present
-info "Deleting existing snapshot 'deployer-installed' if present..."
-PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-delete.sh" "$NESTED_VMID" "deployer-installed" 2>/dev/null || true
+    info "Deleting existing snapshot 'deployer-installed' if present..."
+    PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-delete.sh" "$NESTED_VMID" "deployer-installed" 2>/dev/null || true
 
-info "Creating snapshot 'deployer-installed' of nested VM..."
-PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-create.sh" "$NESTED_VMID" "deployer-installed" || error "Failed to create snapshot"
-success "Snapshot 'deployer-installed' created"
+    info "Creating snapshot 'deployer-installed' of nested VM..."
+    PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-create.sh" "$NESTED_VMID" "deployer-installed" || error "Failed to create snapshot"
+    success "Snapshot 'deployer-installed' created"
+fi
 
 # Summary
-header "Step 2 Complete"
-echo -e "${GREEN}oci-lxc-deployer is installed and running!${NC}"
+TOTAL_TIME=$(elapsed)
 echo ""
-echo "Deployer Details:"
-echo "  - Container VMID: $DEPLOYER_VMID"
-echo "  - Container IP: $DEPLOYER_IP"
-echo "  - API URL: http://$DEPLOYER_IP:3000"
-echo "  - Web UI: http://$DEPLOYER_IP:3000"
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+if [ "$UPDATE_ONLY" = "true" ]; then
+    echo -e "${GREEN}  Code deployed in ${TOTAL_TIME}${NC}"
+else
+    echo -e "${GREEN}  Step 2 Complete in ${TOTAL_TIME}${NC}"
+fi
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 echo ""
-echo "Port Forwarding (from $PVE_HOST):"
-echo "  - API/UI: $PVE_HOST:3000 -> $DEPLOYER_IP:3000"
+echo "API URL: http://$PVE_HOST:3000"
 echo ""
-echo "Access from dev machine:"
-echo "  - Web UI: http://$PVE_HOST:3000"
-echo ""
-echo "Installation from:"
-echo "  - GitHub Owner: $OWNER"
-echo "  - OCI Owner: $OCI_OWNER"
-echo ""
-echo "Next steps:"
-echo "  1. Create baseline snapshot: CREATE_SNAPSHOT=1 ./step2-install-deployer.sh"
-echo "  2. Run Playwright E2E tests"
-echo ""
+if [ "$UPDATE_ONLY" != "true" ]; then
+    echo "Quick update: ./step2-install-deployer.sh --update-only"
+fi

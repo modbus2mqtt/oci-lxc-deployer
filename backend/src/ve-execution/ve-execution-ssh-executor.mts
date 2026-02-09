@@ -5,6 +5,9 @@ import { JsonError } from "../jsonvalidator.mjs";
 import { VeExecutionConstants, getNextMessageIndex, ExecutionMode, determineExecutionMode } from "./ve-execution-constants.mjs";
 import { VeExecutionMessageEmitter } from "./ve-execution-message-emitter.mjs";
 import { OutputProcessor } from "../output-processor.mjs";
+import { createLogger } from "../logger/index.mjs";
+
+const logger = createLogger("execution");
 
 export interface SshExecutorDependencies {
   veContext: IVEContext | null;
@@ -141,6 +144,13 @@ export class VeExecutionSshExecutor {
     interpreter?: string[],
     uniqueMarker?: string,
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    logger.debug("Starting SSH execution", {
+      host: this.deps.veContext?.host,
+      command: tmplCommand.name,
+      timeoutMs,
+      executionMode: this.executionMode,
+    });
+
     // Build marker and determine command structure
     // Strategy: Use "echo 'MARKER' && interpreter" as shell command in TEST mode
     // The script content is passed via stdin, and interpreter will read it
@@ -215,14 +225,35 @@ export class VeExecutionSshExecutor {
       ) {
         retryCount++;
         if (retryCount < maxRetries) {
-          console.error(
-            `Connection failed with exit 255 (attempt ${retryCount}/${maxRetries}), retrying in ${VeExecutionConstants.RETRY_DELAY_MS / 1000}s...`,
-          );
+          logger.warn("SSH connection failed, retrying", {
+            attempt: retryCount,
+            maxRetries,
+            delayMs: VeExecutionConstants.RETRY_DELAY_MS,
+            host: this.deps.veContext?.host,
+            command: tmplCommand.name,
+          });
           await new Promise((resolve) => setTimeout(resolve, VeExecutionConstants.RETRY_DELAY_MS));
           continue;
         }
       }
       break;
+    }
+
+    logger.debug("SSH execution completed", {
+      command: tmplCommand.name,
+      exitCode: proc!.exitCode,
+      hasStdout: !!proc!.stdout,
+      stderrLength: proc!.stderr?.length || 0,
+    });
+
+    // Log error details if execution failed
+    if (proc!.exitCode !== 0) {
+      logger.warn("SSH command failed", {
+        command: tmplCommand.name,
+        exitCode: proc!.exitCode,
+        stderr: proc!.stderr?.slice(0, 500), // Truncate for logging
+        host: this.deps.veContext?.host,
+      });
     }
 
     return {

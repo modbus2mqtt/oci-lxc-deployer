@@ -2,6 +2,9 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import path from "node:path";
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { mkdirSync } from "fs";
+import { createLogger } from "./logger/index.mjs";
+
+const logger = createLogger("context");
 
 export class Context {
   private context: Record<string, any> = {};
@@ -18,7 +21,7 @@ export class Context {
       const jsonText = raw.startsWith("enc:") ? this.decrypt(raw) : raw;
       this.context = JSON.parse(jsonText);
     } catch {
-      console.log("No context file found, creating empty context");
+      logger.info("No context file found, creating empty context");
       this.context = {};
       this.writeAll();
     }
@@ -187,7 +190,7 @@ export class Context {
       const enc = this.encrypt(json);
       writeFileSync(this.storageContextFilePath, enc, "utf-8");
     } catch (err) {
-      console.error("Failed to write context:", err);
+      logger.error("Failed to write context", { error: err });
     }
   }
 }

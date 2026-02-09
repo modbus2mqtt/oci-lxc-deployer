@@ -1,6 +1,7 @@
 {
     "name": "node-red",
     "description": "Node-RED is a flow-based programming tool for wiring together hardware devices, APIs and online services.",
+    "tags": ["api", "iot"],
     "validation": {
         "waitBeforeValidation": 20,
         "containers": [

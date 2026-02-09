@@ -7,6 +7,9 @@ import { validateAllJson, ValidationError } from "./validateAllJson.mjs";
 import { DocumentationGenerator } from "./documentation-generator.mjs";
 import { VEWebApp } from "./webapp/webapp.mjs";
 import type { TaskType } from "./types.mjs";
+import { createLogger } from "./logger/index.mjs";
+
+const logger = createLogger("main");
 
 interface ParsedArgs {
   command?: string;
@@ -136,28 +139,28 @@ async function startWebApp(
     const { Ssh } = await import("./ssh.mjs");
     const pub = (Ssh as any).getPublicKey?.();
     if (pub && typeof pub === "string" && pub.length > 0) {
-      console.log("SSH public key ready for import");
+      logger.info("SSH public key ready for import");
     } else {
-      console.log("SSH public key not available yet; will be generated on demand");
+      logger.info("SSH public key not available yet; will be generated on demand");
     }
   } catch {}
   const webApp = new VEWebApp(pm.getContextManager());
   const port = process.env.PORT || 3000;
   webApp.httpServer.listen(port, () => {
-    console.log(`VEWebApp listening on port ${port}`);
+    logger.info("Server started", { port });
   });
 
   // Graceful shutdown handlers
   const shutdown = (signal: string) => {
-    console.log(`\n${signal} received, shutting down gracefully...`);
+    logger.info("Shutdown initiated", { signal });
     webApp.httpServer.close(() => {
-      console.log("HTTP server closed");
+      logger.info("HTTP server closed");
       process.exit(0);
     });
 
     // Force shutdown after 10 seconds
     setTimeout(() => {
-      console.error("Forced shutdown after timeout");
+      logger.error("Forced shutdown after timeout");
       process.exit(1);
     }, 10000);
   };

@@ -59,12 +59,19 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          },
           "configurations": {
             "production": {
               "buildTarget": "webapp-angular:build:production"
             },
             "development": {
               "buildTarget": "webapp-angular:build:development"
+            },
+            "e2e": {
+              "buildTarget": "webapp-angular:build:development",
+              "proxyConfig": "proxy.e2e.conf.json"
             }
           },
           "defaultConfiguration": "development"

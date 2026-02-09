@@ -34,7 +34,7 @@ import { IComposeWarning } from '../../shared/types';
     <div class="docker-compose-step" [formGroup]="parameterForm">
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Docker Compose File</mat-label>
-        <input type="file" #composeFileInput [id]="'compose-file-input'" (change)="onComposeFileSelected($event)" style="display: none;" accept=".yml,.yaml" />
+        <input type="file" #composeFileInput id="compose-file-input" (change)="onComposeFileSelected($event)" style="display: none;" accept=".yml,.yaml" />
         <input matInput [formControlName]="'compose_file'" [required]="true" readonly />
         <button mat-icon-button matSuffix type="button" (click)="composeFileInput.click()" matTooltip="Select docker-compose.yml file" matTooltipPosition="above">
           <mat-icon>attach_file</mat-icon>
@@ -59,7 +59,7 @@ import { IComposeWarning } from '../../shared/types';
       
       <mat-form-field appearance="outline" class="full-width" [class.error-field]="envFileError() || hasMissingEnvVars()">
         <mat-label>Environment File (.env)</mat-label>
-        <input type="file" #envFileInput [id]="'env-file-input'" (change)="onEnvFileSelected($event)" style="display: none;" />
+        <input type="file" #envFileInput id="env-file-input" (change)="onEnvFileSelected($event)" style="display: none;" />
         <input matInput [formControlName]="'env_file'" [required]="requiredEnvVars().length > 0 && !hasEnvFile()" readonly />
         <button mat-icon-button matSuffix type="button" (click)="envFileInput.click()" [matTooltip]="getEnvFileTooltip()" matTooltipPosition="above">
           <mat-icon>attach_file</mat-icon>

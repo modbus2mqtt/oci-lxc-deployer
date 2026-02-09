@@ -85,6 +85,8 @@ export interface E2EApplication {
   directory: string;
   /** Optional description */
   description?: string;
+  /** Tags for categorization (must match tags defined in json/tags.json) */
+  tags?: string[];
   /** Task type for special handling (e.g., postgres setup) */
   tasktype?: 'default' | 'postgres';
   /** Absolute path to icon file (svg preferred, then png) */
@@ -105,6 +107,7 @@ export interface E2EApplication {
 interface AppConf {
   name?: string;
   description?: string;
+  tags?: string[];
   tasktype?: 'default' | 'postgres';
   uploadfiles?: UploadFile[];
   validation?: ValidationConfig;
@@ -160,6 +163,7 @@ export class E2EApplicationLoader {
       name: appConf?.name || appName,
       directory: appDir,
       description: appConf?.description,
+      tags: appConf?.tags,
       tasktype: appConf?.tasktype,
       icon: this.findIcon(appDir),
       dockerCompose: this.findDockerCompose(appDir),

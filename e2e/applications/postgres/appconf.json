@@ -1,6 +1,7 @@
 {
     "name": "postgres",
     "description": "PostgreSQL is an open source object-relational database system.",
+     "tags": ["database"],
     "tasktype": "postgres",
     "validation": {
         "waitBeforeValidation": 30,

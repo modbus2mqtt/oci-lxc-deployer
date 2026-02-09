@@ -12,6 +12,11 @@
       "type": "string",
       "description": "Application description"
     },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tags for categorization. Must match tags defined in json/tags.json"
+    },
     "tasktype": {
       "type": "string",
       "enum": ["default", "postgres"],
