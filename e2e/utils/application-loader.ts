@@ -1,5 +1,9 @@
 import { readdirSync, existsSync, readFileSync, statSync } from 'fs';
-import { join, resolve } from 'path';
+import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Upload file definition
@@ -7,6 +11,68 @@ import { join, resolve } from 'path';
 export interface UploadFile {
   filename: string;
   destination: string; // "config:path" or "secure:path"
+}
+
+/**
+ * Container validation configuration
+ */
+export interface ContainerValidation {
+  /** Image name (partial match) */
+  image: string;
+  /** Expected container state */
+  state?: 'running';
+}
+
+/**
+ * Port validation configuration
+ */
+export interface PortValidation {
+  /** Port number to check */
+  port: number;
+  /** Protocol (default: tcp) */
+  protocol?: 'tcp' | 'udp';
+  /** Service name for error messages */
+  service?: string;
+}
+
+/**
+ * File validation configuration
+ */
+export interface FileValidation {
+  /** Path to file inside container */
+  path: string;
+  /** Regex pattern to match file content */
+  contentPattern?: string;
+}
+
+/**
+ * Command validation configuration
+ */
+export interface CommandValidation {
+  /** Command to execute in container */
+  command: string;
+  /** Expected exit code (default: 0) */
+  expectedExitCode?: number;
+  /** Regex pattern to match output */
+  expectedOutput?: string;
+  /** Human-readable description */
+  description?: string;
+}
+
+/**
+ * Validation configuration for post-install checks
+ */
+export interface ValidationConfig {
+  /** Seconds to wait before running validations */
+  waitBeforeValidation?: number;
+  /** Docker containers that should be running */
+  containers?: ContainerValidation[];
+  /** Ports that should be listening */
+  ports?: PortValidation[];
+  /** Files that should exist */
+  files?: FileValidation[];
+  /** Custom commands to execute */
+  commands?: CommandValidation[];
 }
 
 /**
@@ -29,6 +95,8 @@ export interface E2EApplication {
   envFile?: string;
   /** Files to upload to container */
   uploadfiles?: UploadFile[];
+  /** Validation configuration for post-install checks */
+  validation?: ValidationConfig;
 }
 
 /**
@@ -39,6 +107,7 @@ interface AppConf {
   description?: string;
   tasktype?: 'default' | 'postgres';
   uploadfiles?: UploadFile[];
+  validation?: ValidationConfig;
 }
 
 /**
@@ -96,6 +165,7 @@ export class E2EApplicationLoader {
       dockerCompose: this.findDockerCompose(appDir),
       envFile: this.findEnvFile(appDir),
       uploadfiles: appConf?.uploadfiles,
+      validation: appConf?.validation,
     };
   }
 

@@ -29,6 +29,7 @@ export interface IconSelectedEvent {
           #fileInput
           type="file"
           accept="image/*"
+          data-testid="icon-upload"
           (change)="onFileSelected($event)"
           style="display: none;"
         />

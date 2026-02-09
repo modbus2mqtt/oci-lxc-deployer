@@ -46,18 +46,18 @@
   <!-- Success message when all completed -->
   @for (msg of group.messages; track msg.index) {
     @if (msg.finished) {
-      <div class="success-block">
+      <div class="success-block" data-testid="installation-success">
         <span class="success-icon-large">✓</span>
         <strong>{{ msg.result }}</strong>
         <button class="back-btn" type="button" (click)="close()">Schließen</button>
       </div>
     }
   }
-  
+
   <!-- Error displayed prominently with restart button -->
   @for (msg of group.messages; track msg.index) {
     @if (msg.exitCode !== 0 && !msg.finished) {
-      <div class="error-block">
+      <div class="error-block" data-testid="installation-error">
         <div class="error-header">
           <span class="error-icon">✗</span>
           <strong>{{ msg.command }}</strong>

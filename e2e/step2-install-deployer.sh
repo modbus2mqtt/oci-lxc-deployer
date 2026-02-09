@@ -193,9 +193,10 @@ if [ "$CONTAINER_STARTED" != "true" ]; then
     error "Container $DEPLOYER_VMID failed to start within 120 seconds"
 fi
 
-# Step 4b: Manually bring up container network interface
-# Alpine containers with static IP sometimes don't auto-activate the interface
-info "Activating container network interface..."
+# Step 4b: Manually bring up container network interfaces
+# Alpine containers with static IP sometimes don't auto-activate the interfaces
+info "Activating container network interfaces..."
+nested_ssh "pct exec $DEPLOYER_VMID -- ip link set lo up 2>/dev/null || true"
 nested_ssh "pct exec $DEPLOYER_VMID -- ip link set eth0 up 2>/dev/null || true"
 nested_ssh "pct exec $DEPLOYER_VMID -- ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null || true"
 nested_ssh "pct exec $DEPLOYER_VMID -- ip route add default via $DEPLOYER_GATEWAY 2>/dev/null || true"
@@ -279,8 +280,9 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     nested_ssh "pct start $DEPLOYER_VMID" || error "Failed to start container"
     sleep 3
 
-    # Reactivate container network interface after restart
-    info "Reactivating container network interface..."
+    # Reactivate container network interfaces after restart
+    info "Reactivating container network interfaces..."
+    nested_ssh "pct exec $DEPLOYER_VMID -- ip link set lo up 2>/dev/null || true"
     nested_ssh "pct exec $DEPLOYER_VMID -- ip link set eth0 up 2>/dev/null || true"
     nested_ssh "pct exec $DEPLOYER_VMID -- ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null || true"
     nested_ssh "pct exec $DEPLOYER_VMID -- ip route add default via $DEPLOYER_GATEWAY 2>/dev/null || true"
@@ -310,9 +312,14 @@ fi
 
 # Step 6: Create snapshot of nested VM for e2e tests
 header "Creating Snapshot"
-info "Creating snapshot 'deployer-installed' of nested VM..."
 # Get the nested VM ID from step1 (default 9000)
 NESTED_VMID="${TEST_VMID:-9000}"
+
+# Delete existing snapshot if present
+info "Deleting existing snapshot 'deployer-installed' if present..."
+PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-delete.sh" "$NESTED_VMID" "deployer-installed" 2>/dev/null || true
+
+info "Creating snapshot 'deployer-installed' of nested VM..."
 PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-create.sh" "$NESTED_VMID" "deployer-installed" || error "Failed to create snapshot"
 success "Snapshot 'deployer-installed' created"
 

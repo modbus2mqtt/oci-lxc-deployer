@@ -30,7 +30,7 @@ import { CacheService } from '../../shared/services/cache.service';
         <!-- Name, ID, Description -->
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Application Name</mat-label>
-          <input matInput formControlName="name" required />
+          <input matInput formControlName="name" data-testid="app-name-input" required />
           @if (appPropertiesForm.get('name')?.hasError('required') && appPropertiesForm.get('name')?.touched) {
             <mat-error>Application name is required</mat-error>
           }
@@ -38,7 +38,7 @@ import { CacheService } from '../../shared/services/cache.service';
 
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Application ID</mat-label>
-          <input matInput formControlName="applicationId" required (input)="onApplicationIdInput($event)" />
+          <input matInput formControlName="applicationId" data-testid="app-id-input" required (input)="onApplicationIdInput($event)" />
           <mat-hint>Lowercase letters, numbers, and hyphens only</mat-hint>
           @if (appPropertiesForm.get('applicationId')?.hasError('required') && appPropertiesForm.get('applicationId')?.touched) {
             <mat-error>Application ID is required</mat-error>
@@ -56,7 +56,7 @@ import { CacheService } from '../../shared/services/cache.service';
 
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Description</mat-label>
-          <textarea matInput formControlName="description" required rows="3"></textarea>
+          <textarea matInput formControlName="description" data-testid="app-description-input" required rows="3"></textarea>
           @if (appPropertiesForm.get('description')?.hasError('required') && appPropertiesForm.get('description')?.touched) {
             <mat-error>Description is required</mat-error>
           }

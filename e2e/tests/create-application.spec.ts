@@ -1,6 +1,10 @@
 import { test, expect, API_URL, waitForApiHealth } from '../fixtures/test-base';
 import { E2EApplicationLoader, E2EApplication } from '../utils/application-loader';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Create Application E2E Tests

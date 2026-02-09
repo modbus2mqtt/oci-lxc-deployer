@@ -136,7 +136,7 @@
 				} @else {
 					<div class="dialog-actions">
 						<button mat-stroked-button color="primary" type="button" (click)="close()">Cancel</button>
-						<button mat-flat-button color="accent" type="submit" [disabled]="form.invalid || loading()">Install</button>
+						<button mat-flat-button color="accent" type="submit" data-testid="confirm-install-btn" [disabled]="form.invalid || loading()">Install</button>
 					</div>
 				}
 			}

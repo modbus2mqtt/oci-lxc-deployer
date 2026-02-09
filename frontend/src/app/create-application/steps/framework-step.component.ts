@@ -31,7 +31,7 @@ import { IPostFrameworkFromImageResponse } from '../../../shared/types';
     <div class="step-content">
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Framework</mat-label>
-        <mat-select (selectionChange)="onFrameworkSelect($event.value)" [value]="state.selectedFramework()?.id">
+        <mat-select data-testid="framework-select" (selectionChange)="onFrameworkSelect($event.value)" [value]="state.selectedFramework()?.id">
           <mat-option [value]="null">-- Select Framework --</mat-option>
           @for (framework of state.frameworks(); track framework.id) {
             <mat-option [value]="framework.id">{{ framework.name }} ({{ framework.id }})</mat-option>

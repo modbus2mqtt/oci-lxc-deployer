@@ -245,6 +245,10 @@ info "Port forwarding configured on $PVE_HOST"
 
 # Step 12: Create snapshot for install script tests
 header "Creating Snapshot"
+# Delete existing snapshot if present
+info "Deleting existing snapshot 'fresh-pve' if present..."
+PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-delete.sh" "$TEST_VMID" "fresh-pve" 2>/dev/null || true
+
 info "Creating snapshot 'fresh-pve' for install script tests..."
 PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-create.sh" "$TEST_VMID" "fresh-pve"
 success "Snapshot 'fresh-pve' created"

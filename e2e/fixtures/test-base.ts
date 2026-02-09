@@ -1,6 +1,7 @@
 import { test as base, expect } from '@playwright/test';
 import { execSync } from 'child_process';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 /**
  * E2E Test Fixtures
@@ -11,8 +12,11 @@ import { join } from 'path';
  * - API helpers
  */
 
-export const API_URL = process.env.E2E_API_URL || 'http://10.99.0.10:3000';
-export const SSH_HOST = process.env.E2E_SSH_HOST || '10.99.0.10';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+export const API_URL = process.env.E2E_API_URL || 'http://ubuntupve:3000';
+export const SSH_HOST = process.env.E2E_SSH_HOST || 'ubuntupve';
 
 // Path to e2e scripts
 const SCRIPTS_DIR = join(__dirname, '../scripts');
@@ -55,14 +59,18 @@ export { expect };
 
 /**
  * Helper to wait for API health
+ * Checks if the root page loads and contains doctype (Angular app served)
  */
 export async function waitForApiHealth(apiUrl: string = API_URL, maxWait: number = 60000) {
   const startTime = Date.now();
   while (Date.now() - startTime < maxWait) {
     try {
-      const response = await fetch(`${apiUrl}/api/health`);
+      const response = await fetch(`${apiUrl}/`);
       if (response.ok) {
-        return true;
+        const text = await response.text();
+        if (text.includes('doctype')) {
+          return true;
+        }
       }
     } catch {
       // API not ready yet
