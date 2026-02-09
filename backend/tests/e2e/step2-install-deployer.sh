@@ -222,19 +222,12 @@ info "Configuring port forwarding to deployer container at $DEPLOYER_IP..."
 
 # Remove any existing forwarding rules
 nested_ssh "iptables -t nat -D PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000 2>/dev/null || true"
-nested_ssh "iptables -t nat -D PREROUTING -p tcp --dport 3022 -j DNAT --to-destination $DEPLOYER_IP:22 2>/dev/null || true"
 nested_ssh "iptables -D FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT 2>/dev/null || true"
-nested_ssh "iptables -D FORWARD -p tcp -d $DEPLOYER_IP --dport 22 -j ACCEPT 2>/dev/null || true"
 
 # Add port forwarding: nested_vm:3000 -> deployer:3000 (API/UI)
 nested_ssh "iptables -t nat -A PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000"
 nested_ssh "iptables -A FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT"
 success "Port 3000 -> $DEPLOYER_IP:3000 (API/UI)"
-
-# Add port forwarding: nested_vm:3022 -> deployer:22 (SSH)
-nested_ssh "iptables -t nat -A PREROUTING -p tcp --dport 3022 -j DNAT --to-destination $DEPLOYER_IP:22"
-nested_ssh "iptables -A FORWARD -p tcp -d $DEPLOYER_IP --dport 22 -j ACCEPT"
-success "Port 3022 -> $DEPLOYER_IP:22 (SSH)"
 
 # Step 5c: Build and deploy local package (if LOCAL_PACKAGE is set or we're in the project directory)
 if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "$PROJECT_ROOT/package.json"; then
@@ -250,40 +243,41 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     fi
     success "Created $TARBALL"
 
-    # Wait for SSH to be available on port 3022
-    info "Waiting for SSH access via port 3022..."
+    # Copy tarball to nested VM first, then push to container
+    info "Copying $TARBALL to nested VM..."
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 1022 "$PROJECT_ROOT/$TARBALL" "root@$PVE_HOST:/tmp/"
+    success "Package copied to nested VM"
+
+    # Push tarball from nested VM to deployer container using pct push
+    info "Pushing $TARBALL to deployer container..."
+    nested_ssh "pct push $DEPLOYER_VMID /tmp/$TARBALL /tmp/$TARBALL"
+    success "Package pushed to container"
+
+    # Install the package globally using pct exec
+    info "Installing package globally..."
+    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'cd /tmp && npm install -g $TARBALL'"
+    success "Package installed globally"
+
+    # Restart the container to load the new package
+    info "Restarting deployer container..."
+    nested_ssh "pct stop $DEPLOYER_VMID"
+    sleep 3
+    nested_ssh "pct start $DEPLOYER_VMID"
+    sleep 5
+
+    # Wait for API to come back up
+    info "Waiting for API to restart..."
     for i in $(seq 1 30); do
-        if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=5 -p 3022 "root@$PVE_HOST" "echo SSH_OK" 2>/dev/null | grep -q "SSH_OK"; then
-            success "SSH accessible via $PVE_HOST:3022"
+        if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
+            success "API is healthy after package update"
             break
         fi
         sleep 2
     done
 
-    # Copy tarball to deployer container
-    info "Copying $TARBALL to deployer container..."
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 3022 "$PROJECT_ROOT/$TARBALL" "root@$PVE_HOST:/tmp/"
-    success "Package copied to deployer"
-
-    # Install the package globally
-    info "Installing package globally..."
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 3022 "root@$PVE_HOST" "cd /tmp && npm install -g $TARBALL"
-    success "Package installed globally"
-
-    # Restart the service
-    info "Restarting oci-lxc-deployer service..."
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 3022 "root@$PVE_HOST" "rc-service oci-lxc-deployer restart 2>/dev/null || systemctl restart oci-lxc-deployer 2>/dev/null || true"
-    sleep 5
-
-    # Verify API is still healthy
-    if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
-        success "API is healthy after package update"
-    else
-        info "API may need more time to restart"
-    fi
-
     # Cleanup
     rm -f "$PROJECT_ROOT/$TARBALL"
+    nested_ssh "rm -f /tmp/$TARBALL"
 fi
 
 # Step 6: Create baseline snapshot if requested
@@ -317,11 +311,9 @@ echo "  - Web UI: http://$DEPLOYER_IP:3000"
 echo ""
 echo "Port Forwarding (from $PVE_HOST):"
 echo "  - API/UI: $PVE_HOST:3000 -> $DEPLOYER_IP:3000"
-echo "  - SSH:    $PVE_HOST:3022 -> $DEPLOYER_IP:22"
 echo ""
 echo "Access from dev machine:"
 echo "  - Web UI: http://$PVE_HOST:3000"
-echo "  - SSH:    ssh -p 3022 root@$PVE_HOST"
 echo ""
 echo "Installation from:"
 echo "  - GitHub Owner: $OWNER"

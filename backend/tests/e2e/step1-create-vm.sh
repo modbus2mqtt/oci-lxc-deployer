@@ -219,20 +219,27 @@ header "Setting up Port Forwarding"
 info "Configuring port forwarding on $PVE_HOST..."
 
 # Remove any existing forwarding rules for these ports
+pve_ssh "iptables -t nat -D PREROUTING -p tcp --dport 1008 -j DNAT --to-destination $NESTED_IP:8006 2>/dev/null || true"
+pve_ssh "iptables -t nat -D PREROUTING -p tcp --dport 1022 -j DNAT --to-destination $NESTED_IP:22 2>/dev/null || true"
 pve_ssh "iptables -t nat -D PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $NESTED_IP:3000 2>/dev/null || true"
-pve_ssh "iptables -t nat -D PREROUTING -p tcp --dport 3022 -j DNAT --to-destination $NESTED_IP:3022 2>/dev/null || true"
+pve_ssh "iptables -D FORWARD -p tcp -d $NESTED_IP --dport 8006 -j ACCEPT 2>/dev/null || true"
+pve_ssh "iptables -D FORWARD -p tcp -d $NESTED_IP --dport 22 -j ACCEPT 2>/dev/null || true"
 pve_ssh "iptables -D FORWARD -p tcp -d $NESTED_IP --dport 3000 -j ACCEPT 2>/dev/null || true"
-pve_ssh "iptables -D FORWARD -p tcp -d $NESTED_IP --dport 3022 -j ACCEPT 2>/dev/null || true"
+
+# Add port forwarding: PVE_HOST:1008 -> NESTED_VM:8006 (for nested VM Proxmox Web UI)
+pve_ssh "iptables -t nat -A PREROUTING -p tcp --dport 1008 -j DNAT --to-destination $NESTED_IP:8006"
+pve_ssh "iptables -A FORWARD -p tcp -d $NESTED_IP --dport 8006 -j ACCEPT"
+success "Port 1008 -> $NESTED_IP:8006 (nested VM Web UI)"
+
+# Add port forwarding: PVE_HOST:1022 -> NESTED_VM:22 (for SSH to nested VM)
+pve_ssh "iptables -t nat -A PREROUTING -p tcp --dport 1022 -j DNAT --to-destination $NESTED_IP:22"
+pve_ssh "iptables -A FORWARD -p tcp -d $NESTED_IP --dport 22 -j ACCEPT"
+success "Port 1022 -> $NESTED_IP:22 (nested VM SSH)"
 
 # Add port forwarding: PVE_HOST:3000 -> NESTED_VM:3000 (for deployer API/UI)
 pve_ssh "iptables -t nat -A PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $NESTED_IP:3000"
 pve_ssh "iptables -A FORWARD -p tcp -d $NESTED_IP --dport 3000 -j ACCEPT"
 success "Port 3000 -> $NESTED_IP:3000 (API/UI)"
-
-# Add port forwarding: PVE_HOST:3022 -> NESTED_VM:3022 (for deployer SSH)
-pve_ssh "iptables -t nat -A PREROUTING -p tcp --dport 3022 -j DNAT --to-destination $NESTED_IP:3022"
-pve_ssh "iptables -A FORWARD -p tcp -d $NESTED_IP --dport 3022 -j ACCEPT"
-success "Port 3022 -> $NESTED_IP:3022 (SSH)"
 
 info "Port forwarding configured on $PVE_HOST"
 
