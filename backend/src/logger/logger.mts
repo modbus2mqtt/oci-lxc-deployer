@@ -1,13 +1,10 @@
 import winston from "winston";
-import path from "path";
-import fs from "fs";
 
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
 interface LoggerState {
   level: LogLevel;
   debugComponents: Set<string>;
-  logDir: string;
 }
 
 // Singleton configuration state
@@ -16,15 +13,9 @@ const state: LoggerState = {
   debugComponents: new Set<string>(
     (process.env.DEBUG_COMPONENTS || "").split(",").filter(Boolean),
   ),
-  logDir: process.env.LOG_DIR || path.join(process.cwd(), "logs"),
 };
 
-// Ensure log directory exists
-if (!fs.existsSync(state.logDir)) {
-  fs.mkdirSync(state.logDir, { recursive: true });
-}
-
-// Custom format for console output (human-readable with timestamps)
+// Console format: human-readable with timestamps
 const consoleFormat = winston.format.combine(
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
   winston.format.colorize(),
@@ -35,27 +26,10 @@ const consoleFormat = winston.format.combine(
   }),
 );
 
-// JSON format for file output (structured logs)
-const fileFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.json(),
-);
-
-// Create the base Winston logger
+// Create the base Winston logger (console only)
 const baseLogger = winston.createLogger({
   level: state.level,
-  transports: [
-    new winston.transports.Console({ format: consoleFormat }),
-    new winston.transports.File({
-      filename: path.join(state.logDir, "error.log"),
-      level: "error",
-      format: fileFormat,
-    }),
-    new winston.transports.File({
-      filename: path.join(state.logDir, "combined.log"),
-      format: fileFormat,
-    }),
-  ],
+  transports: [new winston.transports.Console({ format: consoleFormat })],
 });
 
 /**

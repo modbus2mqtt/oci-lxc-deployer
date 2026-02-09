@@ -52,8 +52,9 @@ export class VeExecutionSshExecutor {
    * In PRODUCTION mode: returns SSH arguments to connect to remote host.
    * In TEST mode: returns local interpreter command (or empty for stdin).
    * @param interpreter Optional interpreter command extracted from shebang (e.g., ["python3"])
+   * @param verbose If true, enables verbose SSH output for debugging (no -q, LogLevel=DEBUG)
    */
-  buildExecutionArgs(interpreter?: string[]): string[] {
+  buildExecutionArgs(interpreter?: string[], verbose?: boolean): string[] {
     if (this.executionMode === ExecutionMode.PRODUCTION) {
       // Production: SSH to remote host
       if (!this.deps.veContext) throw new Error("VE context required for production mode");
@@ -73,7 +74,7 @@ export class VeExecutionSshExecutor {
         "-o",
         "PreferredAuthentications=publickey", // try keys only
         "-o",
-        "LogLevel=ERROR", // suppress login banners and info
+        verbose ? "LogLevel=DEBUG" : "LogLevel=ERROR", // verbose mode shows SSH diagnostics
         "-o",
         "ConnectTimeout=5", // fail fast on unreachable hosts
         "-o",
@@ -87,11 +88,12 @@ export class VeExecutionSshExecutor {
         "-o",
         "ServerAliveCountMax=3", // fail after 3 missed keepalives
         "-T", // disable pseudo-tty to avoid MOTD banners
-        "-q", // Suppress SSH diagnostic output
-        "-p",
-        String(port),
-        `${host}`,
       ];
+      // Only suppress output in non-verbose mode
+      if (!verbose) {
+        sshArgs.push("-q");
+      }
+      sshArgs.push("-p", String(port), `${host}`);
       // Append interpreter if provided (e.g., ssh host python3)
       if (interpreter) {
         sshArgs.push(...interpreter);
@@ -149,6 +151,9 @@ export class VeExecutionSshExecutor {
       command: tmplCommand.name,
       timeoutMs,
       executionMode: this.executionMode,
+      sshCommand: this.executionMode === ExecutionMode.PRODUCTION
+        ? `ssh ${executionArgs.join(" ")}`
+        : undefined,
     });
 
     // Build marker and determine command structure
@@ -225,13 +230,40 @@ export class VeExecutionSshExecutor {
       ) {
         retryCount++;
         if (retryCount < maxRetries) {
-          logger.warn("SSH connection failed, retrying", {
+          // Log stderr from failed attempt if available
+          if (proc.stderr && proc.stderr.trim()) {
+            logger.warn("SSH connection failed - stderr output", {
+              stderr: proc.stderr,
+            });
+          }
+
+          logger.warn("SSH connection failed, retrying with verbose mode", {
             attempt: retryCount,
             maxRetries,
             delayMs: VeExecutionConstants.RETRY_DELAY_MS,
             host: this.deps.veContext?.host,
             command: tmplCommand.name,
           });
+
+          // Rebuild args with verbose=true for retry (removes -q, sets LogLevel=DEBUG)
+          const verboseArgs = this.buildExecutionArgs(interpreter, true);
+          if (!interpreter || interpreter.length === 0 || !interpreter[0] || interpreter[0] === "sh" || interpreter[0].endsWith("/sh")) {
+            actualArgs = verboseArgs;
+          } else {
+            const interpreterCmd = interpreter.join(" ");
+            actualArgs = [
+              ...this.buildExecutionArgs(undefined, true),
+              "sh",
+              "-c",
+              `echo "${marker}" && export LC_ALL=C LANG=C; ${interpreterCmd}`,
+            ];
+          }
+
+          // Log the full SSH command for debugging
+          logger.debug("SSH retry command", {
+            command: `ssh ${actualArgs.join(" ")}`,
+          });
+
           await new Promise((resolve) => setTimeout(resolve, VeExecutionConstants.RETRY_DELAY_MS));
           continue;
         }

@@ -252,6 +252,19 @@ else
     info "Warning: Gateway not reachable, network may have issues"
 fi
 
+# Step 4c: Add /etc/hosts entries for nested VM (required for SSH from deployer)
+# The nested VM (PVE host for deployer) is reachable via the gateway in the NAT network
+info "Adding /etc/hosts entries for nested VM..."
+NESTED_HOSTNAME=$(nested_ssh "hostname")
+# Build hosts entry: always include nested hostname (with and without .local)
+HOSTS_ENTRY="$DEPLOYER_GATEWAY $NESTED_HOSTNAME ${NESTED_HOSTNAME}.local"
+# Add PVE_HOST if set and different from nested hostname
+if [ -n "$PVE_HOST" ] && [ "$PVE_HOST" != "$NESTED_HOSTNAME" ] && [ "$PVE_HOST" != "${NESTED_HOSTNAME}.local" ]; then
+    HOSTS_ENTRY="$HOSTS_ENTRY $PVE_HOST"
+fi
+nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'echo \"$HOSTS_ENTRY\" >> /etc/hosts'"
+success "Added hosts entry: $HOSTS_ENTRY"
+
 # Step 5: Use static IP and wait for API
 # Extract IP without CIDR suffix
 DEPLOYER_IP="${DEPLOYER_STATIC_IP%/*}"
@@ -288,6 +301,19 @@ if [ "$UPDATE_ONLY" = "true" ]; then
     else
         error "Container network failed - cannot reach internet"
     fi
+
+    # Add /etc/hosts entries for nested VM (required for SSH from deployer)
+    info "Ensuring /etc/hosts entries for nested VM..."
+    NESTED_HOSTNAME=$(nested_ssh "hostname")
+    # Build hosts entry: always include nested hostname (with and without .local)
+    HOSTS_ENTRY="$DEPLOYER_GATEWAY $NESTED_HOSTNAME ${NESTED_HOSTNAME}.local"
+    # Add PVE_HOST if set and different from nested hostname
+    if [ -n "$PVE_HOST" ] && [ "$PVE_HOST" != "$NESTED_HOSTNAME" ] && [ "$PVE_HOST" != "${NESTED_HOSTNAME}.local" ]; then
+        HOSTS_ENTRY="$HOSTS_ENTRY $PVE_HOST"
+    fi
+    # Only add if not already present
+    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'grep -q \"${NESTED_HOSTNAME}.local\" /etc/hosts || echo \"$HOSTS_ENTRY\" >> /etc/hosts'"
+    success "Ensured hosts entry: $HOSTS_ENTRY"
 fi
 
 # Step 5b: Set up port forwarding on nested VM to deployer container
