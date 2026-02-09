@@ -1,0 +1,19 @@
+services:
+  node-red:
+    image: nodered/node-red:${NODERED_VERSION:-latest}
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - ./data:/data
+    ports:
+      - "${NODERED_PORT:-1880}:1880"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1880/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  data:

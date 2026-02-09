@@ -86,23 +86,23 @@ success "Custom ISO found"
 # Step 3: Cleanup existing VM (unless KEEP_VM is set)
 if [ -z "$KEEP_VM" ]; then
     if pve_ssh "qm status $TEST_VMID" &>/dev/null; then
-        info "Removing existing VM $TEST_VMID..."
-        # Try graceful stop first
-        pve_ssh "qm stop $TEST_VMID --timeout 10" 2>/dev/null || true
-        sleep 2
-        # Force stop if still running
-        if pve_ssh "qm status $TEST_VMID 2>/dev/null | grep -q running"; then
-            info "Force stopping VM..."
-            pve_ssh "qm stop $TEST_VMID --skiplock" 2>/dev/null || true
-            sleep 2
-        fi
+        info "Removing existing VM $TEST_VMID (force)..."
+        # Force stop immediately - no graceful shutdown for test VMs
+        pve_ssh "qm stop $TEST_VMID --skiplock --timeout 5" 2>/dev/null || true
         # Destroy with force and purge
         pve_ssh "qm destroy $TEST_VMID --purge --skiplock" 2>/dev/null || true
-        sleep 2
-        # Verify VM is gone
-        if pve_ssh "qm status $TEST_VMID" &>/dev/null; then
-            error "Failed to remove existing VM $TEST_VMID"
-        fi
+
+        # Wait up to 60 seconds for VM to be gone
+        WAIT_COUNT=0
+        while pve_ssh "qm status $TEST_VMID" &>/dev/null; do
+            WAIT_COUNT=$((WAIT_COUNT + 1))
+            if [ $WAIT_COUNT -ge 60 ]; then
+                error "Failed to remove existing VM $TEST_VMID after 60 seconds"
+            fi
+            printf "\r${YELLOW}[INFO]${NC} Waiting for VM deletion... %ds" $WAIT_COUNT
+            sleep 1
+        done
+        [ $WAIT_COUNT -gt 0 ] && echo ""
         success "Existing VM removed"
     fi
 fi
@@ -242,6 +242,12 @@ pve_ssh "iptables -A FORWARD -p tcp -d $NESTED_IP --dport 3000 -j ACCEPT"
 success "Port 3000 -> $NESTED_IP:3000 (API/UI)"
 
 info "Port forwarding configured on $PVE_HOST"
+
+# Step 12: Create snapshot for install script tests
+header "Creating Snapshot"
+info "Creating snapshot 'fresh-pve' for install script tests..."
+PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-create.sh" "$TEST_VMID" "fresh-pve"
+success "Snapshot 'fresh-pve' created"
 
 # Summary
 header "Step 1 Complete"

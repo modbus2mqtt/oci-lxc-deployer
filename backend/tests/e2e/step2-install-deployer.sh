@@ -60,6 +60,9 @@ DEPLOYER_BRIDGE="${DEPLOYER_BRIDGE:-vmbr1}"
 DEPLOYER_STATIC_IP="${DEPLOYER_STATIC_IP:-10.0.0.100/24}"
 DEPLOYER_GATEWAY="${DEPLOYER_GATEWAY:-10.0.0.1}"
 
+# External URL for deployer (accessible from outside the NAT network)
+DEPLOYER_URL="${DEPLOYER_URL:-http://${PVE_HOST}:3000}"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -141,47 +144,54 @@ fi
 # Local script path on nested VM
 LOCAL_SCRIPT_PATH="/tmp/oci-lxc-deployer-scripts"
 
-# Copy local install script and json/ directory to nested VM for testing
+# Copy local install script and shared scripts to nested VM for testing
 LOCAL_INSTALL_SCRIPT="$PROJECT_ROOT/install-oci-lxc-deployer.sh"
-LOCAL_JSON_DIR="$PROJECT_ROOT/json"
-if [ -f "$LOCAL_INSTALL_SCRIPT" ] && [ -d "$LOCAL_JSON_DIR" ]; then
+LOCAL_SHARED_SCRIPTS="$PROJECT_ROOT/json/shared/scripts"
+if [ -f "$LOCAL_INSTALL_SCRIPT" ] && [ -d "$LOCAL_SHARED_SCRIPTS" ]; then
     info "Copying local install script to nested VM..."
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$LOCAL_INSTALL_SCRIPT" "root@$PVE_HOST:/tmp/install-oci-lxc-deployer.sh"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@$PVE_HOST" "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/install-oci-lxc-deployer.sh root@$NESTED_IP:/tmp/"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$LOCAL_INSTALL_SCRIPT" "root@$PVE_HOST:/tmp/install-oci-lxc-deployer.sh" || error "Failed to copy install script to PVE host"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@$PVE_HOST" "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/install-oci-lxc-deployer.sh root@$NESTED_IP:/tmp/" || error "Failed to copy install script to nested VM"
     success "Local install script copied"
 
-    info "Copying local json/ directory to nested VM..."
-    # Create tarball of json directory and copy it
-    tar -czf /tmp/oci-lxc-deployer-json.tar.gz -C "$PROJECT_ROOT" json
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/oci-lxc-deployer-json.tar.gz "root@$PVE_HOST:/tmp/"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@$PVE_HOST" "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/oci-lxc-deployer-json.tar.gz root@$NESTED_IP:/tmp/"
+    info "Copying local shared scripts to nested VM..."
+    # Create tarball of only json/shared/scripts (what install script needs)
+    tar -czf /tmp/oci-lxc-deployer-scripts.tar.gz -C "$PROJECT_ROOT" json/shared/scripts || error "Failed to create scripts tarball"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/oci-lxc-deployer-scripts.tar.gz "root@$PVE_HOST:/tmp/" || error "Failed to copy scripts tarball to PVE host"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@$PVE_HOST" "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/oci-lxc-deployer-scripts.tar.gz root@$NESTED_IP:/tmp/" || error "Failed to copy scripts tarball to nested VM"
     # Extract on nested VM
-    nested_ssh "mkdir -p $LOCAL_SCRIPT_PATH && tar -xzf /tmp/oci-lxc-deployer-json.tar.gz -C $LOCAL_SCRIPT_PATH"
-    rm -f /tmp/oci-lxc-deployer-json.tar.gz
-    success "Local json/ directory copied to $LOCAL_SCRIPT_PATH"
+    nested_ssh "mkdir -p $LOCAL_SCRIPT_PATH && tar -xzf /tmp/oci-lxc-deployer-scripts.tar.gz -C $LOCAL_SCRIPT_PATH" || error "Failed to extract scripts on nested VM"
+    rm -f /tmp/oci-lxc-deployer-scripts.tar.gz
+    success "Local shared scripts copied to $LOCAL_SCRIPT_PATH"
 
     info "Running installation script with OWNER=$OWNER OCI_OWNER=$OCI_OWNER LOCAL_SCRIPT_PATH=$LOCAL_SCRIPT_PATH..."
     # Run local script with custom parameters and local scripts path
     nested_ssh "chmod +x /tmp/install-oci-lxc-deployer.sh && \
-        OWNER=$OWNER OCI_OWNER=$OCI_OWNER LOCAL_SCRIPT_PATH=$LOCAL_SCRIPT_PATH /tmp/install-oci-lxc-deployer.sh --vm-id $DEPLOYER_VMID --bridge $DEPLOYER_BRIDGE --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY"
+        OWNER=$OWNER OCI_OWNER=$OCI_OWNER LOCAL_SCRIPT_PATH=$LOCAL_SCRIPT_PATH /tmp/install-oci-lxc-deployer.sh --vm-id $DEPLOYER_VMID --bridge $DEPLOYER_BRIDGE --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY --deployer-url $DEPLOYER_URL" || error "Installation script failed"
 else
     info "Running installation script from GitHub with OWNER=$OWNER OCI_OWNER=$OCI_OWNER..."
     # Fallback: Download and run from GitHub
     nested_ssh "curl -sSL https://raw.githubusercontent.com/$OWNER/oci-lxc-deployer/main/install-oci-lxc-deployer.sh | \
-        OWNER=$OWNER OCI_OWNER=$OCI_OWNER bash -s -- --vm-id $DEPLOYER_VMID --bridge $DEPLOYER_BRIDGE --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY"
+        OWNER=$OWNER OCI_OWNER=$OCI_OWNER bash -s -- --vm-id $DEPLOYER_VMID --bridge $DEPLOYER_BRIDGE --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY --deployer-url $DEPLOYER_URL" || error "Installation script from GitHub failed"
 fi
 
 success "Installation script completed"
 
-# Step 4: Wait for container to be running
+# Step 4: Wait for container to be running (max 120s)
 info "Waiting for deployer container to start..."
+CONTAINER_STARTED=false
 for i in $(seq 1 60); do
     if nested_ssh "pct status $DEPLOYER_VMID 2>/dev/null" | grep -q "running"; then
         success "Deployer container is running"
+        CONTAINER_STARTED=true
         break
     fi
+    printf "\r${YELLOW}[INFO]${NC} Waiting for container... %ds" $((i * 2))
     sleep 2
 done
+echo ""
+if [ "$CONTAINER_STARTED" != "true" ]; then
+    error "Container $DEPLOYER_VMID failed to start within 120 seconds"
+fi
 
 # Step 4b: Manually bring up container network interface
 # Alpine containers with static IP sometimes don't auto-activate the interface
@@ -202,19 +212,23 @@ fi
 # Extract IP without CIDR suffix
 DEPLOYER_IP="${DEPLOYER_STATIC_IP%/*}"
 info "Deployer static IP: $DEPLOYER_IP"
-info "Waiting for API to be ready..."
+info "Waiting for API to be ready (max 120s)..."
 sleep 5  # Give container time to initialize
 
+API_READY=false
 for i in $(seq 1 60); do
     if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
         success "API is healthy at $DEPLOYER_IP:3000"
+        API_READY=true
         break
     fi
     printf "\r${YELLOW}[INFO]${NC} Waiting for API... %ds" $((i * 2))
     sleep 2
 done
-
 echo ""
+if [ "$API_READY" != "true" ]; then
+    error "API failed to respond within 120 seconds at $DEPLOYER_IP:3000"
+fi
 
 # Step 5b: Set up port forwarding on nested VM to deployer container
 header "Setting up Port Forwarding on Nested VM"
@@ -235,7 +249,7 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     info "Building local oci-lxc-deployer package..."
 
     cd "$PROJECT_ROOT"
-    pnpm run build
+    pnpm run build || error "Failed to build package"
     TARBALL=$(pnpm pack 2>&1 | grep -o 'oci-lxc-deployer-.*\.tgz')
 
     if [ -z "$TARBALL" ] || [ ! -f "$PROJECT_ROOT/$TARBALL" ]; then
@@ -245,59 +259,55 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
 
     # Copy tarball to nested VM first, then push to container
     info "Copying $TARBALL to nested VM..."
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 1022 "$PROJECT_ROOT/$TARBALL" "root@$PVE_HOST:/tmp/"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 1022 "$PROJECT_ROOT/$TARBALL" "root@$PVE_HOST:/tmp/" || error "Failed to copy tarball to nested VM"
     success "Package copied to nested VM"
 
     # Push tarball from nested VM to deployer container using pct push
     info "Pushing $TARBALL to deployer container..."
-    nested_ssh "pct push $DEPLOYER_VMID /tmp/$TARBALL /tmp/$TARBALL"
+    nested_ssh "pct push $DEPLOYER_VMID /tmp/$TARBALL /tmp/$TARBALL" || error "Failed to push tarball to container"
     success "Package pushed to container"
 
-    # Install the package globally using pct exec
+    # Install the package globally using pct exec (skip postinstall hooks - they're for dev only)
     info "Installing package globally..."
-    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'cd /tmp && npm install -g $TARBALL'"
+    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'cd /tmp && npm install -g --ignore-scripts $TARBALL'" || error "Failed to install package globally"
     success "Package installed globally"
 
     # Restart the container to load the new package
     info "Restarting deployer container..."
-    nested_ssh "pct stop $DEPLOYER_VMID"
+    nested_ssh "pct stop $DEPLOYER_VMID" || error "Failed to stop container"
     sleep 3
-    nested_ssh "pct start $DEPLOYER_VMID"
+    nested_ssh "pct start $DEPLOYER_VMID" || error "Failed to start container"
     sleep 5
 
-    # Wait for API to come back up
+    # Wait for API to come back up (max 60s)
     info "Waiting for API to restart..."
+    API_RESTARTED=false
     for i in $(seq 1 30); do
         if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
             success "API is healthy after package update"
+            API_RESTARTED=true
             break
         fi
+        printf "\r${YELLOW}[INFO]${NC} Waiting for API restart... %ds" $((i * 2))
         sleep 2
     done
+    echo ""
+    if [ "$API_RESTARTED" != "true" ]; then
+        error "API failed to restart within 60 seconds"
+    fi
 
     # Cleanup
     rm -f "$PROJECT_ROOT/$TARBALL"
     nested_ssh "rm -f /tmp/$TARBALL"
 fi
 
-# Step 6: Create baseline snapshot if requested
-if [ -n "$CREATE_SNAPSHOT" ]; then
-    header "Creating Baseline Snapshot"
-    info "Creating snapshot 'e2e-baseline' of deployer container..."
-
-    # Stop container for clean snapshot
-    nested_ssh "pct stop $DEPLOYER_VMID" || true
-    sleep 2
-
-    # Create snapshot
-    nested_ssh "pct snapshot $DEPLOYER_VMID e2e-baseline --description 'Clean oci-lxc-deployer installation'"
-
-    # Start container again
-    nested_ssh "pct start $DEPLOYER_VMID"
-    sleep 5
-
-    success "Snapshot 'e2e-baseline' created"
-fi
+# Step 6: Create snapshot of nested VM for e2e tests
+header "Creating Snapshot"
+info "Creating snapshot 'deployer-installed' of nested VM..."
+# Get the nested VM ID from step1 (default 9000)
+NESTED_VMID="${TEST_VMID:-9000}"
+PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-create.sh" "$NESTED_VMID" "deployer-installed" || error "Failed to create snapshot"
+success "Snapshot 'deployer-installed' created"
 
 # Summary
 header "Step 2 Complete"

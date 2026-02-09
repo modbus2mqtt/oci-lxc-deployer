@@ -146,6 +146,9 @@ LXC_GID=1001
 static_ip=""
 static_gw=""
 
+# External URL for deployer (optional, for NAT/port-forwarding scenarios)
+deployer_url=""
+
 # Parse CLI flags
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -159,6 +162,7 @@ while [ "$#" -gt 0 ]; do
     --storage) storage="$2"; shift 2 ;;
     --static-ip) static_ip="$2"; shift 2 ;;
     --gateway) static_gw="$2"; shift 2 ;;
+    --deployer-url) deployer_url="$2"; shift 2 ;;
     --help|-h)
       cat >&2 <<USAGE
 Usage: $0 [options]
@@ -176,6 +180,7 @@ Options:
   --storage <name>      Proxmox storage for OCI image. Default: local
   --static-ip <IP/CIDR> Static IP address (e.g., 10.0.0.100/24). Default: DHCP
   --gateway <IP>        Gateway IP address (required if --static-ip is used)
+  --deployer-url <URL>  External URL for deployer (e.g., http://pve1:3000 for NAT setups)
 
 Notes:
   - OCI image: ${OCI_IMAGE}
@@ -530,7 +535,13 @@ echo "  storagecontext.json written at: ${storagecontext_file}" >&2
 echo "Step 5.2: Writing LXC notes..." >&2
 # For self-install, deployer_base_url points to this container
 # ve_context_key must match the key in storagecontext.json (ve_${proxmox_hostname})
-deployer_base_url="http://${hostname}:3000"
+# Use --deployer-url if provided (for NAT/port-forwarding), otherwise use container hostname
+if [ -n "$deployer_url" ]; then
+  deployer_base_url="$deployer_url"
+  echo "  Using external deployer URL: ${deployer_base_url}" >&2
+else
+  deployer_base_url="http://${hostname}:3000"
+fi
 
 # Download and Base64-encode the application icon for embedding in notes
 icon_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/applications/oci-lxc-deployer/icon.svg"
