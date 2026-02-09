@@ -127,6 +127,10 @@ storage="local"
 LXC_UID=1001
 LXC_GID=1001
 
+# Static IP configuration (optional)
+static_ip=""
+static_gw=""
+
 # Parse CLI flags
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -138,6 +142,8 @@ while [ "$#" -gt 0 ]; do
     --config-volume) config_volume_path="$2"; shift 2 ;;
     --secure-volume) secure_volume_path="$2"; shift 2 ;;
     --storage) storage="$2"; shift 2 ;;
+    --static-ip) static_ip="$2"; shift 2 ;;
+    --gateway) static_gw="$2"; shift 2 ;;
     --help|-h)
       cat >&2 <<USAGE
 Usage: $0 [options]
@@ -153,11 +159,13 @@ Options:
   --config-volume <path> Host path for /config volume (default: /mnt/volumes/\$hostname/config)
   --secure-volume <path> Host path for /secure volume (default: /mnt/volumes/\$hostname/secure)
   --storage <name>      Proxmox storage for OCI image. Default: local
+  --static-ip <IP/CIDR> Static IP address (e.g., 10.0.0.100/24). Default: DHCP
+  --gateway <IP>        Gateway IP address (required if --static-ip is used)
 
 Notes:
   - OCI image: ${OCI_IMAGE}
   - Container UID/GID: ${LXC_UID}/${LXC_GID}
-  - Network configuration (IP, gateway, etc.) should be done directly in Proxmox after installation
+  - If --static-ip is not provided, the container uses DHCP
   - The script creates a storagecontext.json file for repeatable installations
 USAGE
       exit 0 ;;
@@ -388,6 +396,23 @@ if [ -z "$vm_id" ]; then
 fi
 
 echo "  Container created: ${vm_id}" >&2
+
+# 2b) Configure static IP if provided
+if [ -n "$static_ip" ]; then
+  echo "Step 2b: Configuring static IP..." >&2
+  execute_script_from_github \
+    "json/shared/scripts/conf-lxc-static-ip.sh" \
+    "-" \
+    "vm_id=${vm_id}" \
+    "hostname=${hostname}" \
+    "static_ip=${static_ip}" \
+    "static_gw=${static_gw}" \
+    "static_ip6=" \
+    "static_gw6=" \
+    "bridge=${bridge}" >/dev/null
+  echo "  Static IP configured: ${static_ip} (gateway: ${static_gw})" >&2
+fi
+
 # 3) Configure UID/GID mapping (subuid/subgid only, container config after creation)
 echo "Step 3: Configuring UID/GID mapping..." >&2
 # Run mapping script and capture mapped UID/GID for later steps (idempotent to call twice)

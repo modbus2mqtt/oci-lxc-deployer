@@ -15,8 +15,14 @@
 #   - static_gw6: IPv6 gateway (optional)
 #
 # Output: JSON to stdout (errors to stderr)
-exec >&2
 #   {{ bridge }} (string)
+
+# Helper function to output JSON result
+output_result() {
+  _configured="$1"
+  _ip="$2"
+  printf '[{"id": "static_ip_configured", "value": "%s"}, {"id": "static_ip", "value": "%s"}]\n' "$_configured" "$_ip"
+}
 ipv4_ok=true
 
  # Initialize IP variables (already computed or provided)
@@ -26,16 +32,19 @@ static_ip6="{{ static_ip6 }}"
 # Auto-detect static IP usage
 if [ -z "$static_ip" ] && [ -z "$static_ip6" ]; then
   echo "Static IP configuration not requested, skipping." >&2
+  output_result "skipped" ""
   exit 0
 fi
 
 if [ -z "{{ vm_id }}" ]; then
   echo "No VMID provided!" >&2
+  output_result "false" ""
   exit 2
 fi
 
 if [ -z "{{ hostname }}" ]; then
   echo "No hostname provided!" >&2
+  output_result "false" ""
   exit 2
 fi
 
@@ -96,6 +105,7 @@ EOF
 if [ -n "$static_ip" ]; then
   if ! is_valid_ipv4_cidr "$static_ip"; then
     echo "Invalid IPv4 CIDR: '$static_ip'. Expected format a.b.c.d/prefix (e.g. 192.168.1.10/24)." >&2
+    output_result "false" ""
     exit 2
   fi
   ipv4_ok=true
@@ -103,6 +113,7 @@ else
   # If gateway is provided without IP, that's invalid
   if [ -n "{{ static_gw }}" ]; then
     echo "IPv4 gateway provided without IPv4 address!" >&2
+    output_result "false" ""
     exit 2
   fi
   ipv4_ok=false
@@ -111,6 +122,7 @@ fi
 if [ -n "$static_ip6" ]; then
   if ! is_valid_ipv6_cidr "$static_ip6"; then
     echo "Invalid IPv6 CIDR: '$static_ip6'. Expected format ip/prefix (e.g. fd00::10/64)." >&2
+    output_result "false" ""
     exit 2
   fi
   ipv6_ok=true
@@ -118,6 +130,7 @@ else
   # If gateway is provided without IP, that's invalid
   if [ -n "{{ static_gw6 }}" ]; then
     echo "IPv6 gateway provided without IPv6 address!" >&2
+    output_result "false" ""
     exit 2
   fi
   ipv6_ok=false
@@ -125,6 +138,7 @@ fi
 
 if [ "$ipv4_ok" = false ] && [ "$ipv6_ok" = false ]; then
   echo "No static IP (IPv4 or IPv6) provided!" >&2
+  output_result "false" ""
   exit 2
 fi
 
@@ -145,8 +159,15 @@ pct set {{ vm_id }} --net0 "$NET_OPTS" >&2
 RC=$?
 if [ $RC -ne 0 ]; then
   echo "Failed to set network configuration!" >&2
+  output_result "false" ""
   exit $RC
 fi
 
 echo "Network configuration updated for VM {{ vm_id }}." >&2
+# Output the configured IP (use IPv4 if available, otherwise IPv6)
+if [ "$ipv4_ok" = true ]; then
+  output_result "true" "$static_ip"
+else
+  output_result "true" "$static_ip6"
+fi
 exit 0

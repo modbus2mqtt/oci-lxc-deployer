@@ -248,6 +248,94 @@ get_zfs_pool() {
   fi
 }
 
+# Find a free (unformatted/unmounted) partition for storage
+# Returns the partition device path if found, empty otherwise
+find_free_partition() {
+  # Look for partitions that are:
+  # 1. Not mounted
+  # 2. Not part of LVM
+  # 3. Not swap
+  # 4. Have no filesystem or are unformatted
+
+  for dev in /dev/sd[a-z][0-9]* /dev/nvme[0-9]n[0-9]p[0-9]* /dev/vd[a-z][0-9]*; do
+    [ -b "$dev" ] || continue
+
+    # Skip if mounted
+    if mount | grep -q "^$dev "; then
+      continue
+    fi
+
+    # Skip if part of LVM
+    if pvs "$dev" >/dev/null 2>&1; then
+      continue
+    fi
+
+    # Skip if swap
+    if grep -q "^$dev " /proc/swaps 2>/dev/null; then
+      continue
+    fi
+
+    # Check if it has a filesystem
+    _fstype=$(blkid -o value -s TYPE "$dev" 2>/dev/null || true)
+
+    # If no filesystem or filesystem is empty/unknown, it's potentially free
+    if [ -z "$_fstype" ]; then
+      echo "$dev"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# Setup filesystem-based storage volumes
+# Uses either a free partition or creates directories on root
+setup_filesystem_storage() {
+  _volname="$1"
+  _mount_base="/mnt/pve-volumes"
+  _mount_point="${_mount_base}/${_volname}"
+
+  # Check if already set up
+  if [ -d "$_mount_point" ]; then
+    if mountpoint -q "$_mount_point" 2>/dev/null || [ -d "$_mount_point/config" ]; then
+      echo "$_mount_point"
+      return 0
+    fi
+  fi
+
+  # Try to find a free partition
+  _free_part=$(find_free_partition || true)
+
+  if [ -n "$_free_part" ]; then
+    log "Found free partition: $_free_part - formatting with ext4..."
+
+    # Format with ext4
+    mkfs.ext4 -q -L "pve-volumes" "$_free_part" >&2
+
+    # Create mount point and mount
+    mkdir -p "$_mount_point"
+    mount "$_free_part" "$_mount_point"
+
+    # Add to fstab for persistence
+    if ! grep -q "$_free_part" /etc/fstab 2>/dev/null; then
+      echo "$_free_part $_mount_point ext4 defaults 0 2" >> /etc/fstab
+      log "Added $_free_part to /etc/fstab"
+    fi
+
+    echo "$_mount_point"
+    return 0
+  fi
+
+  # No free partition - use root filesystem
+  log "No free partition found - using root filesystem for volumes"
+
+  # Create directory structure on root
+  mkdir -p "$_mount_point"
+
+  echo "$_mount_point"
+  return 0
+}
+
 resolve_volume_path() {
   _volid="$1"
   _volname="$2"
@@ -265,6 +353,7 @@ resolve_volume_path() {
     _i=$(( _i + 1 ))
   done
 
+  # Fallback for ZFS
   if [ "$_type" = "zfspool" ]; then
     _pool=$(get_zfs_pool)
     if [ -n "$_pool" ]; then
@@ -278,6 +367,10 @@ resolve_volume_path() {
       fi
     fi
   fi
+
+  # For non-ZFS storage types, we use setup_filesystem_storage() instead
+  # This function is now only used for ZFS volumes
+
   return 1
 }
 
@@ -285,35 +378,52 @@ STORAGE_TYPE=$(get_storage_type)
 SAFE_HOST=$(sanitize_name "$HOSTNAME")
 SHARED_OWNER_VMID="${SHARED_OWNER_VMID:-999999}"
 SHARED_NAME_KEY="oci-lxc-deployer-volumes"
-if [ "$STORAGE_TYPE" = "zfspool" ]; then
-  SHARED_VOLNAME="subvol-${SHARED_OWNER_VMID}-${SHARED_NAME_KEY}"
-elif [ "$STORAGE_TYPE" = "lvmthin" ] || [ "$STORAGE_TYPE" = "lvm" ]; then
-  # LVM/lvmthin requires vm-<vmid>-* naming pattern
-  SHARED_VOLNAME="vm-${SHARED_OWNER_VMID}-${SHARED_NAME_KEY}"
-else
-  SHARED_VOLNAME="vol-${SHARED_NAME_KEY}"
-fi
 
-SHARED_VOLID=$(get_existing_volid "$SHARED_NAME_KEY" "$STORAGE_TYPE")
-if [ -z "$SHARED_VOLID" ]; then
-  log "Creating shared volume $SHARED_VOLNAME in storage $VOLUME_STORAGE (size $VOLUME_SIZE)"
-  SHARED_VOLID=$(alloc_volume "$SHARED_VOLNAME" "$VOLUME_SIZE" "$SHARED_OWNER_VMID" || true)
-  if [ -z "$SHARED_VOLID" ] && [ "$STORAGE_TYPE" = "zfspool" ]; then
-    _pool=$(get_zfs_pool)
-    if [ -n "$_pool" ] && zfs list -H -o name "${_pool}/${SHARED_VOLNAME}" >/dev/null 2>&1; then
-      SHARED_VOLID="${VOLUME_STORAGE}:${SHARED_VOLNAME}"
+log "storage-volumes: vm_id=$VMID host=$HOSTNAME storage=$VOLUME_STORAGE type=$STORAGE_TYPE"
+
+# Different storage strategies based on storage type
+if [ "$STORAGE_TYPE" = "zfspool" ]; then
+  # ZFS: Use pvesm to create subvolumes (existing behavior)
+  SHARED_VOLNAME="subvol-${SHARED_OWNER_VMID}-${SHARED_NAME_KEY}"
+
+  SHARED_VOLID=$(get_existing_volid "$SHARED_NAME_KEY" "$STORAGE_TYPE")
+  if [ -z "$SHARED_VOLID" ]; then
+    log "Creating shared ZFS subvolume $SHARED_VOLNAME in storage $VOLUME_STORAGE (size $VOLUME_SIZE)"
+    SHARED_VOLID=$(alloc_volume "$SHARED_VOLNAME" "$VOLUME_SIZE" "$SHARED_OWNER_VMID" || true)
+    if [ -z "$SHARED_VOLID" ]; then
+      _pool=$(get_zfs_pool)
+      if [ -n "$_pool" ] && zfs list -H -o name "${_pool}/${SHARED_VOLNAME}" >/dev/null 2>&1; then
+        SHARED_VOLID="${VOLUME_STORAGE}:${SHARED_VOLNAME}"
+      fi
     fi
   fi
-fi
 
-if [ -z "$SHARED_VOLID" ]; then
-  fail "Failed to allocate or find shared volume for ${SHARED_VOLNAME}"
-fi
+  if [ -z "$SHARED_VOLID" ]; then
+    fail "Failed to allocate or find shared volume for ${SHARED_VOLNAME}"
+  fi
 
-SHARED_VOLNAME_REAL="${SHARED_VOLID#*:}"
-SHARED_VOLPATH=$(resolve_volume_path "$SHARED_VOLID" "$SHARED_VOLNAME_REAL" "$STORAGE_TYPE" || true)
-if [ -z "$SHARED_VOLPATH" ]; then
-  fail "Failed to resolve path for shared volume ${SHARED_VOLID}"
+  SHARED_VOLNAME_REAL="${SHARED_VOLID#*:}"
+  SHARED_VOLPATH=$(resolve_volume_path "$SHARED_VOLID" "$SHARED_VOLNAME_REAL" "$STORAGE_TYPE" || true)
+  if [ -z "$SHARED_VOLPATH" ]; then
+    fail "Failed to resolve path for shared volume ${SHARED_VOLID}"
+  fi
+
+else
+  # Non-ZFS (LVM, dir, etc.): Use filesystem-based approach
+  # 1. Try to find a free partition and format it
+  # 2. If no free partition, use directories on root filesystem
+  SHARED_VOLNAME="${SHARED_NAME_KEY}"
+
+  log "Using filesystem-based storage for volumes"
+  SHARED_VOLPATH=$(setup_filesystem_storage "$SHARED_VOLNAME")
+
+  if [ -z "$SHARED_VOLPATH" ]; then
+    fail "Failed to setup filesystem storage at $SHARED_VOLPATH"
+  fi
+
+  # For non-ZFS, we don't have a volume ID - just the path
+  SHARED_VOLID="filesystem:${SHARED_VOLNAME}"
+  log "Filesystem storage ready at: $SHARED_VOLPATH"
 fi
 
 while IFS= read -r line <&3; do

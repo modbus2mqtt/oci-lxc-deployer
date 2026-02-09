@@ -55,8 +55,9 @@ error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 header() { echo -e "\n${BLUE}═══════════════════════════════════════════════════════${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n"; }
 
 # SSH wrapper for pve1
+# Uses /dev/null for known_hosts to avoid host key conflicts during E2E testing
 pve_ssh() {
-    ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 "root@$PVE_HOST" "$@"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 "root@$PVE_HOST" "$@"
 }
 
 # Store nested VM IP for later steps
@@ -172,6 +173,28 @@ if [[ "$PVE_VERSION" == *"pve-manager"* ]]; then
 else
     info "Could not verify Proxmox version (may need time to fully initialize)"
 fi
+
+# Step 11: Set up port forwarding on PVE host to nested VM
+header "Setting up Port Forwarding"
+info "Configuring port forwarding on $PVE_HOST..."
+
+# Remove any existing forwarding rules for these ports
+pve_ssh "iptables -t nat -D PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $NESTED_IP:3000 2>/dev/null || true"
+pve_ssh "iptables -t nat -D PREROUTING -p tcp --dport 3022 -j DNAT --to-destination $NESTED_IP:3022 2>/dev/null || true"
+pve_ssh "iptables -D FORWARD -p tcp -d $NESTED_IP --dport 3000 -j ACCEPT 2>/dev/null || true"
+pve_ssh "iptables -D FORWARD -p tcp -d $NESTED_IP --dport 3022 -j ACCEPT 2>/dev/null || true"
+
+# Add port forwarding: PVE_HOST:3000 -> NESTED_VM:3000 (for deployer API/UI)
+pve_ssh "iptables -t nat -A PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $NESTED_IP:3000"
+pve_ssh "iptables -A FORWARD -p tcp -d $NESTED_IP --dport 3000 -j ACCEPT"
+success "Port 3000 -> $NESTED_IP:3000 (API/UI)"
+
+# Add port forwarding: PVE_HOST:3022 -> NESTED_VM:3022 (for deployer SSH)
+pve_ssh "iptables -t nat -A PREROUTING -p tcp --dport 3022 -j DNAT --to-destination $NESTED_IP:3022"
+pve_ssh "iptables -A FORWARD -p tcp -d $NESTED_IP --dport 3022 -j ACCEPT"
+success "Port 3022 -> $NESTED_IP:3022 (SSH)"
+
+info "Port forwarding configured on $PVE_HOST"
 
 # Summary
 header "Step 1 Complete"
