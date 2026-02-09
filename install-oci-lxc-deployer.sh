@@ -12,6 +12,11 @@ OWNER="${OWNER:-modbus2mqtt}"
 REPO="oci-lxc-deployer"
 BRANCH="main"
 OCI_IMAGE="ghcr.io/${OCI_OWNER}/oci-lxc-deployer:latest"
+
+# Local script path - when set, scripts are loaded from local filesystem instead of GitHub
+# Expected structure: LOCAL_SCRIPT_PATH/json/shared/scripts/...
+LOCAL_SCRIPT_PATH="${LOCAL_SCRIPT_PATH:-}"
+
 # Helper functions
 execute_script_from_github() {
   if [ "$#" -lt 2 ]; then
@@ -20,7 +25,6 @@ execute_script_from_github() {
   fi
   path="$1"; output_id="$2"; shift 2
 
-  raw_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${path}"
   sed_args=""
   for kv in "$@"; do
     key="${kv%%=*}"
@@ -36,10 +40,17 @@ execute_script_from_github() {
     *) interpreter="sh" ;;
   esac
 
-  script_content=$(curl -fsSL "$raw_url" 2>/dev/null || true)
-  if [ -z "$script_content" ]; then
-    echo "Error: Failed to download script from ${raw_url}" >&2
-    return 3
+  # Load script content from local path or GitHub
+  if [ -n "$LOCAL_SCRIPT_PATH" ] && [ -f "${LOCAL_SCRIPT_PATH}/${path}" ]; then
+    echo "Loading script from local: ${LOCAL_SCRIPT_PATH}/${path}" >&2
+    script_content=$(cat "${LOCAL_SCRIPT_PATH}/${path}")
+  else
+    raw_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${path}"
+    script_content=$(curl -fsSL "$raw_url" 2>/dev/null || true)
+    if [ -z "$script_content" ]; then
+      echo "Error: Failed to download script from ${raw_url}" >&2
+      return 3
+    fi
   fi
   script_content=$(printf '%s' "$script_content" | sed $sed_args)
 
@@ -47,8 +58,12 @@ execute_script_from_github() {
   # Prepend the helper library explicitly when needed.
   case "$path" in
     json/shared/scripts/conf-setup-lxc-uid-mapping.py|json/shared/scripts/conf-setup-lxc-gid-mapping.py)
-      lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/shared/scripts/setup_lxc_idmap_common.py"
-      lib_content=$(curl -fsSL "$lib_url")
+      if [ -n "$LOCAL_SCRIPT_PATH" ] && [ -f "${LOCAL_SCRIPT_PATH}/json/shared/scripts/setup_lxc_idmap_common.py" ]; then
+        lib_content=$(cat "${LOCAL_SCRIPT_PATH}/json/shared/scripts/setup_lxc_idmap_common.py")
+      else
+        lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/shared/scripts/setup_lxc_idmap_common.py"
+        lib_content=$(curl -fsSL "$lib_url")
+      fi
       script_content=$(printf '%s\n\n%s' "$lib_content" "$script_content")
       ;;
   esac
@@ -449,9 +464,10 @@ echo "  Using UID/GID: ${LXC_UID}/${LXC_GID} (mapped: ${mapped_uid}/${mapped_gid
 export VOLUMES="config=/config
 secure=/secure,0700"
 
-if ! execute_script_from_github \
+# Execute storage volumes script and capture the shared_volpath from JSON output
+shared_volpath=$(execute_script_from_github \
   "json/shared/scripts/conf-create-storage-volumes-for-lxc.sh" \
-  "-" \
+  "shared_volpath" \
   "vm_id=${vm_id}" \
   "hostname=${hostname}" \
   "volumes=\$VOLUMES" \
@@ -462,25 +478,11 @@ if ! execute_script_from_github \
   "uid=${LXC_UID}" \
   "gid=${LXC_GID}" \
   "mapped_uid=${mapped_uid}" \
-  "mapped_gid=${mapped_gid}"; then
-  echo "Error: Failed to create/attach storage volumes" >&2
-  exit 1
-fi
+  "mapped_gid=${mapped_gid}" \
+  "addon_volumes=")
 
-shared_owner_vmid=999999
-shared_name_key="oci-lxc-deployer-volumes"
-if [ "$storage_type" = "zfspool" ]; then
-  shared_volname="subvol-${shared_owner_vmid}-${shared_name_key}"
-elif [ "$storage_type" = "lvmthin" ] || [ "$storage_type" = "lvm" ]; then
-  # LVM/lvmthin requires vm-<vmid>-* naming pattern
-  shared_volname="vm-${shared_owner_vmid}-${shared_name_key}"
-else
-  shared_volname="vol-${shared_name_key}"
-fi
-shared_volid="${rootfs_storage}:${shared_volname}"
-shared_volpath=$(resolve_shared_volume_path "$rootfs_storage" "$storage_type" "$shared_volid" "$shared_volname" || true)
 if [ -z "$shared_volpath" ]; then
-  echo "Error: Failed to resolve shared volume path (${shared_volid})" >&2
+  echo "Error: Failed to create/attach storage volumes or get shared volume path" >&2
   exit 1
 fi
 

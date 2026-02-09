@@ -174,6 +174,34 @@ else
     info "Could not verify Proxmox version (may need time to fully initialize)"
 fi
 
+# Step 10b: Create vmbr1 NAT bridge in nested VM for containers
+header "Setting up Container NAT Bridge (vmbr1)"
+info "Creating vmbr1 in nested VM for container networking..."
+
+# Check if vmbr1 already exists
+if pve_ssh "ssh -o StrictHostKeyChecking=no root@$NESTED_IP ip link show vmbr1" &>/dev/null; then
+    success "vmbr1 already exists"
+else
+    # Add vmbr1 configuration to nested VM
+    pve_ssh "ssh -o StrictHostKeyChecking=no root@$NESTED_IP 'cat >> /etc/network/interfaces << EOF
+
+auto vmbr1
+iface vmbr1 inet static
+    address 10.0.0.1
+    netmask 255.255.255.0
+    bridge-ports none
+    bridge-stp off
+    bridge-fd 0
+    post-up echo 1 > /proc/sys/net/ipv4/ip_forward
+    post-up iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o vmbr0 -j MASQUERADE
+    post-down iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o vmbr0 -j MASQUERADE
+EOF
+'"
+    # Bring up vmbr1
+    pve_ssh "ssh -o StrictHostKeyChecking=no root@$NESTED_IP ifup vmbr1"
+    success "vmbr1 created with NAT (10.0.0.0/24)"
+fi
+
 # Step 11: Set up port forwarding on PVE host to nested VM
 header "Setting up Port Forwarding"
 info "Configuring port forwarding on $PVE_HOST..."

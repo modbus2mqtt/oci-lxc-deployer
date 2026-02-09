@@ -53,6 +53,9 @@ OCI_OWNER="${OCI_OWNER:-volkmarnissen}"
 # Deployer container settings
 DEPLOYER_VMID="${DEPLOYER_VMID:-300}"
 
+# Network bridge for deployer container (vmbr1 is the NAT network in nested VM)
+DEPLOYER_BRIDGE="${DEPLOYER_BRIDGE:-vmbr1}"
+
 # Static IP for deployer container (within nested VM's vmbr1 NAT network 10.0.0.0/24)
 DEPLOYER_STATIC_IP="${DEPLOYER_STATIC_IP:-10.0.0.100/24}"
 DEPLOYER_GATEWAY="${DEPLOYER_GATEWAY:-10.0.0.1}"
@@ -111,7 +114,7 @@ if nested_ssh "pct status $DEPLOYER_VMID" &>/dev/null; then
         # Check if API is responding
         DEPLOYER_IP=$(nested_ssh "pct exec $DEPLOYER_VMID -- hostname -I 2>/dev/null" | awk '{print $1}')
         if [ -n "$DEPLOYER_IP" ]; then
-            if nested_ssh "curl -s http://$DEPLOYER_IP:3000/api/health 2>/dev/null" | grep -q "ok"; then
+            if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
                 success "API is healthy at $DEPLOYER_IP:3000"
                 echo ""
                 echo "Deployer already installed and running!"
@@ -122,26 +125,50 @@ if nested_ssh "pct status $DEPLOYER_VMID" &>/dev/null; then
     fi
 fi
 
-# Step 3: Install oci-lxc-deployer
+# Step 3: Clean up existing container and install oci-lxc-deployer
 header "Installing oci-lxc-deployer"
 
-# Copy local install script to nested VM for testing
+# Clean up existing container if present
+if nested_ssh "pct status $DEPLOYER_VMID" &>/dev/null; then
+    info "Removing existing container $DEPLOYER_VMID..."
+    nested_ssh "pct stop $DEPLOYER_VMID 2>/dev/null || true"
+    sleep 2
+    nested_ssh "pct unlock $DEPLOYER_VMID 2>/dev/null || true"
+    nested_ssh "pct destroy $DEPLOYER_VMID --force --purge 2>/dev/null || true"
+    success "Existing container removed"
+fi
+
+# Local script path on nested VM
+LOCAL_SCRIPT_PATH="/tmp/oci-lxc-deployer-scripts"
+
+# Copy local install script and json/ directory to nested VM for testing
 LOCAL_INSTALL_SCRIPT="$PROJECT_ROOT/install-oci-lxc-deployer.sh"
-if [ -f "$LOCAL_INSTALL_SCRIPT" ]; then
+LOCAL_JSON_DIR="$PROJECT_ROOT/json"
+if [ -f "$LOCAL_INSTALL_SCRIPT" ] && [ -d "$LOCAL_JSON_DIR" ]; then
     info "Copying local install script to nested VM..."
     scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$LOCAL_INSTALL_SCRIPT" "root@$PVE_HOST:/tmp/install-oci-lxc-deployer.sh"
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@$PVE_HOST" "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/install-oci-lxc-deployer.sh root@$NESTED_IP:/tmp/"
     success "Local install script copied"
 
-    info "Running installation script with OWNER=$OWNER OCI_OWNER=$OCI_OWNER..."
-    # Run local script with custom parameters
+    info "Copying local json/ directory to nested VM..."
+    # Create tarball of json directory and copy it
+    tar -czf /tmp/oci-lxc-deployer-json.tar.gz -C "$PROJECT_ROOT" json
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/oci-lxc-deployer-json.tar.gz "root@$PVE_HOST:/tmp/"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@$PVE_HOST" "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/oci-lxc-deployer-json.tar.gz root@$NESTED_IP:/tmp/"
+    # Extract on nested VM
+    nested_ssh "mkdir -p $LOCAL_SCRIPT_PATH && tar -xzf /tmp/oci-lxc-deployer-json.tar.gz -C $LOCAL_SCRIPT_PATH"
+    rm -f /tmp/oci-lxc-deployer-json.tar.gz
+    success "Local json/ directory copied to $LOCAL_SCRIPT_PATH"
+
+    info "Running installation script with OWNER=$OWNER OCI_OWNER=$OCI_OWNER LOCAL_SCRIPT_PATH=$LOCAL_SCRIPT_PATH..."
+    # Run local script with custom parameters and local scripts path
     nested_ssh "chmod +x /tmp/install-oci-lxc-deployer.sh && \
-        OWNER=$OWNER OCI_OWNER=$OCI_OWNER /tmp/install-oci-lxc-deployer.sh --vm-id $DEPLOYER_VMID --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY"
+        OWNER=$OWNER OCI_OWNER=$OCI_OWNER LOCAL_SCRIPT_PATH=$LOCAL_SCRIPT_PATH /tmp/install-oci-lxc-deployer.sh --vm-id $DEPLOYER_VMID --bridge $DEPLOYER_BRIDGE --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY"
 else
     info "Running installation script from GitHub with OWNER=$OWNER OCI_OWNER=$OCI_OWNER..."
     # Fallback: Download and run from GitHub
     nested_ssh "curl -sSL https://raw.githubusercontent.com/$OWNER/oci-lxc-deployer/main/install-oci-lxc-deployer.sh | \
-        OWNER=$OWNER OCI_OWNER=$OCI_OWNER bash -s -- --vm-id $DEPLOYER_VMID --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY"
+        OWNER=$OWNER OCI_OWNER=$OCI_OWNER bash -s -- --vm-id $DEPLOYER_VMID --bridge $DEPLOYER_BRIDGE --static-ip $DEPLOYER_STATIC_IP --gateway $DEPLOYER_GATEWAY"
 fi
 
 success "Installation script completed"
@@ -156,15 +183,30 @@ for i in $(seq 1 60); do
     sleep 2
 done
 
+# Step 4b: Manually bring up container network interface
+# Alpine containers with static IP sometimes don't auto-activate the interface
+info "Activating container network interface..."
+nested_ssh "pct exec $DEPLOYER_VMID -- ip link set eth0 up 2>/dev/null || true"
+nested_ssh "pct exec $DEPLOYER_VMID -- ip addr add $DEPLOYER_STATIC_IP dev eth0 2>/dev/null || true"
+nested_ssh "pct exec $DEPLOYER_VMID -- ip route add default via $DEPLOYER_GATEWAY 2>/dev/null || true"
+sleep 2
+
+# Verify network is up
+if nested_ssh "pct exec $DEPLOYER_VMID -- ping -c 1 $DEPLOYER_GATEWAY" &>/dev/null; then
+    success "Container network is up (gateway reachable)"
+else
+    info "Warning: Gateway not reachable, network may have issues"
+fi
+
 # Step 5: Use static IP and wait for API
 # Extract IP without CIDR suffix
 DEPLOYER_IP="${DEPLOYER_STATIC_IP%/*}"
 info "Deployer static IP: $DEPLOYER_IP"
 info "Waiting for API to be ready..."
-sleep 10  # Give container time to initialize
+sleep 5  # Give container time to initialize
 
 for i in $(seq 1 60); do
-    if nested_ssh "curl -s http://$DEPLOYER_IP:3000/api/health 2>/dev/null" | grep -q "ok"; then
+    if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
         success "API is healthy at $DEPLOYER_IP:3000"
         break
     fi
@@ -234,7 +276,7 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     sleep 5
 
     # Verify API is still healthy
-    if nested_ssh "curl -s http://$DEPLOYER_IP:3000/api/health 2>/dev/null" | grep -q "ok"; then
+    if nested_ssh "curl -s http://$DEPLOYER_IP:3000/ 2>/dev/null" | grep -q "doctype"; then
         success "API is healthy after package update"
     else
         info "API may need more time to restart"
