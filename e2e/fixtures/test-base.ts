@@ -15,7 +15,7 @@ export const API_URL = process.env.E2E_API_URL || 'http://10.99.0.10:3000';
 export const SSH_HOST = process.env.E2E_SSH_HOST || '10.99.0.10';
 
 // Path to e2e scripts
-const SCRIPTS_DIR = join(__dirname, '../../../../backend/tests/e2e/scripts');
+const SCRIPTS_DIR = join(__dirname, '../scripts');
 
 /**
  * Reset to baseline snapshot

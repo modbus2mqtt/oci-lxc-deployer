@@ -17,7 +17,7 @@ set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NESTED_IP_FILE="$SCRIPT_DIR/.nested-vm-ip"
 
 # PVE host for port forwarding (required for access from dev machine)

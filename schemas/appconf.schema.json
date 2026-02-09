@@ -1,0 +1,42 @@
+{
+  "$id": "appconf",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "E2E test application configuration. Optional - only needed when defaults are overridden.",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Application name (default: directory name)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Application description"
+    },
+    "tasktype": {
+      "type": "string",
+      "enum": ["default", "postgres"],
+      "description": "Task type for special handling (e.g. postgres setup)"
+    },
+    "uploadfiles": {
+      "type": "array",
+      "description": "Files to upload to container",
+      "items": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Source filename in the application directory"
+          },
+          "destination": {
+            "type": "string",
+            "pattern": "^(config|secure):.*$",
+            "description": "Destination path, prefixed with 'config:' or 'secure:'"
+          }
+        },
+        "required": ["filename", "destination"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
