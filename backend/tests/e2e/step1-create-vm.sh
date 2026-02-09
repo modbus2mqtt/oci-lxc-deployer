@@ -87,10 +87,22 @@ success "Custom ISO found"
 if [ -z "$KEEP_VM" ]; then
     if pve_ssh "qm status $TEST_VMID" &>/dev/null; then
         info "Removing existing VM $TEST_VMID..."
-        pve_ssh "qm stop $TEST_VMID" 2>/dev/null || true
-        sleep 3
-        pve_ssh "qm destroy $TEST_VMID --purge" 2>/dev/null || true
+        # Try graceful stop first
+        pve_ssh "qm stop $TEST_VMID --timeout 10" 2>/dev/null || true
         sleep 2
+        # Force stop if still running
+        if pve_ssh "qm status $TEST_VMID 2>/dev/null | grep -q running"; then
+            info "Force stopping VM..."
+            pve_ssh "qm stop $TEST_VMID --skiplock" 2>/dev/null || true
+            sleep 2
+        fi
+        # Destroy with force and purge
+        pve_ssh "qm destroy $TEST_VMID --purge --skiplock" 2>/dev/null || true
+        sleep 2
+        # Verify VM is gone
+        if pve_ssh "qm status $TEST_VMID" &>/dev/null; then
+            error "Failed to remove existing VM $TEST_VMID"
+        fi
         success "Existing VM removed"
     fi
 fi
