@@ -41,12 +41,26 @@ VM_TYPE=$(ssh -o StrictHostKeyChecking=no -o BatchMode=yes "$SSH_TARGET" "
 
 case "$VM_TYPE" in
     qemu)
+        echo "[INFO] Stopping VM before snapshot..."
+        ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm stop $VMID" 2>/dev/null || true
+        sleep 3
+
         echo "[INFO] Creating QEMU VM snapshot..."
         ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm snapshot $VMID $SNAPSHOT_NAME --description 'E2E test snapshot'"
+
+        echo "[INFO] Starting VM after snapshot..."
+        ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm start $VMID"
         ;;
     lxc)
+        echo "[INFO] Stopping container before snapshot..."
+        ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "pct stop $VMID" 2>/dev/null || true
+        sleep 2
+
         echo "[INFO] Creating LXC container snapshot..."
         ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "pct snapshot $VMID $SNAPSHOT_NAME --description 'E2E test snapshot'"
+
+        echo "[INFO] Starting container after snapshot..."
+        ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "pct start $VMID"
         ;;
     *)
         echo "[ERROR] VMID $VMID not found as VM or container on $SSH_TARGET" >&2
@@ -54,4 +68,21 @@ case "$VM_TYPE" in
         ;;
 esac
 
-echo "[OK] Snapshot '$SNAPSHOT_NAME' created for $VM_TYPE $VMID"
+# Wait for VM/container to be fully running
+echo "[INFO] Waiting for $VM_TYPE $VMID to be ready after snapshot..."
+for i in $(seq 1 60); do
+    STATUS=$(ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "
+        if [ '$VM_TYPE' = 'qemu' ]; then
+            qm status $VMID 2>/dev/null | grep -q 'running' && echo 'running'
+        else
+            pct status $VMID 2>/dev/null | grep -q 'running' && echo 'running'
+        fi
+    ")
+    if [ "$STATUS" = "running" ]; then
+        echo "[OK] Snapshot '$SNAPSHOT_NAME' created for $VM_TYPE $VMID"
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "[WARN] Timeout waiting for $VM_TYPE to start, but snapshot completed"

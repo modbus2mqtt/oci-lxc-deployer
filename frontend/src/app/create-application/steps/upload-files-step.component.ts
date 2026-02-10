@@ -21,7 +21,7 @@ import { IUploadFile } from '../../../shared/types';
     KeyValueTableComponent
   ],
   template: `
-    <div class="upload-files-step">
+    <div class="upload-files-step" data-testid="upload-files-step">
       <mat-card>
         <mat-card-header>
           <mat-card-title>

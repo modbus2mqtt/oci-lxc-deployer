@@ -1,5 +1,5 @@
 import { Page, expect, Locator } from '@playwright/test';
-import { E2EApplication } from './application-loader';
+import { E2EApplication, UploadFile } from './application-loader';
 
 /**
  * Page Object for application creation and installation via UI.
@@ -183,6 +183,28 @@ export class ApplicationInstallHelper {
   }
 
   /**
+   * Configure upload files in the Upload Files step.
+   * Adds file entries to the key-value table.
+   *
+   * @param uploadfiles - Array of upload file definitions
+   */
+  async configureUploadFiles(uploadfiles: UploadFile[]): Promise<void> {
+    const uploadFilesStep = this.page.locator('[data-testid="upload-files-step"]');
+    await uploadFilesStep.waitFor({ state: 'visible', timeout: 10000 });
+
+    for (const file of uploadfiles) {
+      await this.page.locator('[data-testid="new-key-input"]').fill(file.filename);
+      await this.page.locator('[data-testid="new-value-input"]').fill(file.destination);
+
+      // Note: required/advanced checkboxes are available but optional
+      // They would be at [data-testid="boolean-required-new"] and [data-testid="boolean-advanced-new"]
+
+      await this.page.locator('[data-testid="add-row-btn"]').click();
+      await this.page.waitForTimeout(100);
+    }
+  }
+
+  /**
    * Click Next button to proceed to next step
    */
   async clickNext(): Promise<void> {
@@ -254,7 +276,13 @@ export class ApplicationInstallHelper {
     await this.page.waitForLoadState('networkidle');
     await this.clickNext();
 
-    // Step 4: Summary - Create the application
+    // Step 4: Upload Files (if any)
+    if (app.uploadfiles && app.uploadfiles.length > 0) {
+      await this.configureUploadFiles(app.uploadfiles);
+    }
+    await this.clickNext();
+
+    // Step 5: Summary - Create the application
     await this.clickCreate();
 
     // Wait for API call to complete

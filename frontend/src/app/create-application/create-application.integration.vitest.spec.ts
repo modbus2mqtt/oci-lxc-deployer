@@ -19,6 +19,7 @@ describe('CreateApplication Integration', () => {
 
   beforeEach(async () => {
     const mockConfigService = {
+      getFrameworkNames: () => of({ frameworks: [{ id: 'oci-image', name: 'OCI Image' }] }),
       getFrameworkParameters: () => of({
         parameters: [
           { id: 'initial_command', name: 'Initial Command', type: 'string' },
@@ -602,10 +603,12 @@ describe('CreateApplication - Parameter Default Resolution', () => {
    */
   async function setupWithParameters(parameters: { id: string; name: string; type: 'string' | 'number' | 'boolean' | 'enum'; default?: string; multiline?: boolean }[]): Promise<void> {
     const mockConfigService = {
+      getFrameworkNames: () => of({ frameworks: [{ id: 'oci-image', name: 'OCI Image' }] }),
       getFrameworkParameters: () => of({ parameters }),
       createApplicationFromFramework: () => of({ success: true }),
       getFrameworkFromImage: () => of({}),
-      getTagsConfig: () => of({ groups: [] })
+      getTagsConfig: () => of({ groups: [] }),
+      getStacktypes: () => of({ stacktypes: [] })
     };
 
     const mockCacheService = {

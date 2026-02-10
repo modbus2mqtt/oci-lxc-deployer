@@ -42,7 +42,7 @@ export interface KeyValuePair {
     <div class="key-value-table" [style.--grid-columns]="getGridColumns()">
       @if (items().length > 0) {
         @for (item of items(); track $index; let idx = $index) {
-          <div class="grid-row">
+          <div class="grid-row" [attr.data-testid]="'key-value-row-' + idx">
             @if (showRadio) {
               <div class="col radio">
                 <mat-radio-button
@@ -61,6 +61,7 @@ export interface KeyValuePair {
                   [placeholder]="keyPlaceholder"
                   (blur)="onKeyChange(idx, item.key)"
                   [readonly]="readonly || item.readonly"
+                  [attr.data-testid]="'key-input-' + idx"
                 />
               </mat-form-field>
             </div>
@@ -75,6 +76,7 @@ export interface KeyValuePair {
                     [placeholder]="item.placeholder || valuePlaceholder"
                     (blur)="onValueChange(idx, item.value)"
                     [readonly]="readonly"
+                    [attr.data-testid]="'value-input-' + idx"
                   />
                 } @else {
                   <input
@@ -84,6 +86,7 @@ export interface KeyValuePair {
                     [placeholder]="item.placeholder || valuePlaceholder"
                     (blur)="onValueChange(idx, item.value)"
                     [readonly]="readonly"
+                    [attr.data-testid]="'value-input-' + idx"
                   />
                 }
               </mat-form-field>
@@ -96,6 +99,7 @@ export interface KeyValuePair {
                   (change)="onBooleanChange(idx, col.field, $event.checked)"
                   [matTooltip]="col.tooltip || col.label"
                   [disabled]="readonly"
+                  [attr.data-testid]="'boolean-' + col.field + '-' + idx"
                 >
                   @if (col.icon) {
                     <mat-icon class="checkbox-icon">{{ col.icon }}</mat-icon>
@@ -113,6 +117,7 @@ export interface KeyValuePair {
                   color="warn"
                   (click)="removeItem(idx)"
                   [attr.aria-label]="'Remove ' + keyLabel"
+                  [attr.data-testid]="'delete-row-btn-' + idx"
                 >
                   <mat-icon>delete</mat-icon>
                 </button>
@@ -124,7 +129,7 @@ export interface KeyValuePair {
 
       @if (!readonly) {
         <!-- Add row -->
-        <div class="grid-row add-row">
+        <div class="grid-row add-row" data-testid="add-row">
           @if (showRadio) {
             <div class="col radio">
               <mat-radio-button [checked]="false" disabled [attr.aria-label]="'Set current (new) ' + keyLabel"></mat-radio-button>
@@ -138,6 +143,7 @@ export interface KeyValuePair {
                 name="newKey"
                 [placeholder]="keyPlaceholder"
                 (keyup.enter)="addItem()"
+                data-testid="new-key-input"
               />
             </mat-form-field>
           </div>
@@ -151,6 +157,7 @@ export interface KeyValuePair {
                   name="newValue"
                   [placeholder]="valuePlaceholder"
                   (keyup.enter)="addItem()"
+                  data-testid="new-value-input"
                 />
               } @else {
                 <input
@@ -159,6 +166,7 @@ export interface KeyValuePair {
                   name="newValue"
                   [placeholder]="valuePlaceholder"
                   (keyup.enter)="addItem()"
+                  data-testid="new-value-input"
                 />
               }
             </mat-form-field>
@@ -170,6 +178,7 @@ export interface KeyValuePair {
                 [checked]="!!newFlags[col.field]"
                 (change)="newFlags[col.field] = $event.checked"
                 [matTooltip]="col.tooltip || col.label"
+                [attr.data-testid]="'boolean-' + col.field + '-new'"
               >
                 @if (col.icon) {
                   <mat-icon class="checkbox-icon">{{ col.icon }}</mat-icon>
@@ -186,6 +195,7 @@ export interface KeyValuePair {
               color="primary"
               (click)="addItem()"
               [attr.aria-label]="'Add ' + keyLabel"
+              data-testid="add-row-btn"
             >
               <mat-icon>add</mat-icon>
             </button>

@@ -48,14 +48,12 @@ test.describe('Application Installation E2E Tests', () => {
       sshPort: 1022,
       containerVmId: '300',
     });
-  });
 
-  test.beforeEach(async () => {
-    // Reset to baseline snapshot before each test
-    // This ensures each test starts with a clean state
+    // Reset to baseline snapshot ONCE before all tests
+    // Tests create different applications, so they don't interfere with each other
     try {
       await resetToBaseline('300', 'deployer-installed');
-      console.log('Reset to baseline snapshot');
+      console.log('Reset to baseline snapshot before test suite');
     } catch (error) {
       console.warn('Snapshot reset failed (may not exist):', error);
     }
