@@ -22,6 +22,7 @@ import { CreateApplicationStateService } from './services/create-application-sta
 import { AppPropertiesStepComponent } from './steps/app-properties-step.component';
 import { FrameworkStepComponent } from './steps/framework-step.component';
 import { ParametersStepComponent } from './steps/parameters-step.component';
+import { UploadFilesStepComponent } from './steps/upload-files-step.component';
 import { SummaryStepComponent } from './steps/summary-step.component';
 
 @Component({
@@ -42,6 +43,7 @@ import { SummaryStepComponent } from './steps/summary-step.component';
     AppPropertiesStepComponent,
     FrameworkStepComponent,
     ParametersStepComponent,
+    UploadFilesStepComponent,
     SummaryStepComponent
   ],
   templateUrl: './create-application.html',

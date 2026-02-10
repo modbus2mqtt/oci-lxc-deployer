@@ -2,7 +2,7 @@ import { Injectable, signal, inject } from '@angular/core';
 import { FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
 import { Subject } from 'rxjs';
 
-import { IFrameworkName, IParameter, IPostFrameworkFromImageResponse, IStacktypeEntry, ITagsConfig } from '../../../shared/types';
+import { IFrameworkName, IParameter, IPostFrameworkFromImageResponse, IStacktypeEntry, ITagsConfig, IUploadFile } from '../../../shared/types';
 import { ComposeService, DockerComposeService, ParsedComposeData } from '../../shared/services/docker-compose.service';
 import { ErrorHandlerService } from '../../shared/services/error-handler.service';
 import { VeConfigurationService } from '../../ve-configuration.service';
@@ -96,7 +96,12 @@ export class CreateApplicationStateService {
   private pendingControlValues: Record<string, string> = {};
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Step 4: Summary
+  // Step 4: Upload Files
+  // ─────────────────────────────────────────────────────────────────────────────
+  uploadFiles = signal<IUploadFile[]>([]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Step 5: Summary
   // ─────────────────────────────────────────────────────────────────────────────
   creating = signal(false);
   createError = signal<string | null>(null);

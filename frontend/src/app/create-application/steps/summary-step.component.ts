@@ -204,6 +204,7 @@ export class SummaryStepComponent {
       ...(this.state.selectedTags().length > 0 && { tags: this.state.selectedTags() }),
       ...(this.state.selectedStacktype() && { stacktype: this.state.selectedStacktype() ?? undefined }),
       parameterValues,
+      ...(this.state.uploadFiles().length > 0 && { uploadfiles: this.state.uploadFiles() }),
       ...(this.state.editMode() && { update: true }),
     };
 

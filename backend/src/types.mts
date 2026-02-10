@@ -11,6 +11,14 @@ export interface ISsh {
   installSshServer?: string;
   permissionOk?: boolean;
 }
+export interface IUploadFile {
+  filename: string;
+  destination: string;
+  content?: string;  // Base64 encoded file content
+  required?: boolean;
+  advanced?: boolean;
+}
+
 export interface IApplicationBase {
   name: string;
   description: string;
@@ -22,6 +30,7 @@ export interface IApplicationBase {
   source?: string;
   vendor?: string;
   stacktype?: string;
+  uploadfiles?: IUploadFile[];
   errors?: string[];
   /** User-configurable parameters defined directly in application.json (new approach) */
   parameters?: IParameter[];
@@ -342,6 +351,7 @@ export interface IPostFrameworkCreateApplicationBody {
   tags?: string[];
   stacktype?: string;
   parameterValues: { id: string; value: string | number | boolean }[];
+  uploadfiles?: IUploadFile[];
   update?: boolean; // If true, overwrite existing application
 }
 export interface IPostFrameworkCreateApplicationResponse {

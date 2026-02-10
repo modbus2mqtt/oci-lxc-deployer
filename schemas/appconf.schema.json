@@ -36,6 +36,14 @@
             "type": "string",
             "pattern": "^(config|secure):.*$",
             "description": "Destination path, prefixed with 'config:' or 'secure:'"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this file is required for the application to function"
+          },
+          "advanced": {
+            "type": "boolean",
+            "description": "Whether this file is an advanced option (hidden by default)"
           }
         },
         "required": ["filename", "destination"],
