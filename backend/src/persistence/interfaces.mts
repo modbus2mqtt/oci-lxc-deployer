@@ -85,11 +85,13 @@ export interface ITemplatePersistence extends IPersistence {
    * Resolves template path (checks local first, then json)
    * @param templateName Name of the template (without .json)
    * @param isShared Whether template is in shared/templates directory
+   * @param category Optional category subdirectory (e.g., "list")
    * @returns Full path to template file or null if not found
    */
   resolveTemplatePath(
     templateName: string,
     isShared: boolean,
+    category?: string,
   ): string | null;
 
   /**
@@ -106,19 +108,24 @@ export interface ITemplatePersistence extends IPersistence {
    * @param template Template data to write
    * @param isShared If true, writes to shared/templates, otherwise to application-specific templates
    * @param appPath Optional: Application path (required if isShared is false)
+   * @param category Optional category subdirectory (e.g., "list")
    */
   writeTemplate(
     templateName: string,
     template: ITemplate,
     isShared: boolean,
     appPath?: string,
+    category?: string,
   ): void;
 
   /**
    * Deletes template from local path
    * Invalidates cache automatically
+   * @param templateName Name of the template
+   * @param isShared Whether template is in shared/templates directory
+   * @param category Optional category subdirectory (e.g., "list")
    */
-  deleteTemplate(templateName: string, isShared: boolean): void;
+  deleteTemplate(templateName: string, isShared: boolean, category?: string): void;
 }
 
 /**

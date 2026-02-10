@@ -19,12 +19,14 @@ export interface TemplateRef {
   scope: TemplateScope;
   applicationId?: string;
   origin?: "local" | "json";
+  category?: string;
 }
 
 export interface ScriptRef {
   name: string;
   scope: TemplateScope;
   applicationId?: string;
+  category?: string;
 }
 
 export interface MarkdownRef {
@@ -158,16 +160,29 @@ export class InMemoryRepositories
   }
 
   getTemplate(ref: TemplateRef): ITemplate | null {
-    const key = ref.scope === "shared"
-      ? ref.name
-      : `${ref.applicationId}:${ref.name}`;
-    return ref.scope === "shared"
-      ? this.sharedTemplates.get(key) ?? null
-      : this.templates.get(key) ?? null;
+    if (ref.scope === "shared") {
+      // Try with category first
+      if (ref.category) {
+        const categoryKey = `${ref.category}:${ref.name}`;
+        const result = this.sharedTemplates.get(categoryKey);
+        if (result !== undefined) return result;
+      }
+      // Fallback to name only
+      return this.sharedTemplates.get(ref.name) ?? null;
+    }
+    const key = `${ref.applicationId}:${ref.name}`;
+    return this.templates.get(key) ?? null;
   }
 
   getScript(ref: ScriptRef): string | null {
     if (ref.scope === "shared") {
+      // Try with category first
+      if (ref.category) {
+        const categoryKey = `${ref.category}:${ref.name}`;
+        const result = this.sharedScripts.get(categoryKey);
+        if (result !== undefined) return result;
+      }
+      // Fallback to name only
       return this.sharedScripts.get(ref.name) ?? null;
     }
     const key = `${ref.applicationId}:${ref.name}`;
@@ -453,20 +468,43 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
   resolveScriptPath(ref: ScriptRef): string | null {
     let scriptPath: string | null = null;
     if (ref.scope === "shared") {
-      const localShared = path.join(
-        this.pathes.localPath,
-        "shared",
-        "scripts",
-        ref.name,
+      const searchPaths: string[] = [];
+
+      // Category path first (if specified)
+      if (ref.category) {
+        searchPaths.push(
+          path.join(this.pathes.localPath, "shared", "scripts", ref.category, ref.name),
+        );
+        searchPaths.push(
+          path.join(this.pathes.jsonPath, "shared", "scripts", ref.category, ref.name),
+        );
+      }
+
+      // Root paths (backward compatibility)
+      searchPaths.push(
+        path.join(this.pathes.localPath, "shared", "scripts", ref.name),
       );
-      const jsonShared = path.join(
-        this.pathes.jsonPath,
-        "shared",
-        "scripts",
-        ref.name,
+      searchPaths.push(
+        path.join(this.pathes.jsonPath, "shared", "scripts", ref.name),
       );
-      if (fs.existsSync(localShared)) scriptPath = localShared;
-      else if (fs.existsSync(jsonShared)) scriptPath = jsonShared;
+
+      // Auto-discovery: search in known category subdirectories
+      const knownCategories = ["list", "library"];
+      for (const cat of knownCategories) {
+        searchPaths.push(
+          path.join(this.pathes.localPath, "shared", "scripts", cat, ref.name),
+        );
+        searchPaths.push(
+          path.join(this.pathes.jsonPath, "shared", "scripts", cat, ref.name),
+        );
+      }
+
+      for (const p of searchPaths) {
+        if (fs.existsSync(p)) {
+          scriptPath = p;
+          break;
+        }
+      }
     } else {
       const appPath = this.getApplicationPath(ref.applicationId);
       if (appPath) {
@@ -578,17 +616,30 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     dir: string,
     scope: TemplateScope,
     applicationId?: string,
+    category?: string,
   ): void {
     if (!fs.existsSync(dir)) return;
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
+      // Handle subdirectories as categories (for shared scope only)
+      if (entry.isDirectory() && scope === "shared") {
+        const categoryDir = path.join(dir, entry.name);
+        this.preloadTemplatesFromDir(categoryDir, scope, applicationId, entry.name);
+        continue;
+      }
+
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const fullPath = path.join(dir, entry.name);
       const template = this.persistence.loadTemplate(fullPath);
       if (!template) continue;
       const name = TemplatePathResolver.normalizeTemplateName(entry.name);
       if (scope === "shared") {
-        const ref: TemplateRef = { name, scope: "shared", origin: "json" };
+        const ref: TemplateRef = {
+          name,
+          scope: "shared",
+          origin: "json",
+          ...(category !== undefined && { category }),
+        };
         this.templateCache.set(this.getTemplateCacheKey(ref), template);
       } else if (applicationId) {
         const ref: TemplateRef = {
@@ -622,15 +673,27 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     dir: string,
     scope: TemplateScope,
     applicationId?: string,
+    category?: string,
   ): void {
     if (!fs.existsSync(dir)) return;
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
+      // Handle subdirectories as categories (for shared scope only)
+      if (entry.isDirectory() && scope === "shared") {
+        const categoryDir = path.join(dir, entry.name);
+        this.preloadScriptsFromDir(categoryDir, scope, applicationId, entry.name);
+        continue;
+      }
+
       if (!entry.isFile()) continue;
       const fullPath = path.join(dir, entry.name);
       const content = fs.readFileSync(fullPath, "utf-8");
       if (scope === "shared") {
-        const ref: ScriptRef = { name: entry.name, scope: "shared" };
+        const ref: ScriptRef = {
+          name: entry.name,
+          scope: "shared",
+          ...(category !== undefined && { category }),
+        };
         this.scriptCache.set(this.getScriptCacheKey(ref), content);
       } else if (applicationId) {
         const ref: ScriptRef = { name: entry.name, scope: "application", applicationId };
@@ -640,14 +703,16 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
   }
 
   private getTemplateCacheKey(ref: TemplateRef): string {
+    const categoryPart = ref.category ? `:${ref.category}` : "";
     return ref.scope === "shared"
-      ? `shared:${ref.name}`
+      ? `shared${categoryPart}:${ref.name}`
       : `app:${ref.applicationId ?? "unknown"}:${ref.name}`;
   }
 
   private getScriptCacheKey(ref: ScriptRef): string {
+    const categoryPart = ref.category ? `:${ref.category}` : "";
     return ref.scope === "shared"
-      ? `shared:${ref.name}`
+      ? `shared${categoryPart}:${ref.name}`
       : `app:${ref.applicationId ?? "unknown"}:${ref.name}`;
   }
 

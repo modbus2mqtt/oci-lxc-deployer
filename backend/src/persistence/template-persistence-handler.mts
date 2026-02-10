@@ -22,27 +22,48 @@ export class TemplatePersistenceHandler {
   resolveTemplatePath(
     templateName: string,
     isShared: boolean,
+    category?: string,
   ): string | null {
     if (isShared) {
-      // Check local first, then json
-      const localPath = path.join(
-        this.pathes.localPath,
-        "shared",
-        "templates",
-        templateName.endsWith(".json") ? templateName : `${templateName}.json`,
+      const templateFileName = templateName.endsWith(".json")
+        ? templateName
+        : `${templateName}.json`;
+
+      const searchPaths: string[] = [];
+
+      // Category paths first (if specified)
+      if (category) {
+        searchPaths.push(
+          path.join(this.pathes.localPath, "shared", "templates", category, templateFileName),
+        );
+        searchPaths.push(
+          path.join(this.pathes.jsonPath, "shared", "templates", category, templateFileName),
+        );
+      }
+
+      // Root paths (backward compatibility)
+      searchPaths.push(
+        path.join(this.pathes.localPath, "shared", "templates", templateFileName),
       );
-      const jsonPath = path.join(
-        this.pathes.jsonPath,
-        "shared",
-        "templates",
-        templateName.endsWith(".json") ? templateName : `${templateName}.json`,
+      searchPaths.push(
+        path.join(this.pathes.jsonPath, "shared", "templates", templateFileName),
       );
 
-      if (fs.existsSync(localPath)) {
-        return localPath;
+      // Auto-discovery: search in known category subdirectories
+      const knownCategories = ["list"];
+      for (const cat of knownCategories) {
+        searchPaths.push(
+          path.join(this.pathes.localPath, "shared", "templates", cat, templateFileName),
+        );
+        searchPaths.push(
+          path.join(this.pathes.jsonPath, "shared", "templates", cat, templateFileName),
+        );
       }
-      if (fs.existsSync(jsonPath)) {
-        return jsonPath;
+
+      for (const p of searchPaths) {
+        if (fs.existsSync(p)) {
+          return p;
+        }
       }
       return null;
     } else {
@@ -99,17 +120,16 @@ export class TemplatePersistenceHandler {
     template: ITemplate,
     isShared: boolean,
     appPath?: string,
+    category?: string,
   ): void {
     const templateFileName = templateName.endsWith(".json")
       ? templateName
       : `${templateName}.json`;
 
     if (isShared) {
-      const templateDir = path.join(
-        this.pathes.localPath,
-        "shared",
-        "templates",
-      );
+      const templateDir = category
+        ? path.join(this.pathes.localPath, "shared", "templates", category)
+        : path.join(this.pathes.localPath, "shared", "templates");
       fs.mkdirSync(templateDir, { recursive: true });
       const templateFile = path.join(templateDir, templateFileName);
       fs.writeFileSync(templateFile, JSON.stringify(template, null, 2));
@@ -130,18 +150,16 @@ export class TemplatePersistenceHandler {
     this.templateCache.clear();
   }
 
-  deleteTemplate(templateName: string, isShared: boolean): void {
+  deleteTemplate(templateName: string, isShared: boolean, category?: string): void {
     const templateFileName = templateName.endsWith(".json")
       ? templateName
       : `${templateName}.json`;
 
     if (isShared) {
-      const templateFile = path.join(
-        this.pathes.localPath,
-        "shared",
-        "templates",
-        templateFileName,
-      );
+      const templateDir = category
+        ? path.join(this.pathes.localPath, "shared", "templates", category)
+        : path.join(this.pathes.localPath, "shared", "templates");
+      const templateFile = path.join(templateDir, templateFileName);
       if (fs.existsSync(templateFile)) {
         fs.unlinkSync(templateFile);
       }

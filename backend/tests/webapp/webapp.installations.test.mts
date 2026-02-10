@@ -25,7 +25,7 @@ describe("WebApp Installations API", () => {
 
     setup = createWebAppTestSetup(import.meta.url, {
       // Provide required scripts for /api/installations via json/ (no manual copying)
-      jsonIncludePatterns: [".*list-managed-oci-containers.*", ".*lxc_config_parser_lib.*"],
+      jsonIncludePatterns: [".*list/list-managed-oci-containers.*", ".*library/lxc_config_parser_lib.*"],
       // Schemas are read from repo directly by default (no copying)
     });
     env = setup.env;

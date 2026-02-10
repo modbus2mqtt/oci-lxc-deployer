@@ -101,20 +101,20 @@ export class FileSystemPersistence
 
   // ITemplatePersistence Implementation
 
-  resolveTemplatePath(templateName: string, isShared: boolean) {
-    return this.templateHandler.resolveTemplatePath(templateName, isShared);
+  resolveTemplatePath(templateName: string, isShared: boolean, category?: string) {
+    return this.templateHandler.resolveTemplatePath(templateName, isShared, category);
   }
 
   loadTemplate(templatePath: string) {
     return this.templateHandler.loadTemplate(templatePath);
   }
 
-  writeTemplate(templateName: string, template: any, isShared: boolean, appPath?: string) {
-    this.templateHandler.writeTemplate(templateName, template, isShared, appPath);
+  writeTemplate(templateName: string, template: any, isShared: boolean, appPath?: string, category?: string) {
+    this.templateHandler.writeTemplate(templateName, template, isShared, appPath, category);
   }
 
-  deleteTemplate(templateName: string, isShared: boolean) {
-    this.templateHandler.deleteTemplate(templateName, isShared);
+  deleteTemplate(templateName: string, isShared: boolean, category?: string) {
+    this.templateHandler.deleteTemplate(templateName, isShared, category);
   }
 
   // IFrameworkPersistence Implementation

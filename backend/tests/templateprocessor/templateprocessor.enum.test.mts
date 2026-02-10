@@ -14,7 +14,7 @@ describe("TemplateProcessor enum handling", () => {
     env = createTestEnvironment(import.meta.url, {
       jsonIncludePatterns: [
         "^applications/test-enum/.*",
-        "^shared/templates/list-enum-values.json$",
+        "^shared/templates/list/list-enum-values.json$",
       ],
     });
     const { ctx } = env.initPersistence();

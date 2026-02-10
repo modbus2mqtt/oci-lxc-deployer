@@ -15,7 +15,7 @@ describe("setup-lxc-uid-mapping.py", () => {
       jsonIncludePatterns: [
         "^shared/scripts/conf-setup-lxc-uid-mapping\\.py$",
         "^shared/scripts/conf-setup-lxc-gid-mapping\\.py$",
-        "^shared/scripts/setup_lxc_idmap_common\\.py$",
+        "^shared/scripts/library/setup_lxc_idmap_common\\.py$",
       ],
     });
     env.initPersistence({ enableCache: false });
@@ -48,7 +48,7 @@ describe("setup-lxc-uid-mapping.py", () => {
 
     const commonModule = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup_lxc_idmap_common.py",
+      "library/setup_lxc_idmap_common.py",
     );
     const combined = `${commonModule}\n\n${scriptContent}`;
 
@@ -85,7 +85,7 @@ describe("setup-lxc-uid-mapping.py", () => {
 
     const commonModule = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup_lxc_idmap_common.py",
+      "library/setup_lxc_idmap_common.py",
     );
     const combined = `${commonModule}\n\n${scriptContent}`;
 

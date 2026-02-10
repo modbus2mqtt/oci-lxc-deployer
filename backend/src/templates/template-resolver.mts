@@ -23,7 +23,8 @@ export class TemplateResolver {
     const filename = `${normalized}.json`;
     if (ref.scope === "shared") {
       const origin = ref.origin ?? "json";
-      return `${origin}/shared/templates/${filename}`;
+      const categoryPath = ref.category ? `${ref.category}/` : "";
+      return `${origin}/shared/templates/${categoryPath}${filename}`;
     }
     const origin = ref.origin ?? "json";
     const appId = ref.applicationId ?? "unknown-app";
@@ -62,9 +63,17 @@ export class TemplateResolver {
     applicationId: string,
     libraryName: string,
   ): { content: string | null; ref: ScriptRef | null } {
+    // First try app-specific
     const appRef: ScriptRef = { name: libraryName, scope: "application", applicationId };
     const appContent = this.repositories.getScript(appRef);
     if (appContent !== null) return { content: appContent, ref: appRef };
+
+    // Then try shared with "library" category
+    const sharedLibRef: ScriptRef = { name: libraryName, scope: "shared", category: "library" };
+    const sharedLibContent = this.repositories.getScript(sharedLibRef);
+    if (sharedLibContent !== null) return { content: sharedLibContent, ref: sharedLibRef };
+
+    // Fallback to shared root (backward compatibility)
     const sharedRef: ScriptRef = { name: libraryName, scope: "shared" };
     const sharedContent = this.repositories.getScript(sharedRef);
     return { content: sharedContent, ref: sharedContent !== null ? sharedRef : null };
