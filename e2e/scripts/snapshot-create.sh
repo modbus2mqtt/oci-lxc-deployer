@@ -41,9 +41,26 @@ VM_TYPE=$(ssh -o StrictHostKeyChecking=no -o BatchMode=yes "$SSH_TARGET" "
 
 case "$VM_TYPE" in
     qemu)
-        echo "[INFO] Stopping VM before snapshot..."
-        ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm stop $VMID" 2>/dev/null || true
-        sleep 3
+        echo "[INFO] Shutting down VM gracefully..."
+        ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm shutdown $VMID --timeout 30" 2>/dev/null || true
+
+        # Wait for VM to be fully stopped
+        echo "[INFO] Waiting for VM to stop..."
+        for i in $(seq 1 30); do
+            STATUS=$(ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm status $VMID 2>/dev/null | grep -oP 'status: \K\w+'")
+            if [ "$STATUS" = "stopped" ]; then
+                echo "[INFO] VM stopped after ${i}s"
+                break
+            fi
+            sleep 1
+        done
+
+        # Force stop if still running
+        if [ "$STATUS" != "stopped" ]; then
+            echo "[WARN] Graceful shutdown timed out, forcing stop..."
+            ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm stop $VMID" 2>/dev/null || true
+            sleep 2
+        fi
 
         echo "[INFO] Creating QEMU VM snapshot..."
         ssh -o StrictHostKeyChecking=no "$SSH_TARGET" "qm snapshot $VMID $SNAPSHOT_NAME --description 'E2E test snapshot'"

@@ -5,81 +5,40 @@
 # 1. Connects to the nested Proxmox VM
 # 2. Installs oci-lxc-deployer with custom OWNER settings
 # 3. Waits for the API to be ready
-# 4. Optionally creates a baseline snapshot
+# 4. Deploys the local package
 #
 # Usage:
-#   ./step2-install-deployer.sh                # Full install (creates container + snapshot)
-#   ./step2-install-deployer.sh --update-only  # Fast update: build, deploy, restart (~15s)
+#   ./step2-install-deployer.sh [instance]              # Full install
+#   ./step2-install-deployer.sh [instance] --update-only  # Fast update (~15s)
+#
+# For a fresh start, re-run step1 + step2 (~3 min total)
 
 set -e
-
-# Parse arguments
-UPDATE_ONLY=false
-POSITIONAL_IP=""
-for arg in "$@"; do
-    case "$arg" in
-        --update-only) UPDATE_ONLY=true ;;
-        -*) ;; # Skip other flags
-        *) POSITIONAL_IP="$arg" ;; # First non-flag is IP
-    esac
-done
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-NESTED_IP_FILE="$SCRIPT_DIR/.nested-vm-ip"
 
-# Load environment from .env file if present
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    # shellcheck disable=SC1091
-    set -a
-    source "$SCRIPT_DIR/.env"
-    set +a
-fi
+# Load shared configuration
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
 
-# PVE host for port forwarding (required for access from dev machine)
-# Default: ubuntupve (connection via ssh -p 1022 root@ubuntupve)
-PVE_HOST="${PVE_HOST:-ubuntupve}"
-
-# Host-specific network configuration
-get_host_subnet() {
-    local host="$1"
-    case "$host" in
-        *ubuntupve*) echo "10.99.1" ;;
-        *pve1*)      echo "10.99.0" ;;
-        *)           echo "10.99.0" ;;
+# Parse arguments
+UPDATE_ONLY=false
+INSTANCE_ARG=""
+for arg in "$@"; do
+    case "$arg" in
+        --update-only) UPDATE_ONLY=true ;;
+        -*) ;; # Skip other flags
+        *) [ -z "$INSTANCE_ARG" ] && INSTANCE_ARG="$arg" ;; # First non-flag is instance
     esac
-}
+done
 
-# Get nested VM IP
-if [ -n "$POSITIONAL_IP" ]; then
-    NESTED_IP="$POSITIONAL_IP"
-elif [ -f "$NESTED_IP_FILE" ]; then
-    NESTED_IP=$(cat "$NESTED_IP_FILE")
-elif [ -n "$PVE_HOST" ]; then
-    SUBNET=$(get_host_subnet "$PVE_HOST")
-    NESTED_IP="${SUBNET}.10"
-else
-    NESTED_IP="10.99.0.10"  # Default static IP
-fi
+# Load config for the specified instance
+load_config "$INSTANCE_ARG"
 
-# Owner settings for installation
-# These override the defaults in the install script
-OWNER="${OWNER:-volkmarnissen}"
-OCI_OWNER="${OCI_OWNER:-volkmarnissen}"
-
-# Deployer container settings
-DEPLOYER_VMID="${DEPLOYER_VMID:-300}"
-
-# Network bridge for deployer container (vmbr1 is the NAT network in nested VM)
-DEPLOYER_BRIDGE="${DEPLOYER_BRIDGE:-vmbr1}"
-
-# Static IP for deployer container (within nested VM's vmbr1 NAT network 10.0.0.0/24)
-DEPLOYER_STATIC_IP="${DEPLOYER_STATIC_IP:-10.0.0.100/24}"
-DEPLOYER_GATEWAY="${DEPLOYER_GATEWAY:-10.0.0.1}"
-
-# External URL for deployer (accessible from outside the NAT network)
-DEPLOYER_URL="${DEPLOYER_URL:-http://${PVE_HOST}:3000}"
+# Set nested VM IP from config
+NESTED_IP="$NESTED_STATIC_IP"
 
 # Colors
 RED='\033[0;31m'
@@ -117,34 +76,36 @@ header() {
 }
 
 # SSH wrapper for nested VM
-# Uses port forwarding via PVE_HOST if set, otherwise direct connection
+# Uses port forwarding via PVE_HOST, connects to PORT_PVE_SSH
 # Uses /dev/null for known_hosts to avoid host key conflicts during E2E testing
 nested_ssh() {
-    if [ -n "$PVE_HOST" ]; then
-        # Connect via port 1022 on PVE host
-        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -p 1022 "root@$PVE_HOST" "$@"
-    else
-        # Direct connection (when running on PVE host itself)
-        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 "root@$NESTED_IP" "$@"
-    fi
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -p "$PORT_PVE_SSH" "root@$PVE_HOST" "$@"
 }
 
 header "Step 2: Install oci-lxc-deployer"
-if [ -n "$PVE_HOST" ]; then
-    echo "Connection: via $PVE_HOST:1022"
-else
-    echo "Connection: direct to $NESTED_IP"
-fi
-echo "Nested VM IP: $NESTED_IP"
+echo "Instance: $E2E_INSTANCE"
+echo "Connection: $PVE_HOST:$PORT_PVE_SSH -> $NESTED_IP:22"
 echo "Owner: $OWNER"
 echo "OCI Owner: $OCI_OWNER"
 echo "Deployer VMID: $DEPLOYER_VMID"
+echo "Deployer URL: $DEPLOYER_URL"
 echo ""
 
-# Step 1: Check SSH connection
-info "Checking SSH connection to $NESTED_IP..."
-if ! nested_ssh "echo 'SSH OK'" &>/dev/null; then
-    error "Cannot connect to $NESTED_IP via SSH. Is the nested VM running?"
+# Step 1: Wait for SSH connection (VM might still be booting after snapshot restore)
+info "Waiting for SSH connection to nested VM..."
+SSH_READY=false
+for i in $(seq 1 30); do
+    if nested_ssh "echo 'SSH OK'" &>/dev/null; then
+        SSH_READY=true
+        break
+    fi
+    printf "\r${YELLOW}[INFO]${NC} Waiting for SSH... %ds" "$i"
+    sleep 1
+done
+echo ""
+
+if [ "$SSH_READY" != "true" ]; then
+    error "Cannot connect to $NESTED_IP via SSH after 30s. Is the nested VM running?"
 fi
 success "SSH connection verified"
 
@@ -317,6 +278,8 @@ if [ "$UPDATE_ONLY" = "true" ]; then
 fi
 
 # Step 5b: Set up port forwarding on nested VM to deployer container
+# Note: nested VM receives traffic on port 3000 (from PVE host PORT_DEPLOYER)
+# and forwards it to the deployer container at $DEPLOYER_IP:3000
 header "Setting up Port Forwarding on Nested VM"
 info "Configuring port forwarding to deployer container at $DEPLOYER_IP..."
 
@@ -327,7 +290,7 @@ nested_ssh "
   iptables -t nat -A PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000
   iptables -A FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT
 "
-success "Port 3000 -> $DEPLOYER_IP:3000 (API/UI)"
+success "Nested VM :3000 -> $DEPLOYER_IP:3000 (container)"
 
 # Step 5c: Build and deploy local package (if LOCAL_PACKAGE is set or we're in the project directory)
 if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "$PROJECT_ROOT/package.json"; then
@@ -346,7 +309,7 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
 
     # Copy tarball to nested VM first, then push to container
     info "Copying $TARBALL to nested VM..."
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 1022 "$PROJECT_ROOT/$TARBALL" "root@$PVE_HOST:/tmp/" || error "Failed to copy tarball to nested VM"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT_PVE_SSH" "$PROJECT_ROOT/$TARBALL" "root@$PVE_HOST:/tmp/" || error "Failed to copy tarball to nested VM"
     success "Package copied to nested VM"
 
     # Push tarball from nested VM to deployer container using pct push
@@ -361,24 +324,21 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     fi
     success "Network verified"
 
-    if [ "$UPDATE_ONLY" = "true" ]; then
-        # Fast path: Extract and update package directly (skips dependency resolution)
-        info "Updating package files directly..."
-        nested_ssh "pct exec $DEPLOYER_VMID -- sh -c '
-            cd /tmp && tar -xzf $TARBALL && \
-            rm -rf /usr/local/lib/node_modules/oci-lxc-deployer/backend/dist && \
-            rm -rf /usr/local/lib/node_modules/oci-lxc-deployer/frontend/dist && \
-            cp -r package/backend/dist /usr/local/lib/node_modules/oci-lxc-deployer/backend/ && \
-            cp -r package/frontend/dist /usr/local/lib/node_modules/oci-lxc-deployer/frontend/ && \
-            rm -rf package
-        '" || error "Failed to update package files"
-        success "Package updated"
-    else
-        # Full install: Use npm install (needed for fresh container)
-        info "Installing package globally with npm..."
-        nested_ssh "pct exec $DEPLOYER_VMID -- sh -c 'npm install -g --cache /tmp/npm-cache --no-audit --no-fund --ignore-scripts /tmp/$TARBALL'" || error "Failed to install package globally"
-        success "Package installed globally"
-    fi
+    # Install package: extract, install prod deps, link globally
+    # This approach is more reliable than npm install -g from tarball
+    info "Installing package (production dependencies only)..."
+    nested_ssh "pct exec $DEPLOYER_VMID -- sh -c '
+        cd /tmp && \
+        rm -rf package && \
+        tar -xzf $TARBALL && \
+        cd package && \
+        npm install --omit=dev --no-audit --no-fund --ignore-scripts 2>/dev/null && \
+        rm -rf /usr/local/lib/node_modules/oci-lxc-deployer && \
+        mkdir -p /usr/local/lib/node_modules && \
+        mv /tmp/package /usr/local/lib/node_modules/oci-lxc-deployer && \
+        ln -sf /usr/local/lib/node_modules/oci-lxc-deployer/backend/dist/oci-lxc-deployer.mjs /usr/local/bin/oci-lxc-deployer
+    '" || error "Failed to install package"
+    success "Package installed"
 
     # Restart container to reload the updated code (PID 1 is oci-lxc-deployer)
     info "Restarting container..."
@@ -410,17 +370,10 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     nested_ssh "rm -f /tmp/$TARBALL"
 fi
 
-# Step 6: Create snapshot (only for full install, not for --update-only)
+# Step 6: Snapshot disabled - step1 only takes ~2 minutes, just re-run instead
+# Snapshots caused GRUB boot issues after rollback, and are not worth the complexity
 if [ "$UPDATE_ONLY" != "true" ]; then
-    header "Creating Snapshot"
-    NESTED_VMID="${TEST_VMID:-9000}"
-
-    info "Deleting existing snapshot 'deployer-installed' if present..."
-    PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-delete.sh" "$NESTED_VMID" "deployer-installed" 2>/dev/null || true
-
-    info "Creating snapshot 'deployer-installed' of nested VM..."
-    PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/snapshot-create.sh" "$NESTED_VMID" "deployer-installed" || error "Failed to create snapshot"
-    success "Snapshot 'deployer-installed' created"
+    info "Snapshot creation disabled - re-run step1 + step2 for fresh setup (~3 min total)"
 fi
 
 # Summary
@@ -434,8 +387,9 @@ else
 fi
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 echo ""
-echo "API URL: http://$PVE_HOST:3000"
+echo "Instance: $E2E_INSTANCE"
+echo "Deployer URL: $DEPLOYER_URL"
 echo ""
 if [ "$UPDATE_ONLY" != "true" ]; then
-    echo "Quick update: ./step2-install-deployer.sh --update-only"
+    echo "Quick update: ./step2-install-deployer.sh $E2E_INSTANCE --update-only"
 fi

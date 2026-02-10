@@ -1,113 +1,197 @@
 # E2E Tests for oci-lxc-deployer
 
-End-to-end tests that create a nested Proxmox VM and test the full deployment workflow.
+End-to-end tests using a nested Proxmox VM to test the full deployment workflow.
 
 ## Prerequisites
 
-- SSH access to a Proxmox VE host (e.g., `pve1.cluster`)
-- SSH key authentication configured (`ssh-copy-id root@pve1.cluster`)
+- SSH access to a Proxmox VE host (e.g., `ubuntupve`)
+- SSH key authentication configured (`ssh-copy-id root@ubuntupve`)
 - Sufficient resources on the host (4GB RAM, 32GB disk for test VM)
+- `jq` installed locally (for config parsing)
 
 ## Quick Start
 
 ```bash
-# Step 0: Create the custom Proxmox ISO
-./step0-create-iso.sh pve1.cluster
+cd e2e
 
-# Step 1: Create and run the test VM (coming soon)
-./step1-run-tests.sh pve1.cluster
+# Step 1: Create nested Proxmox VM (~2 min)
+./step1-create-vm.sh
+
+# Step 2: Install deployer (~1.5 min)
+./step2-install-deployer.sh
+
+# Access deployer
+open http://ubuntupve:13000
 ```
+
+## Workflow
+
+| Task | Command | Duration |
+|------|---------|----------|
+| Create nested VM | `./step1-create-vm.sh` | ~2 min |
+| Install deployer | `./step2-install-deployer.sh` | ~92s |
+| Update code only | `./step2-install-deployer.sh --update-only` | ~24s |
+| Clean test containers | `./clean-test-containers.sh` | ~5s |
+| Fresh start | `./step1-create-vm.sh && ./step2-install-deployer.sh` | ~3.5 min |
 
 ## Files
 
 ```
-backend/tests/e2e/
-├── step0-create-iso.sh          # Main script - runs on dev machine
-├── pve1-scripts/
-│   ├── answer-e2e.toml          # Answer file for unattended Proxmox install
-│   ├── create-iso.sh            # Runs on pve1 to build custom ISO
-│   └── first-boot.sh            # First-boot script for apt repo config
-└── README.md
+e2e/
+├── config.json                  # Instance configuration (ports, subnets, etc.)
+├── config.sh                    # Shared config loader for all scripts
+├── step0-create-iso.sh          # Create custom Proxmox ISO (one-time)
+├── step1-create-vm.sh           # Create nested Proxmox VM
+├── step2-install-deployer.sh    # Install/update oci-lxc-deployer
+├── clean-test-containers.sh     # Remove test containers, keep deployer
+├── pve1-scripts/                # Scripts for Proxmox ISO customization
+│   ├── answer-e2e.toml
+│   ├── create-iso.sh
+│   └── first-boot.sh
+└── scripts/                     # Helper scripts
+    ├── setup-port-forwarding-service.sh  # Persistent iptables rules
+    ├── snapshot-create.sh                # (disabled - not used)
+    └── snapshot-rollback.sh              # (disabled - not used)
 ```
-
-## How It Works
-
-### Step 0: Create Custom ISO
-
-1. Connects to pve1.cluster via SSH
-2. Copies answer file and scripts to `/tmp/e2e-iso-build/`
-3. Downloads Proxmox ISO if not present
-4. Uses `proxmox-auto-install-assistant` to create custom ISO
-5. Places ISO at `/var/lib/vz/template/iso/proxmox-ve-e2e-autoinstall.iso`
-
-The custom ISO includes:
-- Answer file with DHCP networking, German keyboard/timezone
-- SSH key from pve1 for passwordless access to nested VM
-- First-boot script that configures apt repos for latest packages
-
-### Step 1-8: Full E2E Test (Coming Soon)
-
-Will test:
-1. Create nested Proxmox VM from custom ISO
-2. Wait for unattended installation
-3. Install oci-lxc-deployer
-4. Install Samba addon
-5. Create Mosquitto via docker-compose
-6. Upload config file
-7. Verify MQTT connection
-8. Cleanup
 
 ## Configuration
 
-### answer-e2e.toml
+### config.json
 
-Key settings:
-- `root-password`: `e2e-test-2024`
-- `fqdn`: `pve-e2e-nested.local`
-- Network: DHCP
-- Filesystem: ext4 on LVM
-- Includes SSH key from pve1 for access
+Central configuration for all E2E instances:
 
-### first-boot.sh
+```json
+{
+  "default": "dev",
+  "pveHost": "ubuntupve",
+  "ports": {
+    "pveWeb": 18006,
+    "pveSsh": 10022,
+    "deployer": 13000
+  },
+  "instances": {
+    "dev": {
+      "vmid": 9000,
+      "subnet": "10.99.0",
+      "portOffset": 0
+    }
+  }
+}
+```
 
-Configures on first boot:
-- Proxmox no-subscription repository
-- Latest Debian repositories
-- Installs jq, curl, netcat
-- Enables QEMU guest agent
-- **NAT network (vmbr1)** for container isolation:
-  - Subnet: 10.0.0.0/24
-  - DHCP: 10.0.0.100-200
-  - DNS: dnsmasq with .e2e.local domain
-  - Containers don't conflict with pve1's network
+### Multiple Instances
+
+Run multiple isolated test environments by adding instances to `config.json`:
+
+```bash
+# Use specific instance
+./step1-create-vm.sh ci
+./step2-install-deployer.sh ci
+
+# Or via environment variable
+E2E_INSTANCE=ci ./step1-create-vm.sh
+```
+
+## Network Architecture
+
+```
+Developer Machine
+       │
+       ▼ (Port Forwarding)
+┌──────────────────────────────────────────┐
+│ PVE Host (ubuntupve)                     │
+│   Port 18006 → nested:8006 (Web UI)      │
+│   Port 10022 → nested:22 (SSH)           │
+│   Port 13000 → nested:3000 (Deployer)    │
+│                                          │
+│   ┌────────────────────────────────────┐ │
+│   │ Nested PVE VM (10.99.0.10)         │ │
+│   │   vmbr1: 10.99.0.1/24 (NAT)        │ │
+│   │                                    │ │
+│   │   ┌──────────────────────────────┐ │ │
+│   │   │ Deployer LXC (10.99.0.100)   │ │ │
+│   │   │   Port 3000 (API)            │ │ │
+│   │   └──────────────────────────────┘ │ │
+│   │                                    │ │
+│   │   ┌──────────────────────────────┐ │ │
+│   │   │ Test Containers              │ │ │
+│   │   │   (created by E2E tests)     │ │ │
+│   │   └──────────────────────────────┘ │ │
+│   └────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+## Scripts
+
+### step1-create-vm.sh
+
+Creates a nested Proxmox VM from the custom ISO:
+- Downloads/uses existing Proxmox ISO
+- Creates QEMU VM with nested virtualization
+- Waits for unattended installation
+- Configures NAT networking (vmbr1)
+- Sets up persistent port forwarding
+
+### step2-install-deployer.sh
+
+Installs oci-lxc-deployer in the nested VM:
+- Creates deployer LXC container (VMID 300)
+- Installs Node.js and dependencies
+- Deploys local package with production dependencies
+- Configures API and port forwarding
+
+Options:
+- `--update-only`: Skip container creation, just update code (~24s)
+
+### clean-test-containers.sh
+
+Removes test containers while preserving the deployer:
+- Stops and destroys all LXC containers except VMID 300
+- Cleans up associated volumes in `/mnt/pve-volumes/*/volumes/`
+- Use between test runs to reset state quickly
 
 ## Troubleshooting
 
 ### SSH connection fails
 
 ```bash
-# Ensure SSH key is copied
-ssh-copy-id root@pve1.cluster
+# Ensure SSH key is copied to PVE host
+ssh-copy-id root@ubuntupve
 
 # Test connection
-ssh root@pve1.cluster "pveversion"
+ssh root@ubuntupve "pveversion"
 ```
 
-### ISO download fails
+### Port forwarding not working after reboot
 
-The script will try to use an existing Proxmox ISO from `/var/lib/vz/template/iso/`.
-Manually download if needed:
+The port forwarding service should persist across reboots. Check status:
 
 ```bash
-# On pve1
-cd /var/lib/vz/template/iso/
-wget https://enterprise.proxmox.com/iso/proxmox-ve_8.3-1.iso
+ssh root@ubuntupve systemctl status e2e-port-forwarding
+ssh root@ubuntupve journalctl -u e2e-port-forwarding
 ```
 
-### proxmox-auto-install-assistant not found
+### Deployer API not responding
 
 ```bash
-# On pve1
-apt-get update
-apt-get install proxmox-auto-install-assistant
+# Check container status
+ssh -p 10022 root@ubuntupve "pct status 300"
+
+# Check logs
+ssh -p 10022 root@ubuntupve "pct exec 300 -- cat /var/log/oci-lxc-deployer.log"
+
+# Restart container
+ssh -p 10022 root@ubuntupve "pct stop 300 && pct start 300"
+```
+
+### Container has no network
+
+```bash
+# Re-activate network manually
+ssh -p 10022 root@ubuntupve "pct exec 300 -- sh -c '
+  ip link set lo up
+  ip link set eth0 up
+  ip addr add 10.99.0.100/24 dev eth0
+  ip route add default via 10.99.0.1
+'"
 ```

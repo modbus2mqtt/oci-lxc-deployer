@@ -57,11 +57,11 @@ execute_script_from_github() {
   # Some Python scripts depend on shared helpers but are still executed via stdin.
   # Prepend the helper library explicitly when needed.
   case "$path" in
-    json/shared/scripts/conf-setup-lxc-uid-mapping.py|json/shared/scripts/conf-setup-lxc-gid-mapping.py)
-      if [ -n "$LOCAL_SCRIPT_PATH" ] && [ -f "${LOCAL_SCRIPT_PATH}/json/shared/scripts/setup_lxc_idmap_common.py" ]; then
-        lib_content=$(cat "${LOCAL_SCRIPT_PATH}/json/shared/scripts/setup_lxc_idmap_common.py")
+    json/shared/scripts/pre_start/conf-setup-lxc-uid-mapping.py|json/shared/scripts/pre_start/conf-setup-lxc-gid-mapping.py)
+      if [ -n "$LOCAL_SCRIPT_PATH" ] && [ -f "${LOCAL_SCRIPT_PATH}/json/shared/scripts/library/setup_lxc_idmap_common.py" ]; then
+        lib_content=$(cat "${LOCAL_SCRIPT_PATH}/json/shared/scripts/library/setup_lxc_idmap_common.py")
       else
-        lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/shared/scripts/setup_lxc_idmap_common.py"
+        lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/shared/scripts/library/setup_lxc_idmap_common.py"
         lib_content=$(curl -fsSL "$lib_url")
       fi
       script_content=$(printf '%s\n\n%s' "$lib_content" "$script_content")
@@ -349,7 +349,7 @@ fi
 # 1) Download OCI image
 echo "Step 1: Downloading OCI image..." >&2
 template_path=$(execute_script_from_github \
-  "json/shared/scripts/host-get-oci-image.py" \
+  "json/shared/scripts/image/host-get-oci-image.py" \
   "template_path" \
   "oci_image=${OCI_IMAGE}" \
   "storage=${storage}" \
@@ -363,7 +363,7 @@ if [ -z "$template_path" ]; then
 fi
 
 oci_outputs=$(execute_script_from_github \
-  "json/shared/scripts/host-get-oci-image.py" \
+  "json/shared/scripts/image/host-get-oci-image.py" \
   "ostype,arch,application_id,application_name,oci_image,oci_image_tag" \
   "oci_image=${OCI_IMAGE}" \
   "storage=${storage}" \
@@ -394,7 +394,7 @@ echo "  OCI image ready: ${template_path}" >&2
 # 2) Create LXC container from OCI image
 echo "Step 2: Creating LXC container..." >&2
 vm_id=$(execute_script_from_github \
-  "json/shared/scripts/conf-create-lxc-container.sh" \
+  "json/shared/scripts/pre_start/conf-create-lxc-container.sh" \
   "vm_id" \
   "rootfs_storage=" \
   "template_path=${template_path}" \
@@ -421,7 +421,7 @@ echo "  Container created: ${vm_id}" >&2
 if [ -n "$static_ip" ]; then
   echo "Step 2b: Configuring static IP..." >&2
   execute_script_from_github \
-    "json/shared/scripts/conf-lxc-static-ip.sh" \
+    "json/shared/scripts/pre_start/conf-lxc-static-ip.sh" \
     "-" \
     "vm_id=${vm_id}" \
     "hostname=${hostname}" \
@@ -437,12 +437,12 @@ fi
 echo "Step 3: Configuring UID/GID mapping..." >&2
 # Run mapping script and capture mapped UID/GID for later steps (idempotent to call twice)
 mapped_uid=$(execute_script_from_github \
-  "json/shared/scripts/conf-setup-lxc-uid-mapping.py" \
+  "json/shared/scripts/pre_start/conf-setup-lxc-uid-mapping.py" \
   "mapped_uid" \
   "uid=${LXC_UID}" \
   "vm_id=${vm_id}" || echo "")
 mapped_gid=$(execute_script_from_github \
-  "json/shared/scripts/conf-setup-lxc-gid-mapping.py" \
+  "json/shared/scripts/pre_start/conf-setup-lxc-gid-mapping.py" \
   "mapped_gid" \
   "gid=${LXC_GID}" \
   "vm_id=${vm_id}" || echo "")
@@ -471,7 +471,7 @@ secure=/secure,0700"
 
 # Execute storage volumes script and capture the shared_volpath from JSON output
 shared_volpath=$(execute_script_from_github \
-  "json/shared/scripts/conf-create-storage-volumes-for-lxc.sh" \
+  "json/shared/scripts/pre_start/conf-create-storage-volumes-for-lxc.sh" \
   "shared_volpath" \
   "vm_id=${vm_id}" \
   "hostname=${hostname}" \
@@ -551,7 +551,7 @@ icon_base64=$(curl -fsSL "$icon_url" 2>/dev/null | base64 | tr -d '\n' || echo "
 icon_mime_type="image/svg+xml"
 
 execute_script_from_github \
-  "json/shared/scripts/host-write-lxc-notes.py" \
+  "json/shared/scripts/post_start/host-write-lxc-notes.py" \
   "notes_written" \
   "vm_id=${vm_id}" \
   "hostname=${hostname}" \
