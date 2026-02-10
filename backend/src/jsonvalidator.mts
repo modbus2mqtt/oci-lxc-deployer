@@ -53,33 +53,35 @@ export class JsonError extends Error implements IJsonError {
    */
   private serializeDetail(d: IJsonError | any): IJsonError {
     // If it's a JsonError instance with toJSON, use it
-    if (d && typeof d === 'object' && typeof (d as any).toJSON === "function") {
+    if (d && typeof d === "object" && typeof (d as any).toJSON === "function") {
       return (d as any).toJSON();
     }
-    
+
     // If it's already a plain object with the expected structure, ensure details are serialized
-    if (d && typeof d === 'object') {
+    if (d && typeof d === "object") {
       const result: any = {
         name: d.name,
         message: d.message,
         line: d.line,
       };
-      
+
       // Recursively serialize nested details if they exist
       if (d.details && Array.isArray(d.details)) {
-        result.details = d.details.map((nested: any) => this.serializeDetail(nested));
+        result.details = d.details.map((nested: any) =>
+          this.serializeDetail(nested),
+        );
       }
-      
+
       if (d.filename !== undefined) result.filename = d.filename;
-      
+
       return result as IJsonError;
     }
-    
+
     // Fallback: convert to string or return as-is
     return {
-      name: 'Error',
+      name: "Error",
       message: String(d),
-      details: undefined
+      details: undefined,
     } as IJsonError;
   }
 }
@@ -101,7 +103,10 @@ export class JsonValidator {
   private ajv: Ajv2020;
   constructor(
     schemasDir: string = resolve("schemas"),
-    baseSchemas: string[] = ["templatelist.schema.json", "base-deployable.schema.json"],
+    baseSchemas: string[] = [
+      "templatelist.schema.json",
+      "base-deployable.schema.json",
+    ],
   ) {
     this.ajv = new Ajv2020({
       allErrors: true,

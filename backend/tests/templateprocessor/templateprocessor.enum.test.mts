@@ -1,20 +1,27 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
 // TaskType is a string union; use literal values
 
 describe("TemplateProcessor enum handling", () => {
   let env: TestEnvironment;
-  let contextManager: ReturnType<ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]>;
+  let contextManager: ReturnType<
+    ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]
+  >;
   let tp: any;
   const veContext = { host: "localhost", port: 22 } as any;
 
   beforeAll(() => {
     env = createTestEnvironment(import.meta.url, {
       jsonIncludePatterns: [
+        "^shared/templates/list/list-enum-values\\.json$",
+      ],
+      fixturesIncludePatterns: [
         "^applications/test-enum/.*",
-        "^shared/templates/list/list-enum-values.json$",
       ],
     });
     const { ctx } = env.initPersistence();

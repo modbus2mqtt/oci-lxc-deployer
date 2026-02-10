@@ -23,7 +23,10 @@ export interface ApplyOutputsOptions {
   isConditional: boolean;
   outputCollection: OutputCollectionResult;
   resolvedParams: IResolvedParam[];
-  outputSources?: Map<string, { template: string; kind: "outputs" | "properties" }>;
+  outputSources?: Map<
+    string,
+    { template: string; kind: "outputs" | "properties" }
+  >;
   processedTemplates?: Map<string, IProcessedTemplate>;
   errors?: IJsonError[];
 }
@@ -141,13 +144,17 @@ export class TemplateOutputProcessor {
         if (outputSources) {
           outputSources.set(outputId, {
             template: currentTemplateName,
-            kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+            kind: outputIdsFromProperties.has(outputId)
+              ? "properties"
+              : "outputs",
           });
         }
       } else {
         const conflictingTemplate = existing.template;
         if (conflictingTemplate === "user_input") {
-          const existingIndex = resolvedParams.findIndex((p) => p.id === outputId);
+          const existingIndex = resolvedParams.findIndex(
+            (p) => p.id === outputId,
+          );
           if (existingIndex !== -1) {
             resolvedParams[existingIndex] = {
               id: outputId,
@@ -157,7 +164,9 @@ export class TemplateOutputProcessor {
           if (outputSources) {
             outputSources.set(outputId, {
               template: currentTemplateName,
-              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+              kind: outputIdsFromProperties.has(outputId)
+                ? "properties"
+                : "outputs",
             });
           }
           continue;
@@ -166,13 +175,20 @@ export class TemplateOutputProcessor {
         let conflictingTemplateIsConditional = false;
         let conflictingTemplateSetsOutput = true;
         if (processedTemplates) {
-          const normalizedConflictingName = this.normalizeTemplateName(conflictingTemplate);
-          const conflictingTemplateInfo = processedTemplates.get(normalizedConflictingName);
+          const normalizedConflictingName =
+            this.normalizeTemplateName(conflictingTemplate);
+          const conflictingTemplateInfo = processedTemplates.get(
+            normalizedConflictingName,
+          );
           if (conflictingTemplateInfo) {
-            conflictingTemplateIsConditional = conflictingTemplateInfo.conditional || false;
+            conflictingTemplateIsConditional =
+              conflictingTemplateInfo.conditional || false;
 
             try {
-              const conflictingResolved = this.resolveTemplate(applicationId, conflictingTemplate);
+              const conflictingResolved = this.resolveTemplate(
+                applicationId,
+                conflictingTemplate,
+              );
               const conflictingTmplData = conflictingResolved?.template ?? null;
               if (!conflictingTmplData) {
                 conflictingTemplateSetsOutput = true;
@@ -181,7 +197,8 @@ export class TemplateOutputProcessor {
                 for (const cmd of conflictingTmplData.commands ?? []) {
                   if (cmd.outputs) {
                     for (const output of cmd.outputs) {
-                      const id = typeof output === "string" ? output : output.id;
+                      const id =
+                        typeof output === "string" ? output : output.id;
                       if (id === outputId) {
                         conflictingTemplateSetsOutput = true;
                         break;
@@ -191,7 +208,11 @@ export class TemplateOutputProcessor {
                   if (cmd.properties !== undefined) {
                     if (Array.isArray(cmd.properties)) {
                       for (const prop of cmd.properties) {
-                        if (prop && typeof prop === "object" && prop.id === outputId) {
+                        if (
+                          prop &&
+                          typeof prop === "object" &&
+                          prop.id === outputId
+                        ) {
                           conflictingTemplateSetsOutput = true;
                           break;
                         }
@@ -214,7 +235,9 @@ export class TemplateOutputProcessor {
         }
 
         if (!conflictingTemplateSetsOutput) {
-          const existingIndex = resolvedParams.findIndex((p) => p.id === outputId);
+          const existingIndex = resolvedParams.findIndex(
+            (p) => p.id === outputId,
+          );
           if (existingIndex !== -1) {
             resolvedParams[existingIndex] = {
               id: outputId,
@@ -224,11 +247,15 @@ export class TemplateOutputProcessor {
           if (outputSources) {
             outputSources.set(outputId, {
               template: currentTemplateName,
-              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+              kind: outputIdsFromProperties.has(outputId)
+                ? "properties"
+                : "outputs",
             });
           }
         } else if (isConditional || conflictingTemplateIsConditional) {
-          const existingIndex = resolvedParams.findIndex((p) => p.id === outputId);
+          const existingIndex = resolvedParams.findIndex(
+            (p) => p.id === outputId,
+          );
           if (existingIndex !== -1) {
             resolvedParams[existingIndex] = {
               id: outputId,
@@ -238,7 +265,9 @@ export class TemplateOutputProcessor {
           if (outputSources) {
             outputSources.set(outputId, {
               template: currentTemplateName,
-              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+              kind: outputIdsFromProperties.has(outputId)
+                ? "properties"
+                : "outputs",
             });
           }
         } else {

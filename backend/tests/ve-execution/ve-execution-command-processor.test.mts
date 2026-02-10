@@ -4,8 +4,14 @@ import { ICommand } from "@src/types.mjs";
 import { VeExecutionMessageEmitter } from "@src/ve-execution/ve-execution-message-emitter.mjs";
 import { VariableResolver } from "@src/variable-resolver.mjs";
 import { EventEmitter } from "events";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 let env: TestEnvironment;
 let persistenceHelper: TestPersistenceHelper;
@@ -77,7 +83,11 @@ describe("VeExecutionCommandProcessor", () => {
       properties: [
         { id: "ostype", value: "debian" },
         { id: "volumes", value: "data=timemachine" },
-        { id: "envs", value: "USERNAME={{username}}\nPASSWORD={{password}}\nSHARE_NAME={{share_name}}" },
+        {
+          id: "envs",
+          value:
+            "USERNAME={{username}}\nPASSWORD={{password}}\nSHARE_NAME={{share_name}}",
+        },
       ],
       execute_on: "ve",
     };
@@ -323,11 +333,11 @@ describe("VeExecutionCommandProcessor", () => {
       execute_on: "ve",
     };
 
-      const content = processor.loadCommandContent(cmd);
-      expect(content).toBeTruthy();
-      if (!content) {
-        throw new Error("Expected script content");
-      }
+    const content = processor.loadCommandContent(cmd);
+    expect(content).toBeTruthy();
+    if (!content) {
+      throw new Error("Expected script content");
+    }
     expect(content).toBe("echo test command");
   });
 
@@ -476,7 +486,9 @@ describe("VeExecutionCommandProcessor", () => {
         execute_on: "ve",
       };
 
-      expect(() => processor.loadCommandContent(cmd)).toThrow(/Library content missing/);
+      expect(() => processor.loadCommandContent(cmd)).toThrow(
+        /Library content missing/,
+      );
     });
 
     it("should work without library when libraryPath is not specified", () => {
@@ -583,14 +595,19 @@ describe("VeExecutionCommandProcessor", () => {
         throw new Error("Expected script content");
       }
       // Library should be prepended
-      expect(content).toContain("my_library_function() { echo 'from library'; }");
+      expect(content).toContain(
+        "my_library_function() { echo 'from library'; }",
+      );
       // Script should be after library
       expect(content).toContain("my_library_function");
       expect(content).toContain("# --- Script starts here ---");
       // Library should come before script marker
       const libraryIndex = content.indexOf("my_library_function()");
       const markerIndex = content.indexOf("# --- Script starts here ---");
-      const scriptCallIndex = content.indexOf("my_library_function", libraryIndex + 1);
+      const scriptCallIndex = content.indexOf(
+        "my_library_function",
+        libraryIndex + 1,
+      );
       expect(libraryIndex).toBeLessThan(markerIndex);
       expect(markerIndex).toBeLessThan(scriptCallIndex);
     });
@@ -848,7 +865,13 @@ print(result)
         messageEmitter,
         runOnLxc: async () => {
           runOnLxcCalled = true;
-          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
         },
         runOnVeHost: async () => {
           throw new Error("runOnVeHost should not be called");
@@ -860,7 +883,9 @@ print(result)
         setOutputsRaw: () => {},
         // Mock: No running containers match the application_id
         resolveApplicationToVmId: async () => {
-          throw new Error("No running container found with application_id 'my-app'. Expected exactly 1 running container, found 0.");
+          throw new Error(
+            "No running container found with application_id 'my-app'. Expected exactly 1 running container, found 0.",
+          );
         },
       });
 
@@ -870,8 +895,10 @@ print(result)
         execute_on: "application:my-app",
       };
 
-      await expect(processor.executeCommandByTarget(cmd, "echo 'test'")).rejects.toThrow(
-        /No running container found with application_id 'my-app'/
+      await expect(
+        processor.executeCommandByTarget(cmd, "echo 'test'"),
+      ).rejects.toThrow(
+        /No running container found with application_id 'my-app'/,
       );
       expect(runOnLxcCalled).toBe(false);
     });
@@ -898,7 +925,13 @@ print(result)
         runOnLxc: async (vm_id, command) => {
           runOnLxcVmId = vm_id;
           runOnLxcCommand = command;
-          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
         },
         runOnVeHost: async () => {
           throw new Error("runOnVeHost should not be called");
@@ -913,7 +946,9 @@ print(result)
           if (appId === "postgres-db") {
             return 105; // vm_id of the matching running container
           }
-          throw new Error(`No running container found with application_id '${appId}'`);
+          throw new Error(
+            `No running container found with application_id '${appId}'`,
+          );
         },
       });
 
@@ -949,7 +984,13 @@ print(result)
         messageEmitter,
         runOnLxc: async () => {
           runOnLxcCalled = true;
-          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
         },
         runOnVeHost: async () => {
           throw new Error("runOnVeHost should not be called");
@@ -961,7 +1002,9 @@ print(result)
         setOutputsRaw: () => {},
         // Mock: Multiple running containers match the application_id
         resolveApplicationToVmId: async () => {
-          throw new Error("Multiple running containers found with application_id 'duplicated-app'. Expected exactly 1 running container, found 2 (vm_ids: 101, 102).");
+          throw new Error(
+            "Multiple running containers found with application_id 'duplicated-app'. Expected exactly 1 running container, found 2 (vm_ids: 101, 102).",
+          );
         },
       });
 
@@ -971,8 +1014,10 @@ print(result)
         execute_on: "application:duplicated-app",
       };
 
-      await expect(processor.executeCommandByTarget(cmd, "echo 'test'")).rejects.toThrow(
-        /Multiple running containers found with application_id 'duplicated-app'/
+      await expect(
+        processor.executeCommandByTarget(cmd, "echo 'test'"),
+      ).rejects.toThrow(
+        /Multiple running containers found with application_id 'duplicated-app'/,
       );
       expect(runOnLxcCalled).toBe(false);
     });
@@ -999,7 +1044,13 @@ print(result)
         messageEmitter,
         runOnLxc: async (vm_id, command) => {
           capturedCommand = command;
-          return { command: "test", execute_on: "lxc", exitCode: 0, result: "", stderr: "" };
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
         },
         runOnVeHost: async () => {
           throw new Error("runOnVeHost should not be called");
@@ -1024,4 +1075,3 @@ print(result)
     });
   });
 });
-

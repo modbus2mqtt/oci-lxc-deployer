@@ -50,7 +50,8 @@ export function serializeDetailsArray(
         result.details = serializeDetailsArray((d as any).details);
       }
 
-      if ((d as any).filename !== undefined) result.filename = (d as any).filename;
+      if ((d as any).filename !== undefined)
+        result.filename = (d as any).filename;
 
       return result as IJsonError;
     }

@@ -8,11 +8,26 @@ export interface CommandProcessorDependencies {
   inputs: Record<string, string | number | boolean>;
   variableResolver: VariableResolver;
   messageEmitter: VeExecutionMessageEmitter;
-  runOnLxc: (vm_id: string | number, command: string, tmplCommand: ICommand, timeoutMs?: number) => Promise<IVeExecuteMessage>;
-  runOnVeHost: (input: string, tmplCommand: ICommand, timeoutMs?: number) => Promise<IVeExecuteMessage>;
-  executeOnHost: (hostname: string, command: string, tmplCommand: ICommand) => Promise<void>;
+  runOnLxc: (
+    vm_id: string | number,
+    command: string,
+    tmplCommand: ICommand,
+    timeoutMs?: number,
+  ) => Promise<IVeExecuteMessage>;
+  runOnVeHost: (
+    input: string,
+    tmplCommand: ICommand,
+    timeoutMs?: number,
+  ) => Promise<IVeExecuteMessage>;
+  executeOnHost: (
+    hostname: string,
+    command: string,
+    tmplCommand: ICommand,
+  ) => Promise<void>;
   outputsRaw: { name: string; value: string | number | boolean }[] | undefined;
-  setOutputsRaw: (raw: { name: string; value: string | number | boolean }[]) => void;
+  setOutputsRaw: (
+    raw: { name: string; value: string | number | boolean }[],
+  ) => void;
   /**
    * Resolves an application_id to a vm_id by finding the container with that app-id.
    * Throws if 0 or 2+ containers match.
@@ -46,10 +61,15 @@ export class VeExecutionCommandProcessor {
    * Processes a single property entry and sets it in outputs if valid.
    */
   private processPropertyEntry(entry: { id: string; value?: any }): void {
-    if (!entry || typeof entry !== "object" || !entry.id || entry.value === undefined) {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      !entry.id ||
+      entry.value === undefined
+    ) {
       return;
     }
-    
+
     let value = entry.value;
     // Replace variables in value if it's a string
     if (typeof value === "string") {
@@ -60,7 +80,11 @@ export class VeExecutionCommandProcessor {
       }
     }
     // Only set if value is a primitive type (not array)
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
       this.deps.outputs.set(entry.id, value);
     }
   }
@@ -75,14 +99,21 @@ export class VeExecutionCommandProcessor {
         for (const entry of cmd.properties) {
           this.processPropertyEntry(entry);
         }
-      } else if (cmd.properties && typeof cmd.properties === "object" && "id" in cmd.properties) {
+      } else if (
+        cmd.properties &&
+        typeof cmd.properties === "object" &&
+        "id" in cmd.properties
+      ) {
         // Single object with id and value
-        this.processPropertyEntry(cmd.properties as { id: string; value?: any });
+        this.processPropertyEntry(
+          cmd.properties as { id: string; value?: any },
+        );
       }
-      
+
       // Emit success message
       // Use command name (which should be set from template name) or fallback to "properties"
-      const commandName = cmd.name && cmd.name.trim() !== "" ? cmd.name : "properties";
+      const commandName =
+        cmd.name && cmd.name.trim() !== "" ? cmd.name : "properties";
       const propertiesCmd = { ...cmd, name: commandName };
       // Use getNextMessageIndex() to ensure consistency with other commands
       const index = getNextMessageIndex();
@@ -97,11 +128,18 @@ export class VeExecutionCommandProcessor {
     } catch (err: any) {
       const msg = `Failed to process properties: ${err?.message || err}`;
       // Use command name (which should be set from template name) or fallback to "properties"
-      const commandName = cmd.name && cmd.name.trim() !== "" ? cmd.name : "properties";
+      const commandName =
+        cmd.name && cmd.name.trim() !== "" ? cmd.name : "properties";
       const propertiesCmd = { ...cmd, name: commandName };
       // Use getNextMessageIndex() to ensure consistency with other commands
       const index = getNextMessageIndex();
-      this.deps.messageEmitter.emitStandardMessage(propertiesCmd, msg, null, -1, index);
+      this.deps.messageEmitter.emitStandardMessage(
+        propertiesCmd,
+        msg,
+        null,
+        -1,
+        index,
+      );
       return msgIndex + 1;
     }
   }
@@ -111,9 +149,9 @@ export class VeExecutionCommandProcessor {
    * Returns the interpreter array or null if no shebang found.
    */
   private extractInterpreterFromShebang(content: string): string[] | null {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const firstLine = lines[0];
-    if (!firstLine || !firstLine.startsWith('#!')) {
+    if (!firstLine || !firstLine.startsWith("#!")) {
       return null;
     }
 
@@ -123,14 +161,18 @@ export class VeExecutionCommandProcessor {
     // or /usr/bin/env -S perl -w -> ['perl', '-w']
     let interpreter: string[] = [];
 
-    if (shebang.includes(' ')) {
-      const parts = shebang.split(/\s+/).filter(s => s.length > 0);
+    if (shebang.includes(" ")) {
+      const parts = shebang.split(/\s+/).filter((s) => s.length > 0);
       // Handle /usr/bin/env python3 -> extract 'python3'
       if (parts.length > 0 && parts[0]) {
         const firstPart = parts[0];
-        if (firstPart === '/usr/bin/env' || firstPart === '/bin/env' || firstPart === 'env') {
+        if (
+          firstPart === "/usr/bin/env" ||
+          firstPart === "/bin/env" ||
+          firstPart === "env"
+        ) {
           interpreter = parts.slice(1); // Skip 'env', take rest
-        } else if (firstPart.endsWith('/env')) {
+        } else if (firstPart.endsWith("/env")) {
           interpreter = parts.slice(1); // Handle any path ending with /env
         } else {
           interpreter = parts; // Use all parts for explicit paths
@@ -151,7 +193,10 @@ export class VeExecutionCommandProcessor {
    */
   loadCommandContent(cmd: ICommand): string | null {
     // Check if library is specified but content is missing
-    if ((cmd.library !== undefined || cmd.libraryPath !== undefined) && cmd.libraryContent === undefined) {
+    if (
+      (cmd.library !== undefined || cmd.libraryPath !== undefined) &&
+      cmd.libraryContent === undefined
+    ) {
       throw new Error("Library content missing for command");
     }
 
@@ -160,7 +205,9 @@ export class VeExecutionCommandProcessor {
     // If library has no shebang, fall back to script's shebang
     let interpreterSet = false;
     if (cmd.libraryContent !== undefined) {
-      const interpreter = this.extractInterpreterFromShebang(cmd.libraryContent);
+      const interpreter = this.extractInterpreterFromShebang(
+        cmd.libraryContent,
+      );
       if (interpreter) {
         (cmd as any)._interpreter = interpreter;
         interpreterSet = true;
@@ -202,7 +249,10 @@ export class VeExecutionCommandProcessor {
    * Gets vm_id from inputs or outputs.
    */
   getVmId(): string | number | undefined {
-    if (typeof this.deps.inputs["vm_id"] === "string" || typeof this.deps.inputs["vm_id"] === "number") {
+    if (
+      typeof this.deps.inputs["vm_id"] === "string" ||
+      typeof this.deps.inputs["vm_id"] === "number"
+    ) {
       return this.deps.inputs["vm_id"];
     }
     if (this.deps.outputs.has("vm_id")) {
@@ -224,13 +274,14 @@ export class VeExecutionCommandProcessor {
     if (!cmd.execute_on) {
       throw new Error(cmd.name + " is missing the execute_on property");
     }
-    
+
     switch (cmd.execute_on) {
       case "lxc": {
         const execStrLxc = this.deps.variableResolver.replaceVars(rawStr);
         const vm_id = this.getVmId();
         if (!vm_id) {
-          const msg = "vm_id is required for LXC execution but was not found in inputs or outputs.";
+          const msg =
+            "vm_id is required for LXC execution but was not found in inputs or outputs.";
           this.deps.messageEmitter.emitStandardMessage(cmd, msg, null, -1, -1);
           throw new Error(msg);
         }
@@ -244,12 +295,18 @@ export class VeExecutionCommandProcessor {
         return await this.deps.runOnVeHost(execStrVe, cmd);
       }
       default: {
-        if (typeof cmd.execute_on === "string" && /^host:.*/.test(cmd.execute_on)) {
+        if (
+          typeof cmd.execute_on === "string" &&
+          /^host:.*/.test(cmd.execute_on)
+        ) {
           const hostname = cmd.execute_on.split(":")[1] ?? "";
           // Pass raw (unreplaced) string; executeOnHost will replace with vmctx.data
           await this.deps.executeOnHost(hostname, rawStr, cmd);
           return undefined;
-        } else if (typeof cmd.execute_on === "string" && /^application:.*/.test(cmd.execute_on)) {
+        } else if (
+          typeof cmd.execute_on === "string" &&
+          /^application:.*/.test(cmd.execute_on)
+        ) {
           // Execute on a container identified by application_id
           const appId = cmd.execute_on.slice("application:".length).trim();
           if (!this.deps.resolveApplicationToVmId) {
@@ -260,7 +317,9 @@ export class VeExecutionCommandProcessor {
           await this.deps.runOnLxc(vm_id, execStr, cmd);
           return undefined;
         } else {
-          throw new Error(cmd.name + " has invalid execute_on: " + cmd.execute_on);
+          throw new Error(
+            cmd.name + " has invalid execute_on: " + cmd.execute_on,
+          );
         }
       }
     }
@@ -280,32 +339,49 @@ export class VeExecutionCommandProcessor {
     ) {
       // Try to parse as JSON array or object
       let cleaned = lastMsg.result.trim();
-      
+
       // Remove unique marker if present (from SSH execution)
       // The marker is typically at the beginning, followed by the actual JSON output
       const markerMatch = cleaned.match(/^[A-Z0-9_]+\n(.*)$/s);
       if (markerMatch && markerMatch[1]) {
         cleaned = markerMatch[1].trim();
       }
-      
+
       try {
         const parsed = JSON.parse(cleaned);
-        
+
         // Handle array of {id, value} objects (like get-latest-os-template.sh output)
         if (Array.isArray(parsed) && parsed.length > 0) {
           const first = parsed[0];
-          if (first && typeof first === "object" && "id" in first && "value" in first) {
+          if (
+            first &&
+            typeof first === "object" &&
+            "id" in first &&
+            "value" in first
+          ) {
             // Array of IOutput objects
-            for (const entry of parsed as Array<{ id: string; value: string | number | boolean }>) {
+            for (const entry of parsed as Array<{
+              id: string;
+              value: string | number | boolean;
+            }>) {
               if (entry.value !== undefined) {
                 this.deps.outputs.set(entry.id, entry.value);
               }
             }
             return;
-          } else if (first && typeof first === "object" && "name" in first && "value" in first) {
+          } else if (
+            first &&
+            typeof first === "object" &&
+            "name" in first &&
+            "value" in first
+          ) {
             // Array of {name, value} objects
-            const raw: { name: string; value: string | number | boolean }[] = [];
-            for (const entry of parsed as Array<{ name: string; value: string | number | boolean }>) {
+            const raw: { name: string; value: string | number | boolean }[] =
+              [];
+            for (const entry of parsed as Array<{
+              name: string;
+              value: string | number | boolean;
+            }>) {
               this.deps.outputs.set(entry.name, entry.value);
               raw.push({ name: entry.name, value: entry.value });
             }
@@ -313,7 +389,7 @@ export class VeExecutionCommandProcessor {
             return;
           }
         }
-        
+
         // Handle object format (legacy fallback)
         const raw: { name: string; value: string | number | boolean }[] = [];
         for (const [name, value] of Object.entries(parsed)) {
@@ -328,4 +404,3 @@ export class VeExecutionCommandProcessor {
     }
   }
 }
-

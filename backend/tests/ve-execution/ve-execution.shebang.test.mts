@@ -3,8 +3,14 @@ import { VeExecution } from "@src/ve-execution/ve-execution.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
 import { resetMessageIndex } from "@src/ve-execution/ve-execution-constants.mjs";
 import { ICommand } from "@src/types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 import { VeExecutionCommandProcessor } from "@src/ve-execution/ve-execution-command-processor.mjs";
 
 describe("VeExecution Shebang Support", () => {
@@ -65,18 +71,16 @@ print(json.dumps(output))
       execute_on: "ve",
     };
 
-    const inputs = [
-      { id: "test_input", value: "test_value_123" },
-    ];
+    const inputs = [{ id: "test_input", value: "test_value_123" }];
 
     // Load command content to extract shebang
-     const processor = new VeExecutionCommandProcessor({
+    const processor = new VeExecutionCommandProcessor({
       outputs: new Map(),
       inputs: { test_input: "test_value_123" },
       variableResolver: {} as any,
       messageEmitter: {} as any,
-      runOnLxc: async () => ({} as any),
-      runOnVeHost: async () => ({} as any),
+      runOnLxc: async () => ({}) as any,
+      runOnVeHost: async () => ({}) as any,
       executeOnHost: async () => {},
       outputsRaw: undefined,
       setOutputsRaw: () => {},
@@ -107,11 +111,14 @@ print(json.dumps(output))
 
     // Check that Python was executed (not sh)
     // Find the final non-partial message with exitCode 0
-    const allMessagesForCommand = messages.filter((m) => m.command === "test-python-shebang");
-    const resultMessage = allMessagesForCommand
-      .filter((m) => !m.partial && m.exitCode === 0)
-      .pop() || allMessagesForCommand[allMessagesForCommand.length - 1];
-    
+    const allMessagesForCommand = messages.filter(
+      (m) => m.command === "test-python-shebang",
+    );
+    const resultMessage =
+      allMessagesForCommand
+        .filter((m) => !m.partial && m.exitCode === 0)
+        .pop() || allMessagesForCommand[allMessagesForCommand.length - 1];
+
     expect(resultMessage).toBeDefined();
     expect(resultMessage?.exitCode).toBe(0);
     expect(resultMessage?.result).toBeDefined();
@@ -121,7 +128,7 @@ print(json.dumps(output))
     let jsonResult = resultMessage!.result as string;
     const markerPattern = /^LXC_MANAGER_JSON_START_MARKER_\d+_[a-z0-9]+\n/;
     if (markerPattern.test(jsonResult)) {
-      jsonResult = jsonResult.replace(markerPattern, '').trim();
+      jsonResult = jsonResult.replace(markerPattern, "").trim();
     }
     const output = JSON.parse(jsonResult);
     expect(output).toBeInstanceOf(Array);
@@ -136,7 +143,9 @@ print(json.dumps(output))
     expect(testInputValue).toBeDefined();
     expect(testInputValue.value).toBe("test_value_123");
 
-    const pythonVersion = output.find((o: any) => o.id === "python_version_major");
+    const pythonVersion = output.find(
+      (o: any) => o.id === "python_version_major",
+    );
     expect(pythonVersion).toBeDefined();
     expect(pythonVersion.value).toBe(3); // Python 3
 
@@ -167,9 +176,7 @@ echo '[{"id": "shell_executed", "value": true}, {"id": "test_input_value", "valu
       execute_on: "ve",
     };
 
-    const inputs = [
-      { id: "test_input", value: "shell_test_value" },
-    ];
+    const inputs = [{ id: "test_input", value: "shell_test_value" }];
 
     const exec = new VeExecution(
       [command],
@@ -188,11 +195,14 @@ echo '[{"id": "shell_executed", "value": true}, {"id": "test_input_value", "valu
     await exec.run();
 
     // Find the final non-partial message
-    const allMessagesForCommand = messages.filter((m) => m.command === "test-shell-no-shebang");
-    const resultMessage = allMessagesForCommand
-      .filter((m) => !m.partial && m.exitCode === 0)
-      .pop() || allMessagesForCommand[allMessagesForCommand.length - 1];
-    
+    const allMessagesForCommand = messages.filter(
+      (m) => m.command === "test-shell-no-shebang",
+    );
+    const resultMessage =
+      allMessagesForCommand
+        .filter((m) => !m.partial && m.exitCode === 0)
+        .pop() || allMessagesForCommand[allMessagesForCommand.length - 1];
+
     expect(resultMessage).toBeDefined();
     expect(resultMessage?.exitCode).toBe(0);
 
@@ -200,7 +210,7 @@ echo '[{"id": "shell_executed", "value": true}, {"id": "test_input_value", "valu
     let jsonResult = resultMessage!.result as string;
     const markerPattern = /^LXC_MANAGER_JSON_START_MARKER_\d+_[a-z0-9]+\n/;
     if (markerPattern.test(jsonResult)) {
-      jsonResult = jsonResult.replace(markerPattern, '').trim();
+      jsonResult = jsonResult.replace(markerPattern, "").trim();
     }
     const output = JSON.parse(jsonResult);
     expect(output).toBeInstanceOf(Array);
@@ -209,4 +219,3 @@ echo '[{"id": "shell_executed", "value": true}, {"id": "test_input_value", "valu
     expect(shellExecuted.value).toBe(true);
   });
 });
-

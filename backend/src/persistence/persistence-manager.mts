@@ -18,12 +18,15 @@ import { AddonService } from "../services/addon-service.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { FileSystemRepositories, type IRepositories } from "./repositories.mjs";
 
-const baseSchemas: string[] = ["templatelist.schema.json", "base-deployable.schema.json"];
+const baseSchemas: string[] = [
+  "templatelist.schema.json",
+  "base-deployable.schema.json",
+];
 
 /**
  * Central singleton manager for Persistence, Services and ContextManager
  * Replaces StorageContext singleton for entity access (Applications, Templates, Frameworks)
- * 
+ *
  * Architecture:
  * - PersistenceManager: Central singleton, manages all persistence and services
  * - ContextManager: Manages execution contexts (VE, VM, VMInstall), no longer a singleton
@@ -94,7 +97,9 @@ export class PersistenceManager {
       this.persistence,
     );
 
-    this.repositories = repositories ?? new FileSystemRepositories(this.pathes, this.persistence, enableCache);
+    this.repositories =
+      repositories ??
+      new FileSystemRepositories(this.pathes, this.persistence, enableCache);
     const reposWithPreload = this.repositories as IRepositories & {
       preloadJsonResources?: () => void;
     };
@@ -103,9 +108,12 @@ export class PersistenceManager {
 
   private assertBasePathsExist(pathes: IConfiguredPathes): void {
     const missing: string[] = [];
-    if (!fs.existsSync(pathes.localPath)) missing.push(`localPath: ${pathes.localPath}`);
-    if (!fs.existsSync(pathes.jsonPath)) missing.push(`jsonPath: ${pathes.jsonPath}`);
-    if (!fs.existsSync(pathes.schemaPath)) missing.push(`schemaPath: ${pathes.schemaPath}`);
+    if (!fs.existsSync(pathes.localPath))
+      missing.push(`localPath: ${pathes.localPath}`);
+    if (!fs.existsSync(pathes.jsonPath))
+      missing.push(`jsonPath: ${pathes.jsonPath}`);
+    if (!fs.existsSync(pathes.schemaPath))
+      missing.push(`schemaPath: ${pathes.schemaPath}`);
     if (missing.length > 0) {
       throw new Error(
         `PersistenceManager initialization failed: missing base paths -> ${missing.join(", ")}`,
@@ -116,7 +124,7 @@ export class PersistenceManager {
   /**
    * Initializes the PersistenceManager singleton
    * This replaces StorageContext.setInstance()
-   * 
+   *
    * If already initialized, closes the existing instance first (useful for tests)
    */
   static initialize(
@@ -214,8 +222,10 @@ export class PersistenceManager {
     if (!fs.existsSync(stacktypesDir)) {
       return [];
     }
-    const files = fs.readdirSync(stacktypesDir).filter(f => f.endsWith(".json"));
-    return files.map(file => {
+    const files = fs
+      .readdirSync(stacktypesDir)
+      .filter((f) => f.endsWith(".json"));
+    return files.map((file) => {
       const name = path.basename(file, ".json");
       const content = fs.readFileSync(path.join(stacktypesDir, file), "utf-8");
       const entries = JSON.parse(content) as { name: string }[];
@@ -238,4 +248,3 @@ export class PersistenceManager {
     PersistenceManager.instance = undefined;
   }
 }
-

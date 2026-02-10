@@ -3,7 +3,9 @@ import path from "path";
 import { fileURLToPath } from "node:url";
 import fs from "fs";
 
-export function setupStaticRoutes(app: express.Application): string | undefined {
+export function setupStaticRoutes(
+  app: express.Application,
+): string | undefined {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   let configuredRel: string | undefined = process.env.LXC_MANAGER_FRONTEND_DIR;

@@ -1,14 +1,28 @@
 import os from "os";
-import { TaskType, IPostVeConfigurationBody, IVeExecuteMessagesResponse, IJsonError, ICommand, ITemplate } from "@src/types.mjs";
+import {
+  TaskType,
+  IPostVeConfigurationBody,
+  IVeExecuteMessagesResponse,
+  IJsonError,
+  ICommand,
+  ITemplate,
+} from "@src/types.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
 import { WebAppVeExecutionSetup } from "./webapp-ve-execution-setup.mjs";
-import { VEConfigurationError, IVEContext, IVMInstallContext } from "@src/backend-types.mjs";
+import {
+  VEConfigurationError,
+  IVEContext,
+  IVMInstallContext,
+} from "@src/backend-types.mjs";
 import { JsonError } from "@src/jsonvalidator.mjs";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { VMInstallContext } from "@src/context-manager.mjs";
-import { determineExecutionMode, ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
+import {
+  determineExecutionMode,
+  ExecutionMode,
+} from "@src/ve-execution/ve-execution-constants.mjs";
 
 /**
  * Route handler logic for VE configuration endpoints.
@@ -33,9 +47,13 @@ export class WebAppVeRouteHandlers {
       return 422; // Unprocessable Entity - validation/configuration error
     }
     // Check if error has a name property indicating it's a validation error
-    if (err && typeof err === 'object' && 'name' in err) {
+    if (err && typeof err === "object" && "name" in err) {
       const errorName = (err as { name?: string }).name;
-      if (errorName === 'JsonError' || errorName === 'VEConfigurationError' || errorName === 'ValidateJsonError') {
+      if (
+        errorName === "JsonError" ||
+        errorName === "VEConfigurationError" ||
+        errorName === "ValidateJsonError"
+      ) {
         return 422;
       }
     }
@@ -46,40 +64,47 @@ export class WebAppVeRouteHandlers {
   /**
    * Recursively serializes an array of details, handling both JsonError instances and plain objects.
    */
-  private serializeDetailsArray(details: IJsonError[] | undefined): IJsonError[] | undefined {
+  private serializeDetailsArray(
+    details: IJsonError[] | undefined,
+  ): IJsonError[] | undefined {
     if (!details || !Array.isArray(details)) {
       return undefined;
     }
-    
+
     return details.map((d) => {
       // If it's a JsonError instance with toJSON, use it
-      if (d && typeof d === 'object' && typeof (d as any).toJSON === "function") {
+      if (
+        d &&
+        typeof d === "object" &&
+        typeof (d as any).toJSON === "function"
+      ) {
         return (d as any).toJSON();
       }
-      
+
       // If it's already a plain object with the expected structure, ensure details are serialized
-      if (d && typeof d === 'object') {
+      if (d && typeof d === "object") {
         const result: any = {
           name: (d as any).name,
           message: (d as any).message,
           line: (d as any).line,
         };
-        
+
         // Recursively serialize nested details if they exist
         if ((d as any).details && Array.isArray((d as any).details)) {
           result.details = this.serializeDetailsArray((d as any).details);
         }
-        
-        if ((d as any).filename !== undefined) result.filename = (d as any).filename;
-        
+
+        if ((d as any).filename !== undefined)
+          result.filename = (d as any).filename;
+
         return result as IJsonError;
       }
-      
+
       // Fallback: convert to string or return as-is
       return {
-        name: 'Error',
+        name: "Error",
         message: String(d),
-        details: undefined
+        details: undefined,
       } as IJsonError;
     });
   }
@@ -94,7 +119,12 @@ export class WebAppVeRouteHandlers {
     }
 
     // If error has a toJSON method, use it
-    if (err && typeof err === 'object' && 'toJSON' in err && typeof (err as any).toJSON === 'function') {
+    if (
+      err &&
+      typeof err === "object" &&
+      "toJSON" in err &&
+      typeof (err as any).toJSON === "function"
+    ) {
       return (err as any).toJSON();
     }
 
@@ -104,14 +134,14 @@ export class WebAppVeRouteHandlers {
         name: err.name,
         message: err.message,
       };
-      
+
       // If it's a JsonError or VEConfigurationError, try to get details
       if (err instanceof JsonError || err instanceof VEConfigurationError) {
         // Use toJSON() if available to ensure proper recursive serialization
-        if (typeof (err as any).toJSON === 'function') {
+        if (typeof (err as any).toJSON === "function") {
           return (err as any).toJSON();
         }
-        
+
         // Fallback: manually extract details and serialize them
         if ((err as any).details) {
           errorObj.details = this.serializeDetailsArray((err as any).details);
@@ -125,7 +155,7 @@ export class WebAppVeRouteHandlers {
     }
 
     // For other types, try to convert to string or return as-is
-    if (typeof err === 'string') {
+    if (typeof err === "string") {
       return err;
     }
 
@@ -140,17 +170,26 @@ export class WebAppVeRouteHandlers {
   /**
    * Validates request body for VeConfiguration endpoint.
    */
-  validateVeConfigurationBody(body: IPostVeConfigurationBody): { valid: boolean; error?: string } {
+  validateVeConfigurationBody(body: IPostVeConfigurationBody): {
+    valid: boolean;
+    error?: string;
+  } {
     if (!Array.isArray(body.params)) {
       return { valid: false, error: "Invalid parameters" };
     }
     if (body.outputs !== undefined && !Array.isArray(body.outputs)) {
       return { valid: false, error: "Invalid outputs" };
     }
-    if (body.changedParams !== undefined && !Array.isArray(body.changedParams)) {
+    if (
+      body.changedParams !== undefined &&
+      !Array.isArray(body.changedParams)
+    ) {
       return { valid: false, error: "Invalid changedParams" };
     }
-    if (body.selectedAddons !== undefined && !Array.isArray(body.selectedAddons)) {
+    if (
+      body.selectedAddons !== undefined &&
+      !Array.isArray(body.selectedAddons)
+    ) {
       return { valid: false, error: "Invalid selectedAddons" };
     }
     return { valid: true };
@@ -164,42 +203,58 @@ export class WebAppVeRouteHandlers {
     task: string,
     veContextKey: string,
     body: IPostVeConfigurationBody,
-  ): Promise<{ success: boolean; restartKey?: string; vmInstallKey?: string; error?: string; errorDetails?: IJsonError; statusCode?: number }> {
+  ): Promise<{
+    success: boolean;
+    restartKey?: string;
+    vmInstallKey?: string;
+    error?: string;
+    errorDetails?: IJsonError;
+    statusCode?: number;
+  }> {
     // Validate request body
     const validation = this.validateVeConfigurationBody(body);
     if (!validation.valid) {
-      return { 
-        success: false, 
-        ...(validation.error && { error: validation.error }), 
-        statusCode: 400 
+      return {
+        success: false,
+        ...(validation.error && { error: validation.error }),
+        statusCode: 400,
       };
     }
 
     try {
       // Load application (provides commands)
-      const storageContext = PersistenceManager.getInstance().getContextManager();
-      const ctx: IVEContext | null = storageContext.getVEContextByKey(veContextKey);
+      const storageContext =
+        PersistenceManager.getInstance().getContextManager();
+      const ctx: IVEContext | null =
+        storageContext.getVEContextByKey(veContextKey);
       if (!ctx) {
-        return { success: false, error: "VE context not found", statusCode: 404 };
+        return {
+          success: false,
+          error: "VE context not found",
+          statusCode: 404,
+        };
       }
       const veCtxToUse: IVEContext = ctx as IVEContext;
-      const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
+      const templateProcessor = veCtxToUse
+        .getStorageContext()
+        .getTemplateProcessor();
 
       // Determine execution mode: TEST executes locally, PRODUCTION executes via SSH to VE host.
       const executionMode = determineExecutionMode();
       const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
-      
+
       // Use changedParams if provided (even if empty), otherwise fall back to params
       // This allows restarting installation with only changed parameters
       // For normal installation, changedParams should contain all changed parameters
-      const paramsToUse = body.changedParams !== undefined
-        ? body.changedParams
-        : body.params;
+      const paramsToUse =
+        body.changedParams !== undefined ? body.changedParams : body.params;
 
       // Prepare initialInputs for loadApplication (for skip_if_all_missing checks)
       // Convert params to initialInputs format (only non-empty values)
       const initialInputs = paramsToUse
-        .filter((p) => p.value !== null && p.value !== undefined && p.value !== '')
+        .filter(
+          (p) => p.value !== null && p.value !== undefined && p.value !== "",
+        )
         .map((p) => ({
           id: p.name,
           value: p.value,
@@ -239,7 +294,8 @@ export class WebAppVeRouteHandlers {
       defaults.set("application_id", application);
       defaults.set(
         "application_name",
-        (loaded.application && typeof (loaded.application as any).name === "string")
+        loaded.application &&
+          typeof (loaded.application as any).name === "string"
           ? String((loaded.application as any).name)
           : application,
       );
@@ -249,8 +305,9 @@ export class WebAppVeRouteHandlers {
       // Log viewer URL parameters for Notes links
       // Priority: OCI_LXC_DEPLOYER_URL env var > auto-generated from hostname + port
       const deployerPort = process.env.PORT || "3000";
-      const deployerUrl = process.env.OCI_LXC_DEPLOYER_URL
-        || `http://${os.hostname()}:${deployerPort}`;
+      const deployerUrl =
+        process.env.OCI_LXC_DEPLOYER_URL ||
+        `http://${os.hostname()}:${deployerPort}`;
       defaults.set("deployer_base_url", deployerUrl);
       defaults.set("ve_context_key", veContextKey);
 
@@ -266,7 +323,8 @@ export class WebAppVeRouteHandlers {
         defaults.set("selected_addons", selectedAddons.join(","));
       }
 
-      const contextManager = PersistenceManager.getInstance().getContextManager();
+      const contextManager =
+        PersistenceManager.getInstance().getContextManager();
       // Process parameters: for upload parameters with "local:" prefix, read file and base64 encode
       const processedParams = await this.parameterProcessor.processParameters(
         paramsToUse,
@@ -293,7 +351,9 @@ export class WebAppVeRouteHandlers {
       );
 
       // Respond immediately with restartKey, run execution in background
-      const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(body.params);
+      const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(
+        body.params,
+      );
       this.executionSetup.setupExecutionResultHandlers(
         exec,
         restartKey,
@@ -301,19 +361,27 @@ export class WebAppVeRouteHandlers {
         fallbackRestartInfo,
       );
 
-      return { 
-        success: true, 
+      return {
+        success: true,
         restartKey,
       };
     } catch (err: any) {
       const serializedError = this.serializeError(err);
       const statusCode = this.getErrorStatusCode(err);
-      const result: { success: false; error: string; errorDetails?: IJsonError; statusCode: number } = { 
-        success: false, 
-        error: typeof serializedError === 'string' ? serializedError : serializedError.message || "Unknown error",
+      const result: {
+        success: false;
+        error: string;
+        errorDetails?: IJsonError;
+        statusCode: number;
+      } = {
+        success: false,
+        error:
+          typeof serializedError === "string"
+            ? serializedError
+            : serializedError.message || "Unknown error",
         statusCode,
       };
-      if (typeof serializedError === 'object') {
+      if (typeof serializedError === "object") {
         result.errorDetails = serializedError;
       }
       return result;
@@ -331,19 +399,20 @@ export class WebAppVeRouteHandlers {
         return group;
       }
       // Try to find vmInstallContext by looking up VE contexts
-      const contextManager = PersistenceManager.getInstance().getContextManager();
-      
-          const vmInstallContext = contextManager.getVMInstallContextByHostnameAndApplication(
-            veContext.host,
-            group.application,
-          );
-          if (vmInstallContext) {
-            const vmInstallKey = `vminstall_${veContext.host}_${group.application}`;
-            // Update the group with vmInstallKey
-            group.vmInstallKey = vmInstallKey;
-          }
+      const contextManager =
+        PersistenceManager.getInstance().getContextManager();
 
-      
+      const vmInstallContext =
+        contextManager.getVMInstallContextByHostnameAndApplication(
+          veContext.host,
+          group.application,
+        );
+      if (vmInstallContext) {
+        const vmInstallKey = `vminstall_${veContext.host}_${group.application}`;
+        // Update the group with vmInstallKey
+        group.vmInstallKey = vmInstallKey;
+      }
+
       return group;
     });
     return messages;
@@ -355,10 +424,21 @@ export class WebAppVeRouteHandlers {
   async handleVeRestart(
     restartKey: string,
     veContextKey: string,
-  ): Promise<{ success: boolean; restartKey?: string; vmInstallKey?: string; error?: string; errorDetails?: IJsonError; statusCode?: number }> {
+  ): Promise<{
+    success: boolean;
+    restartKey?: string;
+    vmInstallKey?: string;
+    error?: string;
+    errorDetails?: IJsonError;
+    statusCode?: number;
+  }> {
     const restartInfo = this.restartManager.getRestartInfo(restartKey);
     if (!restartInfo) {
-      return { success: false, error: "Restart info not found", statusCode: 404 };
+      return {
+        success: false,
+        error: "Restart info not found",
+        statusCode: 404,
+      };
     }
 
     const contextManager = PersistenceManager.getInstance().getContextManager();
@@ -368,9 +448,14 @@ export class WebAppVeRouteHandlers {
     }
 
     // Get application/task from the message group that has this restartKey
-    const messageGroup = this.messageManager.findMessageGroupByRestartKey(restartKey);
+    const messageGroup =
+      this.messageManager.findMessageGroupByRestartKey(restartKey);
     if (!messageGroup) {
-      return { success: false, error: "No message group found for this restart key", statusCode: 404 };
+      return {
+        success: false,
+        error: "No message group found for this restart key",
+        statusCode: 404,
+      };
     }
 
     const { application, task } = messageGroup;
@@ -378,14 +463,18 @@ export class WebAppVeRouteHandlers {
 
     const executionMode = determineExecutionMode();
     const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
-    
+
     // Reload application to get commands
-    const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
+    const templateProcessor = veCtxToUse
+      .getStorageContext()
+      .getTemplateProcessor();
     let loaded;
     try {
       // Use parameters from restartInfo.inputs for skip_if_all_missing checks
       const initialInputs = restartInfo.inputs
-        .filter((p) => p.value !== null && p.value !== undefined && p.value !== '')
+        .filter(
+          (p) => p.value !== null && p.value !== undefined && p.value !== "",
+        )
         .map((p) => ({
           id: p.name,
           value: p.value,
@@ -401,12 +490,20 @@ export class WebAppVeRouteHandlers {
     } catch (err: any) {
       const serializedError = this.serializeError(err);
       const statusCode = this.getErrorStatusCode(err);
-      const result: { success: false; error: string; errorDetails?: IJsonError; statusCode: number } = { 
-        success: false, 
-        error: typeof serializedError === 'string' ? serializedError : serializedError.message || "Unknown error",
+      const result: {
+        success: false;
+        error: string;
+        errorDetails?: IJsonError;
+        statusCode: number;
+      } = {
+        success: false,
+        error:
+          typeof serializedError === "string"
+            ? serializedError
+            : serializedError.message || "Unknown error",
         statusCode,
       };
-      if (typeof serializedError === 'object') {
+      if (typeof serializedError === "object") {
         result.errorDetails = serializedError;
       }
       return result;
@@ -419,7 +516,7 @@ export class WebAppVeRouteHandlers {
       name: p.name,
       value: p.value,
     }));
-    
+
     const processedParams = await this.parameterProcessor.processParameters(
       paramsFromRestartInfo,
       loaded.parameters,
@@ -432,17 +529,18 @@ export class WebAppVeRouteHandlers {
     }));
 
     // Create execution with reloaded commands but use restartInfo for state
-    const { exec, restartKey: newRestartKey } = this.executionSetup.setupExecution(
-      commands,
-      inputs,
-      defaults,
-      veCtxToUse,
-      this.messageManager,
-      this.restartManager,
-      application,
-      task,
-      sshCommand,
-    );
+    const { exec, restartKey: newRestartKey } =
+      this.executionSetup.setupExecution(
+        commands,
+        inputs,
+        defaults,
+        veCtxToUse,
+        this.messageManager,
+        this.restartManager,
+        application,
+        task,
+        sshCommand,
+      );
 
     this.executionSetup.setupRestartExecutionResultHandlers(
       exec,
@@ -452,17 +550,21 @@ export class WebAppVeRouteHandlers {
     );
 
     // Try to find vmInstallContext for this installation to return vmInstallKey
-    const hostname = typeof veCtxToUse.host === "string" 
-      ? veCtxToUse.host 
-      : (veCtxToUse.host as any)?.host || "unknown";
-    const vmInstallContext = contextManager.getVMInstallContextByHostnameAndApplication(
-      hostname,
-      application,
-    );
-    const vmInstallKey = vmInstallContext ? `vminstall_${hostname}_${application}` : undefined;
+    const hostname =
+      typeof veCtxToUse.host === "string"
+        ? veCtxToUse.host
+        : (veCtxToUse.host as any)?.host || "unknown";
+    const vmInstallContext =
+      contextManager.getVMInstallContextByHostnameAndApplication(
+        hostname,
+        application,
+      );
+    const vmInstallKey = vmInstallContext
+      ? `vminstall_${hostname}_${application}`
+      : undefined;
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       restartKey: newRestartKey,
       ...(vmInstallKey && { vmInstallKey }),
     };
@@ -475,7 +577,14 @@ export class WebAppVeRouteHandlers {
   async handleVeRestartInstallation(
     vmInstallKey: string,
     veContextKey: string,
-  ): Promise<{ success: boolean; restartKey?: string; vmInstallKey?: string; error?: string; errorDetails?: IJsonError; statusCode?: number }> {
+  ): Promise<{
+    success: boolean;
+    restartKey?: string;
+    vmInstallKey?: string;
+    error?: string;
+    errorDetails?: IJsonError;
+    statusCode?: number;
+  }> {
     const contextManager = PersistenceManager.getInstance().getContextManager();
     const ctx = contextManager.getVEContextByKey(veContextKey);
     if (!ctx) {
@@ -483,21 +592,33 @@ export class WebAppVeRouteHandlers {
     }
 
     // Get vmInstallContext
-    const vmInstallContextValue = contextManager.getVMInstallContextByVmInstallKey(vmInstallKey);
-    if (!vmInstallContextValue || !(vmInstallContextValue instanceof VMInstallContext)) {
-      return { success: false, error: "VM install context not found", statusCode: 404 };
+    const vmInstallContextValue =
+      contextManager.getVMInstallContextByVmInstallKey(vmInstallKey);
+    if (
+      !vmInstallContextValue ||
+      !(vmInstallContextValue instanceof VMInstallContext)
+    ) {
+      return {
+        success: false,
+        error: "VM install context not found",
+        statusCode: 404,
+      };
     }
 
     const installCtx = vmInstallContextValue as IVMInstallContext;
     const veCtxToUse = ctx as IVEContext;
-    const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
+    const templateProcessor = veCtxToUse
+      .getStorageContext()
+      .getTemplateProcessor();
 
     const executionMode = determineExecutionMode();
     const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
-    
+
     // Prepare initialInputs for loadApplication (for skip_if_all_missing checks)
     const initialInputs = installCtx.changedParams
-      .filter((p) => p.value !== null && p.value !== undefined && p.value !== '')
+      .filter(
+        (p) => p.value !== null && p.value !== undefined && p.value !== "",
+      )
       .map((p) => ({
         id: p.name,
         value: p.value,
@@ -516,12 +637,20 @@ export class WebAppVeRouteHandlers {
     } catch (err: any) {
       const serializedError = this.serializeError(err);
       const statusCode = this.getErrorStatusCode(err);
-      const result: { success: false; error: string; errorDetails?: IJsonError; statusCode: number } = { 
-        success: false, 
-        error: typeof serializedError === 'string' ? serializedError : serializedError.message || "Unknown error",
+      const result: {
+        success: false;
+        error: string;
+        errorDetails?: IJsonError;
+        statusCode: number;
+      } = {
+        success: false,
+        error:
+          typeof serializedError === "string"
+            ? serializedError
+            : serializedError.message || "Unknown error",
         statusCode,
       };
-      if (typeof serializedError === 'object') {
+      if (typeof serializedError === "object") {
         result.errorDetails = serializedError;
       }
       return result;
@@ -554,7 +683,9 @@ export class WebAppVeRouteHandlers {
     );
 
     // Respond immediately with restartKey, run execution in background
-    const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(installCtx.changedParams);
+    const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(
+      installCtx.changedParams,
+    );
     this.executionSetup.setupExecutionResultHandlers(
       exec,
       restartKey,
@@ -564,7 +695,11 @@ export class WebAppVeRouteHandlers {
 
     // Set vmInstallKey in message group if it exists
     if (vmInstallKey) {
-      this.messageManager.setVmInstallKeyForGroup(installCtx.application, installCtx.task, vmInstallKey);
+      this.messageManager.setVmInstallKeyForGroup(
+        installCtx.application,
+        installCtx.task,
+        vmInstallKey,
+      );
     }
 
     return {
@@ -577,7 +712,9 @@ export class WebAppVeRouteHandlers {
   /**
    * Maps task types to addon phases for template loading.
    */
-  private getAddonPhaseForTask(task: TaskType): "pre_start" | "post_start" | "upgrade" | null {
+  private getAddonPhaseForTask(
+    task: TaskType,
+  ): "pre_start" | "post_start" | "upgrade" | null {
     switch (task) {
       case "installation":
         return "post_start";
@@ -722,4 +859,3 @@ export class WebAppVeRouteHandlers {
     return commands;
   }
 }
-

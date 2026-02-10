@@ -16,7 +16,9 @@ export function registerLogsHtmlRoute(app: express.Application): void {
     // Validate vmId
     const vmId = parseInt(vmIdStr, 10);
     if (isNaN(vmId) || vmId <= 0) {
-      res.status(400).send(renderHtml(vmId, veContextKey, "Invalid VM ID", true));
+      res
+        .status(400)
+        .send(renderHtml(vmId, veContextKey, "Invalid VM ID", true));
       return;
     }
 
@@ -31,7 +33,11 @@ export function registerLogsHtmlRoute(app: express.Application): void {
       const host = veContextKey.substring(3);
       veContext = { host, port: 22 } as IVEContext;
     } else {
-      res.status(404).send(renderHtml(vmId, veContextKey, "Invalid VE context key format", true));
+      res
+        .status(404)
+        .send(
+          renderHtml(vmId, veContextKey, "Invalid VE context key format", true),
+        );
       return;
     }
 
@@ -43,12 +49,25 @@ export function registerLogsHtmlRoute(app: express.Application): void {
     }
     const result = await logsService.getConsoleLogs(logOptions);
 
-    const content = result.success && result.content ? result.content : (result.error || "No logs available");
-    res.status(result.success ? 200 : 400).send(renderHtml(vmId, veContextKey, content, !result.success, result.lines));
+    const content =
+      result.success && result.content
+        ? result.content
+        : result.error || "No logs available";
+    res
+      .status(result.success ? 200 : 400)
+      .send(
+        renderHtml(vmId, veContextKey, content, !result.success, result.lines),
+      );
   });
 }
 
-function renderHtml(vmId: number, veContextKey: string, content: string, isError: boolean, lines?: number): string {
+function renderHtml(
+  vmId: number,
+  veContextKey: string,
+  content: string,
+  isError: boolean,
+  lines?: number,
+): string {
   const escapedContent = content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return `<!DOCTYPE html>
 <html>

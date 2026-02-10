@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
 import { ApiUri } from "@src/types.mjs";
-import { createWebAppTestSetup, type WebAppTestSetup } from "../helper/webapp-test-helper.mjs";
+import {
+  createWebAppTestSetup,
+  type WebAppTestSetup,
+} from "../helper/webapp-test-helper.mjs";
 
 describe("Stack API", () => {
   let app: express.Application;
@@ -36,7 +39,9 @@ describe("Stack API", () => {
       expect(storedStack?.id).toBe("stack1");
       expect(storedStack?.name).toBe("Test Stack");
       expect(storedStack?.stacktype).toBe("music");
-      expect(storedStack?.entries).toEqual([{ name: "artist", value: "Test Artist" }]);
+      expect(storedStack?.entries).toEqual([
+        { name: "artist", value: "Test Artist" },
+      ]);
     });
 
     it("auto-generates id from name when not provided", async () => {
@@ -114,7 +119,11 @@ describe("Stack API", () => {
       const res = await request(app).get(`${ApiUri.Stacks}?stacktype=music`);
       expect(res.status).toBe(200);
       expect(res.body.stacks.length).toBe(2);
-      expect(res.body.stacks.every((t: { stacktype: string }) => t.stacktype === "music")).toBe(true);
+      expect(
+        res.body.stacks.every(
+          (t: { stacktype: string }) => t.stacktype === "music",
+        ),
+      ).toBe(true);
     });
 
     it("returns empty list when filtering by non-existent stacktype", async () => {
@@ -125,7 +134,9 @@ describe("Stack API", () => {
         entries: [],
       });
 
-      const res = await request(app).get(`${ApiUri.Stacks}?stacktype=nonexistent`);
+      const res = await request(app).get(
+        `${ApiUri.Stacks}?stacktype=nonexistent`,
+      );
       expect(res.status).toBe(200);
       expect(res.body.stacks).toEqual([]);
     });
@@ -133,25 +144,33 @@ describe("Stack API", () => {
 
   describe("GET /api/stack/:id", () => {
     it("returns 404 for non-existent stack", async () => {
-      const res = await request(app).get(ApiUri.Stack.replace(":id", "unknown"));
+      const res = await request(app).get(
+        ApiUri.Stack.replace(":id", "unknown"),
+      );
       expect(res.status).toBe(404);
       expect(res.body.error).toBe("Stack not found");
     });
 
     it("returns stack by name", async () => {
-      await request(app).post(ApiUri.Stacks).send({
-        id: "mystack",
-        name: "My Stack",
-        stacktype: "audio",
-        entries: [{ name: "duration", value: 180 }],
-      });
+      await request(app)
+        .post(ApiUri.Stacks)
+        .send({
+          id: "mystack",
+          name: "My Stack",
+          stacktype: "audio",
+          entries: [{ name: "duration", value: 180 }],
+        });
 
-      const res = await request(app).get(ApiUri.Stack.replace(":id", "My Stack"));
+      const res = await request(app).get(
+        ApiUri.Stack.replace(":id", "My Stack"),
+      );
       expect(res.status).toBe(200);
       expect(res.body.stack.id).toBe("mystack");
       expect(res.body.stack.name).toBe("My Stack");
       expect(res.body.stack.stacktype).toBe("audio");
-      expect(res.body.stack.entries).toEqual([{ name: "duration", value: 180 }]);
+      expect(res.body.stack.entries).toEqual([
+        { name: "duration", value: 180 },
+      ]);
     });
 
     it("returns stack by key with stack_ prefix", async () => {
@@ -162,7 +181,9 @@ describe("Stack API", () => {
         entries: [],
       });
 
-      const res = await request(app).get(ApiUri.Stack.replace(":id", "stack_My Stack"));
+      const res = await request(app).get(
+        ApiUri.Stack.replace(":id", "stack_My Stack"),
+      );
       expect(res.status).toBe(200);
       expect(res.body.stack.name).toBe("My Stack");
     });
@@ -180,7 +201,9 @@ describe("Stack API", () => {
       // Verify stack exists in context before deletion
       expect(setup.ctx.getStack("Delete Me")).not.toBeNull();
 
-      const res = await request(app).delete(ApiUri.Stack.replace(":id", "Delete Me"));
+      const res = await request(app).delete(
+        ApiUri.Stack.replace(":id", "Delete Me"),
+      );
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.deleted).toBe(true);
@@ -189,12 +212,16 @@ describe("Stack API", () => {
       expect(setup.ctx.getStack("Delete Me")).toBeNull();
 
       // Verify via API as well
-      const getRes = await request(app).get(ApiUri.Stack.replace(":id", "Delete Me"));
+      const getRes = await request(app).get(
+        ApiUri.Stack.replace(":id", "Delete Me"),
+      );
       expect(getRes.status).toBe(404);
     });
 
     it("returns deleted=false for non-existent stack", async () => {
-      const res = await request(app).delete(ApiUri.Stack.replace(":id", "nonexistent"));
+      const res = await request(app).delete(
+        ApiUri.Stack.replace(":id", "nonexistent"),
+      );
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
       expect(res.body.deleted).toBe(false);
@@ -211,7 +238,9 @@ describe("Stack API", () => {
       // Verify stack exists in context
       expect(setup.ctx.getStack("Delete Me")).not.toBeNull();
 
-      const res = await request(app).delete(ApiUri.Stack.replace(":id", "stack_Delete Me"));
+      const res = await request(app).delete(
+        ApiUri.Stack.replace(":id", "stack_Delete Me"),
+      );
       expect(res.status).toBe(200);
       expect(res.body.deleted).toBe(true);
 

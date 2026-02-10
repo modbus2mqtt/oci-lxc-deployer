@@ -80,9 +80,7 @@ export function registerApplicationRoutes(
   app.get(ApiUri.LocalApplicationIds, (_req, res) => {
     try {
       const pm = PersistenceManager.getInstance();
-      const localAppNames = pm
-        .getApplicationService()
-        .getLocalAppNames();
+      const localAppNames = pm.getApplicationService().getLocalAppNames();
       const ids = Array.from(localAppNames.keys());
       res.json(ids).status(200);
     } catch (err: any) {
@@ -147,7 +145,9 @@ export function registerApplicationRoutes(
       );
 
       const enumValues = loaded.parameters
-        .filter((param) => param.type === "enum" && param.enumValues !== undefined)
+        .filter(
+          (param) => param.type === "enum" && param.enumValues !== undefined,
+        )
         .map((param) => ({
           id: param.id,
           enumValues: param.enumValues!,
@@ -202,7 +202,11 @@ export function registerApplicationRoutes(
       // Check if application exists in local directory
       const localAppNames = appService.getLocalAppNames();
       if (!localAppNames.has(applicationId)) {
-        return res.status(404).json({ error: `Application ${applicationId} not found in local applications` });
+        return res
+          .status(404)
+          .json({
+            error: `Application ${applicationId} not found in local applications`,
+          });
       }
 
       // Read application.json
@@ -214,7 +218,11 @@ export function registerApplicationRoutes(
 
       // Check if application has a framework (extends property pointing to a framework base)
       if (!application.extends) {
-        return res.status(400).json({ error: `Application ${applicationId} is not framework-based (no extends property)` });
+        return res
+          .status(400)
+          .json({
+            error: `Application ${applicationId} is not framework-based (no extends property)`,
+          });
       }
 
       // Read the parameters template (<appId>-parameters.json)
@@ -222,13 +230,18 @@ export function registerApplicationRoutes(
       const parametersTemplatePath = `${appPath}/templates/${applicationId}-parameters.json`;
       let parametersTemplate: any = null;
       try {
-        parametersTemplate = pm.getPersistence().loadTemplate(parametersTemplatePath);
+        parametersTemplate = pm
+          .getPersistence()
+          .loadTemplate(parametersTemplatePath);
       } catch {
         // Parameters template might not exist for older applications
       }
 
       // Extract parameter values from the template
-      const parameterValues: { id: string; value: string | number | boolean }[] = [];
+      const parameterValues: {
+        id: string;
+        value: string | number | boolean;
+      }[] = [];
 
       if (parametersTemplate) {
         // Extract from parameters array (default values)
@@ -244,11 +257,13 @@ export function registerApplicationRoutes(
         if (parametersTemplate.commands) {
           for (const cmd of parametersTemplate.commands) {
             if (cmd.properties) {
-              const props = Array.isArray(cmd.properties) ? cmd.properties : [cmd.properties];
+              const props = Array.isArray(cmd.properties)
+                ? cmd.properties
+                : [cmd.properties];
               for (const prop of props) {
                 if (prop.id && prop.value !== undefined) {
                   // Don't duplicate if already in parameterValues
-                  if (!parameterValues.some(pv => pv.id === prop.id)) {
+                  if (!parameterValues.some((pv) => pv.id === prop.id)) {
                     parameterValues.push({ id: prop.id, value: prop.value });
                   }
                 }
@@ -281,12 +296,14 @@ export function registerApplicationRoutes(
 
       // Add optional properties only if they have values
       if (application.url) response.url = application.url;
-      if (application.documentation) response.documentation = application.documentation;
+      if (application.documentation)
+        response.documentation = application.documentation;
       if (application.source) response.source = application.source;
       if (application.vendor) response.vendor = application.vendor;
       if (application.icon) response.icon = application.icon;
       if (iconContent) response.iconContent = iconContent;
-      if (application.tags && application.tags.length > 0) response.tags = application.tags;
+      if (application.tags && application.tags.length > 0)
+        response.tags = application.tags;
       if (application.stacktype) response.stacktype = application.stacktype;
 
       returnResponse<IApplicationFrameworkDataResponse>(res, response);
@@ -323,7 +340,8 @@ export function registerApplicationRoutes(
       });
 
       // Get compatible addons with extracted parameters from addon templates
-      const compatibleAddons = addonService.getCompatibleAddonsWithParameters(application);
+      const compatibleAddons =
+        addonService.getCompatibleAddonsWithParameters(application);
 
       returnResponse<ICompatibleAddonsResponse>(res, {
         addons: compatibleAddons,

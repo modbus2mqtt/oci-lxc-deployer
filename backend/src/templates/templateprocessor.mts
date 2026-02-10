@@ -12,9 +12,18 @@ import { IVEContext } from "@src/backend-types.mjs";
 import { ApplicationLoader } from "@src/apploader.mjs";
 import { ScriptValidator } from "@src/scriptvalidator.mjs";
 import { ContextManager } from "../context-manager.mjs";
-import { ITemplatePersistence, IApplicationPersistence } from "../persistence/interfaces.mjs";
-import { FileSystemRepositories, type IRepositories } from "../persistence/repositories.mjs";
-import { ExecutionMode, determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
+import {
+  ITemplatePersistence,
+  IApplicationPersistence,
+} from "../persistence/interfaces.mjs";
+import {
+  FileSystemRepositories,
+  type IRepositories,
+} from "../persistence/repositories.mjs";
+import {
+  ExecutionMode,
+  determineExecutionMode,
+} from "../ve-execution/ve-execution-constants.mjs";
 import { ITemplateReference } from "../backend-types.mjs";
 import {
   IProcessTemplateOpts,
@@ -56,7 +65,8 @@ export class TemplateProcessor extends EventEmitter {
     repositories?: IRepositories,
   ) {
     super();
-    this.repositories = repositories ?? new FileSystemRepositories(this.pathes, this.persistence);
+    this.repositories =
+      repositories ?? new FileSystemRepositories(this.pathes, this.persistence);
     this.resolver = new TemplateResolver(this.repositories);
     this.traceBuilder = new TemplateTraceBuilder(this.pathes);
     this.enumValuesResolver = new EnumValuesResolver();
@@ -67,7 +77,8 @@ export class TemplateProcessor extends EventEmitter {
       this.resolver.normalizeTemplateName.bind(this.resolver),
     );
     this.outputProcessor = new TemplateOutputProcessor(
-      (applicationId, templateName) => this.resolver.resolveTemplate(applicationId, templateName),
+      (applicationId, templateName) =>
+        this.resolver.resolveTemplate(applicationId, templateName),
       this.resolver.normalizeTemplateName.bind(this.resolver),
     );
   }
@@ -120,7 +131,11 @@ export class TemplateProcessor extends EventEmitter {
     if (initialInputs) {
       for (const input of initialInputs) {
         // Only add non-empty values to resolvedParams
-        if (input.value !== null && input.value !== undefined && input.value !== '') {
+        if (
+          input.value !== null &&
+          input.value !== undefined &&
+          input.value !== ""
+        ) {
           // IResolvedParam requires 'id' and 'template'
           // We use "user_input" as template name for user-provided parameters
           // This allows skip_if_all_missing to find user inputs
@@ -141,13 +156,18 @@ export class TemplateProcessor extends EventEmitter {
       : undefined;
     // 5. Process each template
     // Start with errors from readApplicationJson (e.g., duplicate templates)
-    const errors: IJsonError[] = readOpts.error.details ? [...readOpts.error.details] : [];
+    const errors: IJsonError[] = readOpts.error.details
+      ? [...readOpts.error.details]
+      : [];
     let outParameters: IParameterWithTemplate[] = [];
     let outCommands: ICommand[] = [];
     let webuiTemplates: string[] = [];
     const processedTemplates = new Map<string, IProcessedTemplate>();
-    const templateReferences = new Map<string, Set<string>>();  // template -> set of referenced templates
-    const outputSources = new Map<string, { template: string; kind: "outputs" | "properties" }>();
+    const templateReferences = new Map<string, Set<string>>(); // template -> set of referenced templates
+    const outputSources = new Map<
+      string,
+      { template: string; kind: "outputs" | "properties" }
+    >();
 
     // 5a. Inject application-level parameters if defined directly in application.json
     // This takes precedence over parameters defined in templates (similar to addon approach)
@@ -172,7 +192,10 @@ export class TemplateProcessor extends EventEmitter {
             id: prop.id,
             template: "application.json",
           });
-          outputSources.set(prop.id, { template: "application.json", kind: "properties" });
+          outputSources.set(prop.id, {
+            template: "application.json",
+            kind: "properties",
+          });
           propertiesWithValue.push({ id: prop.id, value: prop.value });
         }
         // Note: Properties with 'default' will be applied later during parameter resolution
@@ -199,7 +222,10 @@ export class TemplateProcessor extends EventEmitter {
         errors,
         requestedIn: task,
         webuiTemplates,
-        executionMode: executionMode !== undefined ? executionMode : determineExecutionMode(),
+        executionMode:
+          executionMode !== undefined
+            ? executionMode
+            : determineExecutionMode(),
         ...(enumValueInputs && enumValueInputs.length > 0
           ? { enumValueInputs }
           : {}),
@@ -213,13 +239,16 @@ export class TemplateProcessor extends EventEmitter {
       }
       await this.#processTemplate(ptOpts);
     }
-    
-    const processedTemplatesArray = this.traceBuilder.buildProcessedTemplatesArray(
-      processedTemplates,
-      templateReferences,
-    );
 
-    const templateTrace = this.traceBuilder.buildTemplateTrace(processedTemplatesArray);
+    const processedTemplatesArray =
+      this.traceBuilder.buildProcessedTemplatesArray(
+        processedTemplates,
+        templateReferences,
+      );
+
+    const templateTrace = this.traceBuilder.buildTemplateTrace(
+      processedTemplatesArray,
+    );
     const parameterTrace = this.traceBuilder.buildParameterTrace(
       outParameters,
       resolvedParams,
@@ -245,7 +274,9 @@ export class TemplateProcessor extends EventEmitter {
         name: applicationName,
         description: application?.description || "",
         icon: application?.icon,
-        errors: errors.map((d: any) => d?.passed_message || d?.message || String(d)),
+        errors: errors.map(
+          (d: any) => d?.passed_message || d?.message || String(d),
+        ),
       };
       const primaryMessage =
         errors.length === 1
@@ -256,7 +287,11 @@ export class TemplateProcessor extends EventEmitter {
             )
           : "Template processing error";
 
-      const err = new VEConfigurationError(primaryMessage, applicationName, errors);
+      const err = new VEConfigurationError(
+        primaryMessage,
+        applicationName,
+        errors,
+      );
       (err as any).application = appBase;
       throw err;
     }
@@ -275,13 +310,23 @@ export class TemplateProcessor extends EventEmitter {
   private async resolveEnumValuesTemplate(
     enumTemplate: string,
     opts: IProcessTemplateOpts,
-  ): Promise<(string | { name: string; value: string | number | boolean })[] | null | undefined> {
-    const resolved = this.resolver.resolveTemplate(opts.application, enumTemplate);
+  ): Promise<
+    | (string | { name: string; value: string | number | boolean })[]
+    | null
+    | undefined
+  > {
+    // enumValuesTemplate implies category "list" - explicitly pass it
+    const resolved = this.resolver.resolveTemplate(
+      opts.application,
+      enumTemplate,
+      "list",
+    );
     const executeOn = resolved?.template?.execute_on;
     return this.enumValuesResolver.resolveEnumValuesTemplate(
       enumTemplate,
       {
         ...opts,
+        templateCategory: "list", // enumValuesTemplate always uses "list" category
         ...(executeOn ? { enumValuesExecuteOn: executeOn } : {}),
       },
       (innerOpts) => this.#processTemplate(innerOpts),
@@ -293,7 +338,11 @@ export class TemplateProcessor extends EventEmitter {
     opts.visitedTemplates = opts.visitedTemplates ?? new Set<string>();
     opts.errors = opts.errors ?? [];
     // Prevent endless recursion
-    if (opts.visitedTemplates.has(this.resolver.extractTemplateName(opts.template))) {
+    if (
+      opts.visitedTemplates.has(
+        this.resolver.extractTemplateName(opts.template),
+      )
+    ) {
       opts.errors.push(
         new JsonError(
           `Endless recursion detected for template: ${opts.template}`,
@@ -303,7 +352,12 @@ export class TemplateProcessor extends EventEmitter {
     }
     const templateName = this.resolver.extractTemplateName(opts.template);
     opts.visitedTemplates.add(templateName);
-    const resolvedTemplate = this.resolver.resolveTemplate(opts.application, templateName);
+    // Pass templateCategory if set (e.g., "list" for enumValuesTemplate)
+    const resolvedTemplate = this.resolver.resolveTemplate(
+      opts.application,
+      templateName,
+      opts.templateCategory,
+    );
     if (!resolvedTemplate) {
       const msg =
         `Template file not found: ${opts.template}` +
@@ -322,15 +376,23 @@ export class TemplateProcessor extends EventEmitter {
     const tmplData = resolvedTemplate.template;
     const tmplRef = resolvedTemplate.ref;
     opts.templateRef = tmplRef;
+    // Set template category for script resolution (e.g., "list" templates use "list" scripts)
+    if (tmplRef.category !== undefined) {
+      opts.templateCategory = tmplRef.category;
+    }
     // Note: outputs on template level are no longer supported
     // All outputs should be defined on command level
     // Properties commands will be handled directly in the resolvedParams section below
-    
+
     // Validate execute_on: required if template has executable commands (script, command, template)
     // Optional if template only has properties commands
-    const hasExecutableCommands = tmplData.commands?.some(
-      (cmd) => cmd.script !== undefined || cmd.command !== undefined || cmd.template !== undefined
-    ) ?? false;
+    const hasExecutableCommands =
+      tmplData.commands?.some(
+        (cmd) =>
+          cmd.script !== undefined ||
+          cmd.command !== undefined ||
+          cmd.template !== undefined,
+      ) ?? false;
     if (hasExecutableCommands && !tmplData.execute_on) {
       opts.errors.push(
         new JsonError(
@@ -338,21 +400,26 @@ export class TemplateProcessor extends EventEmitter {
         ),
       );
     }
-    
+
     // Check if template should be skipped due to missing parameters
     // This check happens BEFORE marking outputs, so outputs from previous templates are available
     // but we don't set outputs for skipped templates
-    const skipDecision = this.validator.shouldSkipTemplate(tmplData, opts.resolvedParams);
+    const skipDecision = this.validator.shouldSkipTemplate(
+      tmplData,
+      opts.resolvedParams,
+    );
     const shouldSkip = skipDecision.shouldSkip;
     const skipReason = skipDecision.reason;
-    
+
     // Determine if template is conditional (skip_if_all_missing or skip_if_property_set)
-    const isConditional = !!(tmplData.skip_if_all_missing && tmplData.skip_if_all_missing.length > 0) ||
-                          !!tmplData.skip_if_property_set;
-    
+    const isConditional =
+      !!(
+        tmplData.skip_if_all_missing && tmplData.skip_if_all_missing.length > 0
+      ) || !!tmplData.skip_if_property_set;
+
     // Determine if template is shared or app-specific
     const isSharedTemplate = tmplRef.scope === "shared";
-    
+
     // Store template information
     if (opts.processedTemplates) {
       const normalizedName = this.resolver.normalizeTemplateName(templateName);
@@ -364,7 +431,7 @@ export class TemplateProcessor extends EventEmitter {
         conditional: isConditional,
       });
     }
-    
+
     if (shouldSkip) {
       // Replace all commands with "skipped" commands that always exit with 0
       // Only set execute_on if template has it (properties-only templates don't need it)
@@ -387,23 +454,32 @@ export class TemplateProcessor extends EventEmitter {
       // Rationale: The UI needs to see these parameters even when inputs start empty,
       // while commands/outputs remain skipped.
       if (skipReason === "all_missing") {
-        await this.validator.validateAndAddParameters(opts, tmplData, templateName, tmplRef);
+        await this.validator.validateAndAddParameters(
+          opts,
+          tmplData,
+          templateName,
+          tmplRef,
+        );
       }
       return; // Exit early, don't process this template further
     }
-    
+
     // Mark outputs as resolved AFTER confirming template is not skipped
     // This ensures that outputs are only set for templates that actually execute
     // Allow overwriting outputs if template only has properties commands (explicit value setting)
     // Prevent overwriting outputs from different templates with scripts/commands (prevents conflicts)
-    const currentTemplateName = this.resolver.extractTemplateName(opts.template);
-    
+    const currentTemplateName = this.resolver.extractTemplateName(
+      opts.template,
+    );
+
     // Collect all outputs from all commands (including properties commands)
     const outputCollection = this.outputProcessor.collectOutputs(tmplData);
-    
+
     // Check for duplicates and throw error if found
     if (outputCollection.duplicateIds.size > 0) {
-      const duplicateList = Array.from(outputCollection.duplicateIds).join(", ");
+      const duplicateList = Array.from(outputCollection.duplicateIds).join(
+        ", ",
+      );
       opts.errors.push(
         new JsonError(
           `Duplicate output/property IDs found in template "${currentTemplateName}": ${duplicateList}. Each ID must be unique within a template.`,
@@ -411,10 +487,10 @@ export class TemplateProcessor extends EventEmitter {
       );
       return; // Don't process further if duplicates found
     }
-    
+
     // Note: outputs on template level are no longer supported
     // All outputs should be defined on command level
-    
+
     // Add all collected outputs to resolvedParams
     // Check for conflicts: if another template in the same task already set this output ID, it's an error
     // UNLESS at least one of the templates is conditional (skip_if_all_missing or skip_if_property_set)
@@ -426,11 +502,18 @@ export class TemplateProcessor extends EventEmitter {
       outputCollection,
       resolvedParams: opts.resolvedParams,
       ...(opts.outputSources ? { outputSources: opts.outputSources } : {}),
-      ...(opts.processedTemplates ? { processedTemplates: opts.processedTemplates } : {}),
+      ...(opts.processedTemplates
+        ? { processedTemplates: opts.processedTemplates }
+        : {}),
       ...(opts.errors ? { errors: opts.errors } : {}),
     });
 
-    await this.validator.validateAndAddParameters(opts, tmplData, templateName, tmplRef);
+    await this.validator.validateAndAddParameters(
+      opts,
+      tmplData,
+      templateName,
+      tmplRef,
+    );
 
     // Apply property defaults to parameters
     // This sets the default value on parameters without marking them as resolved,
@@ -448,20 +531,28 @@ export class TemplateProcessor extends EventEmitter {
       // Set command name from template name if command name is missing or empty
       // This applies to all command types: script, command, template, and properties
       // This is especially important for properties-only commands which often don't have a name field
-      if (!cmd.name || (typeof cmd.name === "string" && cmd.name.trim() === "")) {
+      if (
+        !cmd.name ||
+        (typeof cmd.name === "string" && cmd.name.trim() === "")
+      ) {
         cmd.name = `${tmplData.name || "unnamed-template"}`;
       }
       if (cmd.template !== undefined) {
         // Track template reference
         if (opts.templateReferences) {
-          const currentTemplateName = this.resolver.normalizeTemplateName(templateName);
-          const referencedTemplateName = this.resolver.normalizeTemplateName(cmd.template);
+          const currentTemplateName =
+            this.resolver.normalizeTemplateName(templateName);
+          const referencedTemplateName = this.resolver.normalizeTemplateName(
+            cmd.template,
+          );
           if (!opts.templateReferences.has(currentTemplateName)) {
             opts.templateReferences.set(currentTemplateName, new Set());
           }
-          opts.templateReferences.get(currentTemplateName)!.add(referencedTemplateName);
+          opts.templateReferences
+            .get(currentTemplateName)!
+            .add(referencedTemplateName);
         }
-        
+
         await this.#processTemplate({
           ...opts,
           template: cmd.template,
@@ -469,7 +560,12 @@ export class TemplateProcessor extends EventEmitter {
         });
       } else if (cmd.script !== undefined) {
         const scriptValidator = new ScriptValidator();
-        const scriptResolution = this.resolver.resolveScriptContent(opts.application, cmd.script);
+        // Pass template category for script resolution (e.g., "list" templates use "list" scripts)
+        const scriptResolution = this.resolver.resolveScriptContent(
+          opts.application,
+          cmd.script,
+          opts.templateCategory,
+        );
         scriptValidator.validateScriptContent(
           cmd,
           opts.application,
@@ -480,8 +576,10 @@ export class TemplateProcessor extends EventEmitter {
           opts.requestedIn,
           opts.parentTemplate,
         );
-        const scriptPath = this.resolver.resolveScriptPath(scriptResolution.ref);
-        
+        const scriptPath = this.resolver.resolveScriptPath(
+          scriptResolution.ref,
+        );
+
         // Validate and resolve library path if specified
         const commandWithLibrary: ICommand = {
           ...cmd,
@@ -491,9 +589,12 @@ export class TemplateProcessor extends EventEmitter {
             : {}),
           ...(tmplData.execute_on && { execute_on: tmplData.execute_on }),
         };
-        
+
         if (cmd.library !== undefined) {
-          const libraryResolution = this.resolver.resolveLibraryContent(opts.application, cmd.library);
+          const libraryResolution = this.resolver.resolveLibraryContent(
+            opts.application,
+            cmd.library,
+          );
           scriptValidator.validateLibraryContent(
             cmd.library,
             opts.errors,
@@ -501,7 +602,9 @@ export class TemplateProcessor extends EventEmitter {
             opts.requestedIn,
             opts.parentTemplate,
           );
-          const libraryPath = this.resolver.resolveLibraryPath(libraryResolution.ref);
+          const libraryPath = this.resolver.resolveLibraryPath(
+            libraryResolution.ref,
+          );
           if (libraryResolution.content !== null) {
             commandWithLibrary.libraryContent = libraryResolution.content;
           }
@@ -509,7 +612,7 @@ export class TemplateProcessor extends EventEmitter {
             commandWithLibrary.libraryPath = libraryPath;
           }
         }
-        
+
         opts.commands.push(commandWithLibrary);
       } else if (cmd.command !== undefined) {
         const scriptValidator = new ScriptValidator();
@@ -561,7 +664,9 @@ export class TemplateProcessor extends EventEmitter {
         const trace = traceById.get(param.id);
         // Include parameters that are missing OR have only a default value
         // (both should be shown as editable in the UI)
-        return trace ? trace.source === "missing" || trace.source === "default" : true;
+        return trace
+          ? trace.source === "missing" || trace.source === "default"
+          : true;
       });
     }
 
@@ -596,38 +701,43 @@ export class TemplateProcessor extends EventEmitter {
     if (!appId) return;
 
     const errors: IJsonError[] = [];
-    const tasks = Array.from(new Set(enumTemplates)).map(async (enumTemplate) => {
-      try {
-        const resolved = this.resolver.resolveTemplate(appId, enumTemplate);
-        const executeOn = resolved?.template?.execute_on;
-        const opts: IProcessTemplateOpts = {
-          application: appId,
-          template: enumTemplate,
-          templatename: enumTemplate,
-          resolvedParams: [],
-          visitedTemplates: new Set<string>(),
-          parameters: [],
-          commands: [],
-          errors,
-          requestedIn: "enum-warmup",
-          webuiTemplates: [],
-          executionMode: executionMode !== undefined ? executionMode : determineExecutionMode(),
-          veContext,
-          ...(executeOn ? { enumValuesExecuteOn: executeOn } : {}),
-          processedTemplates: new Map(),
-          templateReferences: new Map(),
-          outputSources: new Map(),
-        };
-        await this.enumValuesResolver.resolveEnumValuesTemplate(
-          enumTemplate,
-          opts,
-          (innerOpts) => this.#processTemplate(innerOpts),
-          (message) => this.emit("message", message),
-        );
-      } catch {
-        // Ignore warmup errors
-      }
-    });
+    const tasks = Array.from(new Set(enumTemplates)).map(
+      async (enumTemplate) => {
+        try {
+          const resolved = this.resolver.resolveTemplate(appId, enumTemplate);
+          const executeOn = resolved?.template?.execute_on;
+          const opts: IProcessTemplateOpts = {
+            application: appId,
+            template: enumTemplate,
+            templatename: enumTemplate,
+            resolvedParams: [],
+            visitedTemplates: new Set<string>(),
+            parameters: [],
+            commands: [],
+            errors,
+            requestedIn: "enum-warmup",
+            webuiTemplates: [],
+            executionMode:
+              executionMode !== undefined
+                ? executionMode
+                : determineExecutionMode(),
+            veContext,
+            ...(executeOn ? { enumValuesExecuteOn: executeOn } : {}),
+            processedTemplates: new Map(),
+            templateReferences: new Map(),
+            outputSources: new Map(),
+          };
+          await this.enumValuesResolver.resolveEnumValuesTemplate(
+            enumTemplate,
+            opts,
+            (innerOpts) => this.#processTemplate(innerOpts),
+            (message) => this.emit("message", message),
+          );
+        } catch {
+          // Ignore warmup errors
+        }
+      },
+    );
     await Promise.all(tasks);
   }
 }

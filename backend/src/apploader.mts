@@ -1,7 +1,4 @@
-import {
-  IApplication,
-  IConfiguredPathes,
-} from "@src/backend-types.mjs";
+import { IApplication, IConfiguredPathes } from "@src/backend-types.mjs";
 import { StorageContext } from "./storagecontext.mjs";
 import { IApplicationPersistence } from "./persistence/interfaces.mjs";
 import { IReadApplicationOptions } from "./backend-types.mjs";
@@ -36,12 +33,14 @@ export class ApplicationLoader {
    * @param opts Read application options
    * @param error Error to add
    */
-  private addErrorToOptions(opts: IReadApplicationOptions, error: Error | any): void {
+  private addErrorToOptions(
+    opts: IReadApplicationOptions,
+    error: Error | any,
+  ): void {
     if (opts.error && Array.isArray(opts.error.details)) {
       opts.error.details.push(error);
     } else if (opts.error) {
       opts.error.details = [error];
     }
   }
-
 }

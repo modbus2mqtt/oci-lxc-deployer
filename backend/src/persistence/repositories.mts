@@ -8,7 +8,10 @@ import type {
 import { VEConfigurationError } from "../backend-types.mjs";
 import type { IApplicationWeb, ITemplate } from "../types.mjs";
 import type { IApplication } from "../backend-types.mjs";
-import type { IApplicationPersistence, ITemplatePersistence } from "./interfaces.mjs";
+import type {
+  IApplicationPersistence,
+  ITemplatePersistence,
+} from "./interfaces.mjs";
 import { TemplatePathResolver } from "../templates/template-path-resolver.mjs";
 import { MarkdownReader } from "../markdown-reader.mjs";
 
@@ -42,11 +45,17 @@ export interface LocalResourceRef {
 export interface IApplicationRepository {
   getApplication(applicationId: string): IApplication;
   listApplications(): IApplicationWeb[];
-  getApplicationIcon(applicationId: string): { iconContent: string; iconType: string } | null;
+  getApplicationIcon(
+    applicationId: string,
+  ): { iconContent: string; iconType: string } | null;
 }
 
 export interface ITemplateRepository {
-  resolveTemplateRef(applicationId: string, templateName: string): TemplateRef | null;
+  resolveTemplateRef(
+    applicationId: string,
+    templateName: string,
+    category?: string,
+  ): TemplateRef | null;
   getTemplate(ref: TemplateRef): ITemplate | null;
 }
 
@@ -60,9 +69,7 @@ export interface IResourceRepository {
 }
 
 export interface IRepositories
-  extends IApplicationRepository,
-    ITemplateRepository,
-    IResourceRepository {
+  extends IApplicationRepository, ITemplateRepository, IResourceRepository {
   preloadJsonResources?(): void;
 }
 
@@ -117,14 +124,22 @@ export class InMemoryRepositories
         source: this.origin,
         framework: undefined,
         ...(app.errors && app.errors.length > 0
-          ? { errors: app.errors.map((e) => ({ message: e, name: "Error", details: undefined })) }
+          ? {
+              errors: app.errors.map((e) => ({
+                message: e,
+                name: "Error",
+                details: undefined,
+              })),
+            }
           : {}),
       });
     }
     return result;
   }
 
-  getApplicationIcon(applicationId: string): { iconContent: string; iconType: string } | null {
+  getApplicationIcon(
+    applicationId: string,
+  ): { iconContent: string; iconType: string } | null {
     const app = this.applications.get(applicationId);
     if (!app || !app.iconContent || !app.iconType) return null;
     return { iconContent: app.iconContent, iconType: app.iconType };
@@ -138,7 +153,11 @@ export class InMemoryRepositories
     return app;
   }
 
-  resolveTemplateRef(applicationId: string, templateName: string): TemplateRef | null {
+  resolveTemplateRef(
+    applicationId: string,
+    templateName: string,
+    category?: string,
+  ): TemplateRef | null {
     const normalized = TemplatePathResolver.normalizeTemplateName(templateName);
     const appKey = `${applicationId}:${normalized}`;
     if (this.templates.has(appKey)) {
@@ -148,6 +167,18 @@ export class InMemoryRepositories
         applicationId,
         origin: this.origin,
       };
+    }
+    // Try with category first
+    if (category) {
+      const categoryKey = `${category}:${normalized}`;
+      if (this.sharedTemplates.has(categoryKey)) {
+        return {
+          name: normalized,
+          scope: "shared",
+          origin: this.origin,
+          category,
+        };
+      }
     }
     if (this.sharedTemplates.has(normalized)) {
       return {
@@ -219,7 +250,10 @@ export class InMemoryRepositories
     // No-op for in-memory repositories
   }
 
-  private static extractSectionFromContent(content: string, sectionName: string): string | null {
+  private static extractSectionFromContent(
+    content: string,
+    sectionName: string,
+  ): string | null {
     const normalizeHeadingName = (name: string): string => {
       let s = name.trim().toLowerCase();
       s = s.replace(/\s*\{#.*\}\s*$/, "");
@@ -253,14 +287,19 @@ export class InMemoryRepositories
     while (sectionContent.length > 0 && sectionContent[0]!.trim() === "") {
       sectionContent.shift();
     }
-    while (sectionContent.length > 0 && sectionContent[sectionContent.length - 1]!.trim() === "") {
+    while (
+      sectionContent.length > 0 &&
+      sectionContent[sectionContent.length - 1]!.trim() === ""
+    ) {
       sectionContent.pop();
     }
     return sectionContent.length > 0 ? sectionContent.join("\n") : null;
   }
 }
 
-export class FileSystemRepositories implements IApplicationRepository, ITemplateRepository, IResourceRepository {
+export class FileSystemRepositories
+  implements IApplicationRepository, ITemplateRepository, IResourceRepository
+{
   private templateCache = new Map<string, ITemplate>();
   private scriptCache = new Map<string, string>();
   private markdownCache = new Map<string, string>();
@@ -306,7 +345,9 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     return this.persistence.listApplicationsForFrontend();
   }
 
-  getApplicationIcon(applicationId: string): { iconContent: string; iconType: string } | null {
+  getApplicationIcon(
+    applicationId: string,
+  ): { iconContent: string; iconType: string } | null {
     return this.persistence.readApplicationIcon(applicationId);
   }
 
@@ -320,7 +361,11 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     return appLoader.readApplicationJson(applicationId, readOpts);
   }
 
-  resolveTemplateRef(applicationId: string, templateName: string): TemplateRef | null {
+  resolveTemplateRef(
+    applicationId: string,
+    templateName: string,
+    category?: string,
+  ): TemplateRef | null {
     // Get the full application hierarchy (child -> parent -> grandparent...)
     const hierarchy = this.getApplicationHierarchy(applicationId);
 
@@ -330,7 +375,9 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
       if (!appPath) continue;
 
       // Check if template exists in this application's templates folder (not shared)
-      const templateNameWithExt = templateName.endsWith(".json") ? templateName : `${templateName}.json`;
+      const templateNameWithExt = templateName.endsWith(".json")
+        ? templateName
+        : `${templateName}.json`;
       const templatePath = path.join(appPath, "templates", templateNameWithExt);
 
       if (fs.existsSync(templatePath)) {
@@ -356,8 +403,11 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     // Not found in any application, check shared templates
     const resolved = TemplatePathResolver.resolveTemplatePath(
       templateName,
-      hierarchy[0] ? this.getApplicationPath(hierarchy[0])! : this.pathes.jsonPath,
+      hierarchy[0]
+        ? this.getApplicationPath(hierarchy[0])!
+        : this.pathes.jsonPath,
       this.pathes,
+      category,
     );
     if (!resolved || !resolved.isShared) return null;
 
@@ -375,6 +425,7 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
       name,
       scope: "shared",
       origin,
+      ...(resolved.category !== undefined && { category: resolved.category }),
     };
   }
 
@@ -426,7 +477,11 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
       if (cached) return cached;
     }
     if (ref.scope === "shared") {
-      const templatePath = this.persistence.resolveTemplatePath(ref.name, true);
+      const templatePath = this.persistence.resolveTemplatePath(
+        ref.name,
+        true,
+        ref.category,
+      );
       if (!templatePath) return null;
       const template = this.persistence.loadTemplate(templatePath);
       if (this.enableCache && template && ref.origin === "json") {
@@ -459,7 +514,10 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     const scriptPath = this.resolveScriptPath(ref);
     if (!scriptPath || !fs.existsSync(scriptPath)) return null;
     const content = fs.readFileSync(scriptPath, "utf-8");
-    if (this.enableCache && scriptPath.startsWith(this.pathes.jsonPath + path.sep)) {
+    if (
+      this.enableCache &&
+      scriptPath.startsWith(this.pathes.jsonPath + path.sep)
+    ) {
       this.scriptCache.set(cacheKey, content);
     }
     return content;
@@ -473,14 +531,26 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
       // Category path first (if specified)
       if (ref.category) {
         searchPaths.push(
-          path.join(this.pathes.localPath, "shared", "scripts", ref.category, ref.name),
+          path.join(
+            this.pathes.localPath,
+            "shared",
+            "scripts",
+            ref.category,
+            ref.name,
+          ),
         );
         searchPaths.push(
-          path.join(this.pathes.jsonPath, "shared", "scripts", ref.category, ref.name),
+          path.join(
+            this.pathes.jsonPath,
+            "shared",
+            "scripts",
+            ref.category,
+            ref.name,
+          ),
         );
       }
 
-      // Root paths (backward compatibility)
+      // Root paths (always accessible - these are non-categorized scripts)
       searchPaths.push(
         path.join(this.pathes.localPath, "shared", "scripts", ref.name),
       );
@@ -488,15 +558,23 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
         path.join(this.pathes.jsonPath, "shared", "scripts", ref.name),
       );
 
-      // Auto-discovery: search in known category subdirectories
-      const knownCategories = ["list", "library"];
-      for (const cat of knownCategories) {
-        searchPaths.push(
-          path.join(this.pathes.localPath, "shared", "scripts", cat, ref.name),
-        );
-        searchPaths.push(
-          path.join(this.pathes.jsonPath, "shared", "scripts", cat, ref.name),
-        );
+      // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
+      if (process.env.STRICT_CATEGORY_MODE !== "1") {
+        const knownCategories = ["list", "library", "image", "pre_start", "start", "post_start"];
+        for (const cat of knownCategories) {
+          searchPaths.push(
+            path.join(
+              this.pathes.localPath,
+              "shared",
+              "scripts",
+              cat,
+              ref.name,
+            ),
+          );
+          searchPaths.push(
+            path.join(this.pathes.jsonPath, "shared", "scripts", cat, ref.name),
+          );
+        }
       }
 
       for (const p of searchPaths) {
@@ -533,7 +611,10 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     const mdPath = MarkdownReader.getMarkdownPath(templatePath);
     if (!fs.existsSync(mdPath)) return null;
     const content = fs.readFileSync(mdPath, "utf-8");
-    if (this.enableCache && mdPath.startsWith(this.pathes.jsonPath + path.sep)) {
+    if (
+      this.enableCache &&
+      mdPath.startsWith(this.pathes.jsonPath + path.sep)
+    ) {
       this.markdownCache.set(cacheKey, content);
     }
     return content;
@@ -544,7 +625,10 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     if (this.enableCache) {
       const cached = this.markdownCache.get(cacheKey);
       if (cached) {
-        return FileSystemRepositories.extractSectionFromContent(cached, sectionName);
+        return FileSystemRepositories.extractSectionFromContent(
+          cached,
+          sectionName,
+        );
       }
     }
     const templatePath = this.resolveTemplatePathForMarkdown(ref);
@@ -624,7 +708,12 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
       // Handle subdirectories as categories (for shared scope only)
       if (entry.isDirectory() && scope === "shared") {
         const categoryDir = path.join(dir, entry.name);
-        this.preloadTemplatesFromDir(categoryDir, scope, applicationId, entry.name);
+        this.preloadTemplatesFromDir(
+          categoryDir,
+          scope,
+          applicationId,
+          entry.name,
+        );
         continue;
       }
 
@@ -681,7 +770,12 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
       // Handle subdirectories as categories (for shared scope only)
       if (entry.isDirectory() && scope === "shared") {
         const categoryDir = path.join(dir, entry.name);
-        this.preloadScriptsFromDir(categoryDir, scope, applicationId, entry.name);
+        this.preloadScriptsFromDir(
+          categoryDir,
+          scope,
+          applicationId,
+          entry.name,
+        );
         continue;
       }
 
@@ -696,7 +790,11 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
         };
         this.scriptCache.set(this.getScriptCacheKey(ref), content);
       } else if (applicationId) {
-        const ref: ScriptRef = { name: entry.name, scope: "application", applicationId };
+        const ref: ScriptRef = {
+          name: entry.name,
+          scope: "application",
+          applicationId,
+        };
         this.scriptCache.set(this.getScriptCacheKey(ref), content);
       }
     }
@@ -722,7 +820,10 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
       : `app:${ref.applicationId ?? "unknown"}:${ref.templateName}`;
   }
 
-  private static extractSectionFromContent(content: string, sectionName: string): string | null {
+  private static extractSectionFromContent(
+    content: string,
+    sectionName: string,
+  ): string | null {
     const normalizeHeadingName = (name: string): string => {
       let s = name.trim().toLowerCase();
       s = s.replace(/\s*\{#.*\}\s*$/, "");
@@ -756,7 +857,10 @@ export class FileSystemRepositories implements IApplicationRepository, ITemplate
     while (sectionContent.length > 0 && sectionContent[0]!.trim() === "") {
       sectionContent.shift();
     }
-    while (sectionContent.length > 0 && sectionContent[sectionContent.length - 1]!.trim() === "") {
+    while (
+      sectionContent.length > 0 &&
+      sectionContent[sectionContent.length - 1]!.trim() === ""
+    ) {
       sectionContent.pop();
     }
     return sectionContent.length > 0 ? sectionContent.join("\n") : null;

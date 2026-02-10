@@ -125,7 +125,27 @@ export interface ITemplatePersistence extends IPersistence {
    * @param isShared Whether template is in shared/templates directory
    * @param category Optional category subdirectory (e.g., "list")
    */
-  deleteTemplate(templateName: string, isShared: boolean, category?: string): void;
+  deleteTemplate(
+    templateName: string,
+    isShared: boolean,
+    category?: string,
+  ): void;
+
+  /**
+   * Writes script to local path
+   * @param scriptName Name of the script (with extension, e.g., "upload-smb-conf.sh")
+   * @param content Script content as string
+   * @param isShared If true, writes to shared/scripts, otherwise to application-specific scripts
+   * @param appPath Optional: Application path (required if isShared is false)
+   * @param category Optional category subdirectory (e.g., "pre_start")
+   */
+  writeScript(
+    scriptName: string,
+    content: string,
+    isShared: boolean,
+    appPath?: string,
+    category?: string,
+  ): void;
 }
 
 /**
@@ -186,4 +206,3 @@ export interface IAddonPersistence extends IPersistence {
    */
   getAllAddons(): IAddon[];
 }
-

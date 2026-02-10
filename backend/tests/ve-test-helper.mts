@@ -5,10 +5,17 @@ import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { ContextManager } from "@src/context-manager.mjs";
 import { TemplateProcessor } from "@src/templates/templateprocessor.mjs";
 
+export interface IInstallationCategories {
+  image?: string[];
+  pre_start?: string[];
+  start?: string[];
+  post_start?: string[];
+}
+
 export interface IApplication {
   name: string;
   description: string;
-  installation?: string[];
+  installation?: IInstallationCategories;
   backup?: string[];
   restore?: string[];
   uninstall?: string[];
@@ -183,8 +190,8 @@ export class VeTestHelper {
 
   writeSharedTemplate(tmplName: string, data: ITemplate): void {
     const sharedTmplDir = path.join(this.jsonDir, "shared", "templates");
-    fs.ensureDirSync(sharedTmplDir);
     const tmplPath = path.join(sharedTmplDir, tmplName);
+    fs.ensureDirSync(path.dirname(tmplPath));
     fs.writeFileSync(tmplPath, JSON.stringify(data, null, 2), "utf-8");
   }
 

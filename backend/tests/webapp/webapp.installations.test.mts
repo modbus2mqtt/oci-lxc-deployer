@@ -25,7 +25,10 @@ describe("WebApp Installations API", () => {
 
     setup = createWebAppTestSetup(import.meta.url, {
       // Provide required scripts for /api/installations via json/ (no manual copying)
-      jsonIncludePatterns: [".*list/list-managed-oci-containers.*", ".*library/lxc_config_parser_lib.*"],
+      jsonIncludePatterns: [
+        ".*list/list-managed-oci-containers.*",
+        ".*library/lxc_config_parser_lib.*",
+      ],
       // Schemas are read from repo directly by default (no copying)
     });
     env = setup.env;
@@ -50,7 +53,7 @@ describe("WebApp Installations API", () => {
         "hostname: cont-101",
         "description: <!-- oci-lxc-deployer:managed -->\\n<!-- oci-lxc-deployer:oci-image docker://alpine:3.19 -->\\nOCI image: docker://alpine:3.19",
       ].join("\n"),
-          );
+    );
     // managed but NOT oci -> should be ignored
     writeTextFile(
       path.join(lxcDir, "102.conf"),
@@ -58,7 +61,7 @@ describe("WebApp Installations API", () => {
         "hostname: cont-102",
         "description: <!-- oci-lxc-deployer:managed -->\\nLXC template: local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst",
       ].join("\n"),
-          );
+    );
     // oci but NOT managed -> should be ignored
     writeTextFile(
       path.join(lxcDir, "103.conf"),
@@ -66,7 +69,7 @@ describe("WebApp Installations API", () => {
         "hostname: cont-103",
         "description: <!-- oci-lxc-deployer:oci-image docker://debian:bookworm -->",
       ].join("\n"),
-          );
+    );
     // managed + oci (fallback visible line only) -> should be returned
     writeTextFile(
       path.join(lxcDir, "104.conf"),
@@ -74,7 +77,7 @@ describe("WebApp Installations API", () => {
         "hostname: cont-104",
         "description: <!-- oci-lxc-deployer:managed -->\\nOCI image: ghcr.io/example/app:1.2.3",
       ].join("\n"),
-          );
+    );
 
     // Point scan logic to our fake dir in tests
     process.env.LXC_MANAGER_PVE_LXC_DIR = lxcDir;

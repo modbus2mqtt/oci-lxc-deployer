@@ -7,8 +7,14 @@ import {
   IReadApplicationOptions,
   VEConfigurationError,
 } from "@src/backend-types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FileSystemPersistence (Integration)", () => {
   let env: TestEnvironment;
@@ -52,16 +58,22 @@ describe("FileSystemPersistence (Integration)", () => {
     env?.cleanup();
   });
 
-
   describe("Delegation to Handlers", () => {
     it("should delegate getAllAppNames to ApplicationHandler", () => {
       // Setup: Application erstellen
-      const appDir = persistenceHelper.resolve(Volume.JsonApplications, "testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "testapp/application.json", {
-        name: "Test App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "testapp/application.json",
+        {
+          name: "Test App",
+          installation: {},
+        },
+      );
 
       const result = persistence.getAllAppNames();
       expect(result.has("testapp")).toBe(true);
@@ -71,12 +83,16 @@ describe("FileSystemPersistence (Integration)", () => {
       // Setup: Framework erstellen
       const frameworksDir = persistenceHelper.resolve(Volume.JsonFrameworks);
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "testframework.json", {
-        id: "testframework",
-        name: "Test Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonFrameworks,
+        "testframework.json",
+        {
+          id: "testframework",
+          name: "Test Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       const result = persistence.getAllFrameworkNames();
       expect(result.has("testframework")).toBe(true);
@@ -84,12 +100,18 @@ describe("FileSystemPersistence (Integration)", () => {
 
     it("should delegate resolveTemplatePath to TemplateHandler", () => {
       // Setup: Template erstellen
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "Test Template",
-        commands: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [],
+        },
+      );
 
       const result = persistence.resolveTemplatePath("testtemplate", true);
       expect(result).not.toBeNull();
@@ -97,13 +119,19 @@ describe("FileSystemPersistence (Integration)", () => {
 
     it("should delegate loadTemplate to TemplateHandler", () => {
       // Setup: Template erstellen
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "testtemplate.json");
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "Test Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       const result = persistence.loadTemplate(templateFile);
       expect(result).not.toBeNull();
@@ -114,29 +142,50 @@ describe("FileSystemPersistence (Integration)", () => {
   describe("invalidateCache()", () => {
     it("should invalidate all handler caches", () => {
       // Setup: Application, Framework, Template erstellen
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/testapp/application.json", {
-        name: "Test App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/testapp/application.json",
+        {
+          name: "Test App",
+          installation: {},
+        },
+      );
 
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
-        id: "testframework",
-        name: "Test Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/testframework.json",
+        {
+          id: "testframework",
+          name: "Test Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
-      const templatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
+      const templatesDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "shared/templates",
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "testtemplate.json");
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/testtemplate.json", {
-        name: "Test Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "shared/templates/testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       // Populate caches
       persistence.getAllAppNames();
@@ -145,7 +194,9 @@ describe("FileSystemPersistence (Integration)", () => {
 
       // Verify caches are populated
       expect(persistence.getAllAppNames().has("testapp")).toBe(true);
-      expect(persistence.getAllFrameworkNames().has("testframework")).toBe(true);
+      expect(persistence.getAllFrameworkNames().has("testframework")).toBe(
+        true,
+      );
 
       // Invalidate all caches
       persistence.invalidateCache();
@@ -157,7 +208,9 @@ describe("FileSystemPersistence (Integration)", () => {
 
       // Verify caches are invalidated
       expect(persistence.getAllAppNames().has("testapp")).toBe(false);
-      expect(persistence.getAllFrameworkNames().has("testframework")).toBe(false);
+      expect(persistence.getAllFrameworkNames().has("testframework")).toBe(
+        false,
+      );
     });
   });
 
@@ -175,13 +228,20 @@ describe("FileSystemPersistence (Integration)", () => {
   describe("End-to-End Scenarios", () => {
     it("should handle complete application workflow", () => {
       // 1. Create application
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/workflowapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/workflowapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/workflowapp/application.json", {
-        name: "Workflow App",
-        description: "Workflow Description",
-        installation: ["template1.json"],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/workflowapp/application.json",
+        {
+          name: "Workflow App",
+          description: "Workflow Description",
+          installation: { post_start: ["template1.json"] },
+        },
+      );
 
       // 2. List applications
       const apps = persistence.listApplicationsForFrontend();
@@ -200,7 +260,11 @@ describe("FileSystemPersistence (Integration)", () => {
       expect(readApp.name).toBe("Workflow App");
 
       // 4. Read icon
-      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/workflowapp/icon.png", "icon data");
+      persistenceHelper.writeTextSync(
+        Volume.LocalRoot,
+        "applications/workflowapp/icon.png",
+        "icon data",
+      );
       const icon = persistence.readApplicationIcon("workflowapp");
       expect(icon).not.toBeNull();
 
@@ -233,26 +297,45 @@ describe("FileSystemPersistence (Integration)", () => {
 
     it("should handle framework and template operations together", () => {
       // Create framework
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
-        id: "testframework",
-        name: "Test Framework",
-        extends: "base",
-        properties: [] as any[],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/testframework.json",
+        {
+          id: "testframework",
+          name: "Test Framework",
+          extends: "base",
+          properties: [] as any[],
+        },
+      );
 
       // Create template
-      const templatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
+      const templatesDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "shared/templates",
+      );
       mkdirSync(templatesDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/testtemplate.json", {
-        name: "Test Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "shared/templates/testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       // Verify both are accessible
-      expect(persistence.getAllFrameworkNames().has("testframework")).toBe(true);
-      const templatePath = persistence.resolveTemplatePath("testtemplate", true);
+      expect(persistence.getAllFrameworkNames().has("testframework")).toBe(
+        true,
+      );
+      const templatePath = persistence.resolveTemplatePath(
+        "testtemplate",
+        true,
+      );
       expect(templatePath).not.toBeNull();
 
       // Load template
@@ -262,4 +345,3 @@ describe("FileSystemPersistence (Integration)", () => {
     });
   });
 });
-

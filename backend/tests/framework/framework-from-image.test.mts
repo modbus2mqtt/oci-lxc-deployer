@@ -3,8 +3,14 @@ import { IVEContext } from "@src/backend-types.mjs";
 import { IOciImageAnnotations } from "@src/types.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
 import { FrameworkFromImage } from "@src/framework-from-image.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FrameworkFromImage", () => {
   const localhostVEContext: IVEContext = {
@@ -32,7 +38,9 @@ describe("FrameworkFromImage", () => {
       expect(framework.name).toBe("Home Assistant");
       expect(framework.extends).toBe("npm-nodejs");
       expect(framework.url).toBe("https://www.home-assistant.io/");
-      expect(framework.documentation).toBe("https://www.home-assistant.io/docs/");
+      expect(framework.documentation).toBe(
+        "https://www.home-assistant.io/docs/",
+      );
       expect(framework.source).toBe("https://github.com/home-assistant/core");
       expect(framework.vendor).toBe("Home Assistant");
       expect(framework.description).toBe("Open source home automation");
@@ -100,7 +108,8 @@ describe("FrameworkFromImage", () => {
         documentation: "https://www.home-assistant.io/docs/",
         source: "https://github.com/home-assistant/core",
         vendor: "Home Assistant",
-        description: "Open source home automation that puts local control and privacy first.",
+        description:
+          "Open source home automation that puts local control and privacy first.",
       };
 
       // Create mock script that outputs JSON
@@ -112,11 +121,11 @@ import sys
 output = ${JSON.stringify(mockAnnotations, null, 2)}
 print(json.dumps(output))
 `;
-  persistenceHelper.writeTextSync(
-    Volume.JsonSharedScripts,
-    "get-oci-image-annotations.py",
-    mockScript,
-  );
+      persistenceHelper.writeTextSync(
+        Volume.JsonSharedScripts,
+        "get-oci-image-annotations.py",
+        mockScript,
+      );
 
       const annotations = await FrameworkFromImage.getAnnotationsFromImage(
         localhostVEContext,
@@ -136,7 +145,8 @@ print(json.dumps(output))
     it("should extract annotations with mocked script (mariadb)", async () => {
       const mockAnnotations: IOciImageAnnotations = {
         source: "https://github.com/MariaDB/mariadb-docker",
-        description: "MariaDB Server is a high performing open source relational database",
+        description:
+          "MariaDB Server is a high performing open source relational database",
       };
 
       const mockScript = `#!/usr/bin/env python3
@@ -146,11 +156,11 @@ import sys
 output = ${JSON.stringify(mockAnnotations, null, 2)}
 print(json.dumps(output))
 `;
-  persistenceHelper.writeTextSync(
-    Volume.JsonSharedScripts,
-    "get-oci-image-annotations.py",
-    mockScript,
-  );
+      persistenceHelper.writeTextSync(
+        Volume.JsonSharedScripts,
+        "get-oci-image-annotations.py",
+        mockScript,
+      );
 
       const annotations = await FrameworkFromImage.getAnnotationsFromImage(
         localhostVEContext,
@@ -177,11 +187,11 @@ import sys
 output = ${JSON.stringify(mockAnnotations, null, 2)}
 print(json.dumps(output))
 `;
-  persistenceHelper.writeTextSync(
-    Volume.JsonSharedScripts,
-    "get-oci-image-annotations.py",
-    mockScript,
-  );
+      persistenceHelper.writeTextSync(
+        Volume.JsonSharedScripts,
+        "get-oci-image-annotations.py",
+        mockScript,
+      );
 
       const annotations = await FrameworkFromImage.getAnnotationsFromImage(
         localhostVEContext,
@@ -240,4 +250,3 @@ print("Invalid JSON")
     });
   });
 });
-

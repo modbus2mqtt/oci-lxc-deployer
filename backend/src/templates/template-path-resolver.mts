@@ -24,7 +24,9 @@ export class TemplatePathResolver {
     category?: string,
   ): { fullPath: string; isShared: boolean; category?: string } | null {
     // Ensure template name has .json extension
-    const templateNameWithExt = templateName.endsWith(".json") ? templateName : `${templateName}.json`;
+    const templateNameWithExt = templateName.endsWith(".json")
+      ? templateName
+      : `${templateName}.json`;
     const templatePath = path.join(appPath, "templates", templateNameWithExt);
 
     // Check app-specific first
@@ -34,36 +36,72 @@ export class TemplatePathResolver {
 
     // For shared templates, check category subdirectory first if specified
     if (category) {
-      const categoryLocalPath = path.join(pathes.localPath, "shared", "templates", category, templateNameWithExt);
+      const categoryLocalPath = path.join(
+        pathes.localPath,
+        "shared",
+        "templates",
+        category,
+        templateNameWithExt,
+      );
       if (fs.existsSync(categoryLocalPath)) {
         return { fullPath: categoryLocalPath, isShared: true, category };
       }
-      const categoryJsonPath = path.join(pathes.jsonPath, "shared", "templates", category, templateNameWithExt);
+      const categoryJsonPath = path.join(
+        pathes.jsonPath,
+        "shared",
+        "templates",
+        category,
+        templateNameWithExt,
+      );
       if (fs.existsSync(categoryJsonPath)) {
         return { fullPath: categoryJsonPath, isShared: true, category };
       }
     }
 
-    // Fallback to root shared templates (backward compatibility)
-    const localSharedPath = path.join(pathes.localPath, "shared", "templates", templateNameWithExt);
+    // Root shared templates (always accessible - these are non-categorized templates)
+    const localSharedPath = path.join(
+      pathes.localPath,
+      "shared",
+      "templates",
+      templateNameWithExt,
+    );
     if (fs.existsSync(localSharedPath)) {
       return { fullPath: localSharedPath, isShared: true };
     }
-    const jsonSharedPath = path.join(pathes.jsonPath, "shared", "templates", templateNameWithExt);
+    const jsonSharedPath = path.join(
+      pathes.jsonPath,
+      "shared",
+      "templates",
+      templateNameWithExt,
+    );
     if (fs.existsSync(jsonSharedPath)) {
       return { fullPath: jsonSharedPath, isShared: true };
     }
 
-    // Auto-discovery: search in known category subdirectories
-    const knownCategories = ["list"];
-    for (const cat of knownCategories) {
-      const catLocalPath = path.join(pathes.localPath, "shared", "templates", cat, templateNameWithExt);
-      if (fs.existsSync(catLocalPath)) {
-        return { fullPath: catLocalPath, isShared: true, category: cat };
-      }
-      const catJsonPath = path.join(pathes.jsonPath, "shared", "templates", cat, templateNameWithExt);
-      if (fs.existsSync(catJsonPath)) {
-        return { fullPath: catJsonPath, isShared: true, category: cat };
+    // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
+    if (process.env.STRICT_CATEGORY_MODE !== "1") {
+      const knownCategories = ["list", "image", "pre_start", "start", "post_start"];
+      for (const cat of knownCategories) {
+        const catLocalPath = path.join(
+          pathes.localPath,
+          "shared",
+          "templates",
+          cat,
+          templateNameWithExt,
+        );
+        if (fs.existsSync(catLocalPath)) {
+          return { fullPath: catLocalPath, isShared: true, category: cat };
+        }
+        const catJsonPath = path.join(
+          pathes.jsonPath,
+          "shared",
+          "templates",
+          cat,
+          templateNameWithExt,
+        );
+        if (fs.existsSync(catJsonPath)) {
+          return { fullPath: catJsonPath, isShared: true, category: cat };
+        }
       }
     }
 
@@ -92,36 +130,72 @@ export class TemplatePathResolver {
 
     // For shared scripts, check category subdirectory first if specified
     if (category) {
-      const categoryLocalPath = path.join(pathes.localPath, "shared", "scripts", category, scriptName);
+      const categoryLocalPath = path.join(
+        pathes.localPath,
+        "shared",
+        "scripts",
+        category,
+        scriptName,
+      );
       if (fs.existsSync(categoryLocalPath)) {
         return categoryLocalPath;
       }
-      const categoryJsonPath = path.join(pathes.jsonPath, "shared", "scripts", category, scriptName);
+      const categoryJsonPath = path.join(
+        pathes.jsonPath,
+        "shared",
+        "scripts",
+        category,
+        scriptName,
+      );
       if (fs.existsSync(categoryJsonPath)) {
         return categoryJsonPath;
       }
     }
 
-    // Fallback to root shared scripts (backward compatibility)
-    const localSharedPath = path.join(pathes.localPath, "shared", "scripts", scriptName);
+    // Root shared scripts (always accessible - these are non-categorized scripts)
+    const localSharedPath = path.join(
+      pathes.localPath,
+      "shared",
+      "scripts",
+      scriptName,
+    );
     if (fs.existsSync(localSharedPath)) {
       return localSharedPath;
     }
-    const jsonSharedPath = path.join(pathes.jsonPath, "shared", "scripts", scriptName);
+    const jsonSharedPath = path.join(
+      pathes.jsonPath,
+      "shared",
+      "scripts",
+      scriptName,
+    );
     if (fs.existsSync(jsonSharedPath)) {
       return jsonSharedPath;
     }
 
-    // Auto-discovery: search in known category subdirectories
-    const knownCategories = ["list", "library"];
-    for (const cat of knownCategories) {
-      const catLocalPath = path.join(pathes.localPath, "shared", "scripts", cat, scriptName);
-      if (fs.existsSync(catLocalPath)) {
-        return catLocalPath;
-      }
-      const catJsonPath = path.join(pathes.jsonPath, "shared", "scripts", cat, scriptName);
-      if (fs.existsSync(catJsonPath)) {
-        return catJsonPath;
+    // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
+    if (process.env.STRICT_CATEGORY_MODE !== "1") {
+      const knownCategories = ["list", "library", "image", "pre_start", "start", "post_start"];
+      for (const cat of knownCategories) {
+        const catLocalPath = path.join(
+          pathes.localPath,
+          "shared",
+          "scripts",
+          cat,
+          scriptName,
+        );
+        if (fs.existsSync(catLocalPath)) {
+          return catLocalPath;
+        }
+        const catJsonPath = path.join(
+          pathes.jsonPath,
+          "shared",
+          "scripts",
+          cat,
+          scriptName,
+        );
+        if (fs.existsSync(catJsonPath)) {
+          return catJsonPath;
+        }
       }
     }
 
@@ -164,9 +238,11 @@ export class TemplatePathResolver {
     if (!resolved) {
       return null;
     }
-    
+
     try {
-      return JSON.parse(fs.readFileSync(resolved.fullPath, "utf-8")) as ITemplate;
+      return JSON.parse(
+        fs.readFileSync(resolved.fullPath, "utf-8"),
+      ) as ITemplate;
     } catch {
       return null;
     }
@@ -179,7 +255,7 @@ export class TemplatePathResolver {
    */
   static extractTemplateReferences(templateData: ITemplate): string[] {
     const references: string[] = [];
-    
+
     if (templateData.commands && Array.isArray(templateData.commands)) {
       for (const cmd of templateData.commands) {
         if (cmd && cmd.template) {
@@ -187,7 +263,7 @@ export class TemplatePathResolver {
         }
       }
     }
-    
+
     return references;
   }
 
@@ -235,9 +311,7 @@ export class TemplatePathResolver {
     }
 
     // Always include root paths for backward compatibility
-    templatePathes.push(
-      path.join(pathes.localPath, "shared", "templates"),
-    );
+    templatePathes.push(path.join(pathes.localPath, "shared", "templates"));
     templatePathes.push(path.join(pathes.jsonPath, "shared", "templates"));
     return templatePathes;
   }
@@ -274,4 +348,3 @@ export class TemplatePathResolver {
     return scriptPathes;
   }
 }
-

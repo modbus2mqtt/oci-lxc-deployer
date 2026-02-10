@@ -32,7 +32,9 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   const defaultLocalPath = path.join(rootDir, "examples");
   let localPath: string;
   if (localPathArg) {
-    localPath = path.isAbsolute(localPathArg) ? localPathArg : path.join(process.cwd(), localPathArg);
+    localPath = path.isAbsolute(localPathArg)
+      ? localPathArg
+      : path.join(process.cwd(), localPathArg);
   } else {
     localPath = process.env.LXC_MANAGER_LOCAL_PATH || defaultLocalPath;
   }
@@ -47,7 +49,10 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
 
   // Create minimal files if they don't exist
   if (!fs.existsSync(storageContextPath)) {
-    fs.writeFileSync(storageContextPath, JSON.stringify({ veContexts: [] }, null, 2));
+    fs.writeFileSync(
+      storageContextPath,
+      JSON.stringify({ veContexts: [] }, null, 2),
+    );
   }
   if (!fs.existsSync(secretFilePath)) {
     fs.writeFileSync(secretFilePath, "dummy-secret-for-validation");
@@ -62,11 +67,17 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
 
   let pm: PersistenceManager;
   try {
-    pm = PersistenceManager.initialize(localPath, storageContextPath, secretFilePath);
+    pm = PersistenceManager.initialize(
+      localPath,
+      storageContextPath,
+      secretFilePath,
+    );
   } catch (err: any) {
     console.error("Failed to initialize PersistenceManager:");
     console.error(`  ${err.message || err}`);
-    throw new ValidationError(`Failed to initialize PersistenceManager: ${err.message || err}`);
+    throw new ValidationError(
+      `Failed to initialize PersistenceManager: ${err.message || err}`,
+    );
   }
 
   const pathes = pm.getPathes();
@@ -92,10 +103,12 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   }
   const templateGroups: TemplateGroup[] = [];
 
-  const templateDirs = findTemplateDirs(pathes.jsonPath).concat(findTemplateDirs(pathes.localPath));
+  const templateDirs = findTemplateDirs(pathes.jsonPath).concat(
+    findTemplateDirs(pathes.localPath),
+  );
 
   for (const dir of templateDirs) {
-    const files = fs.readdirSync(dir).filter(f => f.endsWith(".json"));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
     const errors: { file: string; err: any }[] = [];
 
     for (const file of files) {
@@ -110,7 +123,10 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
 
     // Determine label
     const isJson = dir.startsWith(pathes.jsonPath);
-    const relToBase = path.relative(isJson ? pathes.jsonPath : pathes.localPath, dir);
+    const relToBase = path.relative(
+      isJson ? pathes.jsonPath : pathes.localPath,
+      dir,
+    );
     const parts = relToBase.split(path.sep);
     const prefix = isJson ? "json" : "local";
 
@@ -128,13 +144,15 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   }
 
   // Print Templates
-  const templateErrors = templateGroups.filter(g => g.errors.length > 0);
+  const templateErrors = templateGroups.filter((g) => g.errors.length > 0);
   const templateTotal = templateGroups.reduce((sum, g) => sum + g.count, 0);
 
   if (templateErrors.length === 0) {
     console.log(`✔ Templates (${templateTotal})`);
   } else {
-    console.error(`✖ Templates (${templateTotal - templateErrors.flatMap(g => g.errors).length}/${templateTotal})`);
+    console.error(
+      `✖ Templates (${templateTotal - templateErrors.flatMap((g) => g.errors).length}/${templateTotal})`,
+    );
     for (const group of templateErrors) {
       for (const { file, err } of group.errors) {
         console.error(`  ✖ ${group.label}/${file}`);
@@ -161,7 +179,10 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
     for (const filePath of files) {
       const relFile = path.relative(dir, filePath);
       try {
-        validator.serializeJsonFileWithSchema(filePath, "framework.schema.json");
+        validator.serializeJsonFileWithSchema(
+          filePath,
+          "framework.schema.json",
+        );
       } catch (err: any) {
         hasError = true;
         frameworkErrors.push({ file: relFile, err });
@@ -173,7 +194,9 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
     if (frameworkErrors.length === 0) {
       console.log(`✔ Frameworks (${frameworkTotal})`);
     } else {
-      console.error(`✖ Frameworks (${frameworkTotal - frameworkErrors.length}/${frameworkTotal})`);
+      console.error(
+        `✖ Frameworks (${frameworkTotal - frameworkErrors.length}/${frameworkTotal})`,
+      );
       for (const { file, err } of frameworkErrors) {
         console.error(`  ✖ ${file}`);
         if (err.details) printErrors(err.details);
@@ -193,7 +216,7 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
 
   for (const { dir } of addonSources) {
     if (!fs.existsSync(dir)) continue;
-    const files = fs.readdirSync(dir).filter(f => f.endsWith(".json"));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
     addonTotal += files.length;
 
     for (const file of files) {
@@ -211,7 +234,9 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
     if (addonErrors.length === 0) {
       console.log(`✔ Addons (${addonTotal})`);
     } else {
-      console.error(`✖ Addons (${addonTotal - addonErrors.length}/${addonTotal})`);
+      console.error(
+        `✖ Addons (${addonTotal - addonErrors.length}/${addonTotal})`,
+      );
       for (const { file, err } of addonErrors) {
         console.error(`  ✖ ${file}`);
         if (err.details) printErrors(err.details);
@@ -224,7 +249,13 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   const apps = pm.getApplicationService().listApplicationsForFrontend();
 
   const VALID_TASK_TYPES: TaskType[] = [
-    "installation", "backup", "restore", "uninstall", "update", "upgrade", "webui",
+    "installation",
+    "backup",
+    "restore",
+    "uninstall",
+    "update",
+    "upgrade",
+    "webui",
   ];
 
   const contextManager = pm.getContextManager();
@@ -235,7 +266,11 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
     getKey: () => "ve_validation-dummy",
   };
 
-  const appErrors: { id: string; schemaErrors?: IJsonError[]; taskErrors?: { task: string; err: any }[] }[] = [];
+  const appErrors: {
+    id: string;
+    schemaErrors?: IJsonError[];
+    taskErrors?: { task: string; err: any }[];
+  }[] = [];
 
   for (const app of apps) {
     // Check for schema errors first
@@ -245,15 +280,31 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
       continue;
     }
 
-    // Validate tasks
+    // Validate tasks - only validate tasks that are defined in the application
     const taskErrors: { task: string; err: any }[] = [];
     for (const task of VALID_TASK_TYPES) {
       try {
-        const templateProcessor = new TemplateProcessor(pathes, contextManager, pm.getPersistence());
-        await templateProcessor.loadApplication(app.id, task, dummyVeContext, ExecutionMode.TEST);
+        const templateProcessor = new TemplateProcessor(
+          pathes,
+          contextManager,
+          pm.getPersistence(),
+        );
+        await templateProcessor.loadApplication(
+          app.id,
+          task,
+          dummyVeContext,
+          ExecutionMode.TEST,
+        );
       } catch (err: any) {
-        hasError = true;
-        taskErrors.push({ task, err });
+        // Only count as error if it's not a "task not found" error
+        // Tasks like backup, restore, etc. are optional
+        const isTaskNotFoundError =
+          err.message?.includes("not found in") &&
+          err.message?.includes("application");
+        if (!isTaskNotFoundError) {
+          hasError = true;
+          taskErrors.push({ task, err });
+        }
       }
     }
 
@@ -264,9 +315,9 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
 
   // Get extends info for better error messages
   const getExtendsInfo = (appId: string): string => {
-    const app = apps.find(a => a.id === appId);
+    const app = apps.find((a) => a.id === appId);
     if (app?.extends) {
-      const failedBase = appErrors.find(e => e.id === app.extends);
+      const failedBase = appErrors.find((e) => e.id === app.extends);
       if (failedBase) {
         return ` (extends: ${app.extends} ✖)`;
       }
@@ -278,7 +329,9 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   if (appErrors.length === 0) {
     console.log(`✔ Applications (${apps.length})`);
   } else {
-    console.error(`✖ Applications (${apps.length - appErrors.length}/${apps.length})`);
+    console.error(
+      `✖ Applications (${apps.length - appErrors.length}/${apps.length})`,
+    );
     for (const appErr of appErrors) {
       const extendsInfo = getExtendsInfo(appErr.id);
       if (appErr.schemaErrors) {
@@ -286,7 +339,9 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
         printErrors(appErr.schemaErrors);
       } else if (appErr.taskErrors) {
         const passed = VALID_TASK_TYPES.length - appErr.taskErrors.length;
-        console.error(`  ✖ ${appErr.id}${extendsInfo} (${passed}/${VALID_TASK_TYPES.length} tasks)`);
+        console.error(
+          `  ✖ ${appErr.id}${extendsInfo} (${passed}/${VALID_TASK_TYPES.length} tasks)`,
+        );
         for (const { task, err } of appErr.taskErrors) {
           console.error(`    ✖ ${task}`);
           if (err.details?.length) {

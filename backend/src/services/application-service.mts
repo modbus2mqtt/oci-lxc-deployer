@@ -1,7 +1,4 @@
-import {
-  IApplication,
-  IReadApplicationOptions,
-} from "../backend-types.mjs";
+import { IApplication, IReadApplicationOptions } from "../backend-types.mjs";
 import { IApplicationWeb } from "../types.mjs";
 import { IApplicationPersistence } from "../persistence/interfaces.mjs";
 
@@ -10,9 +7,7 @@ import { IApplicationPersistence } from "../persistence/interfaces.mjs";
  * Wraps IApplicationPersistence interface
  */
 export class ApplicationService {
-  constructor(
-    private persistence: IApplicationPersistence,
-  ) {}
+  constructor(private persistence: IApplicationPersistence) {}
 
   getAllAppNames(): Map<string, string> {
     return this.persistence.getAllAppNames();
@@ -48,4 +43,3 @@ export class ApplicationService {
     this.persistence.deleteApplication(applicationName);
   }
 }
-

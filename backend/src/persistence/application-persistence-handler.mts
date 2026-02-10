@@ -123,7 +123,9 @@ export class ApplicationPersistenceHandler {
       };
 
       // Determine source: local or json
-      const source: "local" | "json" = localApps.has(applicationName) ? "local" : "json";
+      const source: "local" | "json" = localApps.has(applicationName)
+        ? "local"
+        : "json";
       readOpts.appSource = source;
 
       let appWeb: IApplicationWeb;
@@ -147,9 +149,14 @@ export class ApplicationPersistenceHandler {
           framework,
           extends: app.extends,
           stacktype: app.stacktype,
-          ...(app.errors && app.errors.length > 0 && {
-            errors: app.errors.map(e => ({ message: e, name: "Error", details: undefined }))
-          }),
+          ...(app.errors &&
+            app.errors.length > 0 && {
+              errors: app.errors.map((e) => ({
+                message: e,
+                name: "Error",
+                details: undefined,
+              })),
+            }),
         };
       } catch (e: Error | any) {
         // Loading failed - create minimal entry with error
@@ -158,17 +165,19 @@ export class ApplicationPersistenceHandler {
           name: applicationName,
           description: "Failed to load application",
           source,
-          errors: [{
-            name: e?.name || "Error",
-            message: e?.message || String(e),
-            details: e?.details,
-          }],
+          errors: [
+            {
+              name: e?.name || "Error",
+              message: e?.message || String(e),
+              details: e?.details,
+            },
+          ],
         };
       }
 
       // Attach any accumulated errors from readOpts
       if (readOpts.error.details && readOpts.error.details.length > 0) {
-        const convertedErrors = readOpts.error.details.map(e => ({
+        const convertedErrors = readOpts.error.details.map((e) => ({
           name: e?.name || "Error",
           message: e?.message || String(e),
           details: e?.details,
@@ -506,7 +515,9 @@ export class ApplicationPersistenceHandler {
           // For SVG: normalize size to 64x64 before base64 encoding
           const svgContent = fs.readFileSync(iconPath, { encoding: "utf-8" });
           const normalizedSvg = this.normalizeSvgSize(svgContent, 64);
-          const iconContent = Buffer.from(normalizedSvg, "utf-8").toString("base64");
+          const iconContent = Buffer.from(normalizedSvg, "utf-8").toString(
+            "base64",
+          );
           return { iconContent, iconType };
         } else {
           const iconContent = fs.readFileSync(iconPath, { encoding: "base64" });
@@ -554,11 +565,11 @@ export class ApplicationPersistenceHandler {
     // Handles values with units like "432.071pt" or "100px" or just "100"
     let normalized = svgContent.replace(
       /<svg([^>]*)\swidth\s*=\s*["'][^"']*["']/i,
-      `<svg$1 width="${size}"`
+      `<svg$1 width="${size}"`,
     );
     normalized = normalized.replace(
       /<svg([^>]*)\sheight\s*=\s*["'][^"']*["']/i,
-      `<svg$1 height="${size}"`
+      `<svg$1 height="${size}"`,
     );
     return normalized;
   }
@@ -647,8 +658,26 @@ export class ApplicationPersistenceHandler {
     appData: IApplication,
     opts: IReadApplicationOptions,
   ): void {
-    const taskKeys = [
-      "installation",
+    // Installation uses category-based format: { image, pre_start, start, post_start }
+    const installationCategories = ["image", "pre_start", "start", "post_start"];
+    const installation = (appData as any).installation;
+    if (installation && typeof installation === "object") {
+      let taskEntry = opts.taskTemplates.find((t) => t.task === "installation");
+      if (!taskEntry) {
+        taskEntry = { task: "installation", templates: [] };
+        opts.taskTemplates.push(taskEntry);
+      }
+
+      for (const category of installationCategories) {
+        const list = installation[category];
+        if (Array.isArray(list)) {
+          this.processTemplateList(list, taskEntry, "installation", opts);
+        }
+      }
+    }
+
+    // Other tasks use simple array format
+    const otherTaskKeys = [
       "backup",
       "restore",
       "uninstall",
@@ -657,83 +686,102 @@ export class ApplicationPersistenceHandler {
       "copy-upgrade",
       "copy-rollback",
       "addon-reconfigure",
+      "addon",
       "webui",
     ];
 
-    for (const key of taskKeys) {
+    for (const key of otherTaskKeys) {
       const list = (appData as any)[key];
-      let taskEntry = opts.taskTemplates.find((t) => t.task === key);
-      if (!taskEntry) {
-        taskEntry = { task: key, templates: [] };
-        opts.taskTemplates.push(taskEntry);
-      }
       if (Array.isArray(list)) {
-        for (const entry of list) {
-          if (typeof entry === "string") {
-            this.addTemplateToTask(entry, taskEntry, key, opts);
-          } else if (typeof entry === "object" && entry !== null) {
-            const name = (entry as ITemplateReference).name;
-            if (!name) continue;
-            // Handle before: support both string and array
-            const beforeValue = (entry as ITemplateReference).before;
-            if (beforeValue) {
-              const beforeName = Array.isArray(beforeValue) && beforeValue.length > 0
-                ? beforeValue[0]
-                : (typeof beforeValue === "string" ? beforeValue : null);
-              
-              if (beforeName) {
-                const existingTemplates = taskEntry.templates.map((t) =>
-                  typeof t === "string" ? t : (t as ITemplateReference).name,
-                );
-                // Check for duplicates before inserting
-                if (existingTemplates.includes(name)) {
-                  const error = new JsonError(
-                    `Template '${name}' appears multiple times in ${key} task. Each template can only appear once per task.`,
-                  );
-                  this.addErrorToOptions(opts, error);
-                  return; // Don't add duplicate
-                }
-                const idx = existingTemplates.indexOf(beforeName);
-                if (idx !== -1) {
-                  taskEntry.templates.splice(idx, 0, name);
-                } else {
-                  this.addTemplateToTask(name, taskEntry, key, opts);
-                }
-                continue; // Template added, skip to next entry
-              }
+        let taskEntry = opts.taskTemplates.find((t) => t.task === key);
+        if (!taskEntry) {
+          taskEntry = { task: key, templates: [] };
+          opts.taskTemplates.push(taskEntry);
+        }
+        this.processTemplateList(list, taskEntry, key, opts);
+      }
+    }
+  }
+
+  /**
+   * Processes a list of template entries and adds them to the task entry
+   */
+  private processTemplateList(
+    list: any[],
+    taskEntry: { task: string; templates: (ITemplateReference | string)[] },
+    taskName: string,
+    opts: IReadApplicationOptions,
+  ): void {
+    for (const entry of list) {
+      if (typeof entry === "string") {
+        this.addTemplateToTask(entry, taskEntry, taskName, opts);
+      } else if (typeof entry === "object" && entry !== null) {
+        const name = (entry as ITemplateReference).name;
+        if (!name) continue;
+        // Handle before: support both string and array
+        const beforeValue = (entry as ITemplateReference).before;
+        if (beforeValue) {
+          const beforeName =
+            Array.isArray(beforeValue) && beforeValue.length > 0
+              ? beforeValue[0]
+              : typeof beforeValue === "string"
+                ? beforeValue
+                : null;
+
+          if (beforeName) {
+            const existingTemplates = taskEntry.templates.map((t) =>
+              typeof t === "string" ? t : (t as ITemplateReference).name,
+            );
+            // Check for duplicates before inserting
+            if (existingTemplates.includes(name)) {
+              const error = new JsonError(
+                `Template '${name}' appears multiple times in ${taskName} task. Each template can only appear once per task.`,
+              );
+              this.addErrorToOptions(opts, error);
+              return; // Don't add duplicate
             }
-            // Handle after: support both string and array
-            const afterValue = (entry as ITemplateReference).after;
-            if (afterValue) {
-              const afterName = Array.isArray(afterValue) && afterValue.length > 0
-                ? afterValue[0]
-                : (typeof afterValue === "string" ? afterValue : null);
-              
-              if (afterName) {
-                const existingTemplates = taskEntry.templates.map((t) =>
-                  typeof t === "string" ? t : (t as ITemplateReference).name,
-                );
-                // Check for duplicates before inserting
-                if (existingTemplates.includes(name)) {
-                  const error = new JsonError(
-                    `Template '${name}' appears multiple times in ${key} task. Each template can only appear once per task.`,
-                  );
-                  this.addErrorToOptions(opts, error);
-                  return; // Don't add duplicate
-                }
-                const idx = existingTemplates.indexOf(afterName);
-                if (idx !== -1) {
-                  taskEntry.templates.splice(idx + 1, 0, name);
-                } else {
-                  this.addTemplateToTask(name, taskEntry, key, opts);
-                }
-                continue; // Template added, skip to next entry
-              }
+            const idx = existingTemplates.indexOf(beforeName);
+            if (idx !== -1) {
+              taskEntry.templates.splice(idx, 0, name);
+            } else {
+              this.addTemplateToTask(name, taskEntry, taskName, opts);
             }
-            // No before/after specified, add at end
-            this.addTemplateToTask(name, taskEntry, key, opts);
+            continue; // Template added, skip to next entry
           }
         }
+        // Handle after: support both string and array
+        const afterValue = (entry as ITemplateReference).after;
+        if (afterValue) {
+          const afterName =
+            Array.isArray(afterValue) && afterValue.length > 0
+              ? afterValue[0]
+              : typeof afterValue === "string"
+                ? afterValue
+                : null;
+
+          if (afterName) {
+            const existingTemplates = taskEntry.templates.map((t) =>
+              typeof t === "string" ? t : (t as ITemplateReference).name,
+            );
+            // Check for duplicates before inserting
+            if (existingTemplates.includes(name)) {
+              const error = new JsonError(
+                `Template '${name}' appears multiple times in ${taskName} task. Each template can only appear once per task.`,
+              );
+              this.addErrorToOptions(opts, error);
+              return; // Don't add duplicate
+            }
+            const idx = existingTemplates.indexOf(afterName);
+            if (idx !== -1) {
+              taskEntry.templates.splice(idx + 1, 0, name);
+            } else {
+              this.addTemplateToTask(name, taskEntry, taskName, opts);
+            }
+            continue; // Template added, skip to next entry
+          }
+        }
+        // No before/after specified, add at end
+        this.addTemplateToTask(name, taskEntry, taskName, opts);
       }
     }
   }
@@ -763,4 +811,3 @@ export class ApplicationPersistenceHandler {
     taskEntry.templates.push(templateName);
   }
 }
-

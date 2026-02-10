@@ -12,7 +12,12 @@ export interface HostDiscoveryDependencies {
   variableResolver: {
     replaceVarsWithContext: (str: string, ctx: Record<string, any>) => string;
   };
-  runOnLxc: (vm_id: string | number, command: string, tmplCommand: ICommand, timeoutMs?: number) => Promise<any>;
+  runOnLxc: (
+    vm_id: string | number,
+    command: string,
+    tmplCommand: ICommand,
+    timeoutMs?: number,
+  ) => Promise<any>;
   getContextManager: () => ContextManager | null;
   getRepositories: () => IResourceRepository | null;
 }
@@ -31,7 +36,10 @@ export class VeExecutionHostDiscovery {
     if (!repos) {
       throw new Error("Repositories not available for write-vmids-json.sh");
     }
-    const content = repos.getScript({ name: "write-vmids-json.sh", scope: "shared" });
+    const content = repos.getScript({
+      name: "write-vmids-json.sh",
+      scope: "shared",
+    });
     if (!content) {
       throw new Error("write-vmids-json.sh not found in shared scripts");
     }
@@ -52,7 +60,7 @@ export class VeExecutionHostDiscovery {
       VeExecutionConstants.HOST_PROBE_TIMEOUT_MS,
       eventEmitter,
     );
-    
+
     // Prefer parsed outputsRaw (name/value) if available
     let usedStr: string | undefined = undefined;
     if (this.deps.outputs.has("used_vm_ids")) {
@@ -120,11 +128,11 @@ export class VeExecutionHostDiscovery {
   ): Promise<void> {
     // Probe host for VM IDs
     const usedStr = await this.probeHostForVmIds(tmplCommand, eventEmitter);
-    
+
     // Parse and validate
     const arr = this.parseAndValidateVmIds(usedStr);
     const found = this.findHostnameInVmIds(arr, hostname);
-    
+
     // Get and validate VMContext
     const contextManager = this.deps.getContextManager();
     if (!contextManager) {
@@ -135,7 +143,7 @@ export class VeExecutionHostDiscovery {
       throw new Error(`VMContext for ${hostname} not found`);
     }
     this.validateHostMatch(vmctx, found);
-    
+
     // Replace variables with vmctx.outputs for host execution, then with outputs
     const execCmd = this.deps.variableResolver.replaceVarsWithContext(
       this.deps.variableResolver.replaceVarsWithContext(
@@ -192,7 +200,11 @@ export class VeExecutionHostDiscovery {
     for (const [key, value] of Object.entries(vmData)) {
       if (value !== null && value !== undefined) {
         const val = typeof value === "object" ? JSON.stringify(value) : value;
-        if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+        if (
+          typeof val === "string" ||
+          typeof val === "number" ||
+          typeof val === "boolean"
+        ) {
           inputs.push({ id: key, value: val });
           defaults.set(key, val);
         }
@@ -226,32 +238,42 @@ export class VeExecutionHostDiscovery {
     // We override runOnLxc to use the parent's runOnLxc function from deps
     // Define TemplateVeExecution inside the method to avoid circular import issues
     // Use a function to defer class definition until runtime when VeExecution is available
-    const TemplateVeExecution = (function() {
+    const TemplateVeExecution = (function () {
       // VeExecution should be available at runtime when this function executes
       return class TemplateVeExecution extends VeExecution {
-      constructor(
-        commands: ICommand[],
-        inputs: Array<{ id: string; value: string | number | boolean }>,
-        veContext: IVEContext | null,
-        defaults: Map<string, string | number | boolean>,
-        sshCommand: string,
-        private parentRunOnLxc: (vm_id: string | number, command: string, tmplCommand: ICommand, timeoutMs?: number) => Promise<any>,
-      ) {
-        super(commands, inputs, veContext, defaults, sshCommand);
-      }
-      
-      protected async runOnLxc(
-        vm_id: string | number,
-        command: string,
-        tmplCommand: ICommand,
-        timeoutMs?: number,
-      ): Promise<IVeExecuteMessage> {
-        // Use parent's runOnLxc function, which handles execution mode automatically
-        return await this.parentRunOnLxc(vm_id, command, tmplCommand, timeoutMs);
-      }
-    };
+        constructor(
+          commands: ICommand[],
+          inputs: Array<{ id: string; value: string | number | boolean }>,
+          veContext: IVEContext | null,
+          defaults: Map<string, string | number | boolean>,
+          sshCommand: string,
+          private parentRunOnLxc: (
+            vm_id: string | number,
+            command: string,
+            tmplCommand: ICommand,
+            timeoutMs?: number,
+          ) => Promise<any>,
+        ) {
+          super(commands, inputs, veContext, defaults, sshCommand);
+        }
+
+        protected async runOnLxc(
+          vm_id: string | number,
+          command: string,
+          tmplCommand: ICommand,
+          timeoutMs?: number,
+        ): Promise<IVeExecuteMessage> {
+          // Use parent's runOnLxc function, which handles execution mode automatically
+          return await this.parentRunOnLxc(
+            vm_id,
+            command,
+            tmplCommand,
+            timeoutMs,
+          );
+        }
+      };
     })();
-    
+
     const templateExecution = new TemplateVeExecution(
       lxcCommands,
       inputs,
@@ -282,4 +304,3 @@ export class VeExecutionHostDiscovery {
     await templateExecution.run(null);
   }
 }
-

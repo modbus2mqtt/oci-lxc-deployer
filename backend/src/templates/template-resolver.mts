@@ -34,8 +34,13 @@ export class TemplateResolver {
   resolveTemplate(
     applicationId: string,
     templateName: string,
+    category?: string,
   ): { template: ITemplate; ref: TemplateRef } | null {
-    const ref = this.repositories.resolveTemplateRef(applicationId, templateName);
+    const ref = this.repositories.resolveTemplateRef(
+      applicationId,
+      templateName,
+      category,
+    );
     if (!ref) return null;
     const template = this.repositories.getTemplate(ref);
     if (!template) return null;
@@ -45,13 +50,41 @@ export class TemplateResolver {
   resolveScriptContent(
     applicationId: string,
     scriptName: string,
+    category?: string,
   ): { content: string | null; ref: ScriptRef | null } {
-    const appRef: ScriptRef = { name: scriptName, scope: "application", applicationId };
+    // First try app-specific
+    const appRef: ScriptRef = {
+      name: scriptName,
+      scope: "application",
+      applicationId,
+    };
     const appContent = this.repositories.getScript(appRef);
     if (appContent !== null) return { content: appContent, ref: appRef };
-    const sharedRef: ScriptRef = { name: scriptName, scope: "shared" };
-    const sharedContent = this.repositories.getScript(sharedRef);
-    return { content: sharedContent, ref: sharedContent !== null ? sharedRef : null };
+
+    // Then try shared with category (if specified)
+    if (category) {
+      const sharedCategoryRef: ScriptRef = {
+        name: scriptName,
+        scope: "shared",
+        category,
+      };
+      const sharedCategoryContent =
+        this.repositories.getScript(sharedCategoryRef);
+      if (sharedCategoryContent !== null) {
+        return { content: sharedCategoryContent, ref: sharedCategoryRef };
+      }
+    }
+
+    // Fallback to shared root (backward compatibility - can be disabled via STRICT_CATEGORY_MODE)
+    if (process.env.STRICT_CATEGORY_MODE !== "1") {
+      const sharedRef: ScriptRef = { name: scriptName, scope: "shared" };
+      const sharedContent = this.repositories.getScript(sharedRef);
+      if (sharedContent !== null) {
+        return { content: sharedContent, ref: sharedRef };
+      }
+    }
+
+    return { content: null, ref: null };
   }
 
   resolveScriptPath(ref: ScriptRef | null): string | null {
@@ -64,19 +97,34 @@ export class TemplateResolver {
     libraryName: string,
   ): { content: string | null; ref: ScriptRef | null } {
     // First try app-specific
-    const appRef: ScriptRef = { name: libraryName, scope: "application", applicationId };
+    const appRef: ScriptRef = {
+      name: libraryName,
+      scope: "application",
+      applicationId,
+    };
     const appContent = this.repositories.getScript(appRef);
     if (appContent !== null) return { content: appContent, ref: appRef };
 
     // Then try shared with "library" category
-    const sharedLibRef: ScriptRef = { name: libraryName, scope: "shared", category: "library" };
+    const sharedLibRef: ScriptRef = {
+      name: libraryName,
+      scope: "shared",
+      category: "library",
+    };
     const sharedLibContent = this.repositories.getScript(sharedLibRef);
-    if (sharedLibContent !== null) return { content: sharedLibContent, ref: sharedLibRef };
+    if (sharedLibContent !== null)
+      return { content: sharedLibContent, ref: sharedLibRef };
 
-    // Fallback to shared root (backward compatibility)
-    const sharedRef: ScriptRef = { name: libraryName, scope: "shared" };
-    const sharedContent = this.repositories.getScript(sharedRef);
-    return { content: sharedContent, ref: sharedContent !== null ? sharedRef : null };
+    // Fallback to shared root (backward compatibility - can be disabled via STRICT_CATEGORY_MODE)
+    if (process.env.STRICT_CATEGORY_MODE !== "1") {
+      const sharedRef: ScriptRef = { name: libraryName, scope: "shared" };
+      const sharedContent = this.repositories.getScript(sharedRef);
+      if (sharedContent !== null) {
+        return { content: sharedContent, ref: sharedRef };
+      }
+    }
+
+    return { content: null, ref: null };
   }
 
   resolveLibraryPath(ref: ScriptRef | null): string | null {
@@ -91,7 +139,9 @@ export class TemplateResolver {
     const markdownRef: MarkdownRef = {
       templateName: this.normalizeTemplateName(ref.name),
       scope: ref.scope,
-      ...(ref.applicationId !== undefined ? { applicationId: ref.applicationId } : {}),
+      ...(ref.applicationId !== undefined
+        ? { applicationId: ref.applicationId }
+        : {}),
     };
     return this.repositories.getMarkdownSection(markdownRef, sectionName);
   }

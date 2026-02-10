@@ -9,6 +9,7 @@ Extend template parameter default value resolution to support `${VAR:-default}` 
 ## Current State
 
 The frontend already has this capability for docker-compose values:
+
 - `DockerComposeService.resolveVariables()` resolves `${VAR:-default}` patterns
 - `getEffectiveEnvsForSelectedService()` combines `.env` file with compose defaults
 - Used for `initial_command`, `image`, `user` fields
@@ -36,6 +37,7 @@ When the parameter form is built, resolve `${VAR:-default}` in default values ag
 The `provision-postgres-app` template needs `API_LOGIN_PASSWORD` to create the shared `api_login` PostgreSQL role. This password must match what PostgREST uses to connect.
 
 With this enhancement:
+
 1. User uploads `.env` with `API_LOGIN_PASSWORD=secure_password`
 2. Template parameter default `${API_LOGIN_PASSWORD:-api_login_123}` resolves to `secure_password`
 3. User can verify/edit the resolved value in the UI
@@ -53,9 +55,12 @@ for (const param of parameters) {
   let defaultValue = param.default;
 
   // Resolve ${VAR:-default} patterns in default values
-  if (typeof defaultValue === 'string' && defaultValue.includes('${')) {
+  if (typeof defaultValue === "string" && defaultValue.includes("${")) {
     const effectiveEnvs = this.getEffectiveEnvsForSelectedService();
-    defaultValue = this.composeService.resolveVariables(defaultValue, effectiveEnvs);
+    defaultValue = this.composeService.resolveVariables(
+      defaultValue,
+      effectiveEnvs,
+    );
   }
 
   // Create form control with resolved default

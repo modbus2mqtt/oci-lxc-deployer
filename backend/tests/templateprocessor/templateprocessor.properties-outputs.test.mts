@@ -3,13 +3,21 @@ import fs from "node:fs";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { TemplateProcessor } from "@src/templates/templateprocessor.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("TemplateProcessor properties outputs generation", () => {
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
-  let contextManager: ReturnType<typeof PersistenceManager.getInstance>["getContextManager"];
+  let contextManager: ReturnType<
+    typeof PersistenceManager.getInstance
+  >["getContextManager"];
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 
@@ -24,79 +32,90 @@ describe("TemplateProcessor properties outputs generation", () => {
       schemasRoot: env.schemaDir,
     });
 
-    const templatesDir = persistenceHelper.resolve(Volume.JsonApplications, "test-app/templates");
+    const templatesDir = persistenceHelper.resolve(
+      Volume.JsonApplications,
+      "test-app/templates",
+    );
     fs.mkdirSync(templatesDir, { recursive: true });
 
     const applicationJson = {
-      "name": "Test Application",
-      "description": "Test application for properties outputs",
-      "installation": ["set-parameters.json"]
+      name: "Test Application",
+      description: "Test application for properties outputs",
+      installation: { post_start: ["set-parameters.json"] },
     };
-    persistenceHelper.writeJsonSync(Volume.JsonApplications, "test-app/application.json", applicationJson);
+    persistenceHelper.writeJsonSync(
+      Volume.JsonApplications,
+      "test-app/application.json",
+      applicationJson,
+    );
 
     // Create set-parameters.json template (based on the real one)
     const setParametersTemplate = {
-      "execute_on": "ve",
-      "name": "Set Parameters",
-      "description": "Set application-specific parameters",
-      "parameters": [
+      execute_on: "ve",
+      name: "Set Parameters",
+      description: "Set application-specific parameters",
+      parameters: [
         {
-          "id": "hostname",
-          "name": "Hostname",
-          "type": "string",
-          "default": "test",
-          "required": true,
-          "description": "Hostname for the container"
+          id: "hostname",
+          name: "Hostname",
+          type: "string",
+          default: "test",
+          required: true,
+          description: "Hostname for the container",
         },
         {
-          "id": "uid",
-          "name": "UID",
-          "type": "string",
-          "default": "1000",
-          "description": "UID for permissions",
-          "advanced": true
+          id: "uid",
+          name: "UID",
+          type: "string",
+          default: "1000",
+          description: "UID for permissions",
+          advanced: true,
         },
         {
-          "id": "gid",
-          "name": "GID",
-          "type": "string",
-          "default": "1000",
-          "description": "GID for permissions",
-          "advanced": true
-        }
+          id: "gid",
+          name: "GID",
+          type: "string",
+          default: "1000",
+          description: "GID for permissions",
+          advanced: true,
+        },
       ],
-      "commands": [
+      commands: [
         {
-          "properties": [
+          properties: [
             {
-              "id": "ostype",
-              "value": "debian"
+              id: "ostype",
+              value: "debian",
             },
             {
-              "id": "oci_image",
-              "value": "test/image"
+              id: "oci_image",
+              value: "test/image",
             },
             {
-              "id": "uid",
-              "value": "{{uid}}"
+              id: "uid",
+              value: "{{uid}}",
             },
             {
-              "id": "gid",
-              "value": "{{gid}}"
+              id: "gid",
+              value: "{{gid}}",
             },
             {
-              "id": "volumes",
-              "value": "data=test"
+              id: "volumes",
+              value: "data=test",
             },
             {
-              "id": "envs",
-              "value": "USERNAME={{hostname}}\nPASSWORD=secret"
-            }
-          ]
-        }
-      ]
+              id: "envs",
+              value: "USERNAME={{hostname}}\nPASSWORD=secret",
+            },
+          ],
+        },
+      ],
     };
-    persistenceHelper.writeJsonSync(Volume.JsonApplications, "test-app/templates/set-parameters.json", setParametersTemplate);
+    persistenceHelper.writeJsonSync(
+      Volume.JsonApplications,
+      "test-app/templates/set-parameters.json",
+      setParametersTemplate,
+    );
 
     const { ctx } = env.initPersistence();
     contextManager = ctx;
@@ -126,7 +145,7 @@ describe("TemplateProcessor properties outputs generation", () => {
 
     // Check that all property IDs are in resolvedParams (which means they were treated as outputs)
     const resolvedParamIds = loaded.resolvedParams.map((p) => p.id);
-    
+
     // All IDs from properties should be in resolvedParams
     expect(resolvedParamIds).toContain("ostype");
     expect(resolvedParamIds).toContain("oci_image");
@@ -140,7 +159,9 @@ describe("TemplateProcessor properties outputs generation", () => {
     expect(ostypeParam).toBeDefined();
     expect(ostypeParam?.template).toBe("set-parameters.json");
 
-    const ociImageParam = loaded.resolvedParams.find((p) => p.id === "oci_image");
+    const ociImageParam = loaded.resolvedParams.find(
+      (p) => p.id === "oci_image",
+    );
     expect(ociImageParam).toBeDefined();
     expect(ociImageParam?.template).toBe("set-parameters.json");
 
@@ -180,7 +201,9 @@ describe("TemplateProcessor properties outputs generation", () => {
 describe("TemplateProcessor properties.default feature", () => {
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
-  let contextManager: ReturnType<typeof PersistenceManager.getInstance>["getContextManager"];
+  let contextManager: ReturnType<
+    typeof PersistenceManager.getInstance
+  >["getContextManager"];
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 
@@ -195,56 +218,67 @@ describe("TemplateProcessor properties.default feature", () => {
       schemasRoot: env.schemaDir,
     });
 
-    const templatesDir = persistenceHelper.resolve(Volume.JsonApplications, "test-app-default/templates");
+    const templatesDir = persistenceHelper.resolve(
+      Volume.JsonApplications,
+      "test-app-default/templates",
+    );
     fs.mkdirSync(templatesDir, { recursive: true });
 
     const applicationJson = {
-      "name": "Test Application Default",
-      "description": "Test application for properties.default feature",
-      "installation": ["set-parameters.json"]
+      name: "Test Application Default",
+      description: "Test application for properties.default feature",
+      installation: { post_start: ["set-parameters.json"] },
     };
-    persistenceHelper.writeJsonSync(Volume.JsonApplications, "test-app-default/application.json", applicationJson);
+    persistenceHelper.writeJsonSync(
+      Volume.JsonApplications,
+      "test-app-default/application.json",
+      applicationJson,
+    );
 
     // Create set-parameters.json template with both value and default properties
     const setParametersTemplate = {
-      "execute_on": "ve",
-      "name": "Set Parameters",
-      "description": "Set application-specific parameters",
-      "parameters": [
+      execute_on: "ve",
+      name: "Set Parameters",
+      description: "Set application-specific parameters",
+      parameters: [
         {
-          "id": "volumes",
-          "name": "Volumes",
-          "type": "string",
-          "multiline": true,
-          "description": "Volume configuration"
+          id: "volumes",
+          name: "Volumes",
+          type: "string",
+          multiline: true,
+          description: "Volume configuration",
         },
         {
-          "id": "hostname",
-          "name": "Hostname",
-          "type": "string",
-          "description": "Container hostname"
-        }
+          id: "hostname",
+          name: "Hostname",
+          type: "string",
+          description: "Container hostname",
+        },
       ],
-      "commands": [
+      commands: [
         {
-          "properties": [
+          properties: [
             {
-              "id": "oci_image",
-              "value": "test/image"
+              id: "oci_image",
+              value: "test/image",
             },
             {
-              "id": "volumes",
-              "default": "config=/config\nsecure/secure,700"
+              id: "volumes",
+              default: "config=/config\nsecure/secure,700",
             },
             {
-              "id": "hostname",
-              "default": "test-default-hostname"
-            }
-          ]
-        }
-      ]
+              id: "hostname",
+              default: "test-default-hostname",
+            },
+          ],
+        },
+      ],
     };
-    persistenceHelper.writeJsonSync(Volume.JsonApplications, "test-app-default/templates/set-parameters.json", setParametersTemplate);
+    persistenceHelper.writeJsonSync(
+      Volume.JsonApplications,
+      "test-app-default/templates/set-parameters.json",
+      setParametersTemplate,
+    );
 
     const { ctx } = env.initPersistence();
     contextManager = ctx;
@@ -316,7 +350,9 @@ describe("TemplateProcessor properties.default feature", () => {
     expect(volumesTrace).toBeDefined();
     expect(volumesTrace?.source).toBe("default");
 
-    const hostnameTrace = loaded.parameterTrace?.find((t) => t.id === "hostname");
+    const hostnameTrace = loaded.parameterTrace?.find(
+      (t) => t.id === "hostname",
+    );
     expect(hostnameTrace).toBeDefined();
     expect(hostnameTrace?.source).toBe("default");
 
@@ -324,4 +360,3 @@ describe("TemplateProcessor properties.default feature", () => {
     // It's just an output, so we don't check it in parameterTrace.
   });
 });
-

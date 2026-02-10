@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import path from "path";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "../helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "../helper/test-persistence-helper.mjs";
 
 let env: TestEnvironment;
 
@@ -28,11 +34,17 @@ describe("Template JSON validation", () => {
     const rootDir = env.repoRoot;
     const jsonFiles = persistence
       .listSync(Volume.JsonRoot)
-      .filter((p) => p.endsWith(".json") && p.includes(`${path.sep}templates${path.sep}`))
+      .filter(
+        (p) =>
+          p.endsWith(".json") && p.includes(`${path.sep}templates${path.sep}`),
+      )
       .map((p) => persistence.resolve(Volume.JsonRoot, p));
     const localJsonFiles = persistence
       .listSync(Volume.LocalRoot, "json")
-      .filter((p) => p.endsWith(".json") && p.includes(`${path.sep}templates${path.sep}`))
+      .filter(
+        (p) =>
+          p.endsWith(".json") && p.includes(`${path.sep}templates${path.sep}`),
+      )
       .map((p) => persistence.resolve(Volume.LocalRoot, path.join("json", p)));
 
     const templateFiles = [...jsonFiles, ...localJsonFiles];

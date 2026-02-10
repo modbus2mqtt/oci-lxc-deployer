@@ -9,7 +9,9 @@ import path from "node:path";
 let testDir: string;
 
 beforeAll(() => {
-  testDir = mkdtempSync(path.join(os.tmpdir(), "scriptvalidator-library-test-"));
+  testDir = mkdtempSync(
+    path.join(os.tmpdir(), "scriptvalidator-library-test-"),
+  );
 });
 
 afterAll(() => {
@@ -31,7 +33,13 @@ describe("ScriptValidator - Library validation", () => {
     const errors: JsonError[] = [];
     const scriptPathes = [testDir];
 
-    validator.validateLibrary("library-with-vars.sh", errors, "test", undefined, scriptPathes);
+    validator.validateLibrary(
+      "library-with-vars.sh",
+      errors,
+      "test",
+      undefined,
+      scriptPathes,
+    );
 
     expect(errors.length).toBe(1);
     expect(errors[0].message).toContain("contains template variables");
@@ -43,7 +51,13 @@ describe("ScriptValidator - Library validation", () => {
     const errors: JsonError[] = [];
     const scriptPathes = [testDir];
 
-    validator.validateLibrary("non-existent-library.sh", errors, "test", undefined, scriptPathes);
+    validator.validateLibrary(
+      "non-existent-library.sh",
+      errors,
+      "test",
+      undefined,
+      scriptPathes,
+    );
 
     expect(errors.length).toBe(1);
     expect(errors[0].message).toContain("Library file not found");
@@ -58,7 +72,13 @@ describe("ScriptValidator - Library validation", () => {
     const errors: JsonError[] = [];
     const scriptPathes = [testDir];
 
-    validator.validateLibrary("valid-library.sh", errors, "test", undefined, scriptPathes);
+    validator.validateLibrary(
+      "valid-library.sh",
+      errors,
+      "test",
+      undefined,
+      scriptPathes,
+    );
 
     expect(errors.length).toBe(0);
   });
@@ -67,7 +87,13 @@ describe("ScriptValidator - Library validation", () => {
     const validator = new ScriptValidator();
     const errors: JsonError[] = [];
 
-    validator.validateLibrary("library.sh", errors, "test", undefined, undefined);
+    validator.validateLibrary(
+      "library.sh",
+      errors,
+      "test",
+      undefined,
+      undefined,
+    );
 
     expect(errors.length).toBe(1);
     expect(errors[0].message).toContain("scriptPathes not provided");
@@ -85,7 +111,13 @@ describe("ScriptValidator - Library validation", () => {
     const errors: JsonError[] = [];
     const scriptPathes = [testDir];
 
-    validator.validateLibrary("unreadable-library.sh", errors, "test", undefined, scriptPathes);
+    validator.validateLibrary(
+      "unreadable-library.sh",
+      errors,
+      "test",
+      undefined,
+      scriptPathes,
+    );
 
     // On Windows, file might still be readable, so we check if error occurred
     if (process.platform !== "win32") {
@@ -98,4 +130,3 @@ describe("ScriptValidator - Library validation", () => {
     }
   });
 });
-

@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { ContextManager } from "@src/context-manager.mjs";
 import type { IParameter } from "@src/types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
 
 const veContext = { host: "localhost", port: 22 } as any;
@@ -30,7 +36,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
       {
         name: "Test Properties Resolution",
         description: "properties outputs resolve required parameter",
-        installation: ["set-properties.json", "needs-param.json"],
+        installation: { post_start: ["set-properties.json", "needs-param.json"] },
       },
     );
     persistenceHelper.writeJsonSync(
@@ -44,9 +50,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
         commands: [
           {
             name: "set-properties",
-            properties: [
-              { id: "oci_image", value: "ghcr.io/example/app" },
-            ],
+            properties: [{ id: "oci_image", value: "ghcr.io/example/app" }],
           },
         ],
       },
@@ -83,7 +87,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
       {
         name: "Test Enum Variants",
         description: "Enum values variants (0/1/many)",
-        installation: ["enum-zero.json", "enum-one.json", "enum-many.json"],
+        installation: { post_start: ["enum-zero.json", "enum-one.json", "enum-many.json"] },
       },
     );
 
@@ -104,9 +108,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
             description: "Zero enum values",
           },
         ],
-        commands: [
-          { name: "noop", command: "echo ok" },
-        ],
+        commands: [{ name: "noop", command: "echo ok" }],
       },
     );
 
@@ -127,9 +129,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
             description: "One enum value",
           },
         ],
-        commands: [
-          { name: "noop", command: "echo ok" },
-        ],
+        commands: [{ name: "noop", command: "echo ok" }],
       },
     );
 
@@ -150,9 +150,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
             description: "Many enum values",
           },
         ],
-        commands: [
-          { name: "noop", command: "echo ok" },
-        ],
+        commands: [{ name: "noop", command: "echo ok" }],
       },
     );
 
@@ -183,7 +181,7 @@ describe("TemplateProcessor unresolved + enum variants", () => {
         commands: [
           {
             name: "emit-one",
-            command: "printf '[{\"name\":\"only\",\"value\":\"only\"}]'",
+            command: 'printf \'[{"name":"only","value":"only"}]\'',
           },
         ],
       },
@@ -199,7 +197,8 @@ describe("TemplateProcessor unresolved + enum variants", () => {
         commands: [
           {
             name: "emit-many",
-            command: "printf '[{\"name\":\"a\",\"value\":\"a\"},{\"name\":\"b\",\"value\":\"b\"}]'",
+            command:
+              'printf \'[{"name":"a","value":"a"},{"name":"b","value":"b"}]\'',
           },
         ],
       },
@@ -231,9 +230,15 @@ describe("TemplateProcessor unresolved + enum variants", () => {
       ExecutionMode.TEST,
     );
 
-    const enumZero = loaded.parameters.find((p: IParameter) => p.id === "enum_zero");
-    const enumOne = loaded.parameters.find((p: IParameter) => p.id === "enum_one");
-    const enumMany = loaded.parameters.find((p: IParameter) => p.id === "enum_many");
+    const enumZero = loaded.parameters.find(
+      (p: IParameter) => p.id === "enum_zero",
+    );
+    const enumOne = loaded.parameters.find(
+      (p: IParameter) => p.id === "enum_one",
+    );
+    const enumMany = loaded.parameters.find(
+      (p: IParameter) => p.id === "enum_many",
+    );
 
     expect(enumZero).toBeDefined();
     expect(enumOne).toBeDefined();
@@ -268,9 +273,15 @@ describe("TemplateProcessor unresolved + enum variants", () => {
       ExecutionMode.TEST,
     );
 
-    const enumZero = loaded.parameters.find((p: IParameter) => p.id === "enum_zero");
-    const enumOne = loaded.parameters.find((p: IParameter) => p.id === "enum_one");
-    const enumMany = loaded.parameters.find((p: IParameter) => p.id === "enum_many");
+    const enumZero = loaded.parameters.find(
+      (p: IParameter) => p.id === "enum_zero",
+    );
+    const enumOne = loaded.parameters.find(
+      (p: IParameter) => p.id === "enum_one",
+    );
+    const enumMany = loaded.parameters.find(
+      (p: IParameter) => p.id === "enum_many",
+    );
 
     expect(enumZero?.default).toBeUndefined();
     expect(enumOne?.default).toBeUndefined();

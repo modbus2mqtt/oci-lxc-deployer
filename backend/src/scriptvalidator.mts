@@ -59,7 +59,10 @@ export class ScriptValidator {
       );
       return;
     }
-    const scriptPath = TemplatePathResolver.findInPathes(scriptPathes || [], cmd.script);
+    const scriptPath = TemplatePathResolver.findInPathes(
+      scriptPathes || [],
+      cmd.script,
+    );
     if (!scriptPath) {
       errors.push(
         new JsonError(
@@ -184,7 +187,10 @@ export class ScriptValidator {
       return;
     }
 
-    const libraryPath = TemplatePathResolver.findInPathes(scriptPathes, libraryName);
+    const libraryPath = TemplatePathResolver.findInPathes(
+      scriptPathes,
+      libraryName,
+    );
     if (!libraryPath) {
       errors.push(
         new JsonError(

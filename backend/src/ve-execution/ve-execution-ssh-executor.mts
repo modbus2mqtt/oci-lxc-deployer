@@ -2,7 +2,12 @@ import { ICommand, IVeExecuteMessage } from "../types.mjs";
 import { IVEContext } from "../backend-types.mjs";
 import { spawnAsync } from "../spawn-utils.mjs";
 import { JsonError } from "../jsonvalidator.mjs";
-import { VeExecutionConstants, getNextMessageIndex, ExecutionMode, determineExecutionMode } from "./ve-execution-constants.mjs";
+import {
+  VeExecutionConstants,
+  getNextMessageIndex,
+  ExecutionMode,
+  determineExecutionMode,
+} from "./ve-execution-constants.mjs";
 import { VeExecutionMessageEmitter } from "./ve-execution-message-emitter.mjs";
 import { OutputProcessor } from "../output-processor.mjs";
 import { createLogger } from "../logger/index.mjs";
@@ -17,7 +22,9 @@ export interface SshExecutorDependencies {
   messageEmitter: VeExecutionMessageEmitter;
   outputProcessor: OutputProcessor;
   outputsRaw: { name: string; value: string | number | boolean }[] | undefined;
-  setOutputsRaw: (raw: { name: string; value: string | number | boolean }[]) => void;
+  setOutputsRaw: (
+    raw: { name: string; value: string | number | boolean }[],
+  ) => void;
 }
 
 /**
@@ -33,7 +40,10 @@ export class VeExecutionSshExecutor {
       this.executionMode = deps.executionMode;
     } else if (deps.sshCommand !== undefined) {
       // Backward compatibility: derive from sshCommand
-      this.executionMode = deps.sshCommand === "ssh" ? ExecutionMode.PRODUCTION : ExecutionMode.TEST;
+      this.executionMode =
+        deps.sshCommand === "ssh"
+          ? ExecutionMode.PRODUCTION
+          : ExecutionMode.TEST;
     } else if (deps.veContext) {
       // If a VE context is present we almost certainly want to execute on the remote VE host.
       // This prevents running host-specific listing scripts (lsusb/lsblk/...) on the local dev machine.
@@ -57,7 +67,8 @@ export class VeExecutionSshExecutor {
   buildExecutionArgs(interpreter?: string[], verbose?: boolean): string[] {
     if (this.executionMode === ExecutionMode.PRODUCTION) {
       // Production: SSH to remote host
-      if (!this.deps.veContext) throw new Error("VE context required for production mode");
+      if (!this.deps.veContext)
+        throw new Error("VE context required for production mode");
       let host = this.deps.veContext.host;
       // Ensure root user is used when no user is specified
       if (typeof host === "string" && !host.includes("@")) {
@@ -151,9 +162,10 @@ export class VeExecutionSshExecutor {
       command: tmplCommand.name,
       timeoutMs,
       executionMode: this.executionMode,
-      sshCommand: this.executionMode === ExecutionMode.PRODUCTION
-        ? `ssh ${executionArgs.join(" ")}`
-        : undefined,
+      sshCommand:
+        this.executionMode === ExecutionMode.PRODUCTION
+          ? `ssh ${executionArgs.join(" ")}`
+          : undefined,
     });
 
     // Build marker and determine command structure
@@ -174,7 +186,13 @@ export class VeExecutionSshExecutor {
       // Production: use ssh with executionArgs (which contains SSH args + optional interpreter)
       actualCommand = "ssh";
       // For production, prepend marker to script for shell scripts
-      if (!interpreter || interpreter.length === 0 || !interpreter[0] || interpreter[0] === "sh" || interpreter[0].endsWith("/sh")) {
+      if (
+        !interpreter ||
+        interpreter.length === 0 ||
+        !interpreter[0] ||
+        interpreter[0] === "sh" ||
+        interpreter[0].endsWith("/sh")
+      ) {
         actualArgs = executionArgs;
         actualInput = `export LC_ALL=C LANG=C\necho "${marker}"\n${input}`;
       } else {
@@ -191,7 +209,13 @@ export class VeExecutionSshExecutor {
       }
     } else {
       // Test mode: use sh -c with "echo 'MARKER' && interpreter" for non-shell interpreters
-      if (!interpreter || interpreter.length === 0 || !interpreter[0] || interpreter[0] === "sh" || interpreter[0].endsWith("/sh")) {
+      if (
+        !interpreter ||
+        interpreter.length === 0 ||
+        !interpreter[0] ||
+        interpreter[0] === "sh" ||
+        interpreter[0].endsWith("/sh")
+      ) {
         // Shell script: just prepend echo marker
         actualCommand = "sh";
         actualArgs = [];
@@ -214,11 +238,21 @@ export class VeExecutionSshExecutor {
         input: actualInput,
         onStdout: (chunk: string) => {
           // Emit partial message for real-time output (especially useful for hanging scripts)
-          this.deps.messageEmitter.emitPartialMessage(tmplCommand, originalInput, chunk, "");
+          this.deps.messageEmitter.emitPartialMessage(
+            tmplCommand,
+            originalInput,
+            chunk,
+            "",
+          );
         },
         onStderr: (chunk: string) => {
           // Emit partial message for real-time error output
-          this.deps.messageEmitter.emitPartialMessage(tmplCommand, originalInput, null, chunk);
+          this.deps.messageEmitter.emitPartialMessage(
+            tmplCommand,
+            originalInput,
+            null,
+            chunk,
+          );
         },
       });
 
@@ -247,7 +281,13 @@ export class VeExecutionSshExecutor {
 
           // Rebuild args with verbose=true for retry (removes -q, sets LogLevel=DEBUG)
           const verboseArgs = this.buildExecutionArgs(interpreter, true);
-          if (!interpreter || interpreter.length === 0 || !interpreter[0] || interpreter[0] === "sh" || interpreter[0].endsWith("/sh")) {
+          if (
+            !interpreter ||
+            interpreter.length === 0 ||
+            !interpreter[0] ||
+            interpreter[0] === "sh" ||
+            interpreter[0].endsWith("/sh")
+          ) {
             actualArgs = verboseArgs;
           } else {
             const interpreterCmd = interpreter.join(" ");
@@ -264,7 +304,9 @@ export class VeExecutionSshExecutor {
             command: `ssh ${actualArgs.join(" ")}`,
           });
 
-          await new Promise((resolve) => setTimeout(resolve, VeExecutionConstants.RETRY_DELAY_MS));
+          await new Promise((resolve) =>
+            setTimeout(resolve, VeExecutionConstants.RETRY_DELAY_MS),
+          );
           continue;
         }
       }
@@ -380,17 +422,34 @@ export class VeExecutionSshExecutor {
       uniqueMarker, // Pass marker to be added based on interpreter
     );
 
-    const msg = this.createMessageFromResult(input, tmplCommand, stdout, stderr, exitCode);
+    const msg = this.createMessageFromResult(
+      input,
+      tmplCommand,
+      stdout,
+      stderr,
+      exitCode,
+    );
 
     try {
       if (stdout.trim().length === 0) {
-        const result = this.handleEmptyOutput(msg, tmplCommand, exitCode, stderr, eventEmitter);
+        const result = this.handleEmptyOutput(
+          msg,
+          tmplCommand,
+          exitCode,
+          stderr,
+          eventEmitter,
+        );
         if (result) return result;
       } else {
         // Parse and update outputs
-        this.deps.outputProcessor.parseAndUpdateOutputs(stdout, tmplCommand, uniqueMarker);
+        this.deps.outputProcessor.parseAndUpdateOutputs(
+          stdout,
+          tmplCommand,
+          uniqueMarker,
+        );
         // Check if outputsRaw was updated
-        const outputsRawResult = this.deps.outputProcessor.getOutputsRawResult();
+        const outputsRawResult =
+          this.deps.outputProcessor.getOutputsRawResult();
         if (outputsRawResult) {
           this.deps.setOutputsRaw(outputsRawResult);
         }
@@ -418,4 +477,3 @@ export class VeExecutionSshExecutor {
     return msg;
   }
 }
-

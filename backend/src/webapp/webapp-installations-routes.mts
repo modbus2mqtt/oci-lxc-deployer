@@ -6,8 +6,6 @@ import { VeExecution } from "../ve-execution/ve-execution.mjs";
 import { determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
 import { serializeError } from "./webapp-error-utils.mjs";
 
-
-
 export function registerInstallationsRoutes(
   app: express.Application,
   storageContext: ContextManager,
@@ -29,11 +27,12 @@ export function registerInstallationsRoutes(
       const scriptContent = repositories.getScript({
         name: "list-managed-oci-containers.py",
         scope: "shared",
+        category: "list", // list scripts are in list/ category
       });
       if (!scriptContent) {
         res.status(500).json({
           error:
-            "list-managed-oci-containers.py not found (expected in local/shared/scripts or json/shared/scripts)",
+            "list-managed-oci-containers.py not found (expected in local/shared/scripts/list or json/shared/scripts/list)",
         });
         return;
       }
@@ -41,11 +40,12 @@ export function registerInstallationsRoutes(
       const libraryContent = repositories.getScript({
         name: "lxc_config_parser_lib.py",
         scope: "shared",
+        category: "library", // library scripts are in library/ category
       });
       if (!libraryContent) {
         res.status(500).json({
           error:
-            "lxc_config_parser_lib.py not found (expected in local/shared/scripts or json/shared/scripts)",
+            "lxc_config_parser_lib.py not found (expected in local/shared/scripts/library or json/shared/scripts/library)",
         });
         return;
       }

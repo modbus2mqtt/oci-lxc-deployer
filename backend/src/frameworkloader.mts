@@ -11,9 +11,17 @@ import { StorageContext } from "./storagecontext.mjs";
 import { ContextManager } from "./context-manager.mjs";
 import { JsonError } from "./jsonvalidator.mjs";
 import { TemplateProcessor } from "./templates/templateprocessor.mjs";
-import { TaskType, IParameter, IPostFrameworkCreateApplicationBody } from "./types.mjs";
+import {
+  TaskType,
+  IParameter,
+  IPostFrameworkCreateApplicationBody,
+} from "./types.mjs";
 import { IVEContext } from "./backend-types.mjs";
-import { IFrameworkPersistence, IApplicationPersistence, ITemplatePersistence } from "./persistence/interfaces.mjs";
+import {
+  IFrameworkPersistence,
+  IApplicationPersistence,
+  ITemplatePersistence,
+} from "./persistence/interfaces.mjs";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
 
 export interface IReadFrameworkOptions {
@@ -25,14 +33,23 @@ export interface IReadFrameworkOptions {
 export class FrameworkLoader {
   constructor(
     private pathes: IConfiguredPathes,
-    private storage: StorageContext | ContextManager = StorageContext.getInstance(),
-    private persistence: IFrameworkPersistence & IApplicationPersistence & ITemplatePersistence,
+    private storage:
+      | StorageContext
+      | ContextManager = StorageContext.getInstance(),
+    private persistence: IFrameworkPersistence &
+      IApplicationPersistence &
+      ITemplatePersistence,
     private applicationLoader?: ApplicationLoader,
   ) {
     if (!this.applicationLoader) {
       // ApplicationLoader expects StorageContext | undefined
-      const storageContext = this.storage instanceof StorageContext ? this.storage : undefined;
-      this.applicationLoader = new ApplicationLoader(this.pathes, this.persistence, storageContext);
+      const storageContext =
+        this.storage instanceof StorageContext ? this.storage : undefined;
+      this.applicationLoader = new ApplicationLoader(
+        this.pathes,
+        this.persistence,
+        storageContext,
+      );
     }
   }
 
@@ -69,10 +86,16 @@ export class FrameworkLoader {
     }
 
     // TemplateProcessor expects ContextManager, not StorageContext
-    const contextManager = this.storage instanceof ContextManager 
-      ? this.storage 
-      : (this.storage as any).contextManager || PersistenceManager.getInstance().getContextManager();
-    const templateProcessor = new TemplateProcessor(this.pathes, contextManager, this.persistence);
+    const contextManager =
+      this.storage instanceof ContextManager
+        ? this.storage
+        : (this.storage as any).contextManager ||
+          PersistenceManager.getInstance().getContextManager();
+    const templateProcessor = new TemplateProcessor(
+      this.pathes,
+      contextManager,
+      this.persistence,
+    );
     const loaded = await templateProcessor.getParameters(
       frameworkData.extends,
       task,
@@ -82,8 +105,11 @@ export class FrameworkLoader {
     const propertyIds = (frameworkData.properties || []).map((p) =>
       typeof p === "string" ? p : p.id,
     );
-    const isDockerCompose = framework === 'docker-compose' || frameworkData.extends === 'docker-compose';
-    const isOciImage = framework === 'oci-image' || frameworkData.extends === 'oci-image';
+    const isDockerCompose =
+      framework === "docker-compose" ||
+      frameworkData.extends === "docker-compose";
+    const isOciImage =
+      framework === "oci-image" || frameworkData.extends === "oci-image";
     const result: IParameter[] = [];
     for (const propId of propertyIds) {
       const match = loaded.find((p) => p.id === propId);
@@ -98,9 +124,9 @@ export class FrameworkLoader {
         // - hostname should be optional (Application ID can be used as default in frontend)
         // - compose_project should be optional
         if (isDockerCompose || isOciImage) {
-          if (propId === 'hostname') {
+          if (propId === "hostname") {
             cloned.required = false; // Optional - Application ID can be used as default
-          } else if (propId === 'compose_project') {
+          } else if (propId === "compose_project") {
             cloned.required = false; // Force optional for docker-compose
           } else {
             // For other parameters, keep original required value (default to false if not defined)
@@ -125,7 +151,10 @@ export class FrameworkLoader {
     const frameworkOpts: IReadFrameworkOptions = {
       error: new VEConfigurationError("", request.frameworkId),
     };
-    const framework = this.readFrameworkJson(request.frameworkId, frameworkOpts);
+    const framework = this.readFrameworkJson(
+      request.frameworkId,
+      frameworkOpts,
+    );
 
     // Load base application to get template list
     const appOpts: IReadApplicationOptions = {
@@ -141,10 +170,16 @@ export class FrameworkLoader {
     // Get all parameters from base application to find parameter definitions
     // No veContext needed - we only need parameter definitions, not execution
     // TemplateProcessor expects ContextManager, not StorageContext
-    const contextManager = this.storage instanceof ContextManager 
-      ? this.storage 
-      : (this.storage as any).contextManager || PersistenceManager.getInstance().getContextManager();
-    const templateProcessor = new TemplateProcessor(this.pathes, contextManager, this.persistence);
+    const contextManager =
+      this.storage instanceof ContextManager
+        ? this.storage
+        : (this.storage as any).contextManager ||
+          PersistenceManager.getInstance().getContextManager();
+    const templateProcessor = new TemplateProcessor(
+      this.pathes,
+      contextManager,
+      this.persistence,
+    );
     const allParameters = await templateProcessor.getParameters(
       framework.extends,
       "installation",
@@ -181,7 +216,10 @@ export class FrameworkLoader {
 
     // Separate properties into parameters (default: true) and outputs (others)
     const templateParameters: IParameter[] = [];
-    const templateProperties: Array<{ id: string; value: string | number | boolean }> = [];
+    const templateProperties: Array<{
+      id: string;
+      value: string | number | boolean;
+    }> = [];
 
     for (const prop of framework.properties) {
       const propId = typeof prop === "string" ? prop : prop.id;
@@ -193,7 +231,11 @@ export class FrameworkLoader {
 
       // Special handling for docker-compose framework: ensure hostname is always added as parameter
       // even if it's not marked as default, so it can be used with Application ID as default
-      const shouldAddAsParameter = isDefault || (framework.id === 'docker-compose' && propId === 'hostname' && paramDef);
+      const shouldAddAsParameter =
+        isDefault ||
+        (framework.id === "docker-compose" &&
+          propId === "hostname" &&
+          paramDef);
 
       if (shouldAddAsParameter && paramDef) {
         // Create parameter entry
@@ -205,11 +247,14 @@ export class FrameworkLoader {
         } else if (paramDef.default !== undefined) {
           param.default = paramDef.default;
         }
-        
+
         // Special handling for hostname: use Application ID as default if not provided
         // This applies to both docker-compose and oci-image frameworks
-        if (propId === 'hostname') {
-          if (framework.id === 'docker-compose' || framework.id === 'oci-image') {
+        if (propId === "hostname") {
+          if (
+            framework.id === "docker-compose" ||
+            framework.id === "oci-image"
+          ) {
             param.required = false; // Optional - Application ID can be used as default
             // If hostname is not provided, use Application ID as default
             if (paramValue === undefined && paramDef.default === undefined) {
@@ -220,18 +265,18 @@ export class FrameworkLoader {
 
         // Special handling for docker-compose framework:
         // - compose_project should always be optional
-        if (framework.id === 'docker-compose') {
-          if (propId === 'compose_project') {
+        if (framework.id === "docker-compose") {
+          if (propId === "compose_project") {
             param.required = false;
           }
         }
-        
+
         templateParameters.push(param);
       } else if (paramValue !== undefined) {
         // For docker-compose framework: skip certain properties
-        if (framework.id === 'docker-compose') {
+        if (framework.id === "docker-compose") {
           // volumes is output by 310-extract-volumes-from-compose.json template
-          if (propId === 'volumes') {
+          if (propId === "volumes") {
             continue;
           }
           // env_file is handled separately below (marker detection)
@@ -248,21 +293,30 @@ export class FrameworkLoader {
     // For docker-compose framework ONLY: store compose_file in application.json
     // compose_file is base64-encoded and used as default at deployment (user doesn't need to re-upload)
     // Note: For oci-image framework, compose_file is NOT stored (not needed)
-    if (framework.id === 'docker-compose') {
-      const composeFileValue = paramValuesMap.get('compose_file');
+    if (framework.id === "docker-compose") {
+      const composeFileValue = paramValuesMap.get("compose_file");
 
-      if (composeFileValue && typeof composeFileValue === 'string') {
-        const composeFileIndex = templateProperties.findIndex(p => p.id === 'compose_file');
+      if (composeFileValue && typeof composeFileValue === "string") {
+        const composeFileIndex = templateProperties.findIndex(
+          (p) => p.id === "compose_file",
+        );
         if (composeFileIndex >= 0 && templateProperties[composeFileIndex]) {
           templateProperties[composeFileIndex].value = composeFileValue;
         } else {
-          templateProperties.push({ id: 'compose_file', value: composeFileValue });
+          templateProperties.push({
+            id: "compose_file",
+            value: composeFileValue,
+          });
         }
 
         // Also ensure it's in parameters if not already there
-        const composeParamIndex = templateParameters.findIndex(p => p.id === 'compose_file');
+        const composeParamIndex = templateParameters.findIndex(
+          (p) => p.id === "compose_file",
+        );
         if (composeParamIndex < 0) {
-          const composeParamDef = allParameters.find((p) => p.id === 'compose_file');
+          const composeParamDef = allParameters.find(
+            (p) => p.id === "compose_file",
+          );
           if (composeParamDef) {
             templateParameters.push({
               ...composeParamDef,
@@ -272,36 +326,44 @@ export class FrameworkLoader {
         }
       }
     }
-    
+
     // For docker-compose and oci-image frameworks: store env_file template and detect markers
     // If env_file contains {{ }} markers, user must upload a new .env at deployment time
     // If no markers, the stored template can be used directly
-    if (framework.id === 'docker-compose' || framework.id === 'oci-image') {
-      const envFileValue = paramValuesMap.get('env_file');
-      if (envFileValue && typeof envFileValue === 'string') {
+    if (framework.id === "docker-compose" || framework.id === "oci-image") {
+      const envFileValue = paramValuesMap.get("env_file");
+      if (envFileValue && typeof envFileValue === "string") {
         // Decode base64 and check for {{ }} markers
-        const envContent = Buffer.from(envFileValue, 'base64').toString('utf8');
+        const envContent = Buffer.from(envFileValue, "base64").toString("utf8");
         const hasMarkers = /\{\{.*?\}\}/.test(envContent);
 
         // Store marker flag as property (for dynamic required check at deployment)
         if (hasMarkers) {
-          templateProperties.push({ id: 'env_file_has_markers', value: 'true' });
+          templateProperties.push({
+            id: "env_file_has_markers",
+            value: "true",
+          });
         }
 
         // Store env_file template
-        templateProperties.push({ id: 'env_file', value: envFileValue });
+        templateProperties.push({ id: "env_file", value: envFileValue });
       }
     }
 
     // For docker-compose and oci-image frameworks: ensure hostname is set as property if not provided
     // Use Application ID as default so it can be passed to templates
-    if (framework.id === 'docker-compose' || framework.id === 'oci-image') {
-      const hostnameValue = paramValuesMap.get('hostname');
+    if (framework.id === "docker-compose" || framework.id === "oci-image") {
+      const hostnameValue = paramValuesMap.get("hostname");
       if (hostnameValue === undefined) {
         // hostname not provided, use Application ID as default
-        const hostnamePropIndex = templateProperties.findIndex(p => p.id === 'hostname');
+        const hostnamePropIndex = templateProperties.findIndex(
+          (p) => p.id === "hostname",
+        );
         if (hostnamePropIndex < 0) {
-          templateProperties.push({ id: 'hostname', value: request.applicationId });
+          templateProperties.push({
+            id: "hostname",
+            value: request.applicationId,
+          });
         }
       }
     }
@@ -319,16 +381,25 @@ export class FrameworkLoader {
       ...(templateParameters.length > 0 && { parameters: templateParameters }),
       // Properties defined directly in application.json (new approach - no separate template needed)
       ...(templateProperties.length > 0 && { properties: templateProperties }),
-      // Empty installation list - all templates come from extended application
-      installation: [],
+      // Empty installation - all templates come from extended application
+      installation: {},
     };
 
     // Optional OCI / metadata fields: prefer request overrides, then framework, then base application
-    const url = request.url ?? (framework as any).url ?? (baseApplication as any).url;
+    const url =
+      request.url ?? (framework as any).url ?? (baseApplication as any).url;
     const documentation =
-      request.documentation ?? (framework as any).documentation ?? (baseApplication as any).documentation;
-    const source = request.source ?? (framework as any).source ?? (baseApplication as any).source;
-    const vendor = request.vendor ?? (framework as any).vendor ?? (baseApplication as any).vendor;
+      request.documentation ??
+      (framework as any).documentation ??
+      (baseApplication as any).documentation;
+    const source =
+      request.source ??
+      (framework as any).source ??
+      (baseApplication as any).source;
+    const vendor =
+      request.vendor ??
+      (framework as any).vendor ??
+      (baseApplication as any).vendor;
 
     if (url) {
       applicationJson.url = url;
@@ -352,7 +423,10 @@ export class FrameworkLoader {
     // Write application.json using persistence
     // Note: We pass applicationJson without 'id' - it will be added when reading
     // Type assertion needed because writeApplication expects IApplication, but we don't want to write 'id'
-    this.persistence.writeApplication(request.applicationId, applicationJson as any);
+    this.persistence.writeApplication(
+      request.applicationId,
+      applicationJson as any,
+    );
 
     // Write icon if provided
     if (request.iconContent) {
@@ -361,7 +435,140 @@ export class FrameworkLoader {
       fs.writeFileSync(iconPath, iconBuffer);
     }
 
+    // Process uploadfiles: create template and script for each uploaded file
+    if (request.uploadfiles && request.uploadfiles.length > 0) {
+      const uploadTemplateNames: string[] = [];
+
+      for (const uploadFile of request.uploadfiles) {
+        const sanitized = this.sanitizeFilename(uploadFile.filename);
+        const templateName = `upload-${sanitized}`;
+        const scriptName = `upload-${sanitized}.sh`;
+        const contentParamId = `upload_${sanitized.replace(/-/g, "_")}_content`;
+        const destParamId = `upload_${sanitized.replace(/-/g, "_")}_destination`;
+        const outputId = `upload_${sanitized.replace(/-/g, "_")}_uploaded`;
+
+        // Generate the template
+        const uploadTemplate = {
+          name: `Upload ${uploadFile.filename}`,
+          description: `Uploads ${uploadFile.filename} to ${uploadFile.destination}`,
+          execute_on: "ve",
+          skip_if_all_missing: [contentParamId],
+          parameters: [
+            {
+              id: contentParamId,
+              name: uploadFile.filename,
+              type: "string",
+              upload: true,
+              required: uploadFile.required ?? false,
+              advanced: uploadFile.advanced ?? false,
+              description: `Configuration file: ${uploadFile.filename}`,
+              ...(uploadFile.content ? { default: uploadFile.content } : {}),
+            },
+            {
+              id: destParamId,
+              name: "Destination Path",
+              type: "string",
+              default: uploadFile.destination,
+              advanced: true,
+              description: "Target path: {volume_key}:{filename}",
+            },
+            {
+              id: "shared_volpath",
+              name: "Shared Volume Path",
+              type: "string",
+              advanced: true,
+            },
+            {
+              id: "hostname",
+              name: "Hostname",
+              type: "string",
+              required: true,
+            },
+            { id: "uid", name: "UID", type: "string", default: "0", advanced: true },
+            { id: "gid", name: "GID", type: "string", default: "0", advanced: true },
+            {
+              id: "mapped_uid",
+              name: "Mapped UID",
+              type: "string",
+              default: "",
+              advanced: true,
+            },
+            {
+              id: "mapped_gid",
+              name: "Mapped GID",
+              type: "string",
+              default: "",
+              advanced: true,
+            },
+          ],
+          commands: [
+            {
+              name: `Upload ${uploadFile.filename}`,
+              script: scriptName,
+              library: "upload-file-common.sh",
+              outputs: [outputId],
+            },
+          ],
+        };
+
+        // Write the template
+        this.persistence.writeTemplate(templateName, uploadTemplate as any, false, appDir);
+
+        // Generate the script
+        const scriptContent = `#!/bin/sh
+# Upload file: ${uploadFile.filename}
+# Auto-generated by create-application
+set -eu
+
+upload_pre_start_file \\
+  "{{ ${contentParamId} }}" \\
+  "{{ ${destParamId} }}" \\
+  "${uploadFile.filename}" \\
+  "{{ shared_volpath }}" \\
+  "{{ hostname }}" \\
+  "{{ uid }}" \\
+  "{{ gid }}" \\
+  "{{ mapped_uid }}" \\
+  "{{ mapped_gid }}"
+
+upload_output_result "${outputId}"
+`;
+        this.persistence.writeScript(scriptName, scriptContent, false, appDir);
+
+        uploadTemplateNames.push(`${templateName}.json`);
+      }
+
+      // Update application.json with pre_start templates
+      if (uploadTemplateNames.length > 0) {
+        const appJsonPath = path.join(appDir, "application.json");
+        const appJson = JSON.parse(fs.readFileSync(appJsonPath, "utf8"));
+
+        // Ensure installation.pre_start exists
+        if (!appJson.installation) {
+          appJson.installation = {};
+        }
+        if (!appJson.installation.pre_start) {
+          appJson.installation.pre_start = [];
+        }
+
+        // Add upload templates at the end of pre_start
+        for (const templateName of uploadTemplateNames) {
+          appJson.installation.pre_start.push(templateName);
+        }
+
+        fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2));
+      }
+    }
+
     return request.applicationId;
+  }
+
+  /**
+   * Sanitize filename for use in parameter IDs and template names
+   */
+  private sanitizeFilename(filename: string): string {
+    const base = path.basename(filename, path.extname(filename));
+    return base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
 
   private addErrorToOptions(opts: IReadFrameworkOptions, error: Error | any) {
@@ -374,4 +581,3 @@ export class FrameworkLoader {
     }
   }
 }
-

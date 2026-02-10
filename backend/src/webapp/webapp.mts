@@ -33,7 +33,11 @@ export class VEWebApp {
     registerLogsHtmlRoute(this.app);
     registerLoggerRoutes(this.app);
 
-    registerSshRoutes(this.app, this.storageContext, this.returnResponse.bind(this));
+    registerSshRoutes(
+      this.app,
+      this.storageContext,
+      this.returnResponse.bind(this),
+    );
     registerApplicationRoutes(
       this.app,
       this.storageContext,
@@ -64,4 +68,3 @@ export class VEWebApp {
     }
   }
 }
-

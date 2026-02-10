@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { Context } from "@src/context.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("Context file encryption", () => {
   it("fails or differs when using a different secret.txt", () => {

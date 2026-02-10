@@ -39,7 +39,9 @@ export class WebAppStack {
     this.app.post(ApiUri.Stacks, express.json(), (req, res) => {
       const body = req.body as IStack;
       if (!body.name || !body.stacktype) {
-        res.status(400).json({ error: "Missing required fields: name, stacktype" });
+        res
+          .status(400)
+          .json({ error: "Missing required fields: name, stacktype" });
         return;
       }
       // Auto-generate id from name if not provided

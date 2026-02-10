@@ -1,5 +1,7 @@
 {
   "name": "Test Enum Application",
   "description": "App to test enum values (static and dynamic)",
-  "installation": ["enum-static.json", "enum-dynamic.json"]
+  "installation": {
+    "post_start": ["enum-static.json", "enum-dynamic.json"]
+  }
 }

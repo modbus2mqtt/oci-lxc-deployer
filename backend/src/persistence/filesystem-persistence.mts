@@ -24,7 +24,11 @@ import { AddonPersistenceHandler } from "./addon-persistence-handler.mjs";
  * - FileWatcherManager: File watching and cache invalidation
  */
 export class FileSystemPersistence
-  implements IApplicationPersistence, ITemplatePersistence, IFrameworkPersistence, IAddonPersistence
+  implements
+    IApplicationPersistence,
+    ITemplatePersistence,
+    IFrameworkPersistence,
+    IAddonPersistence
 {
   private fileWatcher: FileWatcherManager;
   private applicationHandler: ApplicationPersistenceHandler;
@@ -101,20 +105,56 @@ export class FileSystemPersistence
 
   // ITemplatePersistence Implementation
 
-  resolveTemplatePath(templateName: string, isShared: boolean, category?: string) {
-    return this.templateHandler.resolveTemplatePath(templateName, isShared, category);
+  resolveTemplatePath(
+    templateName: string,
+    isShared: boolean,
+    category?: string,
+  ) {
+    return this.templateHandler.resolveTemplatePath(
+      templateName,
+      isShared,
+      category,
+    );
   }
 
   loadTemplate(templatePath: string) {
     return this.templateHandler.loadTemplate(templatePath);
   }
 
-  writeTemplate(templateName: string, template: any, isShared: boolean, appPath?: string, category?: string) {
-    this.templateHandler.writeTemplate(templateName, template, isShared, appPath, category);
+  writeTemplate(
+    templateName: string,
+    template: any,
+    isShared: boolean,
+    appPath?: string,
+    category?: string,
+  ) {
+    this.templateHandler.writeTemplate(
+      templateName,
+      template,
+      isShared,
+      appPath,
+      category,
+    );
   }
 
   deleteTemplate(templateName: string, isShared: boolean, category?: string) {
     this.templateHandler.deleteTemplate(templateName, isShared, category);
+  }
+
+  writeScript(
+    scriptName: string,
+    content: string,
+    isShared: boolean,
+    appPath?: string,
+    category?: string,
+  ) {
+    this.templateHandler.writeScript(
+      scriptName,
+      content,
+      isShared,
+      appPath,
+      category,
+    );
   }
 
   // IFrameworkPersistence Implementation

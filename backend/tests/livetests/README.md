@@ -5,6 +5,7 @@ Diese Tests erstellen echte Container auf einem Proxmox VE Host und verifizieren
 ## Voraussetzungen
 
 1. **SSH-Zugang zum PVE-Host**
+
    ```bash
    ssh pve1.cluster  # Muss ohne Passwort funktionieren
    ```
@@ -87,11 +88,13 @@ test_http() {
 Container werden automatisch nach dem Test gelöscht, es sei denn `KEEP_VM=1` ist gesetzt.
 
 Manuelles Cleanup:
+
 ```bash
 ssh pve1.cluster 'pct stop <vmid>; pct destroy <vmid>'
 ```
 
 Alle Test-Container löschen:
+
 ```bash
 ssh pve1.cluster 'for vm in $(pct list | grep "test-" | awk "{print \$1}"); do pct stop $vm 2>/dev/null; pct destroy $vm; done'
 ```

@@ -37,7 +37,10 @@ function findTemplateDirs(dir) {
             // Naive implementation: check if the 'templates' directory path is ignored
             // We'll read all ignore patterns and check if 'templates' or '**/templates' is present
             const giContents = fs.readFileSync(giPath, "utf-8");
-            const glines = giContents.split("\n").map(x => x.trim()).filter(x => x && !x.startsWith("#"));
+            const glines = giContents
+              .split("\n")
+              .map((x) => x.trim())
+              .filter((x) => x && !x.startsWith("#"));
             // Might ignore the whole dir (templates or **/templates)
             for (const pattern of glines) {
               // ignore-check is not complete but is ok for most simple .gitignore usage seen in such repos
@@ -45,7 +48,7 @@ function findTemplateDirs(dir) {
               if (
                 pattern === "templates" ||
                 pattern === "**/templates" ||
-                pattern === "templates/" || 
+                pattern === "templates/" ||
                 pattern === "**/templates/"
               ) {
                 ignored = true;

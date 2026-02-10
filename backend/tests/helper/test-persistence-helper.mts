@@ -43,8 +43,10 @@ export class TestPersistenceHelper {
     this.repoRoot = options.repoRoot ?? TestPersistenceHelper.getRepoRoot();
     this.localRoot = options.localRoot ?? path.join(this.repoRoot, "local");
     this.jsonRoot = options.jsonRoot ?? path.join(this.repoRoot, "json");
-    this.schemasRoot = options.schemasRoot ?? path.join(this.repoRoot, "schemas");
-    this.scriptsRoot = options.scriptsRoot ?? path.join(this.repoRoot, "scripts");
+    this.schemasRoot =
+      options.schemasRoot ?? path.join(this.repoRoot, "schemas");
+    this.scriptsRoot =
+      options.scriptsRoot ?? path.join(this.repoRoot, "scripts");
     this.docsRoot = options.docsRoot ?? path.join(this.repoRoot, "docs");
   }
 
@@ -224,7 +226,11 @@ export class TestPersistenceHelper {
     return results;
   }
 
-  private async walkDir(dir: string, base: string, out: string[]): Promise<void> {
+  private async walkDir(
+    dir: string,
+    base: string,
+    out: string[],
+  ): Promise<void> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = path.join(dir, entry.name);

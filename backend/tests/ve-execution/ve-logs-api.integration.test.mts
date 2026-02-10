@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import { ContextManager } from "@src/context-manager.mjs";
 import { ApiUri } from "@src/types.mjs";
-import { createWebAppVETestSetup, type WebAppVETestSetup } from "../helper/webapp-test-helper.mjs";
+import {
+  createWebAppVETestSetup,
+  type WebAppVETestSetup,
+} from "../helper/webapp-test-helper.mjs";
 import * as spawnUtils from "@src/spawn-utils.mjs";
 
 // Mock spawnAsync
@@ -58,9 +61,10 @@ describe("VE Logs API Integration", () => {
 
   describe("GET /api/ve/logs/:vmId/:veContext", () => {
     it("should return 400 for invalid VM ID", async () => {
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "invalid")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeLogs.replace(":vmId", "invalid").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -70,9 +74,10 @@ describe("VE Logs API Integration", () => {
     });
 
     it("should return 400 for negative VM ID", async () => {
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "-5")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeLogs.replace(":vmId", "-5").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -82,9 +87,10 @@ describe("VE Logs API Integration", () => {
     });
 
     it("should return 404 for invalid VE context", async () => {
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", "invalid_context");
+      const url = ApiUri.VeLogs.replace(":vmId", "100").replace(
+        ":veContext",
+        "invalid_context",
+      );
 
       const response = await request(app).get(url);
 
@@ -97,9 +103,10 @@ describe("VE Logs API Integration", () => {
       const logContent = "Test log line 1\nTest log line 2";
       mockSuccessfulConsoleLogs("testcontainer", logContent);
 
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeLogs.replace(":vmId", "100").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -114,9 +121,11 @@ describe("VE Logs API Integration", () => {
     it("should respect lines query parameter", async () => {
       mockSuccessfulConsoleLogs("testcontainer", "logs");
 
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey) + "?lines=50";
+      const url =
+        ApiUri.VeLogs.replace(":vmId", "100").replace(
+          ":veContext",
+          veContextKey,
+        ) + "?lines=50";
 
       const response = await request(app).get(url);
 
@@ -125,11 +134,16 @@ describe("VE Logs API Integration", () => {
     });
 
     it("should return error when container not found", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "", stderr: "not found", exitCode: 1 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "not found",
+        exitCode: 1,
+      });
 
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "999")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeLogs.replace(":vmId", "999").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -141,9 +155,10 @@ describe("VE Logs API Integration", () => {
 
   describe("GET /api/ve/logs/:vmId/docker/:veContext", () => {
     it("should return 400 for invalid VM ID", async () => {
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "invalid")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeDockerLogs.replace(":vmId", "invalid").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -153,9 +168,10 @@ describe("VE Logs API Integration", () => {
     });
 
     it("should return 404 for invalid VE context", async () => {
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", "invalid_context");
+      const url = ApiUri.VeDockerLogs.replace(":vmId", "100").replace(
+        ":veContext",
+        "invalid_context",
+      );
 
       const response = await request(app).get(url);
 
@@ -169,9 +185,10 @@ describe("VE Logs API Integration", () => {
         .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 }) // pct status
         .mockResolvedValueOnce({ stdout: dockerLogs, stderr: "", exitCode: 0 }); // docker-compose logs
 
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeDockerLogs.replace(":vmId", "100").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -187,11 +204,17 @@ describe("VE Logs API Integration", () => {
       const serviceLogs = "2024-01-01 Service started";
       mockSpawnAsync
         .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 })
-        .mockResolvedValueOnce({ stdout: serviceLogs, stderr: "", exitCode: 0 });
+        .mockResolvedValueOnce({
+          stdout: serviceLogs,
+          stderr: "",
+          exitCode: 0,
+        });
 
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey) + "?service=nextcloud";
+      const url =
+        ApiUri.VeDockerLogs.replace(":vmId", "100").replace(
+          ":veContext",
+          veContextKey,
+        ) + "?service=nextcloud";
 
       const response = await request(app).get(url);
 
@@ -206,9 +229,11 @@ describe("VE Logs API Integration", () => {
         .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 })
         .mockResolvedValueOnce({ stdout: "logs", stderr: "", exitCode: 0 });
 
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey) + "?service=db&lines=25";
+      const url =
+        ApiUri.VeDockerLogs.replace(":vmId", "100").replace(
+          ":veContext",
+          veContextKey,
+        ) + "?service=db&lines=25";
 
       const response = await request(app).get(url);
 
@@ -218,11 +243,16 @@ describe("VE Logs API Integration", () => {
     });
 
     it("should return error when container not running", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "stopped", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "stopped",
+        stderr: "",
+        exitCode: 0,
+      });
 
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeDockerLogs.replace(":vmId", "100").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -232,11 +262,17 @@ describe("VE Logs API Integration", () => {
     });
 
     it("should reject invalid service names", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "running",
+        stderr: "",
+        exitCode: 0,
+      });
 
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey) + "?service=invalid%20service!";
+      const url =
+        ApiUri.VeDockerLogs.replace(":vmId", "100").replace(
+          ":veContext",
+          veContextKey,
+        ) + "?service=invalid%20service!";
 
       const response = await request(app).get(url);
 
@@ -250,9 +286,10 @@ describe("VE Logs API Integration", () => {
     it("should handle SSH connection errors gracefully", async () => {
       mockSpawnAsync.mockRejectedValueOnce(new Error("Connection refused"));
 
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeLogs.replace(":vmId", "100").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -263,9 +300,10 @@ describe("VE Logs API Integration", () => {
     it("should handle timeout errors", async () => {
       mockSpawnAsync.mockRejectedValueOnce(new Error("Command timed out"));
 
-      const url = ApiUri.VeDockerLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeDockerLogs.replace(":vmId", "100").replace(
+        ":veContext",
+        veContextKey,
+      );
 
       const response = await request(app).get(url);
 
@@ -277,9 +315,11 @@ describe("VE Logs API Integration", () => {
     it("should cap lines at maximum (10000)", async () => {
       mockSuccessfulConsoleLogs("testcontainer", "logs");
 
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey) + "?lines=99999";
+      const url =
+        ApiUri.VeLogs.replace(":vmId", "100").replace(
+          ":veContext",
+          veContextKey,
+        ) + "?lines=99999";
 
       const response = await request(app).get(url);
 
@@ -290,9 +330,11 @@ describe("VE Logs API Integration", () => {
     it("should use default lines for invalid value", async () => {
       mockSuccessfulConsoleLogs("testcontainer", "logs");
 
-      const url = ApiUri.VeLogs
-        .replace(":vmId", "100")
-        .replace(":veContext", veContextKey) + "?lines=-10";
+      const url =
+        ApiUri.VeLogs.replace(":vmId", "100").replace(
+          ":veContext",
+          veContextKey,
+        ) + "?lines=-10";
 
       const response = await request(app).get(url);
 

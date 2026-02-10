@@ -13,18 +13,13 @@ export interface IReadFrameworkOptions {
  * Wraps IFrameworkPersistence interface
  */
 export class FrameworkService {
-  constructor(
-    private persistence: IFrameworkPersistence,
-  ) {}
+  constructor(private persistence: IFrameworkPersistence) {}
 
   getAllFrameworkNames(): Map<string, string> {
     return this.persistence.getAllFrameworkNames();
   }
 
-  readFramework(
-    frameworkId: string,
-    opts: IReadFrameworkOptions,
-  ): IFramework {
+  readFramework(frameworkId: string, opts: IReadFrameworkOptions): IFramework {
     return this.persistence.readFramework(frameworkId, opts);
   }
 
@@ -36,4 +31,3 @@ export class FrameworkService {
     this.persistence.deleteFramework(frameworkId);
   }
 }
-

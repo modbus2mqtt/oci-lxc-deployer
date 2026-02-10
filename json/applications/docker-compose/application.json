@@ -43,19 +43,27 @@
       "advanced": true
     }
   ],
-  "installation": [
-    "010-host-get-latest-os-template.json",
-    "095-host-check-kernel-modules.json",
-    "096-host-load-kernel-modules.json",
-    "100-conf-create-configure-lxc.json",
-    "101-conf-configure-lxc-for-docker.json",
-    "200-start-lxc.json",
-    "305-post-set-pkg-mirror.json",
-    "307-post-install-docker-rootless.json",
-    "310-post-extract-volumes-from-compose.json",
-    "121-conf-mount-zfs-pool-on-host.json",
-    "160-conf-bind-multiple-volumes-to-lxc.json",
-    "320-post-upload-docker-compose-files.json",
-    "330-svc-start-docker-compose.json"
-  ]
+  "installation": {
+    "image": [
+      "010-host-get-latest-os-template.json",
+      "095-host-check-kernel-modules.json",
+      "096-host-load-kernel-modules.json"
+    ],
+    "pre_start": [
+      "100-conf-create-configure-lxc.json",
+      "101-conf-configure-lxc-for-docker.json"
+    ],
+    "start": [
+      "200-start-lxc.json"
+    ],
+    "post_start": [
+      "305-post-set-pkg-mirror.json",
+      "307-post-install-docker-rootless.json",
+      "310-post-extract-volumes-from-compose.json",
+      "121-conf-mount-zfs-pool-on-host.json",
+      "160-conf-bind-multiple-volumes-to-lxc.json",
+      "320-post-upload-docker-compose-files.json",
+      "330-svc-start-docker-compose.json"
+    ]
+  }
 }

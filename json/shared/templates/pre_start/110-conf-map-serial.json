@@ -11,14 +11,16 @@
       "name": "USB Serial Port",
       "type": "enum",
       "required": false,
-      "enumValuesTemplate": "list-host-usb-serial-ports.json"
+      "enumValuesTemplate": "list-host-usb-serial-ports.json",
+      "description": "USB serial port device path on the host"
     },
     {
       "id": "install_replug_watcher",
       "name": "Live Replug (Host Installation)",
       "type": "boolean",
       "default": true,
-      "advanced": true
+      "advanced": true,
+      "description": "Install a watcher service on the host to handle device replug events"
     },
     {
       "id": "vm_id",
@@ -45,14 +47,16 @@
       "name": "Mapped UID (Host)",
       "type": "string",
       "default": "",
-      "advanced": true
+      "advanced": true,
+      "description": "UID mapping on the host for the device"
     },
     {
       "id": "mapped_gid",
       "name": "Mapped GID (Host)",
       "type": "string",
       "default": "",
-      "advanced": true
+      "advanced": true,
+      "description": "GID mapping on the host for the device"
     },
     {
       "id": "container_device_path",
@@ -60,7 +64,8 @@
       "type": "string",
       "default": "/dev/ttyUSB0",
       "required": false,
-      "advanced": true
+      "advanced": true,
+      "description": "Device path inside the container"
     }
   ],
   "commands": [

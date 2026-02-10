@@ -3,8 +3,14 @@ import { VeExecution } from "@src/ve-execution/ve-execution.mjs";
 import { ICommand, IVeExecuteMessage } from "@src/types.mjs";
 import { IVEContext } from "@src/backend-types.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 // New test cases are implemented here using overridable execCommand method.
 let index = 0;
@@ -42,11 +48,7 @@ describe("VeExecution", () => {
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
         this.lastCommand = input;
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
     const commands: ICommand[] = [
@@ -58,7 +60,14 @@ describe("VeExecution", () => {
       },
     ];
     const inputs = [{ id: "myvar", value: "replacedValue" }];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      inputs,
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     await exec.run();
     expect(exec.lastCommand).toBe("echo replacedValue");
   });
@@ -72,11 +81,7 @@ describe("VeExecution", () => {
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
         resultValue = input;
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
     const commands: ICommand[] = [
@@ -87,7 +92,14 @@ describe("VeExecution", () => {
       },
     ];
     const inputs = [{ id: "somevariable", value: "replaced" }];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      inputs,
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     await exec.run();
     expect(resultValue).toBe("echo replaced");
   });
@@ -98,11 +110,7 @@ describe("VeExecution", () => {
         tmplCommand: ICommand,
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
     const commands: ICommand[] = [
@@ -131,7 +139,14 @@ describe("VeExecution", () => {
       { id: "foo", value: "inputFoo" },
       { id: "baz", value: 99 },
     ];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      inputs,
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     await exec.run();
     expect(exec.outputs.get("foo")).toBe("baz");
     expect(exec.outputs.get("baz")).toBe(99);
@@ -145,11 +160,7 @@ describe("VeExecution", () => {
         tmplCommand: ICommand,
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
     const commands: ICommand[] = [
@@ -165,7 +176,14 @@ describe("VeExecution", () => {
       },
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      inputs,
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     await exec.run();
     expect(exec.outputs.get("foo")).toBe("baz99");
   });
@@ -180,8 +198,9 @@ describe("VeExecution", () => {
         // Mock runOnVeHost to simulate command execution and output parsing
         // The command should output JSON with template_path and ostype
         // Note: Using a value without "local:" prefix to avoid file reading in tests
-        const expectedOutput = '[{"id":"template_path","value":"vztmpl/alpine-3.22-default_20250617_amd64.tar.xz"},{"id":"ostype","value":"alpine"}]';
-        
+        const expectedOutput =
+          '[{"id":"template_path","value":"vztmpl/alpine-3.22-default_20250617_amd64.tar.xz"},{"id":"ostype","value":"alpine"}]';
+
         // Instead of accessing private properties, just call super which will handle output parsing
         // For this test, we need to simulate the command output, so we'll use the actual execution
         // but capture the output first
@@ -197,22 +216,32 @@ describe("VeExecution", () => {
     // This matches the exact format from get-latest-os-template.sh
     const commands: ICommand[] = [
       {
-        command: 'echo \'[{"id":"template_path","value":"local:vztmpl/alpine-3.22-default_20250617_amd64.tar.xz"},{"id":"ostype","value":"alpine"}]\'',
+        command:
+          'echo \'[{"id":"template_path","value":"local:vztmpl/alpine-3.22-default_20250617_amd64.tar.xz"},{"id":"ostype","value":"alpine"}]\'',
         name: "get-latest-os-template",
         execute_on: "ve",
         outputs: ["template_path", "ostype"],
       },
     ];
     const inputs: Array<{ id: string; value: string | number | boolean }> = [];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      inputs,
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     await exec.run();
-    
+
     // Verify both outputs were added to the map
     expect(exec.outputs.has("template_path")).toBe(true);
     expect(exec.outputs.has("ostype")).toBe(true);
-    expect(exec.outputs.get("template_path")).toBe("vztmpl/alpine-3.22-default_20250617_amd64.tar.xz");
+    expect(exec.outputs.get("template_path")).toBe(
+      "vztmpl/alpine-3.22-default_20250617_amd64.tar.xz",
+    );
     expect(exec.outputs.get("ostype")).toBe("alpine");
-    
+
     // Verify that both outputs are present
     expect(exec.outputs.size).toBeGreaterThanOrEqual(2);
   });
@@ -278,11 +307,7 @@ describe("VeExecution", () => {
         tmplCommand: ICommand,
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
     const commands: ICommand[] = [
@@ -303,7 +328,14 @@ describe("VeExecution", () => {
       },
     ];
     const inputs = [{ id: "foo", value: "inputFoo" }];
-    const exec = new TestExec(commands, inputs, dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      inputs,
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     const result = await exec.run();
     expect(typeof result?.lastSuccessfull).toBe("number");
     expect(result?.lastSuccessfull).toBe(commands.length - 1);
@@ -316,11 +348,7 @@ describe("VeExecution", () => {
         tmplCommand: ICommand,
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
     const commands: ICommand[] = [
@@ -347,11 +375,7 @@ describe("VeExecution", () => {
         tmplCommand: ICommand,
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
     const commands: ICommand[] = [
@@ -474,16 +498,19 @@ describe("VeExecution", () => {
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
         // ExecutionMode.TEST is used, so commands execute locally
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
 
     // Use ExecutionMode.TEST to execute commands locally
-    const exec = new TestExec(commands, [], dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      [],
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     await exec.run();
 
     // Verify that the output is base64 encoded
@@ -532,16 +559,19 @@ describe("VeExecution", () => {
         timeoutMs = 300000,
       ): Promise<IVeExecuteMessage> {
         // ExecutionMode.TEST is used, so commands execute locally
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
 
     // Use ExecutionMode.TEST to execute commands locally
-    const exec = new TestExec(commands, [], dummyVE, new Map(), undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      commands,
+      [],
+      dummyVE,
+      new Map(),
+      undefined,
+      ExecutionMode.TEST,
+    );
     await exec.run();
 
     // Verify that the output is base64 encoded
@@ -593,7 +623,7 @@ describe("VeExecution", () => {
     class TestExec extends VeExecution {
       protected async runOnVeHost(
         input: string,
-        tmplCommand: ICommand
+        tmplCommand: ICommand,
       ): Promise<IVeExecuteMessage> {
         // Capture the processed command to verify variable replacement
         capturedCommand = input;
@@ -616,11 +646,11 @@ describe("VeExecution", () => {
 
     // Execute the command
     await exec.run();
-    
+
     // The command should have volumes replaced with key=value lines
     const expectedOutput = `volume1=/var/lib/myapp/data
 volume2=/var/lib/myapp/logs`;
-    
+
     expect(capturedCommand).toContain(expectedOutput);
   });
 
@@ -645,7 +675,7 @@ volume2=/var/lib/myapp/logs`;
     class TestExec extends VeExecution {
       protected async runOnVeHost(
         input: string,
-        tmplCommand: ICommand
+        tmplCommand: ICommand,
       ): Promise<IVeExecuteMessage> {
         capturedCommand = input;
         return {
@@ -667,7 +697,7 @@ volume2=/var/lib/myapp/logs`;
 
     // Execute the command
     await exec.run();
-    
+
     // Outputs should take precedence over inputs and defaults
     // var1 should be from outputs, not inputs
     expect(capturedCommand).toContain("var1=output-value");
@@ -675,7 +705,7 @@ volume2=/var/lib/myapp/logs`;
     expect(capturedCommand).toContain("var2=output-override");
     // var3 should be from outputs only
     expect(capturedCommand).toContain("var3=output-only");
-    
+
     // Should not contain input value
     expect(capturedCommand).not.toContain("input-value");
     // Should not contain default value
@@ -696,7 +726,7 @@ volume2=/var/lib/myapp/logs`;
     class TestExec extends VeExecution {
       protected async runOnVeHost(
         input: string,
-        tmplCommand: ICommand
+        tmplCommand: ICommand,
       ): Promise<IVeExecuteMessage> {
         return {
           command: tmplCommand.name,
@@ -738,17 +768,17 @@ volume2=/var/lib/myapp/logs`;
     const volumesMatch = processedCommand.match(/echo '([^']+)'/);
     expect(volumesMatch).not.toBeNull();
     const volumesContent = volumesMatch![1]!;
-    
+
     // Split by newlines to get individual volume entries
-    const volumeLines = volumesContent.split('\n');
-    
+    const volumeLines = volumesContent.split("\n");
+
     // Context values should take precedence
     expect(volumeLines).toContain("volume1=/var/lib/myapp/data-from-context");
     // volume2 should come from outputs (not in context)
     expect(volumeLines).toContain("volume2=/var/lib/myapp/logs");
     // volume3 should come from context
     expect(volumeLines).toContain("volume3=/var/lib/myapp/cache");
-    
+
     // Should not contain the original output value for volume1
     expect(volumeLines).not.toContain("volume1=/var/lib/myapp/data");
   });
@@ -765,7 +795,7 @@ volume2=/var/lib/myapp/logs`;
     //     { "id": "list.volumes" }
     //   ]
     // }
-    
+
     const commands: ICommand[] = [
       {
         command: "echo '{{ volumes }}'",
@@ -784,7 +814,7 @@ volume2=/var/lib/myapp/logs`;
     class TestExec extends VeExecution {
       protected async runOnVeHost(
         input: string,
-        tmplCommand: ICommand
+        tmplCommand: ICommand,
       ): Promise<IVeExecuteMessage> {
         capturedCommand = input;
         return {
@@ -807,23 +837,22 @@ volume2=/var/lib/myapp/logs`;
 
     // Execute the command
     await exec.run();
-    
+
     // Extract the volumes content from the command
     const volumesMatch = capturedCommand.match(/echo '([^']+)'/);
     expect(volumesMatch).not.toBeNull();
     const volumesContent = volumesMatch![1]!;
-    
+
     // Split by newlines to get individual volume entries
-    const volumeLines = volumesContent.split('\n');
-    
+    const volumeLines = volumesContent.split("\n");
+
     // Verify the expected format: key=value lines
     expect(volumeLines).toContain("volume1=/var/lib/myapp/data");
     expect(volumeLines).toContain("volume2=/var/lib/myapp/logs");
-    
+
     // Verify the format is correct (key=value, one per line)
     expect(volumeLines.length).toBe(2);
     expect(volumeLines[0]).toMatch(/^volume\d+=/);
     expect(volumeLines[1]).toMatch(/^volume\d+=/);
   });
 });
-

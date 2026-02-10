@@ -7,8 +7,14 @@ import {
   IReadApplicationOptions,
   VEConfigurationError,
 } from "@src/backend-types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("ApplicationPersistenceHandler", () => {
   let env: TestEnvironment;
@@ -50,7 +56,6 @@ describe("ApplicationPersistenceHandler", () => {
     env?.cleanup();
   });
 
-
   describe("getAllAppNames()", () => {
     it("should return empty map when no applications exist", () => {
       const result = handler.getAllAppNames();
@@ -59,12 +64,19 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should find applications in json directory", () => {
       // Setup: Application in json-Verzeichnis erstellen
-      const appDir = persistenceHelper.resolve(Volume.JsonApplications, "testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "testapp/application.json", {
-        name: "Test App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "testapp/application.json",
+        {
+          name: "Test App",
+          installation: {},
+        },
+      );
 
       const result = handler.getAllAppNames();
       expect(result.size).toBe(1);
@@ -74,12 +86,19 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should find applications in local directory", () => {
       // Setup: Application in local-Verzeichnis erstellen
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/localapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/localapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/localapp/application.json", {
-        name: "Local App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/localapp/application.json",
+        {
+          name: "Local App",
+          installation: {},
+        },
+      );
 
       const result = handler.getAllAppNames();
       expect(result.size).toBe(1);
@@ -88,18 +107,32 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should prefer local over json when same name exists", () => {
       // Setup: Application in beiden Verzeichnissen
-      const jsonAppDir = persistenceHelper.resolve(Volume.JsonApplications, "duplicate");
-      const localAppDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/duplicate");
+      const jsonAppDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "duplicate",
+      );
+      const localAppDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/duplicate",
+      );
       mkdirSync(jsonAppDir, { recursive: true });
       mkdirSync(localAppDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "duplicate/application.json", {
-        name: "JSON App",
-        installation: [],
-      });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/duplicate/application.json", {
-        name: "Local App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "duplicate/application.json",
+        {
+          name: "JSON App",
+          installation: {},
+        },
+      );
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/duplicate/application.json",
+        {
+          name: "Local App",
+          installation: {},
+        },
+      );
 
       const result = handler.getAllAppNames();
       expect(result.size).toBe(1);
@@ -113,10 +146,14 @@ describe("ApplicationPersistenceHandler", () => {
       // Application hinzufügen NACH erstem Aufruf
       const appDir = path.join(jsonPath, "applications", "newapp");
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "newapp/application.json", {
-        name: "New App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "newapp/application.json",
+        {
+          name: "New App",
+          installation: {},
+        },
+      );
 
       // Zweiter Aufruf sollte noch alte Daten haben (Cache)
       const result2 = handler.getAllAppNames();
@@ -133,13 +170,20 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should return applications with basic info", () => {
       // Setup: Application erstellen
-      const appDir = persistenceHelper.resolve(Volume.JsonApplications, "testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "testapp/application.json", {
-        name: "Test App",
-        description: "Test Description",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "testapp/application.json",
+        {
+          name: "Test App",
+          description: "Test Description",
+          installation: {},
+        },
+      );
 
       const result = handler.listApplicationsForFrontend();
       expect(result.length).toBe(1);
@@ -150,12 +194,19 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should cache the result", () => {
       // Setup: Application erstellen
-      const appDir = persistenceHelper.resolve(Volume.JsonApplications, "testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "testapp/application.json", {
-        name: "Test App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "testapp/application.json",
+        {
+          name: "Test App",
+          installation: {},
+        },
+      );
 
       const result1 = handler.listApplicationsForFrontend();
       expect(result1.length).toBe(1);
@@ -163,10 +214,14 @@ describe("ApplicationPersistenceHandler", () => {
       // Neue Application hinzufügen (sollte nicht erscheinen wegen Cache)
       const appDir2 = path.join(jsonPath, "applications", "newapp");
       mkdirSync(appDir2, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "newapp/application.json", {
-        name: "New App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "newapp/application.json",
+        {
+          name: "New App",
+          installation: {},
+        },
+      );
 
       const result2 = handler.listApplicationsForFrontend();
       expect(result2.length).toBe(1); // Noch gecacht
@@ -176,13 +231,20 @@ describe("ApplicationPersistenceHandler", () => {
   describe("readApplication()", () => {
     it("should read application from json directory", () => {
       // Setup: Application erstellen
-      const appDir = persistenceHelper.resolve(Volume.JsonApplications, "testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "testapp/application.json", {
-        name: "Test App",
-        description: "Test Description",
-        installation: ["template1.json"],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "testapp/application.json",
+        {
+          name: "Test App",
+          description: "Test Description",
+          installation: { post_start: ["template1.json"] },
+        },
+      );
 
       const opts: IReadApplicationOptions = {
         applicationHierarchy: [],
@@ -198,21 +260,35 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should handle inheritance", () => {
       // Setup: Parent Application
-      const parentDir = persistenceHelper.resolve(Volume.JsonApplications, "baseapp");
+      const parentDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "baseapp",
+      );
       mkdirSync(parentDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonApplications, "baseapp/application.json", {
-        name: "Base App",
-        installation: ["base-template.json"],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "baseapp/application.json",
+        {
+          name: "Base App",
+          installation: { post_start: ["base-template.json"] },
+        },
+      );
 
       // Setup: Child Application
-      const childDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/childapp");
+      const childDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/childapp",
+      );
       mkdirSync(childDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/childapp/application.json", {
-        name: "Child App",
-        extends: "baseapp",
-        installation: ["child-template.json"],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/childapp/application.json",
+        {
+          name: "Child App",
+          extends: "baseapp",
+          installation: { post_start: ["child-template.json"] },
+        },
+      );
 
       const opts: IReadApplicationOptions = {
         applicationHierarchy: [],
@@ -235,13 +311,20 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should detect cyclic inheritance", () => {
       // Setup: Application that extends itself
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/cyclicapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/cyclicapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/cyclicapp/application.json", {
-        name: "Cyclic App",
-        extends: "cyclicapp",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/cyclicapp/application.json",
+        {
+          name: "Cyclic App",
+          extends: "cyclicapp",
+          installation: {},
+        },
+      );
 
       const opts: IReadApplicationOptions = {
         applicationHierarchy: [],
@@ -259,16 +342,27 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should load icon if present", () => {
       // Setup: Application with icon
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/iconapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/iconapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/iconapp/application.json", {
-        name: "Icon App",
-        icon: "icon.png",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/iconapp/application.json",
+        {
+          name: "Icon App",
+          icon: "icon.png",
+          installation: {},
+        },
+      );
 
       // Create icon file (just a dummy file)
-      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/iconapp/icon.png", "dummy icon data");
+      persistenceHelper.writeTextSync(
+        Volume.LocalRoot,
+        "applications/iconapp/icon.png",
+        "dummy icon data",
+      );
 
       const opts: IReadApplicationOptions = {
         applicationHierarchy: [],
@@ -291,13 +385,24 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should return icon data when icon exists", () => {
       // Setup: Application with icon
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/iconapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/iconapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/iconapp/application.json", {
-        name: "Icon App",
-        installation: [],
-      });
-      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/iconapp/icon.png", "dummy icon data");
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/iconapp/application.json",
+        {
+          name: "Icon App",
+          installation: {},
+        },
+      );
+      persistenceHelper.writeTextSync(
+        Volume.LocalRoot,
+        "applications/iconapp/icon.png",
+        "dummy icon data",
+      );
 
       const result = handler.readApplicationIcon("iconapp");
       expect(result).not.toBeNull();
@@ -307,14 +412,29 @@ describe("ApplicationPersistenceHandler", () => {
 
     it("should prefer png over svg", () => {
       // Setup: Application with both icons
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/bothicons");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/bothicons",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/bothicons/application.json", {
-        name: "Both Icons App",
-        installation: [],
-      });
-      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/bothicons/icon.png", "png data");
-      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/bothicons/icon.svg", "svg data");
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/bothicons/application.json",
+        {
+          name: "Both Icons App",
+          installation: {},
+        },
+      );
+      persistenceHelper.writeTextSync(
+        Volume.LocalRoot,
+        "applications/bothicons/icon.png",
+        "png data",
+      );
+      persistenceHelper.writeTextSync(
+        Volume.LocalRoot,
+        "applications/bothicons/icon.svg",
+        "svg data",
+      );
 
       const result = handler.readApplicationIcon("bothicons");
       expect(result).not.toBeNull();
@@ -327,7 +447,7 @@ describe("ApplicationPersistenceHandler", () => {
       const application = {
         name: "New App",
         description: "New Description",
-        installation: [],
+        installation: {},
       };
 
       handler.writeApplication("newapp", application as any);
@@ -340,18 +460,28 @@ describe("ApplicationPersistenceHandler", () => {
       expect(statSync(appFile).isFile()).toBe(true);
 
       // Verify content
-      const content = persistenceHelper.readJsonSync(Volume.LocalRoot, "applications/newapp/application.json") as any;
+      const content = persistenceHelper.readJsonSync(
+        Volume.LocalRoot,
+        "applications/newapp/application.json",
+      ) as any;
       expect(content.name).toBe("New App");
     });
 
     it("should delete application from local directory", () => {
       // Setup: Application erstellen
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/deleteapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/deleteapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/deleteapp/application.json", {
-        name: "Delete App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/deleteapp/application.json",
+        {
+          name: "Delete App",
+          installation: {},
+        },
+      );
 
       handler.deleteApplication("deleteapp");
 
@@ -363,12 +493,19 @@ describe("ApplicationPersistenceHandler", () => {
   describe("invalidateApplicationCache()", () => {
     it("should invalidate application cache", () => {
       // Setup: Application in local erstellen
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/testapp/application.json", {
-        name: "Test App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/testapp/application.json",
+        {
+          name: "Test App",
+          installation: {},
+        },
+      );
 
       // Populate cache
       handler.getAllAppNames();
@@ -387,4 +524,3 @@ describe("ApplicationPersistenceHandler", () => {
     });
   });
 });
-

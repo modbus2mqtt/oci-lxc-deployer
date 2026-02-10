@@ -1,6 +1,14 @@
 import { IApplication } from "../backend-types.mjs";
-import { IAddon, IAddonWithParameters, AddonTemplateReference, IParameter } from "../types.mjs";
-import { IAddonPersistence, ITemplatePersistence } from "../persistence/interfaces.mjs";
+import {
+  IAddon,
+  IAddonWithParameters,
+  AddonTemplateReference,
+  IParameter,
+} from "../types.mjs";
+import {
+  IAddonPersistence,
+  ITemplatePersistence,
+} from "../persistence/interfaces.mjs";
 
 /**
  * Service layer for addon operations
@@ -45,7 +53,9 @@ export class AddonService {
   /**
    * Returns addons compatible with the given application, including extracted parameters
    */
-  getCompatibleAddonsWithParameters(application: IApplication): IAddonWithParameters[] {
+  getCompatibleAddonsWithParameters(
+    application: IApplication,
+  ): IAddonWithParameters[] {
     const compatibleAddons = this.getCompatibleAddons(application);
     return compatibleAddons.map((addon) => this.extractAddonParameters(addon));
   }
@@ -76,7 +86,8 @@ export class AddonService {
 
       for (const templateRef of allTemplateRefs) {
         const templateName = this.getTemplateName(templateRef);
-        const extractedParams = this.extractParametersFromTemplate(templateName);
+        const extractedParams =
+          this.extractParametersFromTemplate(templateName);
 
         for (const param of extractedParams) {
           // Avoid duplicate parameters
@@ -94,7 +105,10 @@ export class AddonService {
   /**
    * Applies parameterOverrides from addon to the given parameters
    */
-  private applyParameterOverrides(addon: IAddon, parameters: IParameter[]): IAddonWithParameters {
+  private applyParameterOverrides(
+    addon: IAddon,
+    parameters: IParameter[],
+  ): IAddonWithParameters {
     // Apply addon-level parameter overrides
     if (addon.parameterOverrides) {
       for (const override of addon.parameterOverrides) {
@@ -126,7 +140,10 @@ export class AddonService {
 
     try {
       // Addon templates are typically shared templates
-      const templatePath = this.templatePersistence.resolveTemplatePath(templateName, true);
+      const templatePath = this.templatePersistence.resolveTemplatePath(
+        templateName,
+        true,
+      );
       if (!templatePath) {
         return [];
       }

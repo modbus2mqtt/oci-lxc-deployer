@@ -1,22 +1,68 @@
 {
   "$id": "application",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "allOf": [{ "$ref": "base-deployable" }],
+  "allOf": [
+    {
+      "$ref": "base-deployable"
+    }
+  ],
   "type": "object",
   "properties": {
-    "extends": { "type": "string", "pattern": "^(local:|[^:]+).*$" },
-    "icon": { "type": "string", "default": "icon.png" },
-    "url": { "type": "string" },
-    "documentation": { "type": "string" },
-    "source": { "type": "string" },
-    "vendor": { "type": "string" },
-    "stacktype": { "type": "string" },
-    "installation": { "$ref": "templatelist" },
-    "copy-upgrade": { "$ref": "templatelist" },
-    "copy-rollback": { "$ref": "templatelist" },
-    "addon-reconfigure": { "$ref": "templatelist" },
-    "addon": { "$ref": "templatelist" }
+    "extends": {
+      "type": "string",
+      "pattern": "^(local:|[^:]+).*$"
+    },
+    "icon": {
+      "type": "string",
+      "default": "icon.png"
+    },
+    "url": {
+      "type": "string"
+    },
+    "documentation": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "vendor": {
+      "type": "string"
+    },
+    "stacktype": {
+      "type": "string"
+    },
+    "installation": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "$ref": "templatelist"
+        },        
+        "pre_start": {
+          "$ref": "templatelist"
+        },
+        "start": {
+          "$ref": "templatelist"
+        },
+        "post_start": {
+          "$ref": "templatelist"
+        }
+      }
+    },
+    "copy-upgrade": {
+      "$ref": "templatelist"
+    },
+    "copy-rollback": {
+      "$ref": "templatelist"
+    },
+    "addon-reconfigure": {
+      "$ref": "templatelist"
+    },
+    "addon": {
+      "$ref": "templatelist"
+    }
   },
-  "required": ["installation"],
+  "required": [
+    "installation"
+  ],
   "unevaluatedProperties": false
 }

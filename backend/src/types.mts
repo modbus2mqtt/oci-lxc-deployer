@@ -14,7 +14,7 @@ export interface ISsh {
 export interface IUploadFile {
   filename: string;
   destination: string;
-  content?: string;  // Base64 encoded file content
+  content?: string; // Base64 encoded file content
   required?: boolean;
   advanced?: boolean;
 }
@@ -68,7 +68,15 @@ export type TaskType =
 // Generated from template.schema.json
 export interface IOutputObject {
   id: string;
-  value?: string | number | boolean | (string | { name: string; value: string | number | boolean } | { id: string; value: string | number | boolean })[];
+  value?:
+    | string
+    | number
+    | boolean
+    | (
+        | string
+        | { name: string; value: string | number | boolean }
+        | { id: string; value: string | number | boolean }
+      )[];
   /** Default value for the parameter. Unlike 'value', this will show the parameter as editable in the UI. */
   default?: string | number | boolean;
 }
@@ -425,11 +433,13 @@ export interface IAddonVolume {
 }
 
 /** Template reference: either a string or object with name and optional before/after */
-export type AddonTemplateReference = string | {
-  name: string;
-  before?: string;
-  after?: string;
-};
+export type AddonTemplateReference =
+  | string
+  | {
+      name: string;
+      before?: string;
+      after?: string;
+    };
 
 export interface IAddon {
   /** Addon ID (derived from filename without .json) */
@@ -475,13 +485,13 @@ export interface ICompatibleAddonsResponse {
 // Stacktype variable definition (items in stacktype json files)
 export interface IStacktypeVariable {
   name: string;
-  external?: boolean;  // true = manual input required, false/undefined = auto-generate
-  length?: number;     // length of generated secret (default: 32)
+  external?: boolean; // true = manual input required, false/undefined = auto-generate
+  length?: number; // length of generated secret (default: 32)
 }
 
 // Stacktype entry (aggregated from json/stacktypes/*.json)
 export interface IStacktypeEntry {
-  name: string;        // derived from filename
+  name: string; // derived from filename
   entries: IStacktypeVariable[];
 }
 

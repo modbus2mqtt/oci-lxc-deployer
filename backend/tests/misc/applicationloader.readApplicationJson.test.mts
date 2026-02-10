@@ -1,8 +1,14 @@
 import { ApplicationLoader } from "@src/apploader.mjs";
 import { FileSystemPersistence } from "@src/persistence/filesystem-persistence.mjs";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "../helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "../helper/test-persistence-helper.mjs";
 
 describe("ApplicationLoader.readApplicationJson", () => {
   let env: TestEnvironment;
@@ -31,7 +37,10 @@ describe("ApplicationLoader.readApplicationJson", () => {
       { schemaPath, jsonPath, localPath },
       pm.getJsonValidator(),
     );
-    loader = new ApplicationLoader({ schemaPath, jsonPath, localPath }, persistence);
+    loader = new ApplicationLoader(
+      { schemaPath, jsonPath, localPath },
+      persistence,
+    );
   });
   afterEach(() => {
     env.cleanup();
@@ -43,7 +52,7 @@ describe("ApplicationLoader.readApplicationJson", () => {
       "baseapp/application.json",
       {
         name: "baseapp",
-        installation: ["base-template.json"],
+        installation: { post_start: ["base-template.json"] },
       },
     );
     persistenceHelper.writeJsonSync(
@@ -52,14 +61,14 @@ describe("ApplicationLoader.readApplicationJson", () => {
       {
         name: "myapp",
         extends: "baseapp",
-        installation: ["my-template.json"],
+        installation: { post_start: ["my-template.json"] },
       },
     );
     const opts: IReadApplicationOptions = {
       applicationHierarchy: [],
-      error: {name:"", message:"",details: [] },
+      error: { name: "", message: "", details: [] },
       taskTemplates: [],
-    } ;
+    };
     loader.readApplicationJson("myapp", opts);
     const templates = opts.taskTemplates.find(
       (t) => t.task === "installation",
@@ -74,7 +83,7 @@ describe("ApplicationLoader.readApplicationJson", () => {
       "myapp/application.json",
       {
         name: "myapp",
-        installation: ["base-template.json"],
+        installation: { post_start: ["base-template.json"] },
       },
     );
     persistenceHelper.writeJsonSync(
@@ -83,12 +92,12 @@ describe("ApplicationLoader.readApplicationJson", () => {
       {
         name: "myapp",
         extends: "json:myapp",
-        installation: ["my-template.json"],
+        installation: { post_start: ["my-template.json"] },
       },
     );
     const opts: IReadApplicationOptions = {
       applicationHierarchy: [],
-      error: {name:"", message:"",details: [] },
+      error: { name: "", message: "", details: [] },
       taskTemplates: [],
     };
     loader.readApplicationJson("myapp", opts);
@@ -105,7 +114,7 @@ describe("ApplicationLoader.readApplicationJson", () => {
       "baseapp/application.json",
       {
         name: "baseapp",
-        installation: ["base-template.json"],
+        installation: { post_start: ["base-template.json"] },
       },
     );
     persistenceHelper.writeJsonSync(
@@ -114,9 +123,11 @@ describe("ApplicationLoader.readApplicationJson", () => {
       {
         name: "myapp",
         extends: "baseapp",
-        installation: [
-          { name: "my-template.json", before: "base-template.json" },
-        ],
+        installation: {
+          post_start: [
+            { name: "my-template.json", before: "base-template.json" },
+          ],
+        },
       },
     );
     const opts: IReadApplicationOptions = {
@@ -140,7 +151,7 @@ describe("ApplicationLoader.readApplicationJson", () => {
       "baseapp/application.json",
       {
         name: "baseapp",
-        installation: ["base1.json", "base2.json"],
+        installation: { post_start: ["base1.json", "base2.json"] },
       },
     );
     persistenceHelper.writeJsonSync(
@@ -149,7 +160,7 @@ describe("ApplicationLoader.readApplicationJson", () => {
       {
         name: "myapp",
         extends: "baseapp",
-        installation: [{ name: "my-template.json", after: "base1.json" }],
+        installation: { post_start: [{ name: "my-template.json", after: "base1.json" }] },
       },
     );
     const opts: IReadApplicationOptions = {
@@ -173,7 +184,7 @@ describe("ApplicationLoader.readApplicationJson", () => {
       "myapp/application.json",
       {
         name: "myapp",
-        installation: ["base-template.json"],
+        installation: { post_start: ["base-template.json"] },
       },
     );
     persistenceHelper.writeJsonSync(
@@ -182,7 +193,7 @@ describe("ApplicationLoader.readApplicationJson", () => {
       {
         name: "myapp",
         extends: "myapp",
-        installation: ["my-template.json"],
+        installation: { post_start: ["my-template.json"] },
       },
     );
     const opts: IReadApplicationOptions = {

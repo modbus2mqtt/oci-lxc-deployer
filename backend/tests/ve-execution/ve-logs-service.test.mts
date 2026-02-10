@@ -32,13 +32,15 @@ describe("VeLogsService", () => {
    * 6. test -f for oci-image path (fallback)
    * 7. tail -n (actual log read)
    */
-  function mockSuccessfulConsoleLogs(options: {
-    hostname?: string;
-    logContent?: string;
-    configuredPath?: string;
-    useDockerComposePath?: boolean;
-    useOciPath?: boolean;
-  } = {}) {
+  function mockSuccessfulConsoleLogs(
+    options: {
+      hostname?: string;
+      logContent?: string;
+      configuredPath?: string;
+      useDockerComposePath?: boolean;
+      useOciPath?: boolean;
+    } = {},
+  ) {
     const {
       hostname = "testhost",
       logContent = "log content",
@@ -48,29 +50,61 @@ describe("VeLogsService", () => {
     } = options;
 
     // 1. checkContainerStatus - container is running
-    mockSpawnAsync.mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 });
+    mockSpawnAsync.mockResolvedValueOnce({
+      stdout: "running",
+      stderr: "",
+      exitCode: 0,
+    });
     // 2. getHostnameForVm
-    mockSpawnAsync.mockResolvedValueOnce({ stdout: hostname, stderr: "", exitCode: 0 });
+    mockSpawnAsync.mockResolvedValueOnce({
+      stdout: hostname,
+      stderr: "",
+      exitCode: 0,
+    });
     // 3. getLogPathFromConfig
-    mockSpawnAsync.mockResolvedValueOnce({ stdout: configuredPath, stderr: "", exitCode: configuredPath ? 0 : 1 });
+    mockSpawnAsync.mockResolvedValueOnce({
+      stdout: configuredPath,
+      stderr: "",
+      exitCode: configuredPath ? 0 : 1,
+    });
 
     if (configuredPath) {
       // 4. test -f for configured path
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "exists", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "exists",
+        stderr: "",
+        exitCode: 0,
+      });
     } else if (useDockerComposePath && hostname) {
       // 5. test -f for docker-compose path
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "exists", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "exists",
+        stderr: "",
+        exitCode: 0,
+      });
     } else if (useOciPath) {
       // Skip docker-compose check if no hostname or not using it
       if (hostname) {
-        mockSpawnAsync.mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 1 }); // docker-compose path not found
+        mockSpawnAsync.mockResolvedValueOnce({
+          stdout: "",
+          stderr: "",
+          exitCode: 1,
+        }); // docker-compose path not found
       }
       // 6. test -f for oci-image path
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "exists", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "exists",
+        stderr: "",
+        exitCode: 0,
+      });
     }
 
     // 7. tail -n to read logs
-    mockSpawnAsync.mockResolvedValueOnce({ stdout: logContent, stderr: "", exitCode: 0 });
+    mockSpawnAsync.mockResolvedValueOnce({
+      stdout: logContent,
+      stderr: "",
+      exitCode: 0,
+    });
   }
 
   describe("normalizeLines", () => {
@@ -130,11 +164,17 @@ describe("VeLogsService", () => {
 
   describe("validateServiceName", () => {
     it("should reject service name with invalid characters", async () => {
-      mockSpawnAsync
-        .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "running",
+        stderr: "",
+        exitCode: 0,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
-      const result = await service.getDockerLogs({ vmId: 100, service: "my service!" });
+      const result = await service.getDockerLogs({
+        vmId: 100,
+        service: "my service!",
+      });
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Invalid service name");
@@ -143,10 +183,17 @@ describe("VeLogsService", () => {
     it("should accept valid service names", async () => {
       mockSpawnAsync
         .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 }) // checkContainerStatus
-        .mockResolvedValueOnce({ stdout: "docker logs output", stderr: "", exitCode: 0 }); // docker logs
+        .mockResolvedValueOnce({
+          stdout: "docker logs output",
+          stderr: "",
+          exitCode: 0,
+        }); // docker logs
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
-      const result = await service.getDockerLogs({ vmId: 100, service: "my-service_123" });
+      const result = await service.getDockerLogs({
+        vmId: 100,
+        service: "my-service_123",
+      });
 
       expect(result.success).toBe(true);
     });
@@ -155,7 +202,11 @@ describe("VeLogsService", () => {
   describe("getConsoleLogs", () => {
     it("should return error when container status check fails", async () => {
       // Mock pct status to fail - container doesn't exist
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "", stderr: "Configuration file not found", exitCode: 2 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "Configuration file not found",
+        exitCode: 2,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const result = await service.getConsoleLogs({ vmId: 999 });
@@ -170,7 +221,11 @@ describe("VeLogsService", () => {
     it("should return error when no log file found", async () => {
       // Container exists but no log file can be found
       mockSpawnAsync
-        .mockResolvedValueOnce({ stdout: "status: running", stderr: "", exitCode: 0 }) // pct status succeeds
+        .mockResolvedValueOnce({
+          stdout: "status: running",
+          stderr: "",
+          exitCode: 0,
+        }) // pct status succeeds
         .mockResolvedValueOnce({ stdout: "myhost", stderr: "", exitCode: 0 }) // hostname lookup succeeds
         .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 1 }) // getLogPathFromConfig fails
         .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 1 }) // docker-compose path not found
@@ -199,7 +254,11 @@ describe("VeLogsService", () => {
 
     it("should return console logs successfully with docker-compose path", async () => {
       const logContent = "Line 1\nLine 2\nLine 3";
-      mockSuccessfulConsoleLogs({ hostname: "myhost", logContent, useDockerComposePath: true });
+      mockSuccessfulConsoleLogs({
+        hostname: "myhost",
+        logContent,
+        useDockerComposePath: true,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const result = await service.getConsoleLogs({ vmId: 100, lines: 50 });
@@ -216,7 +275,7 @@ describe("VeLogsService", () => {
       mockSuccessfulConsoleLogs({
         hostname: "myhost",
         logContent,
-        configuredPath: "/custom/path/to/log.log"
+        configuredPath: "/custom/path/to/log.log",
       });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
@@ -227,17 +286,21 @@ describe("VeLogsService", () => {
     });
 
     it("should construct correct docker-compose log file path", async () => {
-      mockSuccessfulConsoleLogs({ hostname: "testcontainer", logContent: "logs" });
+      mockSuccessfulConsoleLogs({
+        hostname: "testcontainer",
+        logContent: "logs",
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       await service.getConsoleLogs({ vmId: 105, lines: 100 });
 
       // Check that the tail command was called with correct path
-      const lastCall = mockSpawnAsync.mock.calls[mockSpawnAsync.mock.calls.length - 1];
-      expect(lastCall[1]).toContain('-c');
+      const lastCall =
+        mockSpawnAsync.mock.calls[mockSpawnAsync.mock.calls.length - 1];
+      expect(lastCall[1]).toContain("-c");
       const command = lastCall[1][1];
-      expect(command).toContain('/var/log/lxc/testcontainer-105.log');
-      expect(command).toContain('tail -n 100');
+      expect(command).toContain("/var/log/lxc/testcontainer-105.log");
+      expect(command).toContain("tail -n 100");
     });
 
     it("should try oci-image path when hostname is null", async () => {
@@ -258,7 +321,11 @@ describe("VeLogsService", () => {
 
   describe("getDockerLogs", () => {
     it("should return error when container not found", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 1 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const result = await service.getDockerLogs({ vmId: 999 });
@@ -268,7 +335,11 @@ describe("VeLogsService", () => {
     });
 
     it("should return error when container not running", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "stopped", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "stopped",
+        stderr: "",
+        exitCode: 0,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const result = await service.getDockerLogs({ vmId: 100 });
@@ -278,13 +349,18 @@ describe("VeLogsService", () => {
     });
 
     it("should return docker logs for specific service", async () => {
-      const dockerLogs = "2024-01-01 Service started\n2024-01-01 Service running";
+      const dockerLogs =
+        "2024-01-01 Service started\n2024-01-01 Service running";
       mockSpawnAsync
         .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 })
         .mockResolvedValueOnce({ stdout: dockerLogs, stderr: "", exitCode: 0 });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
-      const result = await service.getDockerLogs({ vmId: 100, service: "nextcloud", lines: 50 });
+      const result = await service.getDockerLogs({
+        vmId: 100,
+        service: "nextcloud",
+        lines: 50,
+      });
 
       expect(result.success).toBe(true);
       expect(result.logType).toBe("docker");
@@ -296,7 +372,11 @@ describe("VeLogsService", () => {
       const composeLogs = "db | Starting\nnextcloud | Starting";
       mockSpawnAsync
         .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 })
-        .mockResolvedValueOnce({ stdout: composeLogs, stderr: "", exitCode: 0 });
+        .mockResolvedValueOnce({
+          stdout: composeLogs,
+          stderr: "",
+          exitCode: 0,
+        });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const result = await service.getDockerLogs({ vmId: 100 });
@@ -325,7 +405,11 @@ describe("VeLogsService", () => {
 
   describe("checkContainerStatus", () => {
     it("should detect running container", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "status: running", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "status: running",
+        stderr: "",
+        exitCode: 0,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const status = await service.checkContainerStatus(100);
@@ -335,7 +419,11 @@ describe("VeLogsService", () => {
     });
 
     it("should detect stopped container", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "status: stopped", stderr: "", exitCode: 0 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "status: stopped",
+        stderr: "",
+        exitCode: 0,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const status = await service.checkContainerStatus(100);
@@ -345,7 +433,11 @@ describe("VeLogsService", () => {
     });
 
     it("should detect non-existent container", async () => {
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "", stderr: "not found", exitCode: 1 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "not found",
+        exitCode: 1,
+      });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
       const status = await service.checkContainerStatus(999);
@@ -365,7 +457,10 @@ describe("VeLogsService", () => {
         .mockResolvedValueOnce({ stdout: "exists", stderr: "", exitCode: 0 }) // docker-compose path exists
         .mockResolvedValueOnce({ stdout: "logs", stderr: "", exitCode: 0 }); // tail logs
 
-      const service = new VeLogsService(mockVeContext, ExecutionMode.PRODUCTION);
+      const service = new VeLogsService(
+        mockVeContext,
+        ExecutionMode.PRODUCTION,
+      );
       await service.getConsoleLogs({ vmId: 100 });
 
       // In production mode, should use ssh command
@@ -382,9 +477,16 @@ describe("VeLogsService", () => {
         port: 2222,
       } as IVEContext;
 
-      mockSpawnAsync.mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 1 });
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+      });
 
-      const service = new VeLogsService(veContextWithoutUser, ExecutionMode.PRODUCTION);
+      const service = new VeLogsService(
+        veContextWithoutUser,
+        ExecutionMode.PRODUCTION,
+      );
       await service.getConsoleLogs({ vmId: 100 });
 
       const firstCall = mockSpawnAsync.mock.calls[0];
@@ -409,7 +511,10 @@ describe("VeLogsService", () => {
         .mockResolvedValueOnce({ stdout: "logs", stderr: "", exitCode: 0 });
 
       const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
-      const result = await service.getDockerLogs({ vmId: 100, service: "myservice" });
+      const result = await service.getDockerLogs({
+        vmId: 100,
+        service: "myservice",
+      });
 
       expect(result.service).toBe("myservice");
     });

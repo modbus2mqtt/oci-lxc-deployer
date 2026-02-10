@@ -75,11 +75,17 @@ describe("VariableResolver", () => {
 
     // Context should take precedence
     const ctx = { outputVar: "contextValue", newVar: "newValue" };
-    const result = resolver.replaceVarsWithContext("{{ outputVar }} and {{ newVar }}", ctx);
+    const result = resolver.replaceVarsWithContext(
+      "{{ outputVar }} and {{ newVar }}",
+      ctx,
+    );
     expect(result).toBe("contextValue and newValue");
 
     // Without context, should use outputs/inputs/defaults
-    const result2 = resolver.replaceVarsWithContext("{{ outputVar }} and {{ inputVar }}", {});
+    const result2 = resolver.replaceVarsWithContext(
+      "{{ outputVar }} and {{ inputVar }}",
+      {},
+    );
     expect(result2).toBe("outputValue and inputValue");
   });
 
@@ -125,4 +131,3 @@ describe("VariableResolver", () => {
     expect(result).toBe("Value: NOT_DEFINED");
   });
 });
-

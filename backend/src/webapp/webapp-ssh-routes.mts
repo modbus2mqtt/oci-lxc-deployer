@@ -32,10 +32,15 @@ export function registerSshRoutes(
       if (!filePath.endsWith(".json")) return;
       try {
         const raw = fs.readFileSync(filePath, "utf-8");
-        const data = JSON.parse(raw) as { parameters?: Array<{ enumValuesTemplate?: string }> };
+        const data = JSON.parse(raw) as {
+          parameters?: Array<{ enumValuesTemplate?: string }>;
+        };
         const params = Array.isArray(data?.parameters) ? data.parameters : [];
         for (const param of params) {
-          if (param?.enumValuesTemplate && typeof param.enumValuesTemplate === "string") {
+          if (
+            param?.enumValuesTemplate &&
+            typeof param.enumValuesTemplate === "string"
+          ) {
             results.add(param.enumValuesTemplate);
           }
         }
@@ -79,9 +84,11 @@ export function registerSshRoutes(
     const enumTemplates = collectEnumValueTemplates(pm.getPathes());
     if (enumTemplates.length === 0) return;
     const templateProcessor = storageContext.getTemplateProcessor();
-    void templateProcessor.warmupEnumValuesForVeContext(veContext, enumTemplates).catch(() => {
-      // ignore warmup errors
-    });
+    void templateProcessor
+      .warmupEnumValuesForVeContext(veContext, enumTemplates)
+      .catch(() => {
+        // ignore warmup errors
+      });
   };
   app.get(ApiUri.SshConfigs, (_req, res) => {
     try {

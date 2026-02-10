@@ -4,9 +4,14 @@ import { ICommand, IJsonError, IParameterValue } from "@src/types.mjs";
 import { IVEContext } from "@src/backend-types.mjs";
 import { VeExecution } from "../ve-execution/ve-execution.mjs";
 import { determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
-import { IParameterWithTemplate, IProcessTemplateOpts } from "./templateprocessor-types.mjs";
+import {
+  IParameterWithTemplate,
+  IProcessTemplateOpts,
+} from "./templateprocessor-types.mjs";
 
-export type ProcessTemplateRunner = (opts: IProcessTemplateOpts) => Promise<void>;
+export type ProcessTemplateRunner = (
+  opts: IProcessTemplateOpts,
+) => Promise<void>;
 export type EmitMessage = (message: {
   stderr: string;
   result: unknown;
@@ -23,7 +28,11 @@ export class EnumValuesResolver {
   >();
   private static enumValuesInFlight = new Map<
     string,
-    Promise<(string | { name: string; value: string | number | boolean })[] | null | undefined>
+    Promise<
+      | (string | { name: string; value: string | number | boolean })[]
+      | null
+      | undefined
+    >
   >();
 
   static invalidateForVeKey(veKey: string | null | undefined): void {
@@ -74,7 +83,10 @@ export class EnumValuesResolver {
     const veKey = veContext?.getKey ? veContext.getKey() : "no-ve";
     const normalizedTemplate = this.normalizeEnumTemplateName(enumTemplate);
     const normalizedInputs = this.normalizeEnumValueInputs(inputs);
-    const execKey = typeof executeOn === "string" && executeOn.length > 0 ? executeOn : "default";
+    const execKey =
+      typeof executeOn === "string" && executeOn.length > 0
+        ? executeOn
+        : "default";
     return `${veKey}::${execKey}::${normalizedTemplate}::${JSON.stringify(normalizedInputs)}`;
   }
 
@@ -83,7 +95,11 @@ export class EnumValuesResolver {
     opts: IProcessTemplateOpts,
     processTemplate: ProcessTemplateRunner,
     emitMessage: EmitMessage,
-  ): Promise<(string | { name: string; value: string | number | boolean })[] | null | undefined> {
+  ): Promise<
+    | (string | { name: string; value: string | number | boolean })[]
+    | null
+    | undefined
+  > {
     if (!opts.veContext) return undefined;
 
     const effectiveInputs = this.withApplicationInput(
@@ -100,15 +116,22 @@ export class EnumValuesResolver {
     const legacyKey = `${opts.veContext?.getKey ? opts.veContext.getKey() : "no-ve"}::${enumTemplate}::${JSON.stringify(
       this.normalizeEnumValueInputs(effectiveInputs),
     )}`;
-    const cached = EnumValuesResolver.enumValuesCache.get(cacheKey)
-      ?? EnumValuesResolver.enumValuesCache.get(legacyKey);
+    const cached =
+      EnumValuesResolver.enumValuesCache.get(cacheKey) ??
+      EnumValuesResolver.enumValuesCache.get(legacyKey);
 
     if (cached !== undefined && !opts.enumValuesRefresh) {
-      if (cached !== null && !EnumValuesResolver.enumValuesCache.has(cacheKey)) {
+      if (
+        cached !== null &&
+        !EnumValuesResolver.enumValuesCache.has(cacheKey)
+      ) {
         EnumValuesResolver.enumValuesCache.set(cacheKey, cached);
       }
       if (process.env.ENUM_TRACE === "1" || process.env.CACHE_TRACE === "1") {
-        const parent = typeof opts.template === "string" ? opts.template : opts.template.name;
+        const parent =
+          typeof opts.template === "string"
+            ? opts.template
+            : opts.template.name;
         console.info(
           `[enum-trace] cache-hit enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
         );
@@ -120,11 +143,16 @@ export class EnumValuesResolver {
       const refreshKey = `${cacheKey}::refresh`;
       if (!EnumValuesResolver.enumValuesInFlight.has(refreshKey)) {
         const runner = (async (): Promise<
-          (string | { name: string; value: string | number | boolean })[] | null | undefined
+          | (string | { name: string; value: string | number | boolean })[]
+          | null
+          | undefined
         > => {
           try {
             if (process.env.ENUM_TRACE === "1") {
-              const parent = typeof opts.template === "string" ? opts.template : opts.template.name;
+              const parent =
+                typeof opts.template === "string"
+                  ? opts.template
+                  : opts.template.name;
               console.info(
                 `[enum-trace] refresh execute enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
               );
@@ -143,7 +171,10 @@ export class EnumValuesResolver {
               errors: tmpErrors,
               resolvedParams: tmpResolved,
               webuiTemplates: tmpWebui,
-              parentTemplate: typeof opts.template === "string" ? opts.template : opts.template.name,
+              parentTemplate:
+                typeof opts.template === "string"
+                  ? opts.template
+                  : opts.template.name,
             });
             if (opts.veContext) {
               const ve = new VeExecution(
@@ -170,16 +201,23 @@ export class EnumValuesResolver {
           return cached;
         })();
         EnumValuesResolver.enumValuesInFlight.set(refreshKey, runner);
-        runner.finally(() => EnumValuesResolver.enumValuesInFlight.delete(refreshKey));
+        runner.finally(() =>
+          EnumValuesResolver.enumValuesInFlight.delete(refreshKey),
+        );
       }
       return cached;
     }
 
-    const inFlightKey = opts.enumValuesRefresh ? `${cacheKey}::refresh` : cacheKey;
+    const inFlightKey = opts.enumValuesRefresh
+      ? `${cacheKey}::refresh`
+      : cacheKey;
     const inFlight = EnumValuesResolver.enumValuesInFlight.get(inFlightKey);
     if (inFlight) {
       if (process.env.ENUM_TRACE === "1") {
-        const parent = typeof opts.template === "string" ? opts.template : opts.template.name;
+        const parent =
+          typeof opts.template === "string"
+            ? opts.template
+            : opts.template.name;
         console.info(
           `[enum-trace] in-flight enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
         );
@@ -188,7 +226,10 @@ export class EnumValuesResolver {
     }
     const runner = (async () => {
       if (process.env.ENUM_TRACE === "1") {
-        const parent = typeof opts.template === "string" ? opts.template : opts.template.name;
+        const parent =
+          typeof opts.template === "string"
+            ? opts.template
+            : opts.template.name;
         console.info(
           `[enum-trace] execute enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
         );
@@ -207,7 +248,10 @@ export class EnumValuesResolver {
         errors: tmpErrors,
         resolvedParams: tmpResolved,
         webuiTemplates: tmpWebui,
-        parentTemplate: typeof opts.template === "string" ? opts.template : opts.template.name,
+        parentTemplate:
+          typeof opts.template === "string"
+            ? opts.template
+            : opts.template.name,
       });
 
       if (opts.veContext) {
@@ -233,7 +277,8 @@ export class EnumValuesResolver {
           if (opts.enumValuesRefresh && cached !== undefined) {
             return cached;
           }
-          const err = e instanceof JsonError ? e : new JsonError(String(e?.message ?? e));
+          const err =
+            e instanceof JsonError ? e : new JsonError(String(e?.message ?? e));
           opts.errors?.push(err);
           emitMessage({
             stderr: err.message,

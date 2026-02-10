@@ -4,19 +4,30 @@ import fs from "fs-extra";
 import path from "path";
 import { ApiUri, IPostVeConfigurationBody } from "@src/types.mjs";
 import { WebAppVE } from "@src/webapp/webapp-ve.mjs";
-import { createWebAppVETestSetup, type WebAppVETestSetup } from "../helper/webapp-test-helper.mjs";
+import {
+  createWebAppVETestSetup,
+  type WebAppVETestSetup,
+} from "../helper/webapp-test-helper.mjs";
 import type { ContextManager } from "@src/context-manager.mjs";
 import type { ITemplate } from "../ve-test-helper.mjs";
 
 // Local helper functions for addon tests
-function writeAddon(jsonDir: string, addonId: string, data: Record<string, unknown>): void {
+function writeAddon(
+  jsonDir: string,
+  addonId: string,
+  data: Record<string, unknown>,
+): void {
   const addonsDir = path.join(jsonDir, "addons");
   fs.ensureDirSync(addonsDir);
   const addonPath = path.join(addonsDir, `${addonId}.json`);
   fs.writeFileSync(addonPath, JSON.stringify(data, null, 2), "utf-8");
 }
 
-function writeSharedTemplate(jsonDir: string, tmplName: string, data: ITemplate): void {
+function writeSharedTemplate(
+  jsonDir: string,
+  tmplName: string,
+  data: ITemplate,
+): void {
   const sharedTmplDir = path.join(jsonDir, "shared", "templates");
   fs.ensureDirSync(sharedTmplDir);
   const tmplPath = path.join(sharedTmplDir, tmplName);
@@ -56,7 +67,7 @@ describe("WebAppVE Addon Integration", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -75,13 +86,12 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -98,8 +108,7 @@ describe("WebAppVE Addon Integration", () => {
     });
 
     it("should reject invalid selectedAddons (not an array)", async () => {
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -119,7 +128,7 @@ describe("WebAppVE Addon Integration", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -138,13 +147,12 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -164,7 +172,7 @@ describe("WebAppVE Addon Integration", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -183,13 +191,12 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -212,7 +219,7 @@ describe("WebAppVE Addon Integration", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -231,7 +238,7 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
@@ -255,13 +262,12 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Addon Command",
-            command: "echo '[{\"id\": \"addon_result\", \"value\": \"success\"}]'",
+            command: 'echo \'[{"id": "addon_result", "value": "success"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -279,8 +285,7 @@ describe("WebAppVE Addon Integration", () => {
     });
 
     it("should skip non-existent addons gracefully", async () => {
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -318,13 +323,12 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Addon Command",
-            command: "echo '[{\"id\": \"addon_result\", \"value\": \"success\"}]'",
+            command: 'echo \'[{"id": "addon_result", "value": "success"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -351,8 +355,7 @@ describe("WebAppVE Addon Integration", () => {
         // No post_start - installation uses post_start phase
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -385,13 +388,12 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Addon Command",
-            command: "echo '[{\"id\": \"addon_result\", \"value\": \"success\"}]'",
+            command: 'echo \'[{"id": "addon_result", "value": "success"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -416,7 +418,7 @@ describe("WebAppVE Addon Integration", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
         "copy-upgrade": ["copy-upgrade.json"],
       } as any);
 
@@ -436,7 +438,7 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
@@ -464,7 +466,7 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Upgrade Command",
-            command: "echo '[{\"id\":\"vm_id\",\"value\":123}]'",
+            command: 'echo \'[{"id":"vm_id","value":123}]\'',
           },
         ],
       });
@@ -488,14 +490,15 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Upgrade Addon Command",
-            command: "echo '[{\"id\": \"upgrade_result\", \"value\": \"success\"}]'",
+            command: 'echo \'[{"id": "upgrade_result", "value": "success"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeCopyUpgrade
-        .replace(":application", "testapp")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeCopyUpgrade.replace(
+        ":application",
+        "testapp",
+      ).replace(":veContext", veContextKey);
 
       const response = await request(app)
         .post(url)
@@ -515,7 +518,7 @@ describe("WebAppVE Addon Integration", () => {
       helper.writeApplication("testapp2", {
         name: "Test App 2",
         description: "Test application with addon-reconfigure",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
         "addon-reconfigure": ["reconfig.json"],
       } as any);
 
@@ -535,7 +538,7 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
@@ -548,7 +551,7 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Reconfig Command",
-            command: "echo '[{\"id\": \"reconfig\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "reconfig", "value": "ok"}]\'',
           },
         ],
       });
@@ -569,13 +572,12 @@ describe("WebAppVE Addon Integration", () => {
         commands: [
           {
             name: "Reconfig Addon Command",
-            command: "echo '[{\"id\": \"reconfig_result\", \"value\": \"success\"}]'",
+            command: 'echo \'[{"id": "reconfig_result", "value": "success"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp2")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp2")
         .replace(":task", "addon-reconfigure")
         .replace(":veContext", veContextKey);
 
@@ -591,7 +593,7 @@ describe("WebAppVE Addon Integration", () => {
       expect(response.body.success).toBe(true);
     });
 
-it("should skip addon templates when addon has no templates for the selected phase", async () => {
+    it("should skip addon templates when addon has no templates for the selected phase", async () => {
       // This test verifies that when an addon has templates for a different phase
       // than what the current task needs, those templates are not loaded.
       // For example, if an addon only has "upgrade" templates but we're doing "installation",
@@ -615,13 +617,12 @@ it("should skip addon templates when addon has no templates for the selected pha
         commands: [
           {
             name: "Upgrade Only Command",
-            command: "echo '[{\"id\": \"upgrade_only\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "upgrade_only", "value": "ok"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -645,7 +646,7 @@ it("should skip addon templates when addon has no templates for the selected pha
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -664,7 +665,7 @@ it("should skip addon templates when addon has no templates for the selected pha
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
@@ -687,7 +688,7 @@ it("should skip addon templates when addon has no templates for the selected pha
         commands: [
           {
             name: "Addon One Command",
-            command: "echo '[{\"id\": \"addon_one\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "addon_one", "value": "ok"}]\'',
           },
         ],
       });
@@ -698,9 +699,7 @@ it("should skip addon templates when addon has no templates for the selected pha
         description: "Second addon",
         compatible_with: "*",
         notes_key: "addon-two",
-        properties: [
-          { id: "addon_packages", value: "package2" },
-        ],
+        properties: [{ id: "addon_packages", value: "package2" }],
         post_start: ["addon-two-template.json"],
       });
 
@@ -711,13 +710,12 @@ it("should skip addon templates when addon has no templates for the selected pha
         commands: [
           {
             name: "Addon Two Command",
-            command: "echo '[{\"id\": \"addon_two\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "addon_two", "value": "ok"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -749,13 +747,12 @@ it("should skip addon templates when addon has no templates for the selected pha
         commands: [
           {
             name: "Existing Command",
-            command: "echo '[{\"id\": \"existing\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "existing", "value": "ok"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -764,7 +761,11 @@ it("should skip addon templates when addon has no templates for the selected pha
         .send({
           params: [{ name: "hostname", value: "testhost" }],
           changedParams: [{ name: "hostname", value: "testhost" }],
-          selectedAddons: ["existing-addon", "non-existing-addon", "another-missing"],
+          selectedAddons: [
+            "existing-addon",
+            "non-existing-addon",
+            "another-missing",
+          ],
         } as IPostVeConfigurationBody);
 
       // Should succeed - existing addon is loaded, non-existing ones are skipped

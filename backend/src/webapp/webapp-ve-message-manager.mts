@@ -1,5 +1,8 @@
- import { IVeExecuteMessagesResponse, ISingleExecuteMessagesResponse, IVeExecuteMessage } from "@src/types.mjs";
-
+import {
+  IVeExecuteMessagesResponse,
+  ISingleExecuteMessagesResponse,
+  IVeExecuteMessage,
+} from "@src/types.mjs";
 
 const MESSAGE_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -89,7 +92,7 @@ export class WebAppVeMessageManager {
     // Check index once
     if (msg.index !== undefined) {
       // Try to find existing message by index
-      const existingMsg = existing.messages.find(m => m.index === msg.index);
+      const existingMsg = existing.messages.find((m) => m.index === msg.index);
       if (existingMsg) {
         // Append stderr/stdout to existing message
         existingMsg.stderr = (existingMsg.stderr || "") + (msg.stderr || "");
@@ -136,7 +139,7 @@ export class WebAppVeMessageManager {
 
     // Only handle if message has an index and an existing message with that index exists
     if (msg.index !== undefined) {
-      const existingMsg = existing.messages.find(m => m.index === msg.index);
+      const existingMsg = existing.messages.find((m) => m.index === msg.index);
       if (existingMsg) {
         // Replace existing message with final values
         const index = existing.messages.indexOf(existingMsg);
@@ -148,12 +151,17 @@ export class WebAppVeMessageManager {
             stderr: (existingMsg.stderr || "") + (msg.stderr || ""),
             result: msg.result || existingMsg.result,
             // Reset error flag if exitCode is 0 (success)
-            error: msg.exitCode === 0 ? undefined : (msg.error !== undefined ? msg.error : existingMsg.error),
+            error:
+              msg.exitCode === 0
+                ? undefined
+                : msg.error !== undefined
+                  ? msg.error
+                  : existingMsg.error,
           };
         }
         return true; // Message handled
       }
-      
+
       // If no message with this index exists, mark all messages with lower index as final
       // This handles the case where partial messages without index were appended to previous messages
       for (const existingMsg of existing.messages) {
@@ -182,7 +190,11 @@ export class WebAppVeMessageManager {
     restartKey: string,
   ): void {
     // Common: Find or create message group
-    const existing = this.findOrCreateMessageGroup(application, task, restartKey);
+    const existing = this.findOrCreateMessageGroup(
+      application,
+      task,
+      restartKey,
+    );
 
     // Try to handle as partial message first
     if (this.handlePartialMessage(msg, existing)) {
@@ -212,14 +224,20 @@ export class WebAppVeMessageManager {
   /**
    * Finds a message group by restart key.
    */
-  findMessageGroupByRestartKey(restartKey: string): ISingleExecuteMessagesResponse | undefined {
+  findMessageGroupByRestartKey(
+    restartKey: string,
+  ): ISingleExecuteMessagesResponse | undefined {
     return this.messages.find((g) => g.restartKey === restartKey);
   }
 
   /**
    * Sets vmInstallKey for a message group by application and task.
    */
-  setVmInstallKeyForGroup(application: string, task: string, vmInstallKey: string): void {
+  setVmInstallKeyForGroup(
+    application: string,
+    task: string,
+    vmInstallKey: string,
+  ): void {
     const group = this.messages.find(
       (g) => g.application === application && g.task === task,
     );
@@ -228,4 +246,3 @@ export class WebAppVeMessageManager {
     }
   }
 }
-

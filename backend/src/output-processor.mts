@@ -1,7 +1,10 @@
 import { JsonValidator } from "./jsonvalidator.mjs";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
 import { ICommand } from "./types.mjs";
-import { ExecutionMode, determineExecutionMode } from "./ve-execution/ve-execution-constants.mjs";
+import {
+  ExecutionMode,
+  determineExecutionMode,
+} from "./ve-execution/ve-execution-constants.mjs";
 
 // IOutput interface moved here to avoid circular dependency
 export interface IOutput {
@@ -18,7 +21,9 @@ export class OutputProcessor {
 
   constructor(
     private outputs: Map<string, string | number | boolean>,
-    private outputsRaw: { name: string; value: string | number | boolean }[] | undefined,
+    private outputsRaw:
+      | { name: string; value: string | number | boolean }[]
+      | undefined,
     private defaults: Map<string, string | number | boolean>,
     private executionMode?: ExecutionMode,
   ) {
@@ -50,7 +55,9 @@ export class OutputProcessor {
           }
           return fileContent.toString("base64");
         } catch (err: any) {
-          throw new Error(`Failed to read local resource ${filePath}: ${err.message}`);
+          throw new Error(
+            `Failed to read local resource ${filePath}: ${err.message}`,
+          );
         }
       }
       // When executing on VE host, return the value as-is (with "local:" prefix)
@@ -66,7 +73,9 @@ export class OutputProcessor {
    * @param commandName Command name for error messages
    */
   private validateExpectedOutputs(
-    expectedOutputs: Array<{ id: string; default?: boolean } | string> | undefined,
+    expectedOutputs:
+      | Array<{ id: string; default?: boolean } | string>
+      | undefined,
     actualOutputIds: Set<string>,
     commandName: string,
   ): void {
@@ -99,8 +108,8 @@ export class OutputProcessor {
     if (missingOutputs.length > 0) {
       throw new Error(
         `Command "${commandName}" is missing expected outputs: ${missingOutputs.join(", ")}. ` +
-        `Expected: ${Array.from(expectedIds).join(", ")}, ` +
-        `Received: ${Array.from(actualOutputIds).join(", ") || "(none)"}`,
+          `Expected: ${Array.from(expectedIds).join(", ")}, ` +
+          `Received: ${Array.from(actualOutputIds).join(", ") || "(none)"}`,
       );
     }
   }
@@ -147,7 +156,7 @@ export class OutputProcessor {
       );
 
       const actualOutputIds = new Set<string>();
-      
+
       if (Array.isArray(outputsJson)) {
         const first = outputsJson[0];
         if (
@@ -173,9 +182,7 @@ export class OutputProcessor {
           // For name/value format, if expected output is "enumValues", consider it valid if we have any outputs
           if (tmplCommand.outputs && tmplCommand.outputs.length === 1) {
             const output = tmplCommand.outputs[0];
-            const expectedId = typeof output === "string" 
-              ? output 
-              : output?.id;
+            const expectedId = typeof output === "string" ? output : output?.id;
             if (!expectedId) return;
             if (expectedId === "enumValues" && actualOutputIds.size > 0) {
               // Special case: enumValues is valid if we have any name/value pairs
@@ -204,9 +211,13 @@ export class OutputProcessor {
         if ((obj as any).default !== undefined)
           this.defaults.set(obj.id, (obj as any).default as any);
       }
-      
+
       // Validate expected outputs after parsing
-      this.validateExpectedOutputs(tmplCommand.outputs, actualOutputIds, tmplCommand.name || "unnamed");
+      this.validateExpectedOutputs(
+        tmplCommand.outputs,
+        actualOutputIds,
+        tmplCommand.name || "unnamed",
+      );
     } catch (e) {
       // Re-throw with context
       throw e;
@@ -216,8 +227,9 @@ export class OutputProcessor {
   /**
    * Gets the outputsRaw result from the last parse operation (for name/value arrays).
    */
-  getOutputsRawResult(): { name: string; value: string | number | boolean }[] | undefined {
+  getOutputsRawResult():
+    | { name: string; value: string | number | boolean }[]
+    | undefined {
     return (this as any).outputsRawResult;
   }
 }
-

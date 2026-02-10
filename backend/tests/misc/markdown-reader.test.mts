@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MarkdownReader } from "../../src/markdown-reader.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("MarkdownReader", () => {
   let env: TestEnvironment;
@@ -56,7 +62,10 @@ Mountpoint on the Proxmox host.
       );
 
       // Extract "Volumes" section
-      const volumesSection = MarkdownReader.extractSection(testMdFile, "Volumes");
+      const volumesSection = MarkdownReader.extractSection(
+        testMdFile,
+        "Volumes",
+      );
 
       expect(volumesSection).toBeTruthy();
       expect(volumesSection).toContain("Volume mappings in key=value format");
@@ -138,8 +147,8 @@ Content line 2
       const result = MarkdownReader.extractSection(testMdFile, "Volumes");
 
       expect(result).toBe("Content line 1\nContent line 2");
-      expect(result?.startsWith('\n')).toBe(false);
-      expect(result?.endsWith('\n')).toBe(false);
+      expect(result?.startsWith("\n")).toBe(false);
+      expect(result?.endsWith("\n")).toBe(false);
     });
 
     it("should extract section until end of file if no next section", () => {

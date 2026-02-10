@@ -2,7 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { OutputProcessor } from "@src/output-processor.mjs";
 import { ICommand } from "@src/types.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
 
 describe("OutputProcessor - Validate Expected Outputs", () => {
   let env: TestEnvironment;
@@ -24,7 +27,12 @@ describe("OutputProcessor - Validate Expected Outputs", () => {
   beforeEach(() => {
     outputs = new Map();
     defaults = new Map();
-    outputProcessor = new OutputProcessor(outputs, undefined, defaults, ExecutionMode.TEST);
+    outputProcessor = new OutputProcessor(
+      outputs,
+      undefined,
+      defaults,
+      ExecutionMode.TEST,
+    );
   });
 
   it("should not throw when all expected outputs are present", () => {
@@ -34,7 +42,8 @@ describe("OutputProcessor - Validate Expected Outputs", () => {
       outputs: ["output1", "output2"],
     };
 
-    const stdout = '[{"id":"output1","value":"value1"},{"id":"output2","value":"value2"}]';
+    const stdout =
+      '[{"id":"output1","value":"value1"},{"id":"output2","value":"value2"}]';
 
     expect(() => {
       outputProcessor.parseAndUpdateOutputs(stdout, command);
@@ -51,7 +60,8 @@ describe("OutputProcessor - Validate Expected Outputs", () => {
       outputs: ["output1", "output2", "output3"],
     };
 
-    const stdout = '[{"id":"output1","value":"value1"},{"id":"output2","value":"value2"}]';
+    const stdout =
+      '[{"id":"output1","value":"value1"},{"id":"output2","value":"value2"}]';
 
     expect(() => {
       outputProcessor.parseAndUpdateOutputs(stdout, command);
@@ -93,10 +103,7 @@ describe("OutputProcessor - Validate Expected Outputs", () => {
     const command: ICommand = {
       name: "Test Command",
       script: "test.sh",
-      outputs: [
-        "output1",
-        { id: "output2", default: true },
-      ],
+      outputs: ["output1", { id: "output2", default: true }],
     };
 
     const stdout = '[{"id":"output1","value":"value1"}]';
@@ -115,7 +122,8 @@ describe("OutputProcessor - Validate Expected Outputs", () => {
       outputs: ["enumValues"],
     };
 
-    const stdout = '[{"name":"option1","value":"value1"},{"name":"option2","value":"value2"}]';
+    const stdout =
+      '[{"name":"option1","value":"value1"},{"name":"option2","value":"value2"}]';
 
     expect(() => {
       outputProcessor.parseAndUpdateOutputs(stdout, command);
@@ -162,4 +170,3 @@ describe("OutputProcessor - Validate Expected Outputs", () => {
     }
   });
 });
-

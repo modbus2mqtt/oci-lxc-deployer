@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 
 const DEFAULT_LENGTH = 32;
-const CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const CHARSET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 /**
  * Generates a cryptographically secure random secret.

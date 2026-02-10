@@ -24,6 +24,7 @@ export interface IProcessTemplateOpts {
   parentTemplate?: string | undefined;
   webuiTemplates: string[];
   templateRef?: TemplateRef;
+  templateCategory?: string; // Category of the current template (e.g., "list") - used for script resolution
   veContext?: IVEContext;
   executionMode?: import("../ve-execution/ve-execution-constants.mjs").ExecutionMode; // Execution mode for VeExecution
   enumValueInputs?: { id: string; value: IParameterValue }[];
@@ -31,7 +32,10 @@ export interface IProcessTemplateOpts {
   enumValuesRefresh?: boolean;
   processedTemplates?: Map<string, IProcessedTemplate>; // Collects template information
   templateReferences?: Map<string, Set<string>>; // Template references (template -> referenced templates)
-  outputSources?: Map<string, { template: string; kind: "outputs" | "properties" }>; // Output provenance
+  outputSources?: Map<
+    string,
+    { template: string; kind: "outputs" | "properties" }
+  >; // Output provenance
 }
 
 export interface IParameterWithTemplate extends IParameter {

@@ -67,7 +67,9 @@ export async function exec(
       resolvedSecretFilePath,
     );
     // Get all apps (name -> path)
-    const allApps = PersistenceManager.getInstance().getApplicationService().getAllAppNames();
+    const allApps = PersistenceManager.getInstance()
+      .getApplicationService()
+      .getAllAppNames();
     const appPath = allApps.get(application);
     if (!appPath) {
       console.error(
@@ -78,14 +80,20 @@ export async function exec(
 
     const pm = PersistenceManager.getInstance();
     const cm = pm.getContextManager();
-    const templateProcessor = new TemplateProcessor({
-      schemaPath,
-      jsonPath,
-      localPath: resolvedLocalPath,
-    }, cm, pm.getPersistence());
+    const templateProcessor = new TemplateProcessor(
+      {
+        schemaPath,
+        jsonPath,
+        localPath: resolvedLocalPath,
+      },
+      cm,
+      pm.getPersistence(),
+    );
 
     if (!paramsFile) {
-      const veContext = PersistenceManager.getInstance().getContextManager().getCurrentVEContext();
+      const veContext = PersistenceManager.getInstance()
+        .getContextManager()
+        .getCurrentVEContext();
       if (!veContext) {
         console.error(
           "VE context not set. Please configure SSH host/port first.",
@@ -148,10 +156,12 @@ export async function exec(
     });
 
     // Convert params from {name, value} to {id, value} format expected by VeExecution
-    const inputs = params.map((p: { name: string; value: string | number | boolean }) => ({
-      id: p.name,
-      value: p.value,
-    }));
+    const inputs = params.map(
+      (p: { name: string; value: string | number | boolean }) => ({
+        id: p.name,
+        value: p.value,
+      }),
+    );
     const execInstance = new VeExecution(
       loaded.commands,
       inputs,
@@ -208,7 +218,11 @@ function printDetails(details: any[], level = 1) {
         const line = detail.line !== undefined ? ` (line: ${detail.line})` : "";
         console.error(`${indent}- ${detail.error.message}${line}`);
       }
-      if (detail.error && "details" in detail.error && Array.isArray(detail.error.details)) {
+      if (
+        detail.error &&
+        "details" in detail.error &&
+        Array.isArray(detail.error.details)
+      ) {
         printDetails(detail.error.details, level + 1);
       }
       // If the object has other properties that are not error/details:

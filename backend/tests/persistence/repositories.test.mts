@@ -21,10 +21,21 @@ describe("FileSystemRepositories", () => {
     const localPath = path.join(tempDir, "local");
     const schemaPath = path.join(tempDir, "schemas");
 
-    fs.mkdirSync(path.join(jsonPath, "applications", "child-app", "templates"), { recursive: true });
-    fs.mkdirSync(path.join(jsonPath, "applications", "parent-app", "templates"), { recursive: true });
-    fs.mkdirSync(path.join(jsonPath, "applications", "grandparent-app", "templates"), { recursive: true });
-    fs.mkdirSync(path.join(jsonPath, "shared", "templates"), { recursive: true });
+    fs.mkdirSync(
+      path.join(jsonPath, "applications", "child-app", "templates"),
+      { recursive: true },
+    );
+    fs.mkdirSync(
+      path.join(jsonPath, "applications", "parent-app", "templates"),
+      { recursive: true },
+    );
+    fs.mkdirSync(
+      path.join(jsonPath, "applications", "grandparent-app", "templates"),
+      { recursive: true },
+    );
+    fs.mkdirSync(path.join(jsonPath, "shared", "templates"), {
+      recursive: true,
+    });
     fs.mkdirSync(localPath, { recursive: true });
     fs.mkdirSync(schemaPath, { recursive: true });
 
@@ -42,15 +53,29 @@ describe("FileSystemRepositories", () => {
     it("should find template in direct application directory", () => {
       // Setup: child-app with a template
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "application.json"),
-        JSON.stringify({ name: "Child App" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Child App" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "templates", "child-template.json"),
-        JSON.stringify({ name: "Child Template" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "templates",
+          "child-template.json",
+        ),
+        JSON.stringify({ name: "Child Template" }),
       );
 
-      const ref = repositories.resolveTemplateRef("child-app", "child-template");
+      const ref = repositories.resolveTemplateRef(
+        "child-app",
+        "child-template",
+      );
 
       expect(ref).not.toBeNull();
       expect(ref!.name).toBe("child-template");
@@ -61,19 +86,38 @@ describe("FileSystemRepositories", () => {
     it("should find template in parent application via extends", () => {
       // Setup: child-app extends parent-app, template is in parent-app
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "application.json"),
-        JSON.stringify({ name: "Child App", extends: "parent-app" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Child App", extends: "parent-app" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "parent-app", "application.json"),
-        JSON.stringify({ name: "Parent App" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "parent-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Parent App" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "parent-app", "templates", "parent-template.json"),
-        JSON.stringify({ name: "Parent Template" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "parent-app",
+          "templates",
+          "parent-template.json",
+        ),
+        JSON.stringify({ name: "Parent Template" }),
       );
 
-      const ref = repositories.resolveTemplateRef("child-app", "parent-template");
+      const ref = repositories.resolveTemplateRef(
+        "child-app",
+        "parent-template",
+      );
 
       expect(ref).not.toBeNull();
       expect(ref!.name).toBe("parent-template");
@@ -84,23 +128,47 @@ describe("FileSystemRepositories", () => {
     it("should find template in grandparent application via extends chain", () => {
       // Setup: child-app -> parent-app -> grandparent-app
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "application.json"),
-        JSON.stringify({ name: "Child App", extends: "parent-app" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Child App", extends: "parent-app" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "parent-app", "application.json"),
-        JSON.stringify({ name: "Parent App", extends: "grandparent-app" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "parent-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Parent App", extends: "grandparent-app" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "grandparent-app", "application.json"),
-        JSON.stringify({ name: "Grandparent App" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "grandparent-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Grandparent App" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "grandparent-app", "templates", "grandparent-template.json"),
-        JSON.stringify({ name: "Grandparent Template" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "grandparent-app",
+          "templates",
+          "grandparent-template.json",
+        ),
+        JSON.stringify({ name: "Grandparent Template" }),
       );
 
-      const ref = repositories.resolveTemplateRef("child-app", "grandparent-template");
+      const ref = repositories.resolveTemplateRef(
+        "child-app",
+        "grandparent-template",
+      );
 
       expect(ref).not.toBeNull();
       expect(ref!.name).toBe("grandparent-template");
@@ -111,23 +179,48 @@ describe("FileSystemRepositories", () => {
     it("should prefer child template over parent template with same name", () => {
       // Setup: both child and parent have template with same name
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "application.json"),
-        JSON.stringify({ name: "Child App", extends: "parent-app" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Child App", extends: "parent-app" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "parent-app", "application.json"),
-        JSON.stringify({ name: "Parent App" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "parent-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Parent App" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "templates", "common-template.json"),
-        JSON.stringify({ name: "Child Version" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "templates",
+          "common-template.json",
+        ),
+        JSON.stringify({ name: "Child Version" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "parent-app", "templates", "common-template.json"),
-        JSON.stringify({ name: "Parent Version" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "parent-app",
+          "templates",
+          "common-template.json",
+        ),
+        JSON.stringify({ name: "Parent Version" }),
       );
 
-      const ref = repositories.resolveTemplateRef("child-app", "common-template");
+      const ref = repositories.resolveTemplateRef(
+        "child-app",
+        "common-template",
+      );
 
       expect(ref).not.toBeNull();
       expect(ref!.applicationId).toBe("child-app"); // Child wins
@@ -136,19 +229,37 @@ describe("FileSystemRepositories", () => {
     it("should fall back to shared templates if not found in hierarchy", () => {
       // Setup: child-app extends parent-app, but template is in shared
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "application.json"),
-        JSON.stringify({ name: "Child App", extends: "parent-app" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Child App", extends: "parent-app" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "parent-app", "application.json"),
-        JSON.stringify({ name: "Parent App" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "parent-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Parent App" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "shared", "templates", "shared-template.json"),
-        JSON.stringify({ name: "Shared Template" })
+        path.join(
+          pathes.jsonPath,
+          "shared",
+          "templates",
+          "shared-template.json",
+        ),
+        JSON.stringify({ name: "Shared Template" }),
       );
 
-      const ref = repositories.resolveTemplateRef("child-app", "shared-template");
+      const ref = repositories.resolveTemplateRef(
+        "child-app",
+        "shared-template",
+      );
 
       expect(ref).not.toBeNull();
       expect(ref!.name).toBe("shared-template");
@@ -158,8 +269,13 @@ describe("FileSystemRepositories", () => {
 
     it("should return null for non-existent template", () => {
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "application.json"),
-        JSON.stringify({ name: "Child App" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Child App" }),
       );
 
       const ref = repositories.resolveTemplateRef("child-app", "non-existent");
@@ -170,16 +286,32 @@ describe("FileSystemRepositories", () => {
     it("should handle cyclic extends gracefully", () => {
       // Setup: child-app -> parent-app -> child-app (cycle)
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "application.json"),
-        JSON.stringify({ name: "Child App", extends: "parent-app" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Child App", extends: "parent-app" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "parent-app", "application.json"),
-        JSON.stringify({ name: "Parent App", extends: "child-app" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "parent-app",
+          "application.json",
+        ),
+        JSON.stringify({ name: "Parent App", extends: "child-app" }),
       );
       fs.writeFileSync(
-        path.join(pathes.jsonPath, "applications", "child-app", "templates", "test-template.json"),
-        JSON.stringify({ name: "Test Template" })
+        path.join(
+          pathes.jsonPath,
+          "applications",
+          "child-app",
+          "templates",
+          "test-template.json",
+        ),
+        JSON.stringify({ name: "Test Template" }),
       );
 
       // Should not infinite loop - visited set prevents cycles

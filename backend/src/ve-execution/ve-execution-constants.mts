@@ -28,12 +28,17 @@ export enum ExecutionMode {
  * @param explicitMode Optional explicit execution mode override
  * @returns The determined execution mode
  */
-export function determineExecutionMode(explicitMode?: ExecutionMode): ExecutionMode {
+export function determineExecutionMode(
+  explicitMode?: ExecutionMode,
+): ExecutionMode {
   if (explicitMode !== undefined) {
     return explicitMode;
   }
   // Automatically detect test mode from environment
-  if (process.env.NODE_ENV === "test" || process.env.LXC_MANAGER_TEST_MODE === "true") {
+  if (
+    process.env.NODE_ENV === "test" ||
+    process.env.LXC_MANAGER_TEST_MODE === "true"
+  ) {
     return ExecutionMode.TEST;
   }
   return ExecutionMode.PRODUCTION;
@@ -70,4 +75,3 @@ export function getNextMessageIndex(): number {
 export function resetMessageIndex(): void {
   globalMessageIndex = 0;
 }
-

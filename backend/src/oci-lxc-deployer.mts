@@ -141,7 +141,9 @@ async function startWebApp(
     if (pub && typeof pub === "string" && pub.length > 0) {
       logger.info("SSH public key ready for import");
     } else {
-      logger.info("SSH public key not available yet; will be generated on demand");
+      logger.info(
+        "SSH public key not available yet; will be generated on demand",
+      );
     }
   } catch {}
   const webApp = new VEWebApp(pm.getContextManager());
@@ -209,7 +211,10 @@ async function runValidateCommand(localPath?: string) {
   }
 }
 
-async function runUpdatedocCommand(applicationName?: string, localPathArg?: string) {
+async function runUpdatedocCommand(
+  applicationName?: string,
+  localPathArg?: string,
+) {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   // projectRoot should be the workspace root, not backend root
@@ -231,7 +236,9 @@ async function runUpdatedocCommand(applicationName?: string, localPathArg?: stri
     }
     throw err;
   }
-  console.log("\n✓ Validation successful. Proceeding with documentation generation...\n");
+  console.log(
+    "\n✓ Validation successful. Proceeding with documentation generation...\n",
+  );
 
   // Initialize PersistenceManager
   PersistenceManager.initialize(
@@ -258,11 +265,17 @@ function printHelp() {
   );
   console.log("");
   console.log("  validate");
-  console.log("    Validate all templates, applications and frameworks against their schemas");
+  console.log(
+    "    Validate all templates, applications and frameworks against their schemas",
+  );
   console.log("");
   console.log("  updatedoc [application]");
-  console.log("    Generate or update documentation for applications and templates");
-  console.log("    If application is specified, only that application is documented");
+  console.log(
+    "    Generate or update documentation for applications and templates",
+  );
+  console.log(
+    "    If application is specified, only that application is documented",
+  );
   console.log("");
   console.log("  (no command)");
   console.log("    Start the web application server");
@@ -407,7 +420,9 @@ async function main() {
         );
         console.error("");
         console.error("Examples:");
-        console.error("  oci-lxc-deployer exec node-red installation ./params.json");
+        console.error(
+          "  oci-lxc-deployer exec node-red installation ./params.json",
+        );
         console.error(
           "  oci-lxc-deployer exec node-red installation ./params.json --local ./my-local",
         );
@@ -437,7 +452,9 @@ async function main() {
       console.error("Available commands:");
       console.error("  exec      Execute a task for a specific application");
       console.error("  validate  Validate all templates and applications");
-      console.error("  updatedoc Generate or update documentation for applications and templates");
+      console.error(
+        "  updatedoc Generate or update documentation for applications and templates",
+      );
       console.error("");
       console.error("Usage (start web app):");
       console.error("  oci-lxc-deployer [options]");

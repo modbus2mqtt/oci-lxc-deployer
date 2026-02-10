@@ -1,9 +1,6 @@
 import path from "path";
 import fs from "fs";
-import {
-  IConfiguredPathes,
-  VEConfigurationError,
-} from "../backend-types.mjs";
+import { IConfiguredPathes, VEConfigurationError } from "../backend-types.mjs";
 import { IFramework } from "../types.mjs";
 import { JsonValidator } from "../jsonvalidator.mjs";
 
@@ -121,10 +118,11 @@ export class FrameworkPersistenceHandler {
     // Load and validate
     let frameworkData: IFramework;
     try {
-      frameworkData = this.jsonValidator.serializeJsonFileWithSchema<IFramework>(
-        frameworkFile,
-        "framework",
-      );
+      frameworkData =
+        this.jsonValidator.serializeJsonFileWithSchema<IFramework>(
+          frameworkFile,
+          "framework",
+        );
     } catch (e: Error | any) {
       this.addErrorToOptions(opts, e);
       throw opts.error;
@@ -195,10 +193,7 @@ export class FrameworkPersistenceHandler {
     for (const entry of entries) {
       if (entry.isFile() && entry.name.endsWith(".json")) {
         const frameworkId = entry.name.replace(/\.json$/, "");
-        frameworks.set(
-          frameworkId,
-          path.join(frameworksDir, entry.name),
-        );
+        frameworks.set(frameworkId, path.join(frameworksDir, entry.name));
       }
     }
 
@@ -216,4 +211,3 @@ export class FrameworkPersistenceHandler {
     }
   }
 }
-

@@ -62,7 +62,8 @@ export class VeExecutionMessageEmitter {
   ): void {
     const msg = String(error?.message ?? error);
     // If error is a JsonError, preserve its details in the error field
-    const errorObj: IJsonError | undefined = error instanceof JsonError ? error : undefined;
+    const errorObj: IJsonError | undefined =
+      error instanceof JsonError ? error : undefined;
     this.eventEmitter.emit("message", {
       stderr: msg,
       result: null,
@@ -76,4 +77,3 @@ export class VeExecutionMessageEmitter {
     } as IVeExecuteMessage);
   }
 }
-

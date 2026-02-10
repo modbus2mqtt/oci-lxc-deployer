@@ -10,8 +10,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { VeExecution } from "@src/ve-execution/ve-execution.mjs";
 import { ICommand, IVeExecuteMessage } from "@src/types.mjs";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
-import { getNextMessageIndex, ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import {
+  getNextMessageIndex,
+  ExecutionMode,
+} from "@src/ve-execution/ve-execution-constants.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
 
 describe("VeExecution host: flow", () => {
   let env: TestEnvironment;
@@ -61,10 +67,10 @@ describe("VeExecution host: flow", () => {
 
   /**
    * Test case 1: Single command with execute_on: "host:hostname"
-   * 
+   *
    * NOTE: A single command with execute_on: "host:hostname" is treated as a template
    * and calls executeTemplateOnHost, not executeOnHost.
-   * 
+   *
    * TO TEST:
    * - executeTemplateOnHost is called
    * - Command is executed on LXC (via runOnLxc)
@@ -73,7 +79,7 @@ describe("VeExecution host: flow", () => {
   it("executes command on LXC via executeTemplateOnHost", async () => {
     setupVEContext();
     setupVMContext(101, "ve_localhost", { hostname: "apphost", pve: "pve-1" });
-    
+
     const command: ICommand = {
       name: "deploy",
       command: "echo 'hello'",
@@ -91,10 +97,15 @@ describe("VeExecution host: flow", () => {
       ): Promise<IVeExecuteMessage> {
         // Mock probe: return VM IDs directly via command instead of script
         // Check if this is the write-vmids-json.sh probe script
-        if (tmplCommand.script && tmplCommand.script.includes("write-vmids-json.sh")) {
+        if (
+          tmplCommand.script &&
+          tmplCommand.script.includes("write-vmids-json.sh")
+        ) {
           return {
             stderr: "",
-            result: JSON.stringify([{ hostname: "apphost", pve: "pve-1", vmid: 101 }]),
+            result: JSON.stringify([
+              { hostname: "apphost", pve: "pve-1", vmid: 101 },
+            ]),
             exitCode: 0,
             command: "write-vmids",
             execute_on: "ve",
@@ -102,11 +113,7 @@ describe("VeExecution host: flow", () => {
           } as IVeExecuteMessage;
         }
         // For other calls, execute locally using ExecutionMode.TEST
-        return await super.runOnVeHost(
-          input,
-          tmplCommand,
-          timeoutMs,
-        );
+        return await super.runOnVeHost(input, tmplCommand, timeoutMs);
       }
     }
 
@@ -115,7 +122,14 @@ describe("VeExecution host: flow", () => {
     if (!veContext) {
       throw new Error("VE context not found for key: ve_localhost");
     }
-    const exec = new TestExec([command], [{id:"vm_id", value: 101}], veContext, undefined, undefined, ExecutionMode.TEST);
+    const exec = new TestExec(
+      [command],
+      [{ id: "vm_id", value: 101 }],
+      veContext,
+      undefined,
+      undefined,
+      ExecutionMode.TEST,
+    );
 
     const rc = await exec.run();
 
@@ -138,29 +152,42 @@ describe("VeExecution host: flow", () => {
       command: "echo 'hello'",
       execute_on: "host:apphost",
     };
-    
+
     const pm = PersistenceManager.getInstance();
     const veContext = pm.getContextManager().getVEContextByKey("ve_localhost");
     if (!veContext) {
       throw new Error("VE context not found for key: ve_localhost");
     }
-    const exec = new VeExecution([command], [], veContext, undefined, undefined, ExecutionMode.TEST);
-    
+    const exec = new VeExecution(
+      [command],
+      [],
+      veContext,
+      undefined,
+      undefined,
+      ExecutionMode.TEST,
+    );
+
     // Listen for error messages
     const messages: any[] = [];
     exec.on("message", (msg) => {
       messages.push(msg);
     });
-    
+
     const rc = await exec.run();
-    
+
     // The error is caught and emitted as a message, then run returns undefined
     // because no commands were successfully executed
     expect(rc).toBeUndefined();
     // Verify that an error message was emitted
-    const errorMessages = messages.filter((m) => m.exitCode === -1 || m.exitCode < 0);
+    const errorMessages = messages.filter(
+      (m) => m.exitCode === -1 || m.exitCode < 0,
+    );
     expect(errorMessages.length).toBeGreaterThan(0);
-    expect(errorMessages.some((m) => m.stderr?.includes("VMContext for apphost not found"))).toBe(true);
+    expect(
+      errorMessages.some((m) =>
+        m.stderr?.includes("VMContext for apphost not found"),
+      ),
+    ).toBe(true);
   });
 
   /**
@@ -178,10 +205,10 @@ describe("VeExecution host: flow", () => {
       command: "echo '{{app_name}}-on-{{hostname}}'",
       execute_on: "host:apphost",
     };
-    
+
     class TestExec extends VeExecution {
       public captured: string | undefined;
-      
+
       protected async runOnVeHost(
         input: string,
         tmplCommand: ICommand,
@@ -189,10 +216,15 @@ describe("VeExecution host: flow", () => {
       ): Promise<IVeExecuteMessage> {
         // Mock probe: return VM IDs directly via command instead of script
         // Check if this is the write-vmids-json.sh probe script
-        if (tmplCommand.script && tmplCommand.script.includes("write-vmids-json.sh")) {
+        if (
+          tmplCommand.script &&
+          tmplCommand.script.includes("write-vmids-json.sh")
+        ) {
           return {
             stderr: "",
-            result: JSON.stringify([{ hostname: "apphost", pve: "pve-1", vmid: 101 }]),
+            result: JSON.stringify([
+              { hostname: "apphost", pve: "pve-1", vmid: 101 },
+            ]),
             exitCode: 0,
             command: "write-vmids",
             execute_on: "ve",
@@ -213,7 +245,7 @@ describe("VeExecution host: flow", () => {
         return await super.runOnLxc(vm_id, command, tmplCommand, timeoutMs);
       }
     }
-    
+
     // Provide an input that would differ from vmctx.outputs to ensure outputs wins
     const pm = PersistenceManager.getInstance();
     const veContext = pm.getContextManager().getVEContextByKey("ve_localhost");
@@ -228,7 +260,7 @@ describe("VeExecution host: flow", () => {
       undefined,
       ExecutionMode.TEST,
     );
-    
+
     const rc = await exec.run();
     expect(rc).toBeDefined();
     expect(rc?.lastSuccessfull).toBe(0);
@@ -257,7 +289,7 @@ describe("VeExecution host: flow", () => {
 
     class TestExec extends VeExecution {
       public captured: string | undefined;
-      
+
       protected async runOnVeHost(
         input: string,
         tmplCommand: ICommand,
@@ -265,10 +297,15 @@ describe("VeExecution host: flow", () => {
       ): Promise<IVeExecuteMessage> {
         // Mock probe: return VM IDs directly via command instead of script
         // Check if this is the write-vmids-json.sh probe script
-        if (tmplCommand.script && tmplCommand.script.includes("write-vmids-json.sh")) {
+        if (
+          tmplCommand.script &&
+          tmplCommand.script.includes("write-vmids-json.sh")
+        ) {
           return {
             stderr: "",
-            result: JSON.stringify([{ hostname: "apphost", pve: "pve-1", vmid: 101 }]),
+            result: JSON.stringify([
+              { hostname: "apphost", pve: "pve-1", vmid: 101 },
+            ]),
             exitCode: 0,
             command: "write-vmids",
             execute_on: "ve",
@@ -295,8 +332,15 @@ describe("VeExecution host: flow", () => {
     if (!veContext) {
       throw new Error("VE context not found for key: ve_localhost");
     }
-    const exec = new TestExec([command], [{ id: "vm_id", value: "999" }], veContext, undefined, undefined, ExecutionMode.TEST);
-    
+    const exec = new TestExec(
+      [command],
+      [{ id: "vm_id", value: "999" }],
+      veContext,
+      undefined,
+      undefined,
+      ExecutionMode.TEST,
+    );
+
     const rc = await exec.run();
     expect(rc).toBeDefined();
     expect(rc?.lastSuccessfull).toBe(0);
@@ -326,14 +370,13 @@ describe("VeExecution host: flow", () => {
     const templateCommands: ICommand[] = [
       {
         name: "Set Properties",
-        properties: [
-          { id: "property_value", value: "value-from-properties" },
-        ],
+        properties: [{ id: "property_value", value: "value-from-properties" }],
         execute_on: "host:testhost",
       },
       {
         name: "Test Script",
-        command: "echo 'property_value={{property_value}} vmctx_output={{vmctx_output}}'",
+        command:
+          "echo 'property_value={{property_value}} vmctx_output={{vmctx_output}}'",
         execute_on: "host:testhost",
       },
     ];
@@ -350,10 +393,15 @@ describe("VeExecution host: flow", () => {
       ): Promise<IVeExecuteMessage> {
         // Mock probe: return VM IDs directly via command instead of script
         // Check if this is the write-vmids-json.sh probe script
-        if (tmplCommand.script && tmplCommand.script.includes("write-vmids-json.sh")) {
+        if (
+          tmplCommand.script &&
+          tmplCommand.script.includes("write-vmids-json.sh")
+        ) {
           return {
             stderr: "",
-            result: JSON.stringify([{ hostname: "testhost", pve: "pve-1", vmid: 101 }]),
+            result: JSON.stringify([
+              { hostname: "testhost", pve: "pve-1", vmid: 101 },
+            ]),
             exitCode: 0,
             command: "write-vmids",
             execute_on: "ve",
@@ -375,7 +423,7 @@ describe("VeExecution host: flow", () => {
         // Capture inputs from the nested VeExecution instance
         // Note: inputs are stored in the variableResolver, we need to access them differently
         // For now, just capture the command which should have variables replaced
-        
+
         // Simulate command execution with variable replacement
         // The command should already have variables replaced by VeExecution
         return {
@@ -388,7 +436,7 @@ describe("VeExecution host: flow", () => {
         } as IVeExecuteMessage;
       }
     }
-    
+
     const pm = PersistenceManager.getInstance();
     const veContext = pm.getContextManager().getVEContextByKey("ve_localhost");
     if (!veContext) {
@@ -404,14 +452,14 @@ describe("VeExecution host: flow", () => {
     );
 
     const rc = await exec.run();
-    
+
     expect(rc).toBeDefined();
     expect(rc?.lastSuccessfull).toBe(1); // Both commands should succeed
     expect(exec.capturedVmId).toBe(101);
-    
+
     // Check that the script command was executed
     expect(exec.capturedCommands.length).toBe(1); // Only the script command, properties is handled separately
-    
+
     // Check that the script command was executed with both values replaced
     const scriptCommand = exec.capturedCommands[0];
     expect(scriptCommand).toBeDefined();

@@ -11,10 +11,10 @@ import { spawnSync } from "child_process";
 function generateSshKeyForLxcUser(): string | null {
   // Determine the home directory for the lxc user
   const envServiceHome = process.env.LXC_MANAGER_USER_HOME;
-  const serviceHomes = envServiceHome 
-    ? [envServiceHome] 
+  const serviceHomes = envServiceHome
+    ? [envServiceHome]
     : ["/var/lib/oci-lxc-deployer", "/home/oci-lxc-deployer", "/home/lxc"];
-  
+
   // Try to find an existing home directory or use the first one
   let serviceHome: string | null = null;
   for (const h of serviceHomes) {
@@ -25,7 +25,7 @@ function generateSshKeyForLxcUser(): string | null {
       }
     } catch {}
   }
-  
+
   // If no existing home found, try to create the first one
   if (!serviceHome) {
     const firstHome = serviceHomes[0];
@@ -79,12 +79,16 @@ function generateSshKeyForLxcUser(): string | null {
     const keygenResult = spawnSync(
       "ssh-keygen",
       [
-        "-t", "ed25519",
-        "-f", privateKeyPath,
-        "-N", "", // No passphrase
-        "-C", "oci-lxc-deployer@auto-generated"
+        "-t",
+        "ed25519",
+        "-f",
+        privateKeyPath,
+        "-N",
+        "", // No passphrase
+        "-C",
+        "oci-lxc-deployer@auto-generated",
       ],
-      { encoding: "utf-8", timeout: 10000 }
+      { encoding: "utf-8", timeout: 10000 },
     );
 
     if (keygenResult.status === 0 && existsSync(publicKeyPath)) {
@@ -93,7 +97,7 @@ function generateSshKeyForLxcUser(): string | null {
         chmodSync(privateKeyPath, 0o600);
         chmodSync(publicKeyPath, 0o644);
       } catch {}
-      
+
       const key = readFileSync(publicKeyPath, "utf-8").trim();
       if (key.length > 0) return key;
     }
@@ -102,17 +106,22 @@ function generateSshKeyForLxcUser(): string | null {
     try {
       const rsaPrivateKeyPath = path.join(sshDir, "id_rsa");
       const rsaPublicKeyPath = path.join(sshDir, "id_rsa.pub");
-      
+
       const keygenResult = spawnSync(
         "ssh-keygen",
         [
-          "-t", "rsa",
-          "-b", "4096",
-          "-f", rsaPrivateKeyPath,
-          "-N", "", // No passphrase
-          "-C", "oci-lxc-deployer@auto-generated"
+          "-t",
+          "rsa",
+          "-b",
+          "4096",
+          "-f",
+          rsaPrivateKeyPath,
+          "-N",
+          "", // No passphrase
+          "-C",
+          "oci-lxc-deployer@auto-generated",
         ],
-        { encoding: "utf-8", timeout: 10000 }
+        { encoding: "utf-8", timeout: 10000 },
       );
 
       if (keygenResult.status === 0 && existsSync(rsaPublicKeyPath)) {
@@ -120,7 +129,7 @@ function generateSshKeyForLxcUser(): string | null {
           chmodSync(rsaPrivateKeyPath, 0o600);
           chmodSync(rsaPublicKeyPath, 0o644);
         } catch {}
-        
+
         const key = readFileSync(rsaPublicKeyPath, "utf-8").trim();
         if (key.length > 0) return key;
       }
@@ -148,7 +157,11 @@ function readServicePublicKey(): string | null {
   // 3) Fallbacks (only if not found in current user's home)
   const envServiceHome = process.env.LXC_MANAGER_USER_HOME;
   if (envServiceHome) homes.push(envServiceHome);
-  homes.push("/var/lib/oci-lxc-deployer", "/home/oci-lxc-deployer", "/home/lxc");
+  homes.push(
+    "/var/lib/oci-lxc-deployer",
+    "/home/oci-lxc-deployer",
+    "/home/lxc",
+  );
 
   const filenames = ["id_ed25519.pub", "id_rsa.pub", "id_ecdsa.pub"];
 
@@ -226,10 +239,7 @@ export class Ssh {
   /**
    * Check if SSH port is listening on the host
    */
-  static checkSshPortListening(
-    host: string,
-    port?: number,
-  ): boolean {
+  static checkSshPortListening(host: string, port?: number): boolean {
     // Single lightweight check using ssh with short timeout
     try {
       const sshTest = this.checkSshPermission(host, port);

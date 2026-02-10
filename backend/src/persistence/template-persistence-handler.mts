@@ -34,30 +34,66 @@ export class TemplatePersistenceHandler {
       // Category paths first (if specified)
       if (category) {
         searchPaths.push(
-          path.join(this.pathes.localPath, "shared", "templates", category, templateFileName),
+          path.join(
+            this.pathes.localPath,
+            "shared",
+            "templates",
+            category,
+            templateFileName,
+          ),
         );
         searchPaths.push(
-          path.join(this.pathes.jsonPath, "shared", "templates", category, templateFileName),
+          path.join(
+            this.pathes.jsonPath,
+            "shared",
+            "templates",
+            category,
+            templateFileName,
+          ),
         );
       }
 
-      // Root paths (backward compatibility)
+      // Root paths (always accessible - these are non-categorized templates)
       searchPaths.push(
-        path.join(this.pathes.localPath, "shared", "templates", templateFileName),
+        path.join(
+          this.pathes.localPath,
+          "shared",
+          "templates",
+          templateFileName,
+        ),
       );
       searchPaths.push(
-        path.join(this.pathes.jsonPath, "shared", "templates", templateFileName),
+        path.join(
+          this.pathes.jsonPath,
+          "shared",
+          "templates",
+          templateFileName,
+        ),
       );
 
-      // Auto-discovery: search in known category subdirectories
-      const knownCategories = ["list"];
-      for (const cat of knownCategories) {
-        searchPaths.push(
-          path.join(this.pathes.localPath, "shared", "templates", cat, templateFileName),
-        );
-        searchPaths.push(
-          path.join(this.pathes.jsonPath, "shared", "templates", cat, templateFileName),
-        );
+      // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
+      if (process.env.STRICT_CATEGORY_MODE !== "1") {
+        const knownCategories = ["list"];
+        for (const cat of knownCategories) {
+          searchPaths.push(
+            path.join(
+              this.pathes.localPath,
+              "shared",
+              "templates",
+              cat,
+              templateFileName,
+            ),
+          );
+          searchPaths.push(
+            path.join(
+              this.pathes.jsonPath,
+              "shared",
+              "templates",
+              cat,
+              templateFileName,
+            ),
+          );
+        }
       }
 
       for (const p of searchPaths) {
@@ -91,10 +127,11 @@ export class TemplatePersistenceHandler {
 
     // Load and validate
     try {
-      const templateData = this.jsonValidator.serializeJsonFileWithSchema<ITemplate>(
-        templatePath,
-        "template",
-      );
+      const templateData =
+        this.jsonValidator.serializeJsonFileWithSchema<ITemplate>(
+          templatePath,
+          "template",
+        );
 
       // Cache it
       if (this.enableCache) {
@@ -150,7 +187,11 @@ export class TemplatePersistenceHandler {
     this.templateCache.clear();
   }
 
-  deleteTemplate(templateName: string, isShared: boolean, category?: string): void {
+  deleteTemplate(
+    templateName: string,
+    isShared: boolean,
+    category?: string,
+  ): void {
     const templateFileName = templateName.endsWith(".json")
       ? templateName
       : `${templateName}.json`;
@@ -174,8 +215,32 @@ export class TemplatePersistenceHandler {
     this.templateCache.clear();
   }
 
+  writeScript(
+    scriptName: string,
+    content: string,
+    isShared: boolean,
+    appPath?: string,
+    category?: string,
+  ): void {
+    if (isShared) {
+      const scriptDir = category
+        ? path.join(this.pathes.localPath, "shared", "scripts", category)
+        : path.join(this.pathes.localPath, "shared", "scripts");
+      fs.mkdirSync(scriptDir, { recursive: true });
+      fs.writeFileSync(path.join(scriptDir, scriptName), content);
+    } else {
+      if (!appPath) {
+        throw new Error(
+          "Writing application-specific scripts requires appPath parameter",
+        );
+      }
+      const scriptsDir = path.join(appPath, "scripts");
+      fs.mkdirSync(scriptsDir, { recursive: true });
+      fs.writeFileSync(path.join(scriptsDir, scriptName), content);
+    }
+  }
+
   invalidateCache(): void {
     this.templateCache.clear();
   }
 }
-

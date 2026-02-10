@@ -35,12 +35,11 @@ export function registerFrameworkRoutes(
 
       for (const [frameworkId] of allFrameworks) {
         try {
-          const framework = pm.getFrameworkService().readFramework(
-            frameworkId,
-            {
+          const framework = pm
+            .getFrameworkService()
+            .readFramework(frameworkId, {
               error: new VEConfigurationError("", frameworkId),
-            },
-          );
+            });
           frameworkNames.push({
             id: frameworkId,
             name: framework.name || frameworkId,
@@ -109,51 +108,54 @@ export function registerFrameworkRoutes(
     }
   });
 
-  app.post(ApiUri.FrameworkCreateApplication, express.json(), async (req, res) => {
-    try {
-      const body = req.body as IPostFrameworkCreateApplicationBody;
+  app.post(
+    ApiUri.FrameworkCreateApplication,
+    express.json(),
+    async (req, res) => {
+      try {
+        const body = req.body as IPostFrameworkCreateApplicationBody;
 
-      if (!body.frameworkId) {
-        return res.status(400).json({ error: "Missing frameworkId" });
-      }
-      if (!body.applicationId) {
-        return res.status(400).json({ error: "Missing applicationId" });
-      }
-      if (!body.name) {
-        return res.status(400).json({ error: "Missing name" });
-      }
-      if (!body.description) {
-        return res.status(400).json({ error: "Missing description" });
-      }
+        if (!body.frameworkId) {
+          return res.status(400).json({ error: "Missing frameworkId" });
+        }
+        if (!body.applicationId) {
+          return res.status(400).json({ error: "Missing applicationId" });
+        }
+        if (!body.name) {
+          return res.status(400).json({ error: "Missing name" });
+        }
+        if (!body.description) {
+          return res.status(400).json({ error: "Missing description" });
+        }
 
-      const pm = PersistenceManager.getInstance();
-      const frameworkLoader = new FrameworkLoader(
-        {
-          schemaPath: pm.getPathes().schemaPath,
-          jsonPath: pm.getPathes().jsonPath,
-          localPath: pm.getPathes().localPath,
-        },
-        storageContext,
-        pm.getPersistence(),
-      );
+        const pm = PersistenceManager.getInstance();
+        const frameworkLoader = new FrameworkLoader(
+          {
+            schemaPath: pm.getPathes().schemaPath,
+            jsonPath: pm.getPathes().jsonPath,
+            localPath: pm.getPathes().localPath,
+          },
+          storageContext,
+          pm.getPersistence(),
+        );
 
-      const applicationId = await frameworkLoader.createApplicationFromFramework(
-        body,
-      );
+        const applicationId =
+          await frameworkLoader.createApplicationFromFramework(body);
 
-      returnResponse<IPostFrameworkCreateApplicationResponse>(res, {
-        success: true,
-        applicationId: applicationId,
-      });
-    } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      res.status(statusCode).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
-    }
-  });
+        returnResponse<IPostFrameworkCreateApplicationResponse>(res, {
+          success: true,
+          applicationId: applicationId,
+        });
+      } catch (err: any) {
+        const statusCode = getErrorStatusCode(err);
+        const serializedError = serializeError(err);
+        res.status(statusCode).json({
+          error: err instanceof Error ? err.message : String(err),
+          serializedError: serializedError,
+        });
+      }
+    },
+  );
 
   app.post("/api/framework-from-image", express.json(), async (req, res) => {
     try {
@@ -168,7 +170,8 @@ export function registerFrameworkRoutes(
 
       if (!veContext) {
         return res.status(400).json({
-          error: "No VE context configured. Please configure SSH connection first.",
+          error:
+            "No VE context configured. Please configure SSH connection first.",
         });
       }
 
@@ -181,7 +184,10 @@ export function registerFrameworkRoutes(
         );
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        if (errorMessage.includes("not found") || errorMessage.includes("Image")) {
+        if (
+          errorMessage.includes("not found") ||
+          errorMessage.includes("Image")
+        ) {
           return res.status(404).json({
             error: `Image ${body.image}:${tag} not found`,
           });
@@ -189,10 +195,11 @@ export function registerFrameworkRoutes(
         throw err;
       }
 
-      const defaults = FrameworkFromImage.buildApplicationDefaultsFromAnnotations(
-        body.image,
-        annotations,
-      );
+      const defaults =
+        FrameworkFromImage.buildApplicationDefaultsFromAnnotations(
+          body.image,
+          annotations,
+        );
 
       returnResponse<IPostFrameworkFromImageResponse>(res, {
         annotations,

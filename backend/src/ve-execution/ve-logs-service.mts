@@ -1,6 +1,9 @@
 import { IVEContext } from "../backend-types.mjs";
 import { spawnAsync } from "../spawn-utils.mjs";
-import { ExecutionMode, determineExecutionMode } from "./ve-execution-constants.mjs";
+import {
+  ExecutionMode,
+  determineExecutionMode,
+} from "./ve-execution-constants.mjs";
 
 /**
  * Response interface for log requests.
@@ -84,18 +87,28 @@ export class VeLogsService {
     const port = this.veContext.port || 22;
 
     return [
-      "-o", "StrictHostKeyChecking=no",
-      "-o", "BatchMode=yes",
-      "-o", "PasswordAuthentication=no",
-      "-o", "PreferredAuthentications=publickey",
-      "-o", "LogLevel=ERROR",
-      "-o", "ConnectTimeout=5",
-      "-o", "ControlMaster=auto",
-      "-o", "ControlPersist=60",
-      "-o", "ControlPath=/tmp/lxc-manager-ssh-%r@%h:%p",
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "PasswordAuthentication=no",
+      "-o",
+      "PreferredAuthentications=publickey",
+      "-o",
+      "LogLevel=ERROR",
+      "-o",
+      "ConnectTimeout=5",
+      "-o",
+      "ControlMaster=auto",
+      "-o",
+      "ControlPersist=60",
+      "-o",
+      "ControlPath=/tmp/lxc-manager-ssh-%r@%h:%p",
       "-T",
       "-q",
-      "-p", String(port),
+      "-p",
+      String(port),
       `${host}`,
     ];
   }
@@ -103,7 +116,9 @@ export class VeLogsService {
   /**
    * Executes a command on the VE host.
    */
-  private async executeOnHost(command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  private async executeOnHost(
+    command: string,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     if (this.executionMode === ExecutionMode.TEST) {
       // In test mode, execute locally via sh
       return spawnAsync("sh", ["-c", command], {
@@ -154,7 +169,10 @@ export class VeLogsService {
    * 2. /var/log/lxc/{hostname}-{vmid}.log (docker-compose format)
    * 3. /var/log/lxc/container-{vmid}.log (oci-image format)
    */
-  async findLogFile(vmId: number, hostname: string | null): Promise<string | null> {
+  async findLogFile(
+    vmId: number,
+    hostname: string | null,
+  ): Promise<string | null> {
     // First try the configured path
     const configuredPath = await this.getLogPathFromConfig(vmId);
     if (configuredPath) {
@@ -189,7 +207,9 @@ export class VeLogsService {
   /**
    * Checks if a container exists and is running.
    */
-  async checkContainerStatus(vmId: number): Promise<{ exists: boolean; running: boolean }> {
+  async checkContainerStatus(
+    vmId: number,
+  ): Promise<{ exists: boolean; running: boolean }> {
     const command = `pct status ${vmId} 2>/dev/null`;
     const result = await this.executeOnHost(command);
 
@@ -318,7 +338,14 @@ export class VeLogsService {
 
     // Validate VM ID
     if (!this.validateVmId(vmId)) {
-      return this.createDockerLogResponse(false, vmId, lines, "", service, "Invalid VM ID");
+      return this.createDockerLogResponse(
+        false,
+        vmId,
+        lines,
+        "",
+        service,
+        "Invalid VM ID",
+      );
     }
 
     // Validate service name if provided
@@ -336,11 +363,25 @@ export class VeLogsService {
     // Check if container exists and is running
     const status = await this.checkContainerStatus(vmId);
     if (!status.exists) {
-      return this.createDockerLogResponse(false, vmId, lines, "", service, `Container ${vmId} not found`);
+      return this.createDockerLogResponse(
+        false,
+        vmId,
+        lines,
+        "",
+        service,
+        `Container ${vmId} not found`,
+      );
     }
 
     if (!status.running) {
-      return this.createDockerLogResponse(false, vmId, lines, "", service, `Container ${vmId} is not running`);
+      return this.createDockerLogResponse(
+        false,
+        vmId,
+        lines,
+        "",
+        service,
+        `Container ${vmId} is not running`,
+      );
     }
 
     // Build docker logs command
@@ -376,7 +417,8 @@ export class VeLogsService {
 
     // Docker logs command returns exit code 0 even with some warnings
     // Check for actual error patterns
-    const hasError = result.stdout.includes("Error:") && result.stdout.split("\n").length <= 2;
+    const hasError =
+      result.stdout.includes("Error:") && result.stdout.split("\n").length <= 2;
 
     if (result.exitCode !== 0 || hasError) {
       return this.createDockerLogResponse(
@@ -389,6 +431,12 @@ export class VeLogsService {
       );
     }
 
-    return this.createDockerLogResponse(true, vmId, lines, result.stdout, service);
+    return this.createDockerLogResponse(
+      true,
+      vmId,
+      lines,
+      result.stdout,
+      service,
+    );
   }
 }

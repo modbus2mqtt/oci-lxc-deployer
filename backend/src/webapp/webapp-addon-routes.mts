@@ -58,7 +58,9 @@ export function registerAddonRoutes(
 
         const veContext = storageContext.getVEContextByKey(veContextKey);
         if (!veContext) {
-          res.status(404).json({ success: false, error: "VE context not found" });
+          res
+            .status(404)
+            .json({ success: false, error: "VE context not found" });
           return;
         }
 
@@ -71,7 +73,9 @@ export function registerAddonRoutes(
         try {
           addon = addonService.getAddon(addonId);
         } catch {
-          res.status(404).json({ success: false, error: `Addon not found: ${addonId}` });
+          res
+            .status(404)
+            .json({ success: false, error: `Addon not found: ${addonId}` });
           return;
         }
 
@@ -84,7 +88,10 @@ export function registerAddonRoutes(
         if (addon.properties) {
           for (const prop of addon.properties) {
             if (prop.value !== undefined) {
-              inputs.push({ id: prop.id, value: prop.value as string | number | boolean });
+              inputs.push({
+                id: prop.id,
+                value: prop.value as string | number | boolean,
+              });
             }
           }
         }

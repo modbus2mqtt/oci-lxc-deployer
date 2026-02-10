@@ -2,7 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import path from "path";
 import fs from "fs";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
 
 let env: TestEnvironment;
 
@@ -25,6 +28,8 @@ function findApplicationFiles(root: string): string[] {
   const results: string[] = [];
   const entries = fs.readdirSync(root, { withFileTypes: true });
   for (const entry of entries) {
+    // Skip backup directories
+    if (entry.name === "applications-backup") continue;
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) {
       results.push(...findApplicationFiles(full));
@@ -53,7 +58,10 @@ describe("Application JSON validation", () => {
         validator.serializeJsonFileWithSchema(filePath, schemaKey);
       } catch (e: any) {
         const msg = e && (e.message || String(e));
-        errors.push({ file: path.relative(env.repoRoot, filePath), message: msg });
+        errors.push({
+          file: path.relative(env.repoRoot, filePath),
+          message: msg,
+        });
       }
     }
 

@@ -48,8 +48,16 @@ export class TemplateTraceBuilder {
       const isLocal = templateInfo.path.startsWith("local/");
       const isJson = templateInfo.path.startsWith("json/");
       const origin: ITemplateTraceEntry["origin"] = templateInfo.isShared
-        ? (isLocal ? "shared-local" : isJson ? "shared-json" : "unknown")
-        : (isLocal ? "application-local" : isJson ? "application-json" : "unknown");
+        ? isLocal
+          ? "shared-local"
+          : isJson
+            ? "shared-json"
+            : "unknown"
+        : isLocal
+          ? "application-local"
+          : isJson
+            ? "application-json"
+            : "unknown";
 
       const displayPath = templateInfo.path;
 
@@ -67,20 +75,28 @@ export class TemplateTraceBuilder {
   buildParameterTrace(
     outParameters: IParameterWithTemplate[],
     resolvedParams: IResolvedParam[],
-    outputSources: Map<string, { template: string; kind: "outputs" | "properties" }>,
+    outputSources: Map<
+      string,
+      { template: string; kind: "outputs" | "properties" }
+    >,
   ): IParameterTraceEntry[] {
     return outParameters.map((param) => {
       const resolved = resolvedParams.find((rp) => rp.id === param.id);
       const hasDefault =
-        param.default !== undefined && param.default !== null && param.default !== "";
+        param.default !== undefined &&
+        param.default !== null &&
+        param.default !== "";
 
       const withOptionalFields = (
         entry: IParameterTraceEntry,
       ): IParameterTraceEntry => {
-        if (typeof param.required === "boolean") entry.required = param.required;
-        if (param.default !== undefined && param.default !== null) entry.default = param.default;
+        if (typeof param.required === "boolean")
+          entry.required = param.required;
+        if (param.default !== undefined && param.default !== null)
+          entry.default = param.default;
         if (param.template !== undefined) entry.template = param.template;
-        if (param.templatename !== undefined) entry.templatename = param.templatename;
+        if (param.templatename !== undefined)
+          entry.templatename = param.templatename;
         return entry;
       };
 
@@ -100,7 +116,8 @@ export class TemplateTraceBuilder {
         const entry: IParameterTraceEntry = {
           id: param.id,
           name: param.name,
-          source: kind === "properties" ? "template_properties" : "template_output",
+          source:
+            kind === "properties" ? "template_properties" : "template_output",
         };
         entry.sourceTemplate = sourceInfo?.template ?? resolved.template;
         if (kind) entry.sourceKind = kind;
