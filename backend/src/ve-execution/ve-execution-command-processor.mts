@@ -107,61 +107,92 @@ export class VeExecutionCommandProcessor {
   }
 
   /**
+   * Extracts interpreter from shebang line.
+   * Returns the interpreter array or null if no shebang found.
+   */
+  private extractInterpreterFromShebang(content: string): string[] | null {
+    const lines = content.split('\n');
+    const firstLine = lines[0];
+    if (!firstLine || !firstLine.startsWith('#!')) {
+      return null;
+    }
+
+    const shebang = firstLine.substring(2).trim();
+    // Parse shebang: /usr/bin/env python3 -> ['python3']
+    // or /usr/bin/python3 -> ['/usr/bin/python3']
+    // or /usr/bin/env -S perl -w -> ['perl', '-w']
+    let interpreter: string[] = [];
+
+    if (shebang.includes(' ')) {
+      const parts = shebang.split(/\s+/).filter(s => s.length > 0);
+      // Handle /usr/bin/env python3 -> extract 'python3'
+      if (parts.length > 0 && parts[0]) {
+        const firstPart = parts[0];
+        if (firstPart === '/usr/bin/env' || firstPart === '/bin/env' || firstPart === 'env') {
+          interpreter = parts.slice(1); // Skip 'env', take rest
+        } else if (firstPart.endsWith('/env')) {
+          interpreter = parts.slice(1); // Handle any path ending with /env
+        } else {
+          interpreter = parts; // Use all parts for explicit paths
+        }
+      }
+    } else {
+      interpreter = [shebang];
+    }
+
+    return interpreter.length > 0 ? interpreter : null;
+  }
+
+  /**
    * Loads command content from script file or command string.
-   * If a library is specified, it will be prepended to the script content.
-   * Also extracts interpreter from shebang if present.
+   * If a library is specified, it will be prepended to the content.
+   * Extracts interpreter from library's shebang when library is present,
+   * otherwise from script's shebang.
    */
   loadCommandContent(cmd: ICommand): string | null {
+    // Check if library is specified but content is missing
+    if ((cmd.library !== undefined || cmd.libraryPath !== undefined) && cmd.libraryContent === undefined) {
+      throw new Error("Library content missing for command");
+    }
+
+    // Extract interpreter from library's shebang when library is present
+    // (the library determines the language, not the script/command)
+    // If library has no shebang, fall back to script's shebang
+    let interpreterSet = false;
+    if (cmd.libraryContent !== undefined) {
+      const interpreter = this.extractInterpreterFromShebang(cmd.libraryContent);
+      if (interpreter) {
+        (cmd as any)._interpreter = interpreter;
+        interpreterSet = true;
+      }
+    }
+
     if (cmd.scriptContent !== undefined) {
       const scriptContent = cmd.scriptContent;
 
-      // Extract interpreter from shebang (first line)
-      const lines = scriptContent.split('\n');
-      const firstLine = lines[0];
-      if (firstLine && firstLine.startsWith('#!')) {
-        const shebang = firstLine.substring(2).trim();
-        // Parse shebang: /usr/bin/env python3 -> ['python3']
-        // or /usr/bin/python3 -> ['/usr/bin/python3']
-        // or /usr/bin/env -S perl -w -> ['perl', '-w']
-        let interpreter: string[] = [];
-        
-        if (shebang.includes(' ')) {
-          const parts = shebang.split(/\s+/).filter(s => s.length > 0);
-          // Handle /usr/bin/env python3 -> extract 'python3'
-          if (parts.length > 0 && parts[0]) {
-            const firstPart = parts[0];
-            if (firstPart === '/usr/bin/env' || firstPart === '/bin/env' || firstPart === 'env') {
-              interpreter = parts.slice(1); // Skip 'env', take rest
-            } else if (firstPart.endsWith('/env')) {
-              interpreter = parts.slice(1); // Handle any path ending with /env
-            } else {
-              interpreter = parts; // Use all parts for explicit paths
-            }
-          }
-        } else {
-          interpreter = [shebang];
-        }
-        
-        // Store interpreter internally (not in JSON schema)
-        // This will be used by runOnVeHost to determine the correct interpreter
-        if (interpreter.length > 0) {
+      // Extract interpreter from script's shebang if:
+      // - No library is present, OR
+      // - Library is present but has no shebang (fallback)
+      if (!interpreterSet) {
+        const interpreter = this.extractInterpreterFromShebang(scriptContent);
+        if (interpreter) {
           (cmd as any)._interpreter = interpreter;
         }
       }
 
-      // If library is specified, load and prepend it
+      // If library is specified, prepend it
       if (cmd.libraryContent !== undefined) {
-        // Prepend library to script content
         return `${cmd.libraryContent}\n\n# --- Script starts here ---\n${scriptContent}`;
-      }
-      if (cmd.library !== undefined || cmd.libraryPath !== undefined) {
-        throw new Error("Library content missing for command");
       }
 
       return scriptContent;
     } else if (cmd.script !== undefined) {
       throw new Error(`Script content missing for ${cmd.script}`);
     } else if (cmd.command !== undefined) {
+      // Support library with command (not just script)
+      if (cmd.libraryContent !== undefined) {
+        return `${cmd.libraryContent}\n\n# --- Command starts here ---\n${cmd.command}`;
+      }
       return cmd.command;
     }
     return null;

@@ -6,13 +6,22 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatRadioModule } from '@angular/material/radio';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatTooltipModule } from '@angular/material/tooltip';
+
+export interface BooleanColumnConfig {
+  field: string;           // Field name in flags object, e.g., 'required', 'advanced'
+  label: string;           // Column header label
+  icon?: string;           // Material icon name (optional)
+  tooltip?: string;        // Tooltip text for the checkbox
+}
 
 export interface KeyValuePair {
   key: string;
   value: string | number;
-  placeholder?: string;  // Optional per-row placeholder for value field
-  required?: boolean;    // Optional required flag (shows visual indicator)
-  readonly?: boolean;    // Optional per-row readonly flag for key field
+  placeholder?: string;    // Optional per-row placeholder for value field
+  readonly?: boolean;      // Optional per-row readonly flag for key field
+  flags?: Record<string, boolean>;  // Dynamic boolean fields (required, advanced, etc.)
 }
 
 @Component({
@@ -25,18 +34,20 @@ export interface KeyValuePair {
     MatInputModule,
     MatButtonModule,
     MatIconModule,
-    MatRadioModule
+    MatRadioModule,
+    MatCheckboxModule,
+    MatTooltipModule
   ],
   template: `
-    <div class="key-value-table" [style.--grid-columns]="showRadio ? '40px 1fr 140px 48px' : '1fr 1fr auto'">
+    <div class="key-value-table" [style.--grid-columns]="getGridColumns()">
       @if (items().length > 0) {
         @for (item of items(); track $index; let idx = $index) {
           <div class="grid-row">
             @if (showRadio) {
               <div class="col radio">
-                <mat-radio-button 
-                  [checked]="selectedIndex() === idx" 
-                  (change)="setSelected(idx)" 
+                <mat-radio-button
+                  [checked]="selectedIndex() === idx"
+                  (change)="setSelected(idx)"
                   [attr.aria-label]="'Set current ' + keyLabel"
                 ></mat-radio-button>
               </div>
@@ -51,9 +62,6 @@ export interface KeyValuePair {
                   (blur)="onKeyChange(idx, item.key)"
                   [readonly]="readonly || item.readonly"
                 />
-                @if (item.required) {
-                  <span matSuffix class="required-indicator">*</span>
-                }
               </mat-form-field>
             </div>
             <div class="col value">
@@ -67,7 +75,6 @@ export interface KeyValuePair {
                     [placeholder]="item.placeholder || valuePlaceholder"
                     (blur)="onValueChange(idx, item.value)"
                     [readonly]="readonly"
-                    [required]="item.required ?? false"
                   />
                 } @else {
                   <input
@@ -77,18 +84,34 @@ export interface KeyValuePair {
                     [placeholder]="item.placeholder || valuePlaceholder"
                     (blur)="onValueChange(idx, item.value)"
                     [readonly]="readonly"
-                    [required]="item.required ?? false"
                   />
                 }
               </mat-form-field>
             </div>
+            <!-- Dynamic boolean columns -->
+            @for (col of booleanColumns; track col.field) {
+              <div class="col boolean-col">
+                <mat-checkbox
+                  [checked]="!!item.flags?.[col.field]"
+                  (change)="onBooleanChange(idx, col.field, $event.checked)"
+                  [matTooltip]="col.tooltip || col.label"
+                  [disabled]="readonly"
+                >
+                  @if (col.icon) {
+                    <mat-icon class="checkbox-icon">{{ col.icon }}</mat-icon>
+                  } @else {
+                    <span class="checkbox-label">{{ col.label }}</span>
+                  }
+                </mat-checkbox>
+              </div>
+            }
             @if (!readonly) {
               <div class="col actions">
-                <button 
-                  type="button" 
-                  mat-icon-button 
-                  color="warn" 
-                  (click)="removeItem(idx)" 
+                <button
+                  type="button"
+                  mat-icon-button
+                  color="warn"
+                  (click)="removeItem(idx)"
                   [attr.aria-label]="'Remove ' + keyLabel"
                 >
                   <mat-icon>delete</mat-icon>
@@ -109,10 +132,10 @@ export interface KeyValuePair {
           }
           <div class="col key">
             <mat-form-field appearance="fill" class="field">
-              <input 
-                matInput 
-                [(ngModel)]="newKey" 
-                name="newKey" 
+              <input
+                matInput
+                [(ngModel)]="newKey"
+                name="newKey"
                 [placeholder]="keyPlaceholder"
                 (keyup.enter)="addItem()"
               />
@@ -121,31 +144,47 @@ export interface KeyValuePair {
           <div class="col value">
             <mat-form-field appearance="fill" class="field">
               @if (valueType === 'number') {
-                <input 
-                  matInput 
-                  type="number" 
-                  [(ngModel)]="newValue" 
-                  name="newValue" 
+                <input
+                  matInput
+                  type="number"
+                  [(ngModel)]="newValue"
+                  name="newValue"
                   [placeholder]="valuePlaceholder"
                   (keyup.enter)="addItem()"
                 />
               } @else {
-                <input 
-                  matInput 
-                  [(ngModel)]="newValue" 
-                  name="newValue" 
+                <input
+                  matInput
+                  [(ngModel)]="newValue"
+                  name="newValue"
                   [placeholder]="valuePlaceholder"
                   (keyup.enter)="addItem()"
                 />
               }
             </mat-form-field>
           </div>
+          <!-- Placeholder for boolean columns in add row -->
+          @for (col of booleanColumns; track col.field) {
+            <div class="col boolean-col">
+              <mat-checkbox
+                [checked]="!!newFlags[col.field]"
+                (change)="newFlags[col.field] = $event.checked"
+                [matTooltip]="col.tooltip || col.label"
+              >
+                @if (col.icon) {
+                  <mat-icon class="checkbox-icon">{{ col.icon }}</mat-icon>
+                } @else {
+                  <span class="checkbox-label">{{ col.label }}</span>
+                }
+              </mat-checkbox>
+            </div>
+          }
           <div class="col actions">
-            <button 
-              type="button" 
-              mat-icon-button 
-              color="primary" 
-              (click)="addItem()" 
+            <button
+              type="button"
+              mat-icon-button
+              color="primary"
+              (click)="addItem()"
               [attr.aria-label]="'Add ' + keyLabel"
             >
               <mat-icon>add</mat-icon>
@@ -209,10 +248,21 @@ export interface KeyValuePair {
       margin-top: 0.5rem;
     }
 
-    .required-indicator {
-      color: #f44336;
-      font-weight: bold;
-      margin-left: 4px;
+    .col.boolean-col {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .checkbox-icon {
+      font-size: 18px;
+      height: 18px;
+      width: 18px;
+    }
+
+    .checkbox-label {
+      font-size: 12px;
     }
   `]
 })
@@ -225,12 +275,26 @@ export class KeyValueTableComponent {
   @Input() readonly = false;
   @Input() showRadio = false;
   @Input() selectedIndex = signal<number | null>(null);
-  
+  @Input() booleanColumns: BooleanColumnConfig[] = [];
+
   @Output() itemsChange = new EventEmitter<KeyValuePair[]>();
   @Output() selectedIndexChange = new EventEmitter<number | null>();
-  
+
   newKey = '';
   newValue: string | number = '';
+  newFlags: Record<string, boolean> = {};
+
+  getGridColumns(): string {
+    const parts: string[] = [];
+    if (this.showRadio) parts.push('40px');
+    parts.push('1fr');  // key
+    parts.push('1fr');  // value
+    for (const _ of this.booleanColumns) {
+      parts.push('auto');  // each boolean column
+    }
+    if (!this.readonly) parts.push('48px');  // actions
+    return parts.join(' ');
+  }
   
   onKeyChange(index: number, key: string): void {
     const currentItems = [...this.items()];
@@ -249,28 +313,47 @@ export class KeyValueTableComponent {
     this.items.set(currentItems);
     this.itemsChange.emit(currentItems);
   }
-  
+
+  onBooleanChange(index: number, field: string, checked: boolean): void {
+    const currentItems = [...this.items()];
+    const item = currentItems[index];
+    if (!item.flags) {
+      item.flags = {};
+    }
+    item.flags[field] = checked;
+    this.items.set(currentItems);
+    this.itemsChange.emit(currentItems);
+  }
+
   addItem(): void {
     const key = String(this.newKey || '').trim();
-    const value = this.valueType === 'number' 
+    const value = this.valueType === 'number'
       ? (Number(this.newValue) || 0)
       : String(this.newValue || '').trim();
-    
+
     if (!key) {
       return;
     }
-    
+
     // Prevent duplicate keys
     if (this.items().some(item => item.key === key)) {
       return;
     }
-    
-    const currentItems = [...this.items(), { key, value }];
+
+    // Copy flags if any boolean columns are configured
+    const flags = this.booleanColumns.length > 0 ? { ...this.newFlags } : undefined;
+    const newItem: KeyValuePair = { key, value };
+    if (flags && Object.keys(flags).length > 0) {
+      newItem.flags = flags;
+    }
+
+    const currentItems = [...this.items(), newItem];
     this.items.set(currentItems);
     this.itemsChange.emit(currentItems);
-    
+
     this.newKey = '';
     this.newValue = this.valueType === 'number' ? 0 : '';
+    this.newFlags = {};
   }
   
   removeItem(index: number): void {

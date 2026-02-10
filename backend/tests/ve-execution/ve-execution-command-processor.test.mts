@@ -594,6 +594,226 @@ describe("VeExecutionCommandProcessor", () => {
       expect(libraryIndex).toBeLessThan(markerIndex);
       expect(markerIndex).toBeLessThan(scriptCallIndex);
     });
+
+    it("should use library shebang for interpreter detection instead of script shebang", () => {
+      // Create Python library with shebang
+      const pythonLibrary = `#!/usr/bin/env python3
+def my_python_function():
+    return "hello from library"
+`;
+      // Create script WITHOUT shebang (or with different shebang)
+      const scriptContent = `#!/bin/sh
+# This shebang should be ignored when library is present
+result = my_python_function()
+print(result)
+`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-python-with-library",
+        script: "test-script.py",
+        scriptContent,
+        libraryPath: "python-library.py",
+        libraryContent: pythonLibrary,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBeTruthy();
+
+      // Verify interpreter was set from library's shebang (python3), not script's (sh)
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+
+      // Verify library is prepended
+      expect(content).toContain("def my_python_function():");
+      expect(content).toContain("# --- Script starts here ---");
+    });
+
+    it("should prepend Python library to command and use library shebang", () => {
+      // Create Python library with shebang
+      const pythonLibrary = `#!/usr/bin/env python3
+import json
+
+def output_json(data):
+    """Output data as JSON to stdout."""
+    print(json.dumps(data))
+`;
+      // Command that calls the library function (no shebang in commands)
+      const command = `output_json([{"id": "result", "value": "success"}])`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-command-with-python-library",
+        command,
+        libraryPath: "python-output-lib.py",
+        libraryContent: pythonLibrary,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBeTruthy();
+      if (!content) {
+        throw new Error("Expected content");
+      }
+
+      // Verify interpreter was set from library's shebang
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+
+      // Verify library is prepended to command
+      expect(content).toContain("#!/usr/bin/env python3");
+      expect(content).toContain("import json");
+      expect(content).toContain("def output_json(data):");
+      expect(content).toContain("# --- Command starts here ---");
+      expect(content).toContain("output_json([");
+
+      // Verify order: library before command
+      const libraryIndex = content.indexOf("def output_json");
+      const markerIndex = content.indexOf("# --- Command starts here ---");
+      const commandIndex = content.indexOf("output_json([");
+      expect(libraryIndex).toBeLessThan(markerIndex);
+      expect(markerIndex).toBeLessThan(commandIndex);
+    });
+
+    it("should fall back to script shebang when no library is present", () => {
+      const scriptContent = `#!/usr/bin/env python3
+print("hello world")
+`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-script-no-library",
+        script: "test-script.py",
+        scriptContent,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBe(scriptContent);
+
+      // Verify interpreter was set from script's shebang
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+    });
+
+    it("should fall back to script shebang when library has no shebang", () => {
+      // Library without shebang (like lxc_config_parser_lib.py)
+      const pythonLibrary = `"""Python library without shebang.
+
+This is a docstring, not a shebang.
+"""
+
+def helper_function():
+    return "helper"
+`;
+      // Script with shebang
+      const scriptContent = `#!/usr/bin/env python3
+result = helper_function()
+print(result)
+`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-library-no-shebang",
+        script: "test-script.py",
+        scriptContent,
+        libraryPath: "lib-no-shebang.py",
+        libraryContent: pythonLibrary,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBeTruthy();
+
+      // Verify interpreter was set from script's shebang (fallback)
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+
+      // Verify library is still prepended
+      expect(content).toContain("def helper_function():");
+      expect(content).toContain("# --- Script starts here ---");
+    });
   });
 
   describe("execute_on: application:<app-id>", () => {
