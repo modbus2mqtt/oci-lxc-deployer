@@ -211,6 +211,7 @@ export class TemplateProcessor extends EventEmitter {
     }
 
     for (const tmpl of templates) {
+      const templateCategory = this.resolver.extractTemplateCategory(tmpl);
       let ptOpts: IProcessTemplateOpts = {
         application: applicationName,
         template: tmpl,
@@ -233,6 +234,7 @@ export class TemplateProcessor extends EventEmitter {
         processedTemplates,
         templateReferences,
         outputSources,
+        ...(templateCategory && { templateCategory }),
       };
       if (veContext !== undefined) {
         ptOpts.veContext = veContext;

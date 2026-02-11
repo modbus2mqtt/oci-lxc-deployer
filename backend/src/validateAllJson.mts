@@ -354,6 +354,19 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
     }
   }
 
+  // === Check for duplicates across categories ===
+  const repositories = pm.getRepositories();
+  if (repositories.checkForDuplicates) {
+    const duplicateWarnings = repositories.checkForDuplicates();
+    if (duplicateWarnings.length > 0) {
+      hasError = true;
+      console.error("Duplicate files across categories:");
+      for (const warning of duplicateWarnings) {
+        console.error(`  ✖ ${warning}`);
+      }
+    }
+  }
+
   // === Summary ===
   console.log("");
   if (hasError) {

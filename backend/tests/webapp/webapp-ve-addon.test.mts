@@ -519,7 +519,7 @@ describe("WebAppVE Addon Integration", () => {
         name: "Test App 2",
         description: "Test application with addon-reconfigure",
         installation: { post_start: ["set-parameters.json"] },
-        "addon-reconfigure": ["reconfig.json"],
+        "addon-reconfigure": { post_start: ["reconfig.json"] },
       } as any);
 
       helper.writeTemplate("testapp2", "set-parameters.json", {

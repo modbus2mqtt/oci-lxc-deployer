@@ -1,5 +1,6 @@
 import { ApplicationLoader } from "@src/apploader.mjs";
 import { FileSystemPersistence } from "@src/persistence/filesystem-persistence.mjs";
+import { ITemplateReference } from "@src/backend-types.mjs";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   createTestEnvironment,
@@ -9,6 +10,24 @@ import {
   TestPersistenceHelper,
   Volume,
 } from "../helper/test-persistence-helper.mjs";
+
+// Helper to extract template names from templates array (which may contain strings or ITemplateReference objects)
+function getTemplateNames(
+  templates: (ITemplateReference | string)[] | undefined,
+): string[] {
+  if (!templates) return [];
+  return templates.map((t) => (typeof t === "string" ? t : t.name));
+}
+
+// Helper to get template name at index
+function getTemplateName(
+  templates: (ITemplateReference | string)[] | undefined,
+  index: number,
+): string | undefined {
+  if (!templates || index >= templates.length) return undefined;
+  const t = templates[index];
+  return typeof t === "string" ? t : t.name;
+}
 
 describe("ApplicationLoader.readApplicationJson", () => {
   let env: TestEnvironment;
@@ -73,8 +92,9 @@ describe("ApplicationLoader.readApplicationJson", () => {
     const templates = opts.taskTemplates.find(
       (t) => t.task === "installation",
     )?.templates;
-    expect(templates).toContain("base-template.json");
-    expect(templates).toContain("my-template.json");
+    const templateNames = getTemplateNames(templates);
+    expect(templateNames).toContain("base-template.json");
+    expect(templateNames).toContain("my-template.json");
   });
 
   it("2. Like 1. Same names", () => {
@@ -104,8 +124,9 @@ describe("ApplicationLoader.readApplicationJson", () => {
     const templates = opts.taskTemplates.find(
       (t) => t.task === "installation",
     )?.templates;
-    expect(templates).toContain("base-template.json");
-    expect(templates).toContain("my-template.json");
+    const templateNames = getTemplateNames(templates);
+    expect(templateNames).toContain("base-template.json");
+    expect(templateNames).toContain("my-template.json");
   });
 
   it("3. localPath application has a template with {before: extends application template}", () => {
@@ -141,8 +162,8 @@ describe("ApplicationLoader.readApplicationJson", () => {
     )?.templates;
     expect(templates).toBeDefined();
     // Parent template first, then child template inserted with "before"
-    expect(templates![1]).toBe("base-template.json");
-    expect(templates![0]).toBe("my-template.json");
+    expect(getTemplateName(templates, 1)).toBe("base-template.json");
+    expect(getTemplateName(templates, 0)).toBe("my-template.json");
   });
 
   it("4. extends application has 2 templates, localPath application with after", () => {
@@ -174,9 +195,9 @@ describe("ApplicationLoader.readApplicationJson", () => {
     )?.templates;
     expect(templates).toBeDefined();
     // Parent templates first, then child template appended when "after" target is not reordered
-    expect(templates![0]).toBe("base1.json");
-    expect(templates![1]).toBe("my-template.json");
-    expect(templates![2]).toBe("base2.json");
+    expect(getTemplateName(templates, 0)).toBe("base1.json");
+    expect(getTemplateName(templates, 1)).toBe("my-template.json");
+    expect(getTemplateName(templates, 2)).toBe("base2.json");
   });
   it("5. recursion application extends itself", () => {
     persistenceHelper.writeJsonSync(

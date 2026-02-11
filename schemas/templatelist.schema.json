@@ -8,6 +8,7 @@
         "type": "object",
         "properties": {
           "name": { "type": "string" },
+          "category": { "type": "string" },
           "before": { "type": "string" },
           "after": { "type": "string" }
         },

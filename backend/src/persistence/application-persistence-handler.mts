@@ -671,7 +671,24 @@ export class ApplicationPersistenceHandler {
       for (const category of installationCategories) {
         const list = installation[category];
         if (Array.isArray(list)) {
-          this.processTemplateList(list, taskEntry, "installation", opts);
+          this.processTemplateList(list, taskEntry, "installation", opts, category);
+        }
+      }
+    }
+
+    // addon-reconfigure uses category-based format: { image, pre_start, start, post_start }
+    const addonReconfigure = (appData as any)["addon-reconfigure"];
+    if (addonReconfigure && typeof addonReconfigure === "object" && !Array.isArray(addonReconfigure)) {
+      let taskEntry = opts.taskTemplates.find((t) => t.task === "addon-reconfigure");
+      if (!taskEntry) {
+        taskEntry = { task: "addon-reconfigure", templates: [] };
+        opts.taskTemplates.push(taskEntry);
+      }
+
+      for (const category of installationCategories) {
+        const list = addonReconfigure[category];
+        if (Array.isArray(list)) {
+          this.processTemplateList(list, taskEntry, "addon-reconfigure", opts, category);
         }
       }
     }
@@ -685,7 +702,6 @@ export class ApplicationPersistenceHandler {
       "upgrade",
       "copy-upgrade",
       "copy-rollback",
-      "addon-reconfigure",
       "addon",
       "webui",
     ];
@@ -705,21 +721,33 @@ export class ApplicationPersistenceHandler {
 
   /**
    * Processes a list of template entries and adds them to the task entry
+   * @param category Optional category for shared template resolution (e.g., "image", "pre_start")
    */
   private processTemplateList(
     list: any[],
     taskEntry: { task: string; templates: (ITemplateReference | string)[] },
     taskName: string,
     opts: IReadApplicationOptions,
+    category?: string,
   ): void {
     for (const entry of list) {
       if (typeof entry === "string") {
-        this.addTemplateToTask(entry, taskEntry, taskName, opts);
+        // Convert string to ITemplateReference with category
+        if (category) {
+          this.addTemplateToTask({ name: entry, category }, taskEntry, taskName, opts);
+        } else {
+          this.addTemplateToTask(entry, taskEntry, taskName, opts);
+        }
       } else if (typeof entry === "object" && entry !== null) {
-        const name = (entry as ITemplateReference).name;
+        const templateRef = entry as ITemplateReference;
+        const name = templateRef.name;
         if (!name) continue;
+        // Attach category if not already specified
+        if (category && !templateRef.category) {
+          templateRef.category = category;
+        }
         // Handle before: support both string and array
-        const beforeValue = (entry as ITemplateReference).before;
+        const beforeValue = templateRef.before;
         if (beforeValue) {
           const beforeName =
             Array.isArray(beforeValue) && beforeValue.length > 0
@@ -742,15 +770,15 @@ export class ApplicationPersistenceHandler {
             }
             const idx = existingTemplates.indexOf(beforeName);
             if (idx !== -1) {
-              taskEntry.templates.splice(idx, 0, name);
+              taskEntry.templates.splice(idx, 0, templateRef);
             } else {
-              this.addTemplateToTask(name, taskEntry, taskName, opts);
+              this.addTemplateToTask(templateRef, taskEntry, taskName, opts);
             }
             continue; // Template added, skip to next entry
           }
         }
         // Handle after: support both string and array
-        const afterValue = (entry as ITemplateReference).after;
+        const afterValue = templateRef.after;
         if (afterValue) {
           const afterName =
             Array.isArray(afterValue) && afterValue.length > 0
@@ -773,15 +801,15 @@ export class ApplicationPersistenceHandler {
             }
             const idx = existingTemplates.indexOf(afterName);
             if (idx !== -1) {
-              taskEntry.templates.splice(idx + 1, 0, name);
+              taskEntry.templates.splice(idx + 1, 0, templateRef);
             } else {
-              this.addTemplateToTask(name, taskEntry, taskName, opts);
+              this.addTemplateToTask(templateRef, taskEntry, taskName, opts);
             }
             continue; // Template added, skip to next entry
           }
         }
         // No before/after specified, add at end
-        this.addTemplateToTask(name, taskEntry, taskName, opts);
+        this.addTemplateToTask(templateRef, taskEntry, taskName, opts);
       }
     }
   }
@@ -790,14 +818,14 @@ export class ApplicationPersistenceHandler {
    * Adds a template to the task entry. Duplicates are not allowed and will cause an error.
    */
   private addTemplateToTask(
-    templateName: string,
+    template: ITemplateReference | string,
     taskEntry: { task: string; templates: (ITemplateReference | string)[] },
     taskName: string,
     opts: IReadApplicationOptions,
   ): void {
     // Check for duplicates - duplicates are not allowed
     const templateNameStr =
-      typeof templateName === "string" ? templateName : templateName;
+      typeof template === "string" ? template : template.name;
     const existingTemplates = taskEntry.templates.map((t) =>
       typeof t === "string" ? t : (t as ITemplateReference).name,
     );
@@ -808,6 +836,6 @@ export class ApplicationPersistenceHandler {
       this.addErrorToOptions(opts, error);
       return; // Don't add duplicate
     }
-    taskEntry.templates.push(templateName);
+    taskEntry.templates.push(template);
   }
 }

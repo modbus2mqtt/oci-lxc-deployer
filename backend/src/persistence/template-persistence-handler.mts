@@ -71,31 +71,6 @@ export class TemplatePersistenceHandler {
         ),
       );
 
-      // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
-      if (process.env.STRICT_CATEGORY_MODE !== "1") {
-        const knownCategories = ["list"];
-        for (const cat of knownCategories) {
-          searchPaths.push(
-            path.join(
-              this.pathes.localPath,
-              "shared",
-              "templates",
-              cat,
-              templateFileName,
-            ),
-          );
-          searchPaths.push(
-            path.join(
-              this.pathes.jsonPath,
-              "shared",
-              "templates",
-              cat,
-              templateFileName,
-            ),
-          );
-        }
-      }
-
       for (const p of searchPaths) {
         if (fs.existsSync(p)) {
           return p;

@@ -134,6 +134,16 @@ async function startWebApp(
 ) {
   PersistenceManager.initialize(localPath, storageContextPath, secretFilePath);
   const pm = PersistenceManager.getInstance();
+
+  // Check for duplicate templates/scripts across categories
+  const repositories = pm.getRepositories();
+  if (repositories.checkForDuplicates) {
+    const duplicateWarnings = repositories.checkForDuplicates();
+    for (const warning of duplicateWarnings) {
+      logger.warn("Duplicate file detected", { warning });
+    }
+  }
+
   // Ensure SSH public key exists early so installer can import it
   try {
     const { Ssh } = await import("./ssh.mjs");

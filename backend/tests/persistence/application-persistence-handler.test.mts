@@ -5,6 +5,7 @@ import { ApplicationPersistenceHandler } from "@src/persistence/application-pers
 import { JsonValidator } from "@src/jsonvalidator.mjs";
 import {
   IReadApplicationOptions,
+  ITemplateReference,
   VEConfigurationError,
 } from "@src/backend-types.mjs";
 import {
@@ -15,6 +16,14 @@ import {
   TestPersistenceHelper,
   Volume,
 } from "@tests/helper/test-persistence-helper.mjs";
+
+// Helper to extract template names from templates array (which may contain strings or ITemplateReference objects)
+function getTemplateNames(
+  templates: (ITemplateReference | string)[] | undefined,
+): string[] {
+  if (!templates) return [];
+  return templates.map((t) => (typeof t === "string" ? t : t.name));
+}
 
 describe("ApplicationPersistenceHandler", () => {
   let env: TestEnvironment;
@@ -305,8 +314,9 @@ describe("ApplicationPersistenceHandler", () => {
         (t) => t.task === "installation",
       );
       expect(installationTemplates).toBeDefined();
-      expect(installationTemplates?.templates).toContain("base-template.json");
-      expect(installationTemplates?.templates).toContain("child-template.json");
+      const templateNames = getTemplateNames(installationTemplates?.templates);
+      expect(templateNames).toContain("base-template.json");
+      expect(templateNames).toContain("child-template.json");
     });
 
     it("should detect cyclic inheritance", () => {

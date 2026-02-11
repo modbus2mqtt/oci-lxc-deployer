@@ -43,7 +43,10 @@ describe("ProxmoxConfiguration script path resolution", () => {
       `applications/${appName}/application.json`,
       {
         name: appName,
-        installation: { post_start: ["install.json", "010-host-get-latest-os-template.json"] },
+        installation: {
+          post_start: ["install.json"],
+          image: ["010-host-get-latest-os-template.json"],
+        },
       },
     );
     persistenceHelper.writeJsonSync(
@@ -77,9 +80,13 @@ describe("ProxmoxConfiguration script path resolution", () => {
       { host: "localhost", port: 22 } as any,
       ExecutionMode.TEST,
     );
-    const scriptCmd = result.commands.find((cmd) => cmd.script !== undefined);
-    expect(scriptCmd).toBeDefined();
-    expect(scriptCmd!.script).toBe(scriptPath);
+
+    // Find the local application script by path
+    const localScriptCmd = result.commands.find(
+      (cmd) => cmd.script?.includes(scriptName),
+    );
+    expect(localScriptCmd).toBeDefined();
+    expect(localScriptCmd!.script).toBe(scriptPath);
 
     // Also verify shared template from json/shared/templates is picked up
     // Scripts are now organized in category subdirectories

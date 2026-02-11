@@ -78,33 +78,6 @@ export class TemplatePathResolver {
       return { fullPath: jsonSharedPath, isShared: true };
     }
 
-    // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
-    if (process.env.STRICT_CATEGORY_MODE !== "1") {
-      const knownCategories = ["list", "image", "pre_start", "start", "post_start"];
-      for (const cat of knownCategories) {
-        const catLocalPath = path.join(
-          pathes.localPath,
-          "shared",
-          "templates",
-          cat,
-          templateNameWithExt,
-        );
-        if (fs.existsSync(catLocalPath)) {
-          return { fullPath: catLocalPath, isShared: true, category: cat };
-        }
-        const catJsonPath = path.join(
-          pathes.jsonPath,
-          "shared",
-          "templates",
-          cat,
-          templateNameWithExt,
-        );
-        if (fs.existsSync(catJsonPath)) {
-          return { fullPath: catJsonPath, isShared: true, category: cat };
-        }
-      }
-    }
-
     return null;
   }
 
@@ -170,33 +143,6 @@ export class TemplatePathResolver {
     );
     if (fs.existsSync(jsonSharedPath)) {
       return jsonSharedPath;
-    }
-
-    // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
-    if (process.env.STRICT_CATEGORY_MODE !== "1") {
-      const knownCategories = ["list", "library", "image", "pre_start", "start", "post_start"];
-      for (const cat of knownCategories) {
-        const catLocalPath = path.join(
-          pathes.localPath,
-          "shared",
-          "scripts",
-          cat,
-          scriptName,
-        );
-        if (fs.existsSync(catLocalPath)) {
-          return catLocalPath;
-        }
-        const catJsonPath = path.join(
-          pathes.jsonPath,
-          "shared",
-          "scripts",
-          cat,
-          scriptName,
-        );
-        if (fs.existsSync(catJsonPath)) {
-          return catJsonPath;
-        }
-      }
     }
 
     return null;

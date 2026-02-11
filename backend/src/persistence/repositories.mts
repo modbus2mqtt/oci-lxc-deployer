@@ -71,6 +71,8 @@ export interface IResourceRepository {
 export interface IRepositories
   extends IApplicationRepository, ITemplateRepository, IResourceRepository {
   preloadJsonResources?(): void;
+  /** Check for duplicate template/script names across categories. Returns warnings. */
+  checkForDuplicates?(): string[];
 }
 
 export interface InMemoryRepositoriesOptions {
@@ -558,25 +560,6 @@ export class FileSystemRepositories
         path.join(this.pathes.jsonPath, "shared", "scripts", ref.name),
       );
 
-      // Auto-discovery: search in known category subdirectories (can be disabled via STRICT_CATEGORY_MODE)
-      if (process.env.STRICT_CATEGORY_MODE !== "1") {
-        const knownCategories = ["list", "library", "image", "pre_start", "start", "post_start"];
-        for (const cat of knownCategories) {
-          searchPaths.push(
-            path.join(
-              this.pathes.localPath,
-              "shared",
-              "scripts",
-              cat,
-              ref.name,
-            ),
-          );
-          searchPaths.push(
-            path.join(this.pathes.jsonPath, "shared", "scripts", cat, ref.name),
-          );
-        }
-      }
-
       for (const p of searchPaths) {
         if (fs.existsSync(p)) {
           scriptPath = p;
@@ -864,5 +847,84 @@ export class FileSystemRepositories
       sectionContent.pop();
     }
     return sectionContent.length > 0 ? sectionContent.join("\n") : null;
+  }
+
+  /**
+   * Checks for duplicate template/script names across different categories.
+   * Returns warnings for any duplicates found.
+   * This helps identify potential configuration issues where the same
+   * file name exists in multiple category directories.
+   */
+  checkForDuplicates(): string[] {
+    const warnings: string[] = [];
+
+    // Track shared templates by name -> categories
+    const templatesByName = new Map<string, string[]>();
+    for (const key of this.templateCache.keys()) {
+      if (!key.startsWith("shared")) continue;
+      // Key format: "shared:category:name" or "shared:name"
+      const parts = key.split(":");
+      if (parts.length < 2) continue;
+
+      let name: string;
+      let category: string;
+      if (parts.length === 2) {
+        // "shared:name" - root template without category
+        name = parts[1]!;
+        category = "(root)";
+      } else {
+        // "shared:category:name"
+        category = parts[1]!;
+        name = parts[2]!;
+      }
+
+      if (!templatesByName.has(name)) {
+        templatesByName.set(name, []);
+      }
+      templatesByName.get(name)!.push(category);
+    }
+
+    // Check for templates in multiple categories
+    for (const [name, categories] of templatesByName) {
+      if (categories.length > 1) {
+        warnings.push(
+          `Template "${name}" exists in multiple categories: ${categories.join(", ")}`,
+        );
+      }
+    }
+
+    // Track shared scripts by name -> categories
+    const scriptsByName = new Map<string, string[]>();
+    for (const key of this.scriptCache.keys()) {
+      if (!key.startsWith("shared")) continue;
+      const parts = key.split(":");
+      if (parts.length < 2) continue;
+
+      let name: string;
+      let category: string;
+      if (parts.length === 2) {
+        name = parts[1]!;
+        category = "(root)";
+      } else {
+        category = parts[1]!;
+        name = parts[2]!;
+      }
+
+      if (!scriptsByName.has(name)) {
+        scriptsByName.set(name, []);
+      }
+      scriptsByName.get(name)!.push(category);
+    }
+
+    // Check for scripts in multiple categories
+    for (const [name, categories] of scriptsByName) {
+      if (categories.length > 1) {
+        warnings.push(
+          `Script "${name}" exists in multiple categories: ${categories.join(", ")}`,
+        );
+      }
+    }
+
+    return warnings;
   }
 }

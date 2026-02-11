@@ -55,7 +55,21 @@
       "$ref": "templatelist"
     },
     "addon-reconfigure": {
-      "$ref": "templatelist"
+      "type": "object",
+      "properties": {
+        "image": {
+          "$ref": "templatelist"
+        },
+        "pre_start": {
+          "$ref": "templatelist"
+        },
+        "start": {
+          "$ref": "templatelist"
+        },
+        "post_start": {
+          "$ref": "templatelist"
+        }
+      }
     },
     "addon": {
       "$ref": "templatelist"

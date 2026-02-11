@@ -173,6 +173,7 @@ export class FrameworkFromImage {
     const scriptContent = repositories.getScript({
       name: "get-oci-image-annotations.py",
       scope: "shared",
+      category: "image",
     });
     if (!scriptContent) {
       throw new Error(

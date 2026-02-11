@@ -14,6 +14,10 @@ export class TemplateResolver {
     return typeof template === "string" ? template : template.name;
   }
 
+  extractTemplateCategory(template: ITemplateReference | string): string | undefined {
+    return typeof template === "string" ? undefined : template.category;
+  }
+
   normalizeTemplateName(templateName: string): string {
     return templateName.replace(/\.json$/i, "");
   }
@@ -75,15 +79,6 @@ export class TemplateResolver {
       }
     }
 
-    // Fallback to shared root (backward compatibility - can be disabled via STRICT_CATEGORY_MODE)
-    if (process.env.STRICT_CATEGORY_MODE !== "1") {
-      const sharedRef: ScriptRef = { name: scriptName, scope: "shared" };
-      const sharedContent = this.repositories.getScript(sharedRef);
-      if (sharedContent !== null) {
-        return { content: sharedContent, ref: sharedRef };
-      }
-    }
-
     return { content: null, ref: null };
   }
 
@@ -114,15 +109,6 @@ export class TemplateResolver {
     const sharedLibContent = this.repositories.getScript(sharedLibRef);
     if (sharedLibContent !== null)
       return { content: sharedLibContent, ref: sharedLibRef };
-
-    // Fallback to shared root (backward compatibility - can be disabled via STRICT_CATEGORY_MODE)
-    if (process.env.STRICT_CATEGORY_MODE !== "1") {
-      const sharedRef: ScriptRef = { name: libraryName, scope: "shared" };
-      const sharedContent = this.repositories.getScript(sharedRef);
-      if (sharedContent !== null) {
-        return { content: sharedContent, ref: sharedRef };
-      }
-    }
 
     return { content: null, ref: null };
   }
