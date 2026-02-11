@@ -182,6 +182,7 @@ export enum ApiUri {
 
   CompatibleAddons = "/api/addons/compatible/:application",
   AddonInstall = "/api/addons/install/:addonId/:veContext",
+  PreviewUnresolvedParameters = "/api/preview-unresolved-parameters/:veContext",
 
   Stacktypes = "/api/stacktypes",
   Stacks = "/api/stacks",
@@ -345,9 +346,9 @@ export interface IFrameworkNamesResponse {
 export interface IFrameworkParametersResponse {
   parameters: IParameter[];
 }
-export interface IPostFrameworkCreateApplicationBody {
+// Base interface for framework-based requests (shared between create and preview)
+export interface IFrameworkApplicationDataBody {
   frameworkId: string;
-  applicationId: string;
   name: string;
   description: string;
   url?: string;
@@ -360,8 +361,17 @@ export interface IPostFrameworkCreateApplicationBody {
   stacktype?: string;
   parameterValues: { id: string; value: string | number | boolean }[];
   uploadfiles?: IUploadFile[];
+}
+
+// For creating applications - extends base with applicationId
+export interface IPostFrameworkCreateApplicationBody
+  extends IFrameworkApplicationDataBody {
+  applicationId: string;
   update?: boolean; // If true, overwrite existing application
 }
+
+// For preview - uses base directly
+export type IPostPreviewUnresolvedParametersBody = IFrameworkApplicationDataBody;
 export interface IPostFrameworkCreateApplicationResponse {
   success: boolean;
   applicationId?: string;

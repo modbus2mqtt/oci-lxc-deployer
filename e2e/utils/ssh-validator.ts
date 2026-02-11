@@ -1,5 +1,5 @@
 import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
-import { SSH_HOST } from '../fixtures/test-base';
+import { getPveHost } from '../fixtures/test-base';
 import {
   ValidationConfig,
   ContainerValidation,
@@ -50,7 +50,7 @@ export class SSHValidator {
   private timeout: number;
 
   constructor(options?: SSHValidatorOptions) {
-    this.sshHost = options?.sshHost || SSH_HOST;
+    this.sshHost = options?.sshHost || getPveHost();
     this.sshPort = options?.sshPort || 1022;
     this.containerVmId = options?.containerVmId || '300';
     this.timeout = options?.timeout || 30000;
@@ -160,7 +160,56 @@ export class SSHValidator {
   }
 
   /**
-   * Validate that a file exists (and optionally matches content pattern)
+   * Delete a directory on the PVE host (with rm -rf)
+   * Returns true if deleted or didn't exist, false on error
+   */
+  deleteDirectoryOnHost(path: string): { success: boolean; message: string } {
+    try {
+      this.execOnHost(`rm -rf "${path}"`);
+      return {
+        success: true,
+        message: `Directory ${path} deleted (or didn't exist)`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to delete ${path}: ${error}`,
+      };
+    }
+  }
+
+  /**
+   * Validate that a file exists on the PVE host (not in container)
+   */
+  validateFileOnHost(file: FileValidation): ValidationResult {
+    try {
+      this.execOnHost(`test -f "${file.path}"`);
+
+      if (file.contentPattern) {
+        const content = this.execOnHost(`cat "${file.path}"`);
+        if (!new RegExp(file.contentPattern).test(content)) {
+          return {
+            success: false,
+            message: `File ${file.path} content does not match pattern '${file.contentPattern}'`,
+            details: content.substring(0, 500),
+          };
+        }
+      }
+
+      return {
+        success: true,
+        message: `File ${file.path} exists on host`,
+      };
+    } catch {
+      return {
+        success: false,
+        message: `File ${file.path} does not exist on host`,
+      };
+    }
+  }
+
+  /**
+   * Validate that a file exists inside the container (and optionally matches content pattern)
    */
   validateFile(file: FileValidation): ValidationResult {
     try {

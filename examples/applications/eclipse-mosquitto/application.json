@@ -1,0 +1,62 @@
+{
+  "name": "Eclipse Mosquitto",
+  "description": "Eclipse Mosquitto MQTT Broker",
+  "extends": "oci-image",
+  "icon": "icon.svg",
+  "parameters": [
+    {
+      "id": "hostname",
+      "name": "Hostname",
+      "required": false,
+      "type": "string",
+      "description": "Hostname for the LXC container",
+      "template": "100-conf-create-configure-lxc.json",
+      "templatename": "Create and Configure LXC",
+      "default": "eclipse-mosquitto"
+    },
+    {
+      "id": "volumes",
+      "name": "Volumes",
+      "type": "string",
+      "multiline": true,
+      "required": false,
+      "description": "One per line: key=/container/path",
+      "template": "150-conf-create-storage-volumes-for-lxc.json",
+      "templatename": "Create Storage Volumes for LXC",
+      "default": "config:/mosquitto/config\ndata:/mosquitto/data\nlog:/mosquitto/log"
+    },
+    {
+      "id": "envs",
+      "name": "Environment Variables",
+      "type": "string",
+      "advanced": true,
+      "multiline": true,
+      "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
+      "template": "170-conf-set-environment-variables-in-lxc.json",
+      "templatename": "Env Variables in LXC",
+      "default": "GID=1000\nMOSQUITTO_VERSION=2\nMQTT_PORT=1883\nMQTT_WS_PORT=9001\nUID=1000"
+    }
+  ],
+  "properties": [
+    {
+      "id": "oci_image",
+      "value": "eclipse-mosquitto:2"
+    },
+    {
+      "id": "uid",
+      "value": "1000"
+    },
+    {
+      "id": "username",
+      "value": "root"
+    }
+  ],
+  "installation": {
+    "pre_start": [
+      "upload-mosquitto.json"
+    ]
+  },
+  "url": "https://mosquitto.org/",
+  "documentation": "https://mosquitto.org/documentation/",
+  "source": "https://github.com/eclipse-mosquitto/mosquitto"
+}

@@ -1,9 +1,10 @@
-import { test, expect, API_URL, SSH_HOST, waitForApiHealth, resetToBaseline } from '../fixtures/test-base';
+import { test, expect, getPveHost } from '../fixtures/test-base';
 import { E2EApplicationLoader, E2EApplication } from '../utils/application-loader';
 import { SSHValidator } from '../utils/ssh-validator';
 import { ApplicationInstallHelper } from '../utils/application-install-helper';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,9 +20,17 @@ const __dirname = dirname(__filename);
  * Prerequisites:
  * - Proxmox VM running (step1-create-vm.sh)
  * - Deployer container installed (step2-install-deployer.sh)
- * - API accessible at E2E_API_URL
- * - SSH accessible at E2E_SSH_HOST:1022
+ * - Angular dev server running (for local project)
+ * - Optional: Reset snapshot before tests via ./e2e/scripts/snapshot-rollback.sh
  */
+
+// Load config for SSH port
+interface E2EConfig {
+  ports: { pveSsh: number };
+}
+const configPath = join(__dirname, '..', 'config.json');
+const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+const SSH_PORT = e2eConfig.ports.pveSsh;
 
 const loader = new E2EApplicationLoader(join(__dirname, '../applications'));
 
@@ -35,28 +44,19 @@ test.describe('Application Installation E2E Tests', () => {
   let validator: SSHValidator;
 
   test.beforeAll(async () => {
-    // Wait for API to be healthy
-    await waitForApiHealth(API_URL);
-
     // Load all test applications
     applications = await loader.loadAll();
     console.log(`Loaded ${applications.length} test applications: ${applications.map((a) => a.name).join(', ')}`);
 
     // Initialize SSH validator
     validator = new SSHValidator({
-      sshHost: SSH_HOST,
-      sshPort: 1022,
+      sshHost: getPveHost(),
+      sshPort: SSH_PORT,
       containerVmId: '300',
     });
 
-    // Reset to baseline snapshot ONCE before all tests
-    // Tests create different applications, so they don't interfere with each other
-    try {
-      await resetToBaseline('300', 'deployer-installed');
-      console.log('Reset to baseline snapshot before test suite');
-    } catch (error) {
-      console.warn('Snapshot reset failed (may not exist):', error);
-    }
+    // Note: Snapshot reset should be done externally before running tests
+    // Run: ./e2e/scripts/snapshot-rollback.sh 300 deployer-installed
   });
 
   test('should load test applications', async () => {
@@ -122,10 +122,9 @@ test.describe('SSH Validator Unit Tests', () => {
   let validator: SSHValidator;
 
   test.beforeAll(async () => {
-    await waitForApiHealth(API_URL);
     validator = new SSHValidator({
-      sshHost: SSH_HOST,
-      sshPort: 1022,
+      sshHost: getPveHost(),
+      sshPort: SSH_PORT,
       containerVmId: '300',
     });
   });

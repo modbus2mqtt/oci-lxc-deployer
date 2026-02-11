@@ -1,0 +1,38 @@
+{
+  "name": "Mosquitto MQTT",
+  "description": "Eclipse Mosquitto MQTT broker for E2E testing",
+  "extends": "docker-compose",
+  "icon": "icon.svg",
+  "parameters": [
+    {
+      "id": "hostname",
+      "name": "Hostname",
+      "type": "string",
+      "required": false,
+      "description": "Hostname for the Docker Compose container. Required when creating an application from the docker-compose framework.",
+      "template": "application.json",
+      "default": "mosquitto-e2e-test"
+    },
+    {
+      "id": "compose_file",
+      "name": "Docker Compose File",
+      "type": "string",
+      "upload": true,
+      "required": true,
+      "description": "Docker Compose YAML file (upload). Upload this file first to extract service information.",
+      "template": "application.json",
+      "default": "c2VydmljZXM6CiAgbW9zcXVpdHRvOgogICAgaW1hZ2U6IGVjbGlwc2UtbW9zcXVpdHRvOiR7TU9TUVVJVFRPX1ZFUlNJT046LTJ9CiAgICByZXN0YXJ0OiB1bmxlc3Mtc3RvcHBlZAogICAgdXNlcjogIiR7VUlEOi0xMDAwfToke0dJRDotMTAwMH0iCiAgICB2b2x1bWVzOgogICAgICAtIC4vY29uZmlnOi9tb3NxdWl0dG8vY29uZmlnCiAgICAgIC0gLi9kYXRhOi9tb3NxdWl0dG8vZGF0YQogICAgICAtIC4vbG9nOi9tb3NxdWl0dG8vbG9nCiAgICBwb3J0czoKICAgICAgLSAiJHtNUVRUX1BPUlQ6LTE4ODN9OjE4ODMiCiAgICAgIC0gIiR7TVFUVF9XU19QT1JUOi05MDAxfTo5MDAxIgoKdm9sdW1lczoKICBjb25maWc6CiAgZGF0YToKICBsb2c6Cg=="
+    }
+  ],
+  "properties": [
+    {
+      "id": "compose_file",
+      "value": "c2VydmljZXM6CiAgbW9zcXVpdHRvOgogICAgaW1hZ2U6IGVjbGlwc2UtbW9zcXVpdHRvOiR7TU9TUVVJVFRPX1ZFUlNJT046LTJ9CiAgICByZXN0YXJ0OiB1bmxlc3Mtc3RvcHBlZAogICAgdXNlcjogIiR7VUlEOi0xMDAwfToke0dJRDotMTAwMH0iCiAgICB2b2x1bWVzOgogICAgICAtIC4vY29uZmlnOi9tb3NxdWl0dG8vY29uZmlnCiAgICAgIC0gLi9kYXRhOi9tb3NxdWl0dG8vZGF0YQogICAgICAtIC4vbG9nOi9tb3NxdWl0dG8vbG9nCiAgICBwb3J0czoKICAgICAgLSAiJHtNUVRUX1BPUlQ6LTE4ODN9OjE4ODMiCiAgICAgIC0gIiR7TVFUVF9XU19QT1JUOi05MDAxfTo5MDAxIgoKdm9sdW1lczoKICBjb25maWc6CiAgZGF0YToKICBsb2c6Cg=="
+    },
+    {
+      "id": "ostype",
+      "value": "alpine"
+    }
+  ],
+  "installation": {}
+}

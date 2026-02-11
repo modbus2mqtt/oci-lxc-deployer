@@ -8,6 +8,9 @@ import {
   IPostFrameworkFromImageBody,
   IPostFrameworkFromImageResponse,
   IOciImageAnnotations,
+  IPostPreviewUnresolvedParametersBody,
+  IUnresolvedParametersResponse,
+  TaskType,
 } from "@src/types.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
@@ -214,4 +217,59 @@ export function registerFrameworkRoutes(
       });
     }
   });
+
+  // Preview unresolved parameters for a framework-based application
+  app.post(
+    ApiUri.PreviewUnresolvedParameters,
+    express.json(),
+    async (req, res) => {
+      try {
+        const veContextKey = req.params.veContext;
+        const ctx = storageContext.getVEContextByKey(veContextKey);
+        if (!ctx) {
+          return res
+            .status(404)
+            .json({ success: false, error: "VE context not found" });
+        }
+
+        const body = req.body as IPostPreviewUnresolvedParametersBody;
+
+        if (!body.frameworkId) {
+          return res.status(400).json({ error: "Missing frameworkId" });
+        }
+        if (!body.name) {
+          return res.status(400).json({ error: "Missing name" });
+        }
+
+        const pm = PersistenceManager.getInstance();
+        const frameworkLoader = new FrameworkLoader(
+          {
+            schemaPath: pm.getPathes().schemaPath,
+            jsonPath: pm.getPathes().jsonPath,
+            localPath: pm.getPathes().localPath,
+          },
+          storageContext,
+          pm.getPersistence(),
+        );
+
+        const unresolvedParameters =
+          await frameworkLoader.getPreviewUnresolvedParameters(
+            body,
+            "installation" as TaskType,
+            ctx,
+          );
+
+        returnResponse<IUnresolvedParametersResponse>(res, {
+          unresolvedParameters,
+        });
+      } catch (err: any) {
+        const statusCode = getErrorStatusCode(err);
+        const serializedError = serializeError(err);
+        res.status(statusCode).json({
+          error: err instanceof Error ? err.message : String(err),
+          serializedError: serializedError,
+        });
+      }
+    },
+  );
 }

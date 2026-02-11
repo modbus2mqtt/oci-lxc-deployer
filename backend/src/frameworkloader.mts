@@ -6,16 +6,18 @@ import {
   VEConfigurationError,
   IReadApplicationOptions,
 } from "./backend-types.mjs";
-import { IFramework } from "./types.mjs";
+import {
+  IFramework,
+  TaskType,
+  IParameter,
+  IParameterValue,
+  IPostFrameworkCreateApplicationBody,
+  IFrameworkApplicationDataBody,
+} from "./types.mjs";
 import { StorageContext } from "./storagecontext.mjs";
 import { ContextManager } from "./context-manager.mjs";
 import { JsonError } from "./jsonvalidator.mjs";
 import { TemplateProcessor } from "./templates/templateprocessor.mjs";
-import {
-  TaskType,
-  IParameter,
-  IPostFrameworkCreateApplicationBody,
-} from "./types.mjs";
 import { IVEContext } from "./backend-types.mjs";
 import {
   IFrameworkPersistence,
@@ -561,6 +563,104 @@ upload_output_result "${outputId}"
     }
 
     return request.applicationId;
+  }
+
+  /**
+   * Prepare application parameters from framework request data.
+   * Shared logic between createApplicationFromFramework and getPreviewUnresolvedParameters.
+   */
+  private async prepareApplicationParameters(
+    request: IFrameworkApplicationDataBody,
+  ): Promise<{
+    framework: IFramework;
+    initialInputs: Array<{ id: string; value: IParameterValue }>;
+  }> {
+    // Load framework
+    const frameworkOpts: IReadFrameworkOptions = {
+      error: new VEConfigurationError("", request.frameworkId),
+    };
+    const framework = this.readFrameworkJson(request.frameworkId, frameworkOpts);
+
+    // Build initialInputs from parameterValues
+    const initialInputs: Array<{ id: string; value: IParameterValue }> = [];
+    for (const pv of request.parameterValues) {
+      if (pv.value !== null && pv.value !== undefined && pv.value !== "") {
+        initialInputs.push({ id: pv.id, value: pv.value });
+      }
+    }
+
+    // Add upload file contents as parameters (same logic as in createApplicationFromFramework)
+    if (request.uploadfiles && request.uploadfiles.length > 0) {
+      for (const uploadFile of request.uploadfiles) {
+        if (uploadFile.content) {
+          const sanitized = this.sanitizeFilename(uploadFile.filename);
+          const contentParamId = `upload_${sanitized.replace(/-/g, "_")}_content`;
+          initialInputs.push({ id: contentParamId, value: uploadFile.content });
+        }
+      }
+    }
+
+    return { framework, initialInputs };
+  }
+
+  /**
+   * Get a preview of the unresolved parameters that will be shown during installation.
+   * Uses the same parameter resolution logic as the actual installation flow.
+   */
+  public async getPreviewUnresolvedParameters(
+    request: IFrameworkApplicationDataBody,
+    task: TaskType,
+    veContext: IVEContext,
+  ): Promise<IParameter[]> {
+    const { framework, initialInputs } = await this.prepareApplicationParameters(request);
+
+    // TemplateProcessor expects ContextManager, not StorageContext
+    const contextManager =
+      this.storage instanceof ContextManager
+        ? this.storage
+        : (this.storage as any).contextManager ||
+          PersistenceManager.getInstance().getContextManager();
+
+    const templateProcessor = new TemplateProcessor(
+      this.pathes,
+      contextManager,
+      this.persistence,
+    );
+
+    // Load application with initialInputs to simulate the user's parameter choices
+    const loaded = await templateProcessor.loadApplication(
+      framework.extends,
+      task,
+      veContext,
+      undefined,
+      initialInputs,
+      true, // skipUnresolved / enumValuesRefresh
+    );
+
+    // Use same filtering logic as TemplateProcessor.getUnresolvedParameters()
+    if (loaded.parameterTrace && loaded.parameterTrace.length > 0) {
+      const traceById = new Map(
+        loaded.parameterTrace.map((entry) => [entry.id, entry]),
+      );
+      return loaded.parameters.filter((param) => {
+        if (param.type === "enum") return true;
+        const trace = traceById.get(param.id);
+        // Include parameters that are missing OR have only a default value
+        // (both should be shown as editable in the UI)
+        return trace
+          ? trace.source === "missing" || trace.source === "default"
+          : true;
+      });
+    }
+
+    // Fallback: Only parameters whose id is not in resolvedParams
+    return loaded.parameters.filter(
+      (param) =>
+        undefined ==
+        loaded.resolvedParams.find(
+          (rp) => rp.id == param.id && rp.template != param.template,
+        ),
+    );
   }
 
   /**

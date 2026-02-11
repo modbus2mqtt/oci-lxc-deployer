@@ -1,22 +1,57 @@
 import { defineConfig, devices } from '@playwright/test';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Playwright E2E Test Configuration
  *
  * Projects:
- *   local     - Angular dev server on localhost:4200, API proxied to ubuntupve:3000
- *   nested-vm - Direct connection to ubuntupve:3000 (no local server needed)
+ *   local     - Angular dev server on localhost:4200, API proxied to backend
+ *   nested-vm - Direct connection to nested VM deployer (no local server needed)
  *
  * Usage:
  *   npx playwright test --project=local      # Run with local Angular dev server
  *   npx playwright test --project=nested-vm  # Run directly against nested VM
+ *   E2E_INSTANCE=github-action npx playwright test  # Use specific instance
  *
- * Environment variables:
- *   E2E_VM_URL   - Nested VM URL (default: http://ubuntupve:3000)
- *   E2E_SSH_HOST - SSH host for snapshot commands (default: 10.99.0.10)
+ * Configuration is loaded from e2e/config.json
  */
 
-const vmUrl = process.env.E2E_VM_URL || 'http://ubuntupve:3000';
+// Load E2E configuration
+interface E2EConfig {
+  default: string;
+  instances: Record<string, {
+    description: string;
+    pveHost: string;
+    vmId: number;
+    vmName: string;
+    portOffset: number;
+    subnet: string;
+  }>;
+  ports: {
+    pveWeb: number;
+    pveSsh: number;
+    deployer: number;
+  };
+}
+
+const configPath = join(__dirname, 'e2e', 'config.json');
+const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+
+// Determine which instance to use
+const instanceName = process.env.E2E_INSTANCE || e2eConfig.default;
+const instance = e2eConfig.instances[instanceName];
+if (!instance) {
+  throw new Error(`E2E instance "${instanceName}" not found in config.json`);
+}
+
+// Calculate the nested-vm URL from config
+const deployerPort = e2eConfig.ports.deployer + instance.portOffset;
+const vmUrl = process.env.E2E_VM_URL || `http://${instance.pveHost}:${deployerPort}`;
 
 // Check if we're running with nested-vm project only
 const isNestedVmOnly = process.argv.includes('--project=nested-vm');

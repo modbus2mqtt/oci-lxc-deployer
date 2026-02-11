@@ -5,7 +5,7 @@
     @if (sshConfigs.length > 0) {
       <mat-form-field appearance="outline" class="header-selector" matTooltip="Proxmox host for deployments">
         <mat-label>Host</mat-label>
-        <mat-select [(ngModel)]="currentHost" (selectionChange)="onHostChange($event.value)" [value]="currentHost">
+        <mat-select data-testid="host-selector" [(ngModel)]="currentHost" (selectionChange)="onHostChange($event.value)" [value]="currentHost">
           @for (ssh of sshConfigs; track ssh.host) {
             <mat-option [value]="ssh.host">{{ getHostDisplay(ssh) }}</mat-option>
           }

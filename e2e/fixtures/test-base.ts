@@ -1,5 +1,5 @@
-import { test as base, expect } from '@playwright/test';
-import { execSync } from 'child_process';
+import { test as base, expect, Page } from '@playwright/test';
+import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -7,75 +7,90 @@ import { fileURLToPath } from 'url';
  * E2E Test Fixtures
  *
  * Provides common utilities for all E2E tests:
- * - Environment configuration
- * - Snapshot reset before tests
- * - API helpers
+ * - Configuration loaded from e2e/config.json
+ * - Proxmox host selection helper
+ *
+ * Projects:
+ *   local     - Uses localhost:4200 (Angular dev server with proxy to backend)
+ *   nested-vm - Uses config-based URL (direct connection to nested VM)
  */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const API_URL = process.env.E2E_API_URL || 'http://ubuntupve:3000';
-export const SSH_HOST = process.env.E2E_SSH_HOST || 'ubuntupve';
+// Load E2E configuration
+interface E2EConfig {
+  default: string;
+  instances: Record<string, {
+    description: string;
+    pveHost: string;
+    vmId: number;
+    vmName: string;
+    portOffset: number;
+    subnet: string;
+  }>;
+  ports: {
+    pveWeb: number;
+    pveSsh: number;
+    deployer: number;
+  };
+}
 
-// Path to e2e scripts
-const SCRIPTS_DIR = join(__dirname, '../scripts');
+const configPath = join(__dirname, '..', 'config.json');
+const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+
+// Determine which instance to use
+const instanceName = process.env.E2E_INSTANCE || e2eConfig.default;
+const instance = e2eConfig.instances[instanceName];
 
 /**
- * Reset to baseline snapshot
- * Call this before tests that need a clean state
+ * Get the configured PVE host name
  */
-export async function resetToBaseline(vmId: string = '300', snapshotName: string = 'e2e-baseline') {
-  const script = join(SCRIPTS_DIR, 'snapshot-rollback.sh');
-  try {
-    execSync(`SSH_HOST=${SSH_HOST} ${script} ${vmId} ${snapshotName}`, {
-      timeout: 120000, // 2 minutes for rollback
-      stdio: 'pipe',
-    });
-    // Wait for services to start after rollback
-    await new Promise((resolve) => setTimeout(resolve, 10000));
-  } catch (error) {
-    console.warn(`Snapshot rollback failed (may not exist yet): ${error}`);
-  }
+export function getPveHost(): string {
+  return instance?.pveHost || 'ubuntupve';
 }
 
 /**
  * Extended test with E2E fixtures
  */
 export const test = base.extend<{
-  apiUrl: string;
-  sshHost: string;
+  pveHost: string;
 }>({
-  apiUrl: async ({}, use) => {
-    await use(API_URL);
-  },
-
-  sshHost: async ({}, use) => {
-    await use(SSH_HOST);
+  pveHost: async ({}, use) => {
+    await use(getPveHost());
   },
 });
 
 export { expect };
 
 /**
- * Helper to wait for API health
- * Checks if the root page loads and contains doctype (Angular app served)
+ * Select a Proxmox host in the header dropdown
+ * @param page - Playwright page object
+ * @param hostPattern - Host name or pattern to match. Defaults to configured PVE host.
  */
-export async function waitForApiHealth(apiUrl: string = API_URL, maxWait: number = 60000) {
-  const startTime = Date.now();
-  while (Date.now() - startTime < maxWait) {
-    try {
-      const response = await fetch(`${apiUrl}/`);
-      if (response.ok) {
-        const text = await response.text();
-        if (text.includes('doctype')) {
-          return true;
-        }
-      }
-    } catch {
-      // API not ready yet
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+export async function selectPveHost(page: Page, hostPattern: string = getPveHost()): Promise<void> {
+  // Wait for the host selector to be visible
+  const hostSelector = page.locator('[data-testid="host-selector"]');
+  await hostSelector.waitFor({ state: 'visible', timeout: 10000 });
+
+  // Click to open the dropdown
+  await hostSelector.click();
+
+  // Wait for dropdown options to appear
+  await page.waitForSelector('mat-option', { state: 'visible', timeout: 5000 });
+
+  // Find and click the matching option
+  const option = page.locator('mat-option').filter({ hasText: hostPattern });
+  const optionCount = await option.count();
+
+  if (optionCount === 0) {
+    // List available options for debugging
+    const allOptions = await page.locator('mat-option').allTextContents();
+    throw new Error(`Host "${hostPattern}" not found. Available hosts: ${allOptions.join(', ')}`);
   }
-  throw new Error(`API at ${apiUrl} did not become healthy within ${maxWait}ms`);
+
+  await option.first().click();
+
+  // Wait for selection to complete (dropdown closes)
+  await page.waitForSelector('mat-option', { state: 'hidden', timeout: 5000 });
 }
