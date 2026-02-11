@@ -177,6 +177,15 @@ export class ApplicationInstallHelper {
   }
 
   /**
+   * Cleanup existing application files before test.
+   * Delegates to ApplicationCreateHelper.
+   * @param applicationId - Application ID (usually lowercase name with hyphens)
+   */
+  cleanupApplication(applicationId: string): { success: boolean; message: string } {
+    return this.createHelper.cleanupApplicationOnHost(applicationId);
+  }
+
+  /**
    * Create a new application via the wizard.
    * Delegates to ApplicationCreateHelper.
    */

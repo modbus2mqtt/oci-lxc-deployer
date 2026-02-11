@@ -81,6 +81,8 @@ export interface ValidationConfig {
 export interface E2EApplication {
   /** Application name (from appconf.json or directory name) */
   name: string;
+  /** Application ID for cleanup/API operations (defaults to lowercase name with hyphens) */
+  applicationId: string;
   /** Absolute path to application directory */
   directory: string;
   /** Optional description */
@@ -106,6 +108,8 @@ export interface E2EApplication {
  */
 interface AppConf {
   name?: string;
+  /** Explicit application ID (overrides auto-generated ID) */
+  applicationId?: string;
   description?: string;
   tags?: string[];
   tasktype?: 'default' | 'postgres';
@@ -159,8 +163,13 @@ export class E2EApplicationLoader {
     // Load optional appconf.json
     const appConf = this.loadAppConf(appDir);
 
+    const name = appConf?.name || appName;
+    // applicationId: explicit from config, or derived from name (lowercase, hyphens)
+    const applicationId = appConf?.applicationId || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
     return {
-      name: appConf?.name || appName,
+      name,
+      applicationId,
       directory: appDir,
       description: appConf?.description,
       tags: appConf?.tags,

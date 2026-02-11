@@ -80,6 +80,11 @@ test.describe('Application Installation E2E Tests', () => {
 
       const helper = new ApplicationInstallHelper(page);
 
+      // Step 0: Cleanup existing application (if any)
+      console.log(`Cleaning up existing application: ${app!.applicationId}`);
+      const cleanup = helper.cleanupApplication(app!.applicationId);
+      console.log(`Cleanup result: ${cleanup.message}`);
+
       // Step 1: Create the application via UI wizard
       console.log(`Creating application: ${app!.name}`);
       await helper.createApplication(app!);

@@ -28,6 +28,8 @@ interface E2EConfig {
     vmName: string;
     portOffset: number;
     subnet: string;
+    /** If set, use local file operations instead of SSH for cleanup */
+    localPath?: string;
   }>;
   ports: {
     pveWeb: number;
@@ -48,6 +50,21 @@ const instance = e2eConfig.instances[instanceName];
  */
 export function getPveHost(): string {
   return instance?.pveHost || 'ubuntupve';
+}
+
+/**
+ * Get the local path for file operations (if configured).
+ * When set, cleanup operations use local fs instead of SSH.
+ */
+export function getLocalPath(): string | undefined {
+  return instance?.localPath;
+}
+
+/**
+ * Check if running in local mode (local backend with local file storage)
+ */
+export function isLocalMode(): boolean {
+  return !!instance?.localPath;
 }
 
 /**

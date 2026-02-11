@@ -1,9 +1,9 @@
 import { Page } from '@playwright/test';
 import { E2EApplication, UploadFile } from './application-loader';
 import { SSHValidator } from './ssh-validator';
-import { getPveHost } from '../fixtures/test-base';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { getPveHost, getLocalPath } from '../fixtures/test-base';
+import { readFileSync, existsSync, rmSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,7 +22,10 @@ const SSH_PORT = e2eConfig.ports.pveSsh;
  *
  * Encapsulates the navigation logic for:
  * - Creating new applications via the create-application wizard
- * - SSH-based cleanup and validation of created applications
+ * - Cleanup and validation of created applications (local or SSH-based)
+ *
+ * In local mode (localPath configured), file operations use the local filesystem.
+ * In remote mode, operations use SSH to the PVE host.
  *
  * @example
  * ```typescript
@@ -34,9 +37,11 @@ const SSH_PORT = e2eConfig.ports.pveSsh;
  */
 export class ApplicationCreateHelper {
   private sshValidator: SSHValidator;
-  private appBasePath = '/root/oci-lxc-deployer/json/applications';
+  private remoteAppBasePath = '/root/oci-lxc-deployer/json/applications';
+  private localPath: string | undefined;
 
   constructor(private page: Page) {
+    this.localPath = getLocalPath();
     this.sshValidator = new SSHValidator({
       sshHost: getPveHost(),
       sshPort: SSH_PORT,
@@ -44,44 +49,97 @@ export class ApplicationCreateHelper {
   }
 
   /**
-   * Delete existing application directory on remote server before test.
+   * Get the applications base path (local or remote)
+   */
+  private getAppBasePath(): string {
+    if (this.localPath) {
+      // Resolve relative to project root
+      return resolve(process.cwd(), this.localPath, 'applications');
+    }
+    return this.remoteAppBasePath;
+  }
+
+  /**
+   * Delete existing application directory before test.
+   * Uses local fs operations in local mode, SSH otherwise.
    * This ensures a clean state for creating a new application.
    */
   cleanupApplicationOnHost(applicationId: string): { success: boolean; message: string } {
-    const appPath = `${this.appBasePath}/${applicationId}`;
+    const appPath = `${this.getAppBasePath()}/${applicationId}`;
+
+    if (this.localPath) {
+      // Local mode: use fs operations
+      try {
+        if (existsSync(appPath)) {
+          rmSync(appPath, { recursive: true, force: true });
+          console.log(`Cleanup (local): Deleted ${appPath}`);
+          return { success: true, message: `Directory ${appPath} deleted locally` };
+        }
+        console.log(`Cleanup (local): ${appPath} does not exist`);
+        return { success: true, message: `Directory ${appPath} did not exist` };
+      } catch (error) {
+        console.error(`Cleanup (local) failed: ${error}`);
+        return { success: false, message: `Failed to delete ${appPath}: ${error}` };
+      }
+    }
+
+    // Remote mode: use SSH
     const result = this.sshValidator.deleteDirectoryOnHost(appPath);
-    console.log(`Cleanup: ${result.message}`);
+    console.log(`Cleanup (SSH): ${result.message}`);
     return result;
   }
 
   /**
-   * Validate that application files were created on remote server.
+   * Validate that application files were created.
+   * Uses local fs in local mode, SSH otherwise.
    * Checks for application.json and optionally template.json.
    */
   validateApplicationFilesOnHost(
     applicationId: string,
     hasUploadFiles: boolean = false
   ): { success: boolean; errors: string[] } {
-    const appPath = `${this.appBasePath}/${applicationId}`;
+    const appPath = `${this.getAppBasePath()}/${applicationId}`;
     const errors: string[] = [];
 
-    // Check application.json exists
-    const appJsonCheck = this.sshValidator.validateFileOnHost({
-      path: `${appPath}/application.json`,
-    });
-    console.log(`Application JSON check: ${appJsonCheck.message}`);
-    if (!appJsonCheck.success) {
-      errors.push(appJsonCheck.message);
-    }
+    if (this.localPath) {
+      // Local mode: use fs operations
+      const appJsonPath = join(appPath, 'application.json');
+      if (existsSync(appJsonPath)) {
+        console.log(`Application JSON check (local): File exists at ${appJsonPath}`);
+      } else {
+        const msg = `File ${appJsonPath} does not exist`;
+        console.log(`Application JSON check (local): ${msg}`);
+        errors.push(msg);
+      }
 
-    // Check template.json if uploadfiles are defined
-    if (hasUploadFiles) {
-      const templateJsonCheck = this.sshValidator.validateFileOnHost({
-        path: `${appPath}/template.json`,
+      if (hasUploadFiles) {
+        const templateJsonPath = join(appPath, 'template.json');
+        if (existsSync(templateJsonPath)) {
+          console.log(`Template JSON check (local): File exists at ${templateJsonPath}`);
+        } else {
+          const msg = `File ${templateJsonPath} does not exist`;
+          console.log(`Template JSON check (local): ${msg}`);
+          errors.push(msg);
+        }
+      }
+    } else {
+      // Remote mode: use SSH
+      const appJsonCheck = this.sshValidator.validateFileOnHost({
+        path: `${appPath}/application.json`,
       });
-      console.log(`Template JSON check: ${templateJsonCheck.message}`);
-      if (!templateJsonCheck.success) {
-        errors.push(templateJsonCheck.message);
+      console.log(`Application JSON check (SSH): ${appJsonCheck.message}`);
+      if (!appJsonCheck.success) {
+        errors.push(appJsonCheck.message);
+      }
+
+      if (hasUploadFiles) {
+        const templateJsonCheck = this.sshValidator.validateFileOnHost({
+          path: `${appPath}/template.json`,
+        });
+        console.log(`Template JSON check (SSH): ${templateJsonCheck.message}`);
+        if (!templateJsonCheck.success) {
+          errors.push(templateJsonCheck.message);
+        }
       }
     }
 
@@ -179,8 +237,11 @@ export class ApplicationCreateHelper {
 
   /**
    * Fill application properties form
+   * @param name - Display name for the application
+   * @param description - Optional description
+   * @param applicationId - Optional explicit application ID (if not set, uses current value or generates from name)
    */
-  async fillAppProperties(name: string, description?: string): Promise<void> {
+  async fillAppProperties(name: string, description?: string, applicationId?: string): Promise<void> {
     const nameInput = this.page.locator('[data-testid="app-name-input"]').or(
       this.page.locator('input[formControlName="name"]')
     );
@@ -190,10 +251,15 @@ export class ApplicationCreateHelper {
     const appIdInput = this.page.locator('input[formControlName="applicationId"]');
     await appIdInput.waitFor({ state: 'visible' });
 
-    const currentValue = await appIdInput.inputValue();
-    if (!currentValue || currentValue.trim() === '') {
-      const appId = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      await appIdInput.fill(appId);
+    // Use explicit applicationId if provided, otherwise keep UI-generated value or generate from name
+    if (applicationId) {
+      await appIdInput.fill(applicationId);
+    } else {
+      const currentValue = await appIdInput.inputValue();
+      if (!currentValue || currentValue.trim() === '') {
+        const appId = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        await appIdInput.fill(appId);
+      }
     }
 
     if (description) {
@@ -284,7 +350,7 @@ export class ApplicationCreateHelper {
 
     await this.clickNext();
 
-    await this.fillAppProperties(app.name, app.description);
+    await this.fillAppProperties(app.name, app.description, app.applicationId);
 
     if (app.tags && app.tags.length > 0) {
       await this.selectTags(app.tags);
