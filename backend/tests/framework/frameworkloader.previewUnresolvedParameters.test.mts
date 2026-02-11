@@ -173,5 +173,51 @@ describe("FrameworkLoader.getPreviewUnresolvedParameters", () => {
 
     // Should return parameters without errors
     expect(Array.isArray(unresolvedParams)).toBe(true);
+
+    // Should include upload parameter for config.json
+    const uploadParam = unresolvedParams.find(
+      (p) => p.id === "upload_config_content",
+    );
+    expect(uploadParam).toBeDefined();
+    expect(uploadParam?.name).toBe("config.json");
+    expect(uploadParam?.upload).toBe(true);
+    expect(uploadParam?.templatename).toBe("Upload Files");
+    expect(uploadParam?.required).toBe(false);
+  }, 60000);
+
+  it("includes required uploadfiles without content", async () => {
+    const request: IFrameworkApplicationDataBody = {
+      frameworkId: "npm-nodejs",
+      name: "Test App Upload Required",
+      description: "Test with required upload",
+      parameterValues: [
+        { id: "hostname", value: "test-upload" },
+        { id: "ostype", value: "alpine" },
+      ],
+      uploadfiles: [
+        {
+          filename: "settings.conf",
+          destination: "config:settings.conf",
+          required: true,
+          // No content - user must provide during installation
+        },
+      ],
+    };
+
+    const unresolvedParams = await loader.getPreviewUnresolvedParameters(
+      request,
+      "installation",
+      veContext,
+    );
+
+    // Should include the required upload parameter
+    const uploadParam = unresolvedParams.find(
+      (p) => p.id === "upload_settings_content",
+    );
+    expect(uploadParam).toBeDefined();
+    expect(uploadParam?.name).toBe("settings.conf");
+    expect(uploadParam?.upload).toBe(true);
+    expect(uploadParam?.required).toBe(true);
+    expect(uploadParam?.default).toBeUndefined();
   }, 60000);
 });

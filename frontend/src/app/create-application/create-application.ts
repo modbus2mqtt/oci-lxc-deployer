@@ -341,6 +341,14 @@ export class CreateApplication implements OnInit, OnDestroy {
         }, 0);
       }
     }
+
+    // When entering Step 5 (Summary), load install parameters preview
+    // Use setTimeout to ensure the component is fully rendered
+    if (event.selectedIndex === 4) {
+      setTimeout(() => {
+        this.summaryStep?.loadInstallParameters();
+      }, 0);
+    }
   }
 
   canProceedToStep3(): boolean {

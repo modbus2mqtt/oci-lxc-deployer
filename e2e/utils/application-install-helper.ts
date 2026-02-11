@@ -143,6 +143,7 @@ export class ApplicationInstallHelper {
 
   /**
    * Wait for installation to complete on the monitor page.
+   * Monitors the polling API responses for finished: true or errors.
    *
    * @param timeout - Maximum time to wait in milliseconds (default: 3 minutes)
    * @returns true if installation succeeded
@@ -152,25 +153,42 @@ export class ApplicationInstallHelper {
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
-      const successBlock = this.page.locator('[data-testid="installation-success"]').or(
-        this.page.locator('.success-block, .installation-complete, text=Installation complete')
-      );
+      // Wait for the next polling response
+      const response = await this.page.waitForResponse(
+        (res) => res.url().includes('/api/ve/execute/messages') && res.status() === 200,
+        { timeout: 10000 }
+      ).catch(() => null);
 
-      if (await successBlock.isVisible()) {
-        return true;
+      if (response) {
+        const json = await response.json().catch(() => null) as Array<{
+          messages?: Array<{ finished?: boolean; exitCode?: number }>;
+        }> | null;
+
+        if (json) {
+          // Check if any message has finished: true
+          const hasFinished = json.some((group) =>
+            group.messages?.some((msg) => msg.finished)
+          );
+          if (hasFinished) {
+            // Wait for UI to update with success block
+            await this.page.waitForSelector('[data-testid="installation-success"]', { timeout: 5000 }).catch(() => {});
+            return true;
+          }
+
+          // Check for errors (non-zero exit code without finished flag)
+          const hasError = json.some((group) =>
+            group.messages?.some((msg) =>
+              msg.exitCode !== 0 && msg.exitCode !== undefined && !msg.finished
+            )
+          );
+          if (hasError) {
+            const errorBlock = this.page.locator('[data-testid="installation-error"]');
+            await errorBlock.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+            const errorText = await errorBlock.textContent().catch(() => 'Unknown error');
+            throw new Error(`Installation failed: ${errorText}`);
+          }
+        }
       }
-
-      const errorBlock = this.page.locator('[data-testid="installation-error"]').or(
-        this.page.locator('.error-block, .installation-error')
-      );
-
-      if (await errorBlock.isVisible()) {
-        const errorText = await errorBlock.textContent();
-        throw new Error(`Installation failed: ${errorText}`);
-      }
-
-      await this.page.waitForLoadState('networkidle');
-      await this.page.waitForTimeout(2000);
     }
 
     throw new Error(`Installation timed out after ${timeout}ms`);

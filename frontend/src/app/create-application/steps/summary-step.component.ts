@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Output, inject, OnInit } from '@angular/core';
+import { Component, EventEmitter, Output, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
@@ -127,16 +127,46 @@ import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter
               </mat-card-content>
             </mat-card>
 
+            @if (getVolumes()) {
+              <mat-card data-testid="summary-volumes">
+                <mat-card-header>
+                  <mat-card-title>Volumes</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  <ul class="volumes-list">
+                    @for (volume of getVolumesArray(); track volume; let i = $index) {
+                      <li [attr.data-testid]="'summary-volume-' + i">{{ volume }}</li>
+                    }
+                  </ul>
+                </mat-card-content>
+              </mat-card>
+            }
+
+            @if (getEnvs()) {
+              <mat-card data-testid="summary-envs">
+                <mat-card-header>
+                  <mat-card-title>Environment Variables</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  <ul class="envs-list">
+                    @for (env of getEnvsArray(); track env; let i = $index) {
+                      <li [attr.data-testid]="'summary-env-' + i">{{ env }}</li>
+                    }
+                  </ul>
+                </mat-card-content>
+              </mat-card>
+            }
+
             @if (state.uploadFiles().length > 0) {
-              <mat-card>
+              <mat-card data-testid="summary-upload-files">
                 <mat-card-header>
                   <mat-card-title>Upload Files</mat-card-title>
                 </mat-card-header>
                 <mat-card-content>
                   <ul class="upload-files-list">
-                    @for (file of state.uploadFiles(); track file.filename) {
-                      <li>
-                        <strong>{{ file.filename }}</strong> → {{ file.destination }}
+                    @for (file of state.uploadFiles(); track file.filename; let i = $index) {
+                      <li [attr.data-testid]="'summary-upload-file-' + i">
+                        <strong class="upload-filename">{{ file.filename }}</strong> → {{ file.destination }}
                         @if (file.required) { <span class="required-badge">Required</span> }
                       </li>
                     }
@@ -239,18 +269,26 @@ import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter
       color: #f44336;
     }
 
-    .upload-files-list {
+    .upload-files-list,
+    .volumes-list,
+    .envs-list {
       list-style: none;
       padding: 0;
       margin: 0;
+      font-family: monospace;
+      font-size: 0.9rem;
     }
 
-    .upload-files-list li {
+    .upload-files-list li,
+    .volumes-list li,
+    .envs-list li {
       padding: 0.5rem 0;
       border-bottom: 1px solid #eee;
     }
 
-    .upload-files-list li:last-child {
+    .upload-files-list li:last-child,
+    .volumes-list li:last-child,
+    .envs-list li:last-child {
       border-bottom: none;
     }
 
@@ -264,7 +302,7 @@ import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter
     }
   `]
 })
-export class SummaryStepComponent implements OnInit {
+export class SummaryStepComponent {
   readonly state = inject(CreateApplicationStateService);
   private configService = inject(VeConfigurationService);
   private router = inject(Router);
@@ -283,10 +321,7 @@ export class SummaryStepComponent implements OnInit {
   // Tab state
   selectedTabIndex = 0;
 
-  ngOnInit(): void {
-    this.loadInstallParameters();
-  }
-
+  // Called by parent when step becomes active
   loadInstallParameters(): void {
     this.loading = true;
     this.error = null;
@@ -394,6 +429,27 @@ export class SummaryStepComponent implements OnInit {
 
   get groupNames(): string[] {
     return Object.keys(this.installParametersGrouped);
+  }
+
+  // Helper methods for volumes and envs display
+  getVolumes(): string {
+    return this.state.parameterForm.get('volumes')?.value || '';
+  }
+
+  getVolumesArray(): string[] {
+    const volumes = this.getVolumes();
+    if (!volumes) return [];
+    return volumes.split('\n').filter((v: string) => v.trim());
+  }
+
+  getEnvs(): string {
+    return this.state.parameterForm.get('envs')?.value || '';
+  }
+
+  getEnvsArray(): string[] {
+    const envs = this.getEnvs();
+    if (!envs) return [];
+    return envs.split('\n').filter((e: string) => e.trim());
   }
 
   hasAdvancedParams(): boolean {

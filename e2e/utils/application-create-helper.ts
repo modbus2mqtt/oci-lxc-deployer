@@ -326,6 +326,55 @@ export class ApplicationCreateHelper {
   }
 
   /**
+   * Validate that all configured upload files are displayed in the summary step.
+   * Each upload file should have its own entry in the summary.
+   * @throws Error if expected upload files are not found or count doesn't match
+   */
+  async validateUploadFilesInSummary(expectedFiles: UploadFile[]): Promise<void> {
+    if (!expectedFiles || expectedFiles.length === 0) {
+      console.log('No upload files to validate in summary');
+      return;
+    }
+
+    // Switch to Application Data tab to see upload files
+    const appDataTab = this.page.locator('mat-tab-header .mdc-tab:has-text("Application Data")');
+    await appDataTab.click();
+    await this.page.waitForTimeout(300);
+
+    // Wait for upload files section
+    const uploadFilesCard = this.page.locator('[data-testid="summary-upload-files"]');
+    await uploadFilesCard.waitFor({ state: 'visible', timeout: 10000 });
+
+    // Count upload file entries
+    const uploadFileEntries = this.page.locator('[data-testid^="summary-upload-file-"]');
+    const actualCount = await uploadFileEntries.count();
+
+    if (actualCount !== expectedFiles.length) {
+      throw new Error(
+        `Upload files count mismatch in summary: expected ${expectedFiles.length}, found ${actualCount}. ` +
+        `This may indicate duplicate template names.`
+      );
+    }
+
+    // Validate each expected file is present
+    for (let i = 0; i < expectedFiles.length; i++) {
+      const expectedFilename = expectedFiles[i].filename;
+      const entry = this.page.locator(`[data-testid="summary-upload-file-${i}"]`);
+      const entryText = await entry.textContent();
+
+      if (!entryText?.includes(expectedFilename)) {
+        throw new Error(
+          `Upload file "${expectedFilename}" not found at position ${i} in summary. ` +
+          `Found: "${entryText}"`
+        );
+      }
+      console.log(`✓ Upload file ${i}: ${expectedFilename}`);
+    }
+
+    console.log(`Validated ${actualCount} upload files in summary`);
+  }
+
+  /**
    * Create a new application via the create-application wizard.
    *
    * Steps:
@@ -369,6 +418,11 @@ export class ApplicationCreateHelper {
       await this.configureUploadFiles(app.uploadfiles);
     }
     await this.clickNext();
+
+    // Validate upload files are correctly displayed in summary
+    if (app.uploadfiles && app.uploadfiles.length > 0) {
+      await this.validateUploadFilesInSummary(app.uploadfiles);
+    }
 
     await this.clickCreate();
 

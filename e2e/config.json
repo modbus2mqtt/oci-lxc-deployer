@@ -22,7 +22,7 @@
   "defaults": {
     "vmMemory": 2048,
     "vmCores": 2,
-    "vmDiskSize": 32,
+    "vmDiskSize": 100,
     "vmStorage": "local-zfs",
     "vmBridge": "vmbr1",
     "nestedPassword": "e2e-test-2024",

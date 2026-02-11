@@ -1,30 +1,38 @@
 #!/bin/sh
 
 
-# Auto-select the best storage for LXC rootfs
-# Prefer local-zfs if available, otherwise use storage with most free space (supports rootdir)
+# Determine storage for LXC rootfs
+# 1. Use rootfs_storage parameter if provided
+# 2. Otherwise, auto-select: prefer local-zfs, then storage with most free space
 
-# First, check if local-zfs exists and supports rootdir
 PREFERRED_STORAGE=""
-if pvesm list "local-zfs" --content rootdir 2>/dev/null | grep -q .; then
-  PREFERRED_STORAGE="local-zfs"
-  echo "Using preferred storage: local-zfs" >&2
+
+# Check if rootfs_storage parameter is provided
+if [ -n "{{ rootfs_storage }}" ] && [ "{{ rootfs_storage }}" != "NOT_DEFINED" ]; then
+  PREFERRED_STORAGE="{{ rootfs_storage }}"
+  echo "Using user-selected storage: $PREFERRED_STORAGE" >&2
 fi
 
-# If local-zfs is not available, find storage with most free space
+# Auto-select if no storage specified
 if [ -z "$PREFERRED_STORAGE" ]; then
-  ROOTFS_RESULT=$(pvesm status | awk 'NR>1 {print $1, $6}' | while read stor free; do
-    if pvesm list "$stor" --content rootdir 2>/dev/null | grep -q .; then
-      if pvesm status --storage "$stor" | grep -q zfs; then
-        echo "$free $stor size"
-      else
-        echo "$free $stor normal"
-      fi
-    fi
-  done | sort -nr | head -n1)
+  # First, check if local-zfs exists and supports rootdir
+  if pvesm list "local-zfs" --content rootdir 2>/dev/null | grep -q .; then
+    PREFERRED_STORAGE="local-zfs"
+    echo "Using preferred storage: local-zfs" >&2
+  fi
+fi
 
-  set -- $ROOTFS_RESULT
-  PREFERRED_STORAGE=$2
+# If still no storage, find storage with most free space that supports rootdir
+if [ -z "$PREFERRED_STORAGE" ]; then
+  # Use pvesm status --content rootdir to list storages that SUPPORT rootdir
+  # (not just those that have rootdir content)
+  ROOTFS_RESULT=$(pvesm status --content rootdir 2>/dev/null | awk 'NR>1 {print $6, $1}' | sort -rn | head -n1)
+
+  if [ -n "$ROOTFS_RESULT" ]; then
+    set -- $ROOTFS_RESULT
+    PREFERRED_STORAGE=$2
+    echo "Auto-selected storage with most free space: $PREFERRED_STORAGE" >&2
+  fi
 fi
 
 if [ -z "$PREFERRED_STORAGE" ]; then

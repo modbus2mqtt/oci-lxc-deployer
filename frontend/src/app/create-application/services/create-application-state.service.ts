@@ -232,7 +232,10 @@ export class CreateApplicationStateService {
     this.loadingParameters.set(false);
     this.pendingControlValues = {};
 
-    // Step 4: Summary
+    // Step 4: Upload Files
+    this.uploadFiles.set([]);
+
+    // Step 5: Summary
     this.creating.set(false);
     this.createError.set(null);
     this.createErrorStep.set(null);

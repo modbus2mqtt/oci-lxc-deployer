@@ -86,10 +86,10 @@ describe("FrameworkLoader.createApplicationFromFramework with uploadfiles", () =
     const applicationId = await loader.createApplicationFromFramework(request);
     expect(applicationId).toBe("test-upload-app");
 
-    // Verify template was created
+    // Verify template was created (with index prefix for ordering)
     const templateContent = persistenceHelper.readJsonSync(
       Volume.LocalRoot,
-      "applications/test-upload-app/templates/upload-config.json",
+      "applications/test-upload-app/templates/0-upload-config.json",
     ) as any;
 
     expect(templateContent.name).toBe("Upload config.json");
@@ -112,15 +112,15 @@ describe("FrameworkLoader.createApplicationFromFramework with uploadfiles", () =
     expect(destParam).toBeDefined();
     expect(destParam.default).toBe("config:config.json");
 
-    // Verify command references library
-    expect(templateContent.commands[0].script).toBe("upload-config.sh");
+    // Verify command references library (with index prefix for ordering)
+    expect(templateContent.commands[0].script).toBe("0-upload-config.sh");
     expect(templateContent.commands[0].library).toBe("upload-file-common.sh");
     expect(templateContent.commands[0].outputs).toContain("upload_config_uploaded");
 
-    // Verify script was created
+    // Verify script was created (with index prefix for ordering)
     const scriptContent = persistenceHelper.readTextSync(
       Volume.LocalRoot,
-      "applications/test-upload-app/scripts/upload-config.sh",
+      "applications/test-upload-app/scripts/0-upload-config.sh",
     );
     expect(scriptContent).toContain("#!/bin/sh");
     expect(scriptContent).toContain("upload_pre_start_file");
@@ -171,7 +171,7 @@ describe("FrameworkLoader.createApplicationFromFramework with uploadfiles", () =
     expect(appJson.installation.pre_start).toBeDefined();
     expect(Array.isArray(appJson.installation.pre_start)).toBe(true);
     expect(appJson.installation.pre_start.length).toBe(1);
-    expect(appJson.installation.pre_start[0]).toBe("upload-settings.json");
+    expect(appJson.installation.pre_start[0]).toBe("0-upload-settings.json");
   });
 
   it("handles multiple uploadfiles correctly", async () => {
@@ -213,42 +213,42 @@ describe("FrameworkLoader.createApplicationFromFramework with uploadfiles", () =
 
     await loader.createApplicationFromFramework(request);
 
-    // Verify both templates were created
+    // Verify both templates were created (with index prefix for ordering)
     expect(() => persistenceHelper.readTextSync(
       Volume.LocalRoot,
-      "applications/test-multi-upload/templates/upload-app.json",
+      "applications/test-multi-upload/templates/0-upload-app.json",
     )).not.toThrow();
 
     expect(() => persistenceHelper.readTextSync(
       Volume.LocalRoot,
-      "applications/test-multi-upload/templates/upload-db-settings.json",
+      "applications/test-multi-upload/templates/1-upload-db-settings.json",
     )).not.toThrow();
 
-    // Verify both scripts were created
+    // Verify both scripts were created (with index prefix for ordering)
     expect(() => persistenceHelper.readTextSync(
       Volume.LocalRoot,
-      "applications/test-multi-upload/scripts/upload-app.sh",
+      "applications/test-multi-upload/scripts/0-upload-app.sh",
     )).not.toThrow();
 
     expect(() => persistenceHelper.readTextSync(
       Volume.LocalRoot,
-      "applications/test-multi-upload/scripts/upload-db-settings.sh",
+      "applications/test-multi-upload/scripts/1-upload-db-settings.sh",
     )).not.toThrow();
 
-    // Verify application.json contains both pre_start references
+    // Verify application.json contains both pre_start references (with index prefix)
     const appJson = persistenceHelper.readJsonSync(
       Volume.LocalRoot,
       "applications/test-multi-upload/application.json",
     ) as any;
 
     expect(appJson.installation.pre_start.length).toBe(2);
-    expect(appJson.installation.pre_start).toContain("upload-app.json");
-    expect(appJson.installation.pre_start).toContain("upload-db-settings.json");
+    expect(appJson.installation.pre_start).toContain("0-upload-app.json");
+    expect(appJson.installation.pre_start).toContain("1-upload-db-settings.json");
 
     // Verify advanced flag is preserved
     const dbTemplate = persistenceHelper.readJsonSync(
       Volume.LocalRoot,
-      "applications/test-multi-upload/templates/upload-db-settings.json",
+      "applications/test-multi-upload/templates/1-upload-db-settings.json",
     ) as any;
     const dbContentParam = dbTemplate.parameters.find(
       (p: any) => p.id === "upload_db_settings_content"
@@ -288,22 +288,22 @@ describe("FrameworkLoader.createApplicationFromFramework with uploadfiles", () =
 
     await loader.createApplicationFromFramework(request);
 
-    // Verify sanitized template name (special chars replaced with dashes)
+    // Verify sanitized template name (special chars replaced with dashes, with index prefix)
     expect(() => persistenceHelper.readTextSync(
       Volume.LocalRoot,
-      "applications/test-sanitize/templates/upload-my-config-file-v2-1.json",
+      "applications/test-sanitize/templates/0-upload-my-config-file-v2-1.json",
     )).not.toThrow();
 
-    // Verify sanitized script name
+    // Verify sanitized script name (with index prefix)
     expect(() => persistenceHelper.readTextSync(
       Volume.LocalRoot,
-      "applications/test-sanitize/scripts/upload-my-config-file-v2-1.sh",
+      "applications/test-sanitize/scripts/0-upload-my-config-file-v2-1.sh",
     )).not.toThrow();
 
     // Verify sanitized parameter IDs
     const template = persistenceHelper.readJsonSync(
       Volume.LocalRoot,
-      "applications/test-sanitize/templates/upload-my-config-file-v2-1.json",
+      "applications/test-sanitize/templates/0-upload-my-config-file-v2-1.json",
     ) as any;
 
     const contentParam = template.parameters.find(
@@ -342,10 +342,10 @@ describe("FrameworkLoader.createApplicationFromFramework with uploadfiles", () =
 
     await loader.createApplicationFromFramework(request);
 
-    // Verify template was created without default content
+    // Verify template was created without default content (with index prefix)
     const template = persistenceHelper.readJsonSync(
       Volume.LocalRoot,
-      "applications/test-no-content/templates/upload-empty.json",
+      "applications/test-no-content/templates/0-upload-empty.json",
     ) as any;
 
     const contentParam = template.parameters.find(

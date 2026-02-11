@@ -13,6 +13,7 @@ import {
   IParameterValue,
   IPostFrameworkCreateApplicationBody,
   IFrameworkApplicationDataBody,
+  IUploadFile,
 } from "./types.mjs";
 import { StorageContext } from "./storagecontext.mjs";
 import { ContextManager } from "./context-manager.mjs";
@@ -441,10 +442,11 @@ export class FrameworkLoader {
     if (request.uploadfiles && request.uploadfiles.length > 0) {
       const uploadTemplateNames: string[] = [];
 
-      for (const uploadFile of request.uploadfiles) {
+      for (let i = 0; i < request.uploadfiles.length; i++) {
+        const uploadFile = request.uploadfiles[i]!;
         const sanitized = this.sanitizeFilename(uploadFile.filename);
-        const templateName = `upload-${sanitized}`;
-        const scriptName = `upload-${sanitized}.sh`;
+        const templateName = `${i}-upload-${sanitized}`;
+        const scriptName = `${i}-upload-${sanitized}.sh`;
         const contentParamId = `upload_${sanitized.replace(/-/g, "_")}_content`;
         const destParamId = `upload_${sanitized.replace(/-/g, "_")}_destination`;
         const outputId = `upload_${sanitized.replace(/-/g, "_")}_uploaded`;
@@ -656,11 +658,13 @@ upload_output_result "${outputId}"
     );
 
     // Use same filtering logic as TemplateProcessor.getUnresolvedParameters()
+    let unresolvedParams: IParameter[];
+
     if (loaded.parameterTrace && loaded.parameterTrace.length > 0) {
       const traceById = new Map(
         loaded.parameterTrace.map((entry) => [entry.id, entry]),
       );
-      return loaded.parameters.filter((param) => {
+      unresolvedParams = loaded.parameters.filter((param) => {
         if (param.type === "enum") return true;
         const trace = traceById.get(param.id);
         // Include parameters that are missing OR have only a default value
@@ -669,16 +673,60 @@ upload_output_result "${outputId}"
           ? trace.source === "missing" || trace.source === "default"
           : true;
       });
+    } else {
+      // Fallback: Only parameters whose id is not in resolvedParams
+      unresolvedParams = loaded.parameters.filter(
+        (param) =>
+          undefined ==
+          loaded.resolvedParams.find(
+            (rp) => rp.id == param.id && rp.template != param.template,
+          ),
+      );
     }
 
-    // Fallback: Only parameters whose id is not in resolvedParams
-    return loaded.parameters.filter(
-      (param) =>
-        undefined ==
-        loaded.resolvedParams.find(
-          (rp) => rp.id == param.id && rp.template != param.template,
-        ),
-    );
+    // Add virtual upload parameters if uploadfiles are defined
+    if (request.uploadfiles && request.uploadfiles.length > 0) {
+      const uploadParams = this.generateUploadParameters(request.uploadfiles);
+
+      for (const uploadParam of uploadParams) {
+        const existingParam = unresolvedParams.find(
+          (p) => p.id === uploadParam.id,
+        );
+        if (!existingParam) {
+          unresolvedParams.push(uploadParam);
+        }
+      }
+    }
+
+    return unresolvedParams;
+  }
+
+  /**
+   * Generate virtual upload parameters from uploadfiles definition.
+   * Used by getPreviewUnresolvedParameters to show upload parameters
+   * before the actual templates are created on the filesystem.
+   */
+  private generateUploadParameters(uploadfiles: IUploadFile[]): IParameter[] {
+    const parameters: IParameter[] = [];
+
+    for (const uploadFile of uploadfiles) {
+      const sanitized = this.sanitizeFilename(uploadFile.filename);
+      const contentParamId = `upload_${sanitized.replace(/-/g, "_")}_content`;
+
+      parameters.push({
+        id: contentParamId,
+        name: uploadFile.filename,
+        type: "string",
+        upload: true,
+        required: uploadFile.required ?? false,
+        advanced: uploadFile.advanced ?? false,
+        description: `Configuration file: ${uploadFile.filename}`,
+        templatename: "Upload Files",
+        ...(uploadFile.content ? { default: uploadFile.content } : {}),
+      });
+    }
+
+    return parameters;
   }
 
   /**
