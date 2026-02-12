@@ -88,26 +88,19 @@
 								</mat-card-content>
 							</mat-card>
 						}
-						<!-- Stack selector or secret env file upload for env_file: appears when env_file contains {{ }} markers AND stacks are available -->
+						<!-- Stack selector for env_file: appears when env_file contains {{ }} markers AND stacks are available -->
 						@if (param.id === 'env_file' && envFileHasMarkers() && hasStacksAvailable()) {
 							<div class="param-field stack-or-env-upload">
-								<div class="secret-env-hint">
-									Detected markers: {{ getEnvFileMarkers().join(', ') }}
-								</div>
-								<!-- Stack selector (primary option) -->
-								<div class="stack-selector-row">
-									<mat-form-field appearance="outline" class="stack-select-field">
-										<mat-label>Select Environment Stack</mat-label>
-										<mat-select [value]="selectedStack" (selectionChange)="onStackSelect($event.value)">
-											@for (stack of availableStacks; track stack.id) {
-												<mat-option [value]="stack">{{ stack.name }} ({{ stack.entries.length }} vars)</mat-option>
-											}
-										</mat-select>
-									</mat-form-field>
-									<button mat-icon-button type="button" (click)="onCreateStack()" matTooltip="Create new stack" class="create-stack-btn">
-										<mat-icon>add</mat-icon>
-									</button>
-								</div>
+								<app-stack-selector
+									[availableStacks]="availableStacks"
+									[selectedStack]="selectedStack"
+									[detectedMarkers]="getEnvFileMarkers()"
+									[label]="'Select Environment Stack'"
+									[showCreateButton]="true"
+									[showEntryCount]="true"
+									(stackSelected)="onStackSelect($event)"
+									(createStackRequested)="onCreateStack()"
+								></app-stack-selector>
 							</div>
 						}
 						</div>
@@ -128,26 +121,19 @@
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
 						}
-						<!-- Stack selector or secret env file upload: appears when envs contains {{ }} markers AND stacks are available -->
+						<!-- Stack selector for envs: appears when envs contains {{ }} markers AND stacks are available -->
 						@if (param.id === 'envs' && envsHasMarkers() && hasStacksAvailable()) {
 							<div class="param-field stack-or-env-upload">
-								<div class="secret-env-hint">
-									Detected markers: {{ getEnvMarkers().join(', ') }}
-								</div>
-								<!-- Stack selector (primary option) -->
-								<div class="stack-selector-row">
-									<mat-form-field appearance="outline" class="stack-select-field">
-										<mat-label>Select Environment Stack</mat-label>
-										<mat-select [value]="selectedStack" (selectionChange)="onStackSelect($event.value)">
-											@for (stack of availableStacks; track stack.id) {
-												<mat-option [value]="stack">{{ stack.name }} ({{ stack.entries.length }} vars)</mat-option>
-											}
-										</mat-select>
-									</mat-form-field>
-									<button mat-icon-button type="button" (click)="onCreateStack()" matTooltip="Create new stack" class="create-stack-btn">
-										<mat-icon>add</mat-icon>
-									</button>
-								</div>
+								<app-stack-selector
+									[availableStacks]="availableStacks"
+									[selectedStack]="selectedStack"
+									[detectedMarkers]="getEnvMarkers()"
+									[label]="'Select Environment Stack'"
+									[showCreateButton]="true"
+									[showEntryCount]="true"
+									(stackSelected)="onStackSelect($event)"
+									(createStackRequested)="onCreateStack()"
+								></app-stack-selector>
 							</div>
 						}
 						}

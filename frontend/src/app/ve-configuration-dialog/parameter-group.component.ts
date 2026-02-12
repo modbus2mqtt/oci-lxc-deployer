@@ -15,6 +15,7 @@ import * as yaml from 'js-yaml';
 import { IParameter, IJsonError, IStack } from '../../shared/types';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { DockerComposeService } from '../shared/services/docker-compose.service';
+import { StackSelectorComponent } from '../shared/components/stack-selector/stack-selector.component';
 
 @Component({
   selector: 'app-parameter-group',
@@ -29,7 +30,8 @@ import { DockerComposeService } from '../shared/services/docker-compose.service'
     MatIconModule,
     MatButtonModule,
     MatExpansionModule,
-    MatCardModule
+    MatCardModule,
+    StackSelectorComponent
   ],
   templateUrl: './parameter-group.component.html',
   styleUrl: './parameter-group.component.scss'

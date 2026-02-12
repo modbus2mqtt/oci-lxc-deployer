@@ -16,6 +16,7 @@ import { ParameterGroupComponent } from './parameter-group.component';
 import { TemplateTraceDialog } from './template-trace-dialog';
 import { CreateStackDialog, CreateStackDialogData, CreateStackDialogResult } from '../stacks-page/create-stack-dialog';
 import { ParameterFormManager } from '../shared/utils/parameter-form.utils';
+import { StackSelectorComponent } from '../shared/components/stack-selector/stack-selector.component';
 import { Router } from '@angular/router';
 
 /**
@@ -42,7 +43,8 @@ export interface VeConfigurationDialogData {
     MatSelectModule,
     MatFormFieldModule,
     MatTooltipModule,
-    ParameterGroupComponent
+    ParameterGroupComponent,
+    StackSelectorComponent
 ],
   templateUrl: './ve-configuration-dialog.html',
   styleUrl: './ve-configuration-dialog.scss',
