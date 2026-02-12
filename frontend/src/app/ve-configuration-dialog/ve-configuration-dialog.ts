@@ -17,6 +17,7 @@ import { TemplateTraceDialog } from './template-trace-dialog';
 import { CreateStackDialog, CreateStackDialogData, CreateStackDialogResult } from '../stacks-page/create-stack-dialog';
 import { ParameterFormManager } from '../shared/utils/parameter-form.utils';
 import { StackSelectorComponent } from '../shared/components/stack-selector/stack-selector.component';
+import { AddonSectionComponent } from '../shared/components/addon-section/addon-section.component';
 import { Router } from '@angular/router';
 
 /**
@@ -44,7 +45,8 @@ export interface VeConfigurationDialogData {
     MatFormFieldModule,
     MatTooltipModule,
     ParameterGroupComponent,
-    StackSelectorComponent
+    StackSelectorComponent,
+    AddonSectionComponent
 ],
   templateUrl: './ve-configuration-dialog.html',
   styleUrl: './ve-configuration-dialog.scss',
@@ -342,6 +344,11 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
   toggleAddonExpanded(addonId: string, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+    this.toggleAddonExpandedById(addonId);
+  }
+
+  /** Toggle addon expanded state by ID only (used by AddonSectionComponent) */
+  toggleAddonExpandedById(addonId: string): void {
     this.expandedAddons.update(addons =>
       addons.includes(addonId)
         ? addons.filter(id => id !== addonId)
