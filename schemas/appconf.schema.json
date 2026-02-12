@@ -28,14 +28,14 @@
       "items": {
         "type": "object",
         "properties": {
-          "filename": {
-            "type": "string",
-            "description": "Source filename in the application directory"
-          },
           "destination": {
             "type": "string",
-            "pattern": "^(config|secure):.*$",
-            "description": "Destination path, prefixed with 'config:' or 'secure:'"
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*:.*$",
+            "description": "Destination path with volume prefix (e.g., 'config:mosquitto.conf', 'data:certs/server.crt')"
+          },
+          "label": {
+            "type": "string",
+            "description": "Optional display label (default: basename of destination)"
           },
           "required": {
             "type": "boolean",
@@ -46,7 +46,7 @@
             "description": "Whether this file is an advanced option (hidden by default)"
           }
         },
-        "required": ["filename", "destination"],
+        "required": ["destination"],
         "additionalProperties": false
       }
     }

@@ -143,55 +143,80 @@ export class ApplicationInstallHelper {
 
   /**
    * Wait for installation to complete on the monitor page.
-   * Monitors the polling API responses for finished: true or errors.
+   * Waits for either success or error UI elements to appear.
    *
    * @param timeout - Maximum time to wait in milliseconds (default: 3 minutes)
    * @returns true if installation succeeded
    * @throws Error if installation failed or timed out
    */
   async waitForInstallationComplete(timeout: number = 180000): Promise<boolean> {
-    const startTime = Date.now();
+    const successLocator = this.page.locator('[data-testid="installation-success"]');
+    const errorLocator = this.page.locator('[data-testid="installation-error"]');
 
-    while (Date.now() - startTime < timeout) {
-      // Wait for the next polling response
-      const response = await this.page.waitForResponse(
-        (res) => res.url().includes('/api/ve/execute/messages') && res.status() === 200,
-        { timeout: 10000 }
-      ).catch(() => null);
+    // Wait for either success or error to appear
+    const result = await Promise.race([
+      successLocator.waitFor({ state: 'visible', timeout }).then(() => 'success' as const),
+      errorLocator.waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
+    ]).catch(() => 'timeout' as const);
 
-      if (response) {
-        const json = await response.json().catch(() => null) as Array<{
-          messages?: Array<{ finished?: boolean; exitCode?: number }>;
-        }> | null;
+    if (result === 'success') {
+      return true;
+    }
 
-        if (json) {
-          // Check if any message has finished: true
-          const hasFinished = json.some((group) =>
-            group.messages?.some((msg) => msg.finished)
-          );
-          if (hasFinished) {
-            // Wait for UI to update with success block
-            await this.page.waitForSelector('[data-testid="installation-success"]', { timeout: 5000 }).catch(() => {});
-            return true;
-          }
+    if (result === 'error') {
+      const errorText = await errorLocator.textContent().catch(() => 'Unknown error');
+      throw new Error(`Installation failed: ${errorText}`);
+    }
 
-          // Check for errors (non-zero exit code without finished flag)
-          const hasError = json.some((group) =>
-            group.messages?.some((msg) =>
-              msg.exitCode !== 0 && msg.exitCode !== undefined && !msg.finished
-            )
-          );
-          if (hasError) {
-            const errorBlock = this.page.locator('[data-testid="installation-error"]');
-            await errorBlock.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-            const errorText = await errorBlock.textContent().catch(() => 'Unknown error');
-            throw new Error(`Installation failed: ${errorText}`);
-          }
+    throw new Error(`Installation timed out after ${timeout}ms`);
+  }
+
+  /**
+   * Extract the created container VMID from the process monitor page.
+   * Looks for:
+   * 1. Success message: "Created container: 301"
+   * 2. Command texts: "Create LXC Container 301" or "start LXC 301"
+   *
+   * @returns The VMID as string, or null if not found
+   */
+  async extractCreatedVmId(): Promise<string | null> {
+    // First, check the success block for "Created container: XXX"
+    const successBlock = this.page.locator('[data-testid="installation-success"]');
+    if (await successBlock.count() > 0) {
+      const successText = await successBlock.textContent();
+      if (successText) {
+        const containerMatch = successText.match(/Created container:\s*(\d+)/i);
+        if (containerMatch) {
+          console.log(`Found VMID in success message: ${containerMatch[1]}`);
+          return containerMatch[1];
         }
       }
     }
 
-    throw new Error(`Installation timed out after ${timeout}ms`);
+    // Fallback: check command texts
+    const commandTexts = this.page.locator('.success-list .command-text');
+    const count = await commandTexts.count();
+
+    for (let i = 0; i < count; i++) {
+      const text = await commandTexts.nth(i).textContent();
+      if (!text) continue;
+
+      // Look for patterns like "Create LXC Container 301" or "start LXC 301"
+      const createMatch = text.match(/Create LXC Container\s+(\d+)/i);
+      if (createMatch) {
+        console.log(`Found VMID in command: ${text}`);
+        return createMatch[1];
+      }
+
+      const startMatch = text.match(/start LXC\s+(\d+)/i);
+      if (startMatch) {
+        console.log(`Found VMID in command: ${text}`);
+        return startMatch[1];
+      }
+    }
+
+    console.log('Could not extract VMID from process monitor');
+    return null;
   }
 
   /**
@@ -206,17 +231,24 @@ export class ApplicationInstallHelper {
   /**
    * Create a new application via the wizard.
    * Delegates to ApplicationCreateHelper.
+   *
+   * @param app - The application configuration
+   * @param options - Optional settings
+   * @param options.installAfterSave - If true, clicks "Save & Install" and navigates to monitor page
    */
-  async createApplication(app: E2EApplication): Promise<void> {
-    await this.createHelper.createApplication(app);
+  async createApplication(
+    app: E2EApplication,
+    options: { installAfterSave?: boolean } = {}
+  ): Promise<void> {
+    await this.createHelper.createApplication(app, options);
   }
 
   /**
    * Convenience method: Create and install an application in one go.
+   * Uses the "Save & Install" button to streamline the process.
    */
-  async createAndInstall(app: E2EApplication, installParams?: Record<string, string>): Promise<void> {
-    await this.createHelper.createApplication(app);
-    await this.installApplication(app.name, installParams);
+  async createAndInstall(app: E2EApplication, _installParams?: Record<string, string>): Promise<void> {
+    await this.createHelper.createApplication(app, { installAfterSave: true });
     await this.waitForInstallationComplete();
   }
 }

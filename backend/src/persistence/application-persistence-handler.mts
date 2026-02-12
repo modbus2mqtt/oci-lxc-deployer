@@ -816,6 +816,7 @@ export class ApplicationPersistenceHandler {
 
   /**
    * Adds a template to the task entry. Duplicates are not allowed and will cause an error.
+   * Templates are inserted at the correct position based on their category order.
    */
   private addTemplateToTask(
     template: ITemplateReference | string,
@@ -836,6 +837,68 @@ export class ApplicationPersistenceHandler {
       this.addErrorToOptions(opts, error);
       return; // Don't add duplicate
     }
-    taskEntry.templates.push(template);
+
+    // Get category of the new template
+    const newCategory =
+      typeof template === "string" ? undefined : template.category;
+
+    // Insert at correct position based on category order
+    const insertIndex = this.findCategoryInsertIndex(
+      taskEntry.templates,
+      newCategory,
+    );
+    taskEntry.templates.splice(insertIndex, 0, template);
+  }
+
+  /**
+   * Category order for installation tasks.
+   * Templates are grouped by category in this order.
+   */
+  private static readonly CATEGORY_ORDER = [
+    "image",
+    "pre_start",
+    "start",
+    "post_start",
+  ];
+
+  /**
+   * Finds the correct insert index for a template based on its category.
+   * Templates of the same category are appended at the end of that category group.
+   * Templates without category go to the end.
+   */
+  private findCategoryInsertIndex(
+    templates: (ITemplateReference | string)[],
+    category: string | undefined,
+  ): number {
+    if (!category) {
+      // No category: append at end
+      return templates.length;
+    }
+
+    const categoryIndex =
+      ApplicationPersistenceHandler.CATEGORY_ORDER.indexOf(category);
+    if (categoryIndex === -1) {
+      // Unknown category: append at end
+      return templates.length;
+    }
+
+    // Find the first template that belongs to a later category
+    for (let i = 0; i < templates.length; i++) {
+      const t = templates[i];
+      const existingCategory =
+        typeof t === "string" ? undefined : (t as ITemplateReference).category;
+
+      if (existingCategory) {
+        const existingCategoryIndex =
+          ApplicationPersistenceHandler.CATEGORY_ORDER.indexOf(existingCategory);
+        if (existingCategoryIndex > categoryIndex) {
+          // Found a template from a later category - insert before it
+          return i;
+        }
+      }
+    }
+
+    // No later category found, append at end
+    return templates.length;
   }
 }

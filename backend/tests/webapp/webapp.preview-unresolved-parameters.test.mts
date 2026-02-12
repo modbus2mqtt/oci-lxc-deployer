@@ -192,7 +192,6 @@ describe("WebApp Preview Unresolved Parameters API", () => {
         ],
         uploadfiles: [
           {
-            filename: "config.json",
             destination: "data:config.json",
             content: Buffer.from('{"key": "value"}').toString("base64"),
             required: false,

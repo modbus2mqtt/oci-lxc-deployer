@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
 import { E2EApplication, UploadFile } from './application-loader';
 import { SSHValidator } from './ssh-validator';
 import { getPveHost, getLocalPath } from '../fixtures/test-base';
@@ -298,9 +298,18 @@ export class ApplicationCreateHelper {
     await uploadFilesStep.waitFor({ state: 'visible', timeout: 10000 });
 
     for (const file of uploadfiles) {
-      await this.page.locator('[data-testid="new-key-input"]').fill(file.filename);
-      await this.page.locator('[data-testid="new-value-input"]').fill(file.destination);
+      // Click "Add file" button to open the input fields
       await this.page.locator('[data-testid="add-row-btn"]').click();
+      await this.page.locator('[data-testid="new-key-input"]').waitFor({ state: 'visible', timeout: 5000 });
+
+      // Fill in the fields: key = destination, value = label (optional)
+      await this.page.locator('[data-testid="new-key-input"]').fill(file.destination);
+      if (file.label) {
+        await this.page.locator('[data-testid="new-value-input"]').fill(file.label);
+      }
+
+      // Click confirm button to add the entry
+      await this.page.locator('[data-testid="confirm-add-btn"]').click();
       await this.page.waitForTimeout(100);
     }
   }
@@ -317,12 +326,97 @@ export class ApplicationCreateHelper {
   }
 
   /**
-   * Click Create Application button in summary step
+   * Click Save Application button in summary step (saves without installing)
    */
-  async clickCreate(): Promise<void> {
-    const createBtn = this.page.locator('[data-testid="create-application-btn"]:visible');
-    await createBtn.waitFor({ state: 'visible', timeout: 10000 });
-    await createBtn.click();
+  async clickSave(): Promise<void> {
+    const saveBtn = this.page.locator('[data-testid="save-application-btn"]:visible');
+    await saveBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await saveBtn.click();
+  }
+
+  /**
+   * Click Save & Install button in summary step (saves and starts installation)
+   */
+  async clickSaveAndInstall(): Promise<void> {
+    const saveAndInstallBtn = this.page.locator('[data-testid="save-and-install-btn"]:visible');
+    await saveAndInstallBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await saveAndInstallBtn.click();
+  }
+
+  /**
+   * Wait for install parameters to load in the summary step.
+   * The summary step loads parameters asynchronously when entered.
+   */
+  async waitForInstallParametersLoaded(): Promise<void> {
+    // Wait for loading spinner to disappear or info message to appear
+    const loadingSpinner = this.page.locator('app-summary-step mat-spinner');
+    const infoMessage = this.page.locator('app-summary-step .info-container');
+    const parameterGroups = this.page.locator('app-summary-step app-parameter-group');
+
+    // Wait for either: parameters loaded, info message (no params needed), or timeout
+    await Promise.race([
+      loadingSpinner.waitFor({ state: 'hidden', timeout: 15000 }),
+      infoMessage.waitFor({ state: 'visible', timeout: 15000 }),
+      parameterGroups.first().waitFor({ state: 'visible', timeout: 15000 }),
+    ]).catch(() => {});
+
+    // Give a moment for the form to initialize
+    await this.page.waitForTimeout(500);
+  }
+
+  /**
+   * Auto-fill required dropdowns in the summary step's install parameters.
+   * Similar to autoFillRequiredDropdowns in ApplicationInstallHelper but for the summary step.
+   */
+  async autoFillInstallParameters(): Promise<void> {
+    const summaryStep = this.page.locator('app-summary-step');
+
+    // Handle app-enum-select components (custom dropdown wrapper)
+    const enumSelects = summaryStep.locator('app-enum-select');
+    const enumCount = await enumSelects.count();
+
+    for (let i = 0; i < enumCount; i++) {
+      const enumSelect = enumSelects.nth(i);
+      const label = await enumSelect.locator('..').locator('[class*="label"], label').first().textContent().catch(() => '');
+      const isRequired = label?.includes('*') ?? false;
+
+      if (isRequired) {
+        const combobox = enumSelect.locator('[role="combobox"], mat-select');
+        if (await combobox.count() > 0) {
+          const hasValue = await combobox.locator('.mat-mdc-select-value-text, .mat-select-value-text').count() > 0;
+
+          if (!hasValue) {
+            await combobox.click();
+            await this.page.locator('.mat-mdc-select-panel, .mat-select-panel, [role="listbox"]').waitFor({
+              state: 'visible',
+              timeout: 5000
+            });
+            const firstOption = this.page.locator('mat-option').first();
+            await firstOption.waitFor({ state: 'visible', timeout: 5000 });
+            await firstOption.click();
+            await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+          }
+        }
+      }
+    }
+
+    // Handle standard mat-select with required attribute
+    const matSelects = summaryStep.locator('mat-select[required], mat-select[ng-reflect-required="true"]');
+    const selectCount = await matSelects.count();
+
+    for (let i = 0; i < selectCount; i++) {
+      const select = matSelects.nth(i);
+      const hasValue = await select.locator('.mat-mdc-select-value-text, .mat-select-value-text').count() > 0;
+
+      if (!hasValue) {
+        await select.click();
+        await this.page.locator('.mat-mdc-select-panel, .mat-select-panel').waitFor({ state: 'visible', timeout: 5000 });
+        const firstOption = this.page.locator('mat-option').first();
+        await firstOption.waitFor({ state: 'visible', timeout: 5000 });
+        await firstOption.click();
+        await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -358,17 +452,19 @@ export class ApplicationCreateHelper {
 
     // Validate each expected file is present
     for (let i = 0; i < expectedFiles.length; i++) {
-      const expectedFilename = expectedFiles[i].filename;
+      const file = expectedFiles[i];
+      // Get expected label: explicit label or basename from destination
+      const expectedLabel = file.label || this.getFilenameFromDestination(file.destination);
       const entry = this.page.locator(`[data-testid="summary-upload-file-${i}"]`);
       const entryText = await entry.textContent();
 
-      if (!entryText?.includes(expectedFilename)) {
+      if (!entryText?.includes(expectedLabel)) {
         throw new Error(
-          `Upload file "${expectedFilename}" not found at position ${i} in summary. ` +
+          `Upload file "${expectedLabel}" not found at position ${i} in summary. ` +
           `Found: "${entryText}"`
         );
       }
-      console.log(`✓ Upload file ${i}: ${expectedFilename}`);
+      console.log(`✓ Upload file ${i}: ${expectedLabel}`);
     }
 
     console.log(`Validated ${actualCount} upload files in summary`);
@@ -384,9 +480,18 @@ export class ApplicationCreateHelper {
    * 4. Fill app properties (name, description)
    * 5. Upload icon (optional)
    * 6. Navigate through parameters step
-   * 7. Create application
+   * 7. Save application (optionally with installation)
+   *
+   * @param app - The application configuration
+   * @param options - Optional settings
+   * @param options.installAfterSave - If true, clicks "Save & Install" and navigates to monitor page
    */
-  async createApplication(app: E2EApplication): Promise<void> {
+  async createApplication(
+    app: E2EApplication,
+    options: { installAfterSave?: boolean } = {}
+  ): Promise<void> {
+    const { installAfterSave = false } = options;
+
     await this.goToCreateApplication();
 
     if (app.dockerCompose) {
@@ -424,21 +529,41 @@ export class ApplicationCreateHelper {
       await this.validateUploadFilesInSummary(app.uploadfiles);
     }
 
-    await this.clickCreate();
+    if (installAfterSave) {
+      // Wait for install parameters to load in summary step
+      await this.waitForInstallParametersLoaded();
+      // Auto-fill required dropdowns (like PVE host selection)
+      await this.autoFillInstallParameters();
 
-    await this.page.waitForLoadState('networkidle');
+      await this.clickSaveAndInstall();
+      // When using Save & Install, we navigate to /monitor
+      await expect(this.page).toHaveURL(/\/monitor/, { timeout: 30000 });
+    } else {
+      await this.clickSave();
+      await this.page.waitForLoadState('networkidle');
 
-    const successIndicator = this.page.locator('[data-testid="installation-success"]').or(
-      this.page.locator('text=successfully')
-    );
+      const successIndicator = this.page.locator('[data-testid="installation-success"]').or(
+        this.page.locator('text=successfully')
+      );
 
-    try {
-      await successIndicator.waitFor({ timeout: 30000 });
-    } catch {
-      const currentUrl = this.page.url();
-      if (!currentUrl.includes('/applications')) {
-        throw new Error('Application creation failed - no success indicator found');
+      try {
+        await successIndicator.waitFor({ timeout: 30000 });
+      } catch {
+        const currentUrl = this.page.url();
+        if (!currentUrl.includes('/applications')) {
+          throw new Error('Application creation failed - no success indicator found');
+        }
       }
     }
+  }
+
+  /**
+   * Extract filename from destination path (e.g., "config:certs/server.crt" -> "server.crt")
+   */
+  private getFilenameFromDestination(destination: string): string {
+    const colonIndex = destination.indexOf(':');
+    const filePath = colonIndex >= 0 ? destination.slice(colonIndex + 1) : destination;
+    const lastSlash = filePath.lastIndexOf('/');
+    return lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
   }
 }

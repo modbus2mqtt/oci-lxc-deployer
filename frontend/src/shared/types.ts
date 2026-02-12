@@ -12,9 +12,9 @@ export interface ISsh {
   permissionOk?: boolean;
 }
 export interface IUploadFile {
-  filename: string;
-  destination: string;
-  content?: string;  // Base64 encoded file content
+  destination: string;          // Required: "volumename:path/to/file" (e.g., "config:mosquitto.conf")
+  label?: string;               // Optional: Display label (default: basename of destination)
+  content?: string;             // Base64 encoded file content
   required?: boolean;
   advanced?: boolean;
 }

@@ -1,6 +1,6 @@
 {
-  "name": "Eclipse Mosquitto",
-  "description": "Eclipse Mosquitto MQTT Broker",
+  "name": "mosquitto",
+  "description": "Eclipse Mosquitto is an open source message broker that implements the MQTT protocol.",
   "extends": "oci-image",
   "icon": "icon.svg",
   "parameters": [
@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "config:/mosquitto/config\ndata:/mosquitto/data\nlog:/mosquitto/log"
+      "default": "config:/mosquitto/config:ro"
     },
     {
       "id": "envs",
@@ -33,8 +33,7 @@
       "multiline": true,
       "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
       "template": "170-conf-set-environment-variables-in-lxc.json",
-      "templatename": "Env Variables in LXC",
-      "default": "GID=1000\nMOSQUITTO_VERSION=2\nMQTT_PORT=1883\nMQTT_WS_PORT=9001\nUID=1000"
+      "templatename": "Env Variables in LXC"
     }
   ],
   "properties": [
@@ -44,19 +43,26 @@
     },
     {
       "id": "uid",
-      "value": "1000"
+      "value": "0"
     },
     {
       "id": "username",
       "value": "root"
     }
   ],
-  "installation": {},
+  "installation": {
+    "pre_start": [
+      "0-upload-mosquitto.json",
+      "1-upload-ca.json",
+      "2-upload-server.json",
+      "3-upload-server.json"
+    ]
+  },
   "url": "https://mosquitto.org/",
   "documentation": "https://mosquitto.org/documentation/",
   "source": "https://github.com/eclipse-mosquitto/mosquitto",
   "tags": [
-    "iot",
-    "api"
+    "messaging",
+    "iot"
   ]
 }

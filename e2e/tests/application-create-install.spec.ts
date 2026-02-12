@@ -1,6 +1,7 @@
 import { test, expect, getPveHost } from '../fixtures/test-base';
-import { E2EApplicationLoader, E2EApplication } from '../utils/application-loader';
+import { E2EApplicationLoader, E2EApplication, ValidationConfig } from '../utils/application-loader';
 import { SSHValidator } from '../utils/ssh-validator';
+import { ValidationGenerator } from '../utils/validation-generator';
 import { ApplicationInstallHelper } from '../utils/application-install-helper';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -33,6 +34,18 @@ const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
 const SSH_PORT = e2eConfig.ports.pveSsh;
 
 const loader = new E2EApplicationLoader(join(__dirname, '../applications'));
+
+/**
+ * Deduplicate array by key property, keeping the last occurrence (manual override wins)
+ */
+function deduplicateByKey<T>(arr: T[] | undefined, key: keyof T): T[] {
+  if (!arr || arr.length === 0) return [];
+  const map = new Map<unknown, T>();
+  for (const item of arr) {
+    map.set(item[key], item);
+  }
+  return Array.from(map.values());
+}
 
 // Applications to test (can be configured via environment)
 const TEST_APPS = process.env.E2E_TEST_APPS
@@ -85,37 +98,96 @@ test.describe('Application Installation E2E Tests', () => {
       const cleanup = helper.cleanupApplication(app!.applicationId);
       console.log(`Cleanup result: ${cleanup.message}`);
 
-      // Step 1: Create the application via UI wizard
-      console.log(`Creating application: ${app!.name}`);
-      await helper.createApplication(app!);
-      console.log(`Application created: ${app!.name}`);
-
-      // Step 2: Install the application
-      console.log(`Installing application: ${app!.name}`);
-      await helper.installApplication(app!.name);
+      // Step 1: Create and install the application via UI wizard using "Save & Install"
+      console.log(`Creating and installing application: ${app!.name}`);
+      await helper.createApplication(app!, { installAfterSave: true });
       console.log(`Installation started: ${app!.name}`);
 
-      // Step 3: Wait for installation to complete
+      // Step 2: Wait for installation to complete
       console.log(`Waiting for installation to complete: ${app!.name}`);
       const installed = await helper.waitForInstallationComplete();
       expect(installed).toBe(true);
       console.log(`Installation complete: ${app!.name}`);
 
-      // Step 4: Validate via SSH if validation config exists
-      if (app!.validation) {
-        console.log(`Running validation for: ${app!.name}`);
-        const { success, results, summary } = await validator.validate(app!.validation);
+      // Step 3: Extract the created container VMID from process monitor
+      const createdVmId = await helper.extractCreatedVmId();
+      expect(createdVmId, 'Container VMID must be extracted from process monitor').toBeTruthy();
+      console.log(`Created container VMID: ${createdVmId}`);
 
-        // Log all results
-        for (const result of results) {
-          console.log(`  ${result.success ? '✓' : '✗'} ${result.message}`);
-          if (!result.success && result.details) {
-            console.log(`    Details: ${result.details}`);
+      // Step 4: Validate via SSH
+      // Generate validation config from docker-compose.yml (UID, volumes, ports)
+      // and merge with any manual validation from appconf.json
+      const generatedValidation = app!.dockerCompose
+        ? ValidationGenerator.generate({
+            dockerComposePath: app!.dockerCompose,
+            uploadFiles: app!.uploadfiles,
+            uploadFilesBasePath: app!.directory,
+            waitBeforeValidation: app!.validation?.waitBeforeValidation,
+          })
+        : null;
+
+      // Merge: generated validation + manual overrides from appconf.json
+      const validationConfig: ValidationConfig = {
+        ...generatedValidation,
+        ...app!.validation,
+        // Merge arrays instead of replacing
+        processes: [...(generatedValidation?.processes || []), ...(app!.validation?.processes || [])],
+        volumes: [...(generatedValidation?.volumes || []), ...(app!.validation?.volumes || [])],
+        ports: [...(generatedValidation?.ports || []), ...(app!.validation?.ports || [])],
+        uploadFiles: [...(generatedValidation?.uploadFiles || []), ...(app!.validation?.uploadFiles || [])],
+      };
+
+      // Deduplicate by key property
+      validationConfig.processes = deduplicateByKey(validationConfig.processes, 'name');
+      validationConfig.volumes = deduplicateByKey(validationConfig.volumes, 'path');
+      validationConfig.ports = deduplicateByKey(validationConfig.ports, 'port');
+      validationConfig.uploadFiles = deduplicateByKey(validationConfig.uploadFiles, 'path');
+
+      if (Object.keys(validationConfig).length > 1) { // More than just waitBeforeValidation
+        // Create validator for the newly created container
+        const appValidator = new SSHValidator({
+          sshHost: getPveHost(),
+          sshPort: SSH_PORT,
+          containerVmId: createdVmId!,
+        });
+
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`Validation for: ${app!.name} (container ${createdVmId})`);
+        console.log(`${'='.repeat(60)}`);
+
+        const { success, results, summary } = await appValidator.validate(validationConfig);
+
+        // Log all results grouped
+        const passed = results.filter((r) => r.success);
+        const failed = results.filter((r) => !r.success);
+
+        if (passed.length > 0) {
+          console.log(`\n✓ Passed (${passed.length}):`);
+          for (const result of passed) {
+            console.log(`  ✓ ${result.message}`);
           }
         }
 
-        console.log(`Validation summary: ${summary}`);
-        expect(success, `Validation failed: ${summary}`).toBe(true);
+        if (failed.length > 0) {
+          console.log(`\n✗ Failed (${failed.length}):`);
+          for (const result of failed) {
+            console.log(`  ✗ ${result.message}`);
+            if (result.details) {
+              console.log(`    Details: ${result.details.substring(0, 200)}`);
+            }
+          }
+        }
+
+        console.log(`\n${'─'.repeat(60)}`);
+        console.log(`Summary: ${summary}`);
+        console.log(`${'─'.repeat(60)}\n`);
+
+        // Build detailed error message for failed validations
+        const detailedError = failed.length > 0
+          ? `Validation failed for ${app!.name}:\n${failed.map((r) => `  - ${r.message}`).join('\n')}`
+          : `Validation failed: ${summary}`;
+
+        expect(success, detailedError).toBe(true);
       } else {
         console.log(`No validation config for: ${app!.name}`);
       }

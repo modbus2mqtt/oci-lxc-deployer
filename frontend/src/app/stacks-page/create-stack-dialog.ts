@@ -60,7 +60,7 @@ export interface CreateStackDialogResult {
           <p class="hint">Pre-filled from detected markers. Add values for each variable.</p>
         }
         <app-key-value-table
-          [items]="stackEntries"
+          [items]="stackEntries()"
           keyPlaceholder="Variable Name"
           valuePlaceholder="Value"
           keyLabel="variable"

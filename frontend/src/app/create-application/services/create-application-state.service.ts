@@ -98,7 +98,15 @@ export class CreateApplicationStateService {
   // ─────────────────────────────────────────────────────────────────────────────
   // Step 4: Upload Files
   // ─────────────────────────────────────────────────────────────────────────────
-  uploadFiles = signal<IUploadFile[]>([]);
+  private _uploadFiles: IUploadFile[] = [];
+
+  getUploadFiles(): IUploadFile[] {
+    return this._uploadFiles;
+  }
+
+  setUploadFiles(files: IUploadFile[]): void {
+    this._uploadFiles = files;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Step 5: Summary
@@ -233,7 +241,7 @@ export class CreateApplicationStateService {
     this.pendingControlValues = {};
 
     // Step 4: Upload Files
-    this.uploadFiles.set([]);
+    this._uploadFiles = [];
 
     // Step 5: Summary
     this.creating.set(false);

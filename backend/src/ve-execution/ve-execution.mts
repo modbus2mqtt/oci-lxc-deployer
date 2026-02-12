@@ -635,6 +635,9 @@ export class VeExecution extends EventEmitter {
       // This is now AFTER the template check, so skipped commands within templates are handled by executeTemplateOnHost
       if (cmd.name && cmd.name.includes("(skipped)")) {
         msgIndex = this.commandProcessor.handleSkippedCommand(cmd, msgIndex);
+        // Update restart info for skipped commands too
+        // This ensures allSuccessful check passes when the last command is skipped
+        rcRestartInfo = this.stateManager.buildRestartInfo(i);
         continue;
       }
 
@@ -654,6 +657,8 @@ export class VeExecution extends EventEmitter {
         // Load command content
         const rawStr = this.commandProcessor.loadCommandContent(cmd);
         if (!rawStr) {
+          // Update restart info even when skipping unknown command type
+          rcRestartInfo = this.stateManager.buildRestartInfo(i);
           continue; // Skip unknown command type
         }
 
@@ -713,16 +718,22 @@ export class VeExecution extends EventEmitter {
       rcRestartInfo.lastSuccessfull === this.commands.length - 1;
 
     if (allSuccessful) {
-      // Send a final success message
+      // Send a final success message with VMID if available
+      const vmId = rcRestartInfo?.vm_id;
+      const resultText = vmId
+        ? `All commands completed successfully. Created container: ${vmId}`
+        : "All commands completed successfully";
+
       this.emit("message", {
         command: "Completed",
         execute_on: "ve",
         exitCode: 0,
-        result: "All commands completed successfully",
+        result: resultText,
         stderr: "",
         finished: true,
         index: getNextMessageIndex(),
         partial: false,
+        vmId: vmId, // Include VMID in message for E2E tests
       } as IVeExecuteMessage);
 
       if (restartInfo == undefined) {

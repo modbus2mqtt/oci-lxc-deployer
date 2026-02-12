@@ -29,7 +29,7 @@ import { Subject, takeUntil, distinctUntilChanged } from 'rxjs';
           <p>Configure environment variables for your Docker Compose services. These will be written to the .env file.</p>
           
           <app-key-value-table
-            [items]="envVarsItems"
+            [items]="envVarsItems()"
             [keyPlaceholder]="'Variable Name'"
             [valuePlaceholder]="'Variable Value'"
             [keyLabel]="'environment variable'"

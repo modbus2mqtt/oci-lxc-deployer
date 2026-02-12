@@ -12,9 +12,9 @@ export interface ISsh {
   permissionOk?: boolean;
 }
 export interface IUploadFile {
-  filename: string;
-  destination: string;
-  content?: string; // Base64 encoded file content
+  destination: string;          // Required: "volumename:path/to/file" (e.g., "config:mosquitto.conf")
+  label?: string;               // Optional: Display label (default: basename of destination)
+  content?: string;             // Base64 encoded file content
   required?: boolean;
   advanced?: boolean;
 }
@@ -111,6 +111,7 @@ export interface IVeExecuteMessage {
   index?: number;
   finished?: boolean;
   partial?: boolean; // If true, this is a partial/streaming output chunk (process still running)
+  vmId?: number; // Container VMID (available in final success message)
 }
 
 export type ParameterType = "string" | "number" | "boolean" | "enum";

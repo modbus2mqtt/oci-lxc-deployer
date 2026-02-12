@@ -51,7 +51,7 @@ import { SummaryStepComponent } from './steps/summary-step.component';
 })
 export class CreateApplication implements OnInit, OnDestroy {
   @ViewChild('stepper') stepper!: MatStepper;
-  @ViewChild(SummaryStepComponent) summaryStep!: SummaryStepComponent;
+  @ViewChild(SummaryStepComponent) summaryStep: SummaryStepComponent | undefined;
 
   // Inject services
   private configService = inject(VeConfigurationService);
@@ -368,11 +368,11 @@ export class CreateApplication implements OnInit, OnDestroy {
   }
 
   createApplication(): void {
-    this.summaryStep.createApplication();
+    this.summaryStep?.createApplication();
   }
 
   saveAndInstall(): void {
-    this.summaryStep.saveAndInstall();
+    this.summaryStep?.saveAndInstall();
   }
 
   onNavigateToStep(stepIndex: number): void {

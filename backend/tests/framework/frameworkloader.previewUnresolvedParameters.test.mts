@@ -157,7 +157,6 @@ describe("FrameworkLoader.getPreviewUnresolvedParameters", () => {
       ],
       uploadfiles: [
         {
-          filename: "config.json",
           destination: "data:config.json",
           content: Buffer.from('{"key": "value"}').toString("base64"),
           required: false,
@@ -196,7 +195,6 @@ describe("FrameworkLoader.getPreviewUnresolvedParameters", () => {
       ],
       uploadfiles: [
         {
-          filename: "settings.conf",
           destination: "config:settings.conf",
           required: true,
           // No content - user must provide during installation

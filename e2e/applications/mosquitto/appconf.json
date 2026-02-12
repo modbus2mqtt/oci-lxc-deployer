@@ -3,19 +3,10 @@
     "applicationId": "eclipse-mosquitto",
     "description": "Eclipse Mosquitto is an open source message broker that implements the MQTT protocol.",
     "uploadfiles": [
-        { "filename": "mosquitto.conf", "destination": "config:mosquitto.conf", "required": true },
-        { "filename": "ca.crt", "destination": "config:certs/ca.crt", "advanced": true },
-        { "filename": "server.crt", "destination": "config:certs/server.crt", "advanced": true },
-        { "filename": "server.key", "destination": "config:certs/server.key", "advanced": true }
+        { "destination": "config:mosquitto.conf", "required": true },
+        { "destination": "config:certs/ca.crt", "advanced": true },
+        { "destination": "config:certs/server.crt", "advanced": true },
+        { "destination": "config:certs/server.key", "advanced": true }
     ],
-     "tags": ["messaging", "iot"],
-    "validation": {
-        "waitBeforeValidation": 15,
-        "containers": [
-            { "image": "eclipse-mosquitto", "state": "running" }
-        ],
-        "ports": [
-            { "port": 1883, "protocol": "tcp", "service": "MQTT" }
-        ]
-    }
+    "tags": ["messaging", "iot"]
 }

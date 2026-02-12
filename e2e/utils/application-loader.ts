@@ -9,8 +9,10 @@ const __dirname = dirname(__filename);
  * Upload file definition
  */
 export interface UploadFile {
-  filename: string;
-  destination: string; // "config:path" or "secure:path"
+  destination: string; // "volume:path" (e.g., "config:mosquitto.conf")
+  label?: string;      // Optional display label (default: basename of destination)
+  required?: boolean;  // If true, file must exist
+  advanced?: boolean;  // If true, skip validation (optional advanced config)
 }
 
 /**
@@ -60,12 +62,56 @@ export interface CommandValidation {
 }
 
 /**
+ * Process validation configuration
+ */
+export interface ProcessValidation {
+  /** Process name to search for (pgrep pattern) */
+  name: string;
+  /** Expected UID the process should run as */
+  expectedUid?: number;
+  /** Human-readable description */
+  description?: string;
+}
+
+/**
+ * Volume validation configuration
+ */
+export interface VolumeValidation {
+  /** Path to volume mount point inside container */
+  path: string;
+  /** Expected owner UID */
+  expectedUid?: number;
+  /** Whether UID should have read access */
+  checkReadable?: boolean;
+  /** Whether UID should have write access */
+  checkWritable?: boolean;
+  /** Human-readable description */
+  description?: string;
+}
+
+/**
+ * Upload file validation configuration
+ */
+export interface UploadFileValidation {
+  /** Path inside container where file should exist */
+  path: string;
+  /** Expected content (exact match or regex pattern) */
+  expectedContent?: string;
+  /** Whether expectedContent is a regex pattern */
+  isRegex?: boolean;
+  /** Expected owner UID */
+  expectedUid?: number;
+  /** Human-readable description */
+  description?: string;
+}
+
+/**
  * Validation configuration for post-install checks
  */
 export interface ValidationConfig {
   /** Seconds to wait before running validations */
   waitBeforeValidation?: number;
-  /** Docker containers that should be running */
+  /** Docker containers that should be running (for docker-compose framework) */
   containers?: ContainerValidation[];
   /** Ports that should be listening */
   ports?: PortValidation[];
@@ -73,6 +119,12 @@ export interface ValidationConfig {
   files?: FileValidation[];
   /** Custom commands to execute */
   commands?: CommandValidation[];
+  /** Processes that should be running (for oci-image framework) */
+  processes?: ProcessValidation[];
+  /** Volumes that should exist with correct permissions */
+  volumes?: VolumeValidation[];
+  /** Upload files that should exist with correct content */
+  uploadFiles?: UploadFileValidation[];
 }
 
 /**

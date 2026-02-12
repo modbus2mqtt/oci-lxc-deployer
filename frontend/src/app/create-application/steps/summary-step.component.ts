@@ -10,7 +10,7 @@ import { MatIconModule } from '@angular/material/icon';
 
 import { CreateApplicationStateService } from '../services/create-application-state.service';
 import { VeConfigurationService } from '../../ve-configuration.service';
-import { IParameter, IParameterValue, IFrameworkApplicationDataBody, IStack } from '../../../shared/types';
+import { IParameter, IParameterValue, IFrameworkApplicationDataBody, IStack, IUploadFile } from '../../../shared/types';
 import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter-group.component';
 import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
 
@@ -130,16 +130,16 @@ import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
               </mat-card-content>
             </mat-card>
 
-            @if (state.uploadFiles().length > 0) {
+            @if (state.getUploadFiles().length > 0) {
               <mat-card data-testid="summary-upload-files">
                 <mat-card-header>
                   <mat-card-title>Upload Files</mat-card-title>
                 </mat-card-header>
                 <mat-card-content>
                   <ul class="upload-files-list">
-                    @for (file of state.uploadFiles(); track file.filename; let i = $index) {
+                    @for (file of state.getUploadFiles(); track file.destination; let i = $index) {
                       <li [attr.data-testid]="'summary-upload-file-' + i">
-                        <strong class="upload-filename">{{ file.filename }}</strong> → {{ file.destination }}
+                        <strong class="upload-filename">{{ getUploadFileLabel(file) }}</strong> → {{ file.destination }}
                         @if (file.required) { <span class="required-badge">Required</span> }
                       </li>
                     }
@@ -308,6 +308,22 @@ export class SummaryStepComponent {
     return (this.formManager?.valid ?? false) && this.installParameters.length > 0;
   }
 
+  /**
+   * Get the display label for an upload file.
+   * Returns the explicit label if set, otherwise extracts the filename from destination.
+   */
+  getUploadFileLabel(file: IUploadFile): string {
+    if (file.label) {
+      return file.label;
+    }
+    // Extract filename from destination (format: "volume:path/to/file.ext")
+    const colonIndex = file.destination.indexOf(':');
+    const filePath = colonIndex >= 0 ? file.destination.slice(colonIndex + 1) : file.destination;
+    // Get basename
+    const lastSlash = filePath.lastIndexOf('/');
+    return lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
+  }
+
   // Called by parent when step becomes active
   loadInstallParameters(): void {
     this.loading = true;
@@ -383,7 +399,7 @@ export class SummaryStepComponent {
       tags: this.state.selectedTags().length > 0 ? this.state.selectedTags() : undefined,
       stacktype: this.state.selectedStacktype() ?? undefined,
       parameterValues,
-      uploadfiles: this.state.uploadFiles().length > 0 ? this.state.uploadFiles() : undefined,
+      uploadfiles: this.state.getUploadFiles().length > 0 ? this.state.getUploadFiles() : undefined,
     };
   }
 
@@ -563,7 +579,7 @@ export class SummaryStepComponent {
       ...(this.state.selectedTags().length > 0 && { tags: this.state.selectedTags() }),
       ...(this.state.selectedStacktype() && { stacktype: this.state.selectedStacktype() ?? undefined }),
       parameterValues,
-      ...(this.state.uploadFiles().length > 0 && { uploadfiles: this.state.uploadFiles() }),
+      ...(this.state.getUploadFiles().length > 0 && { uploadfiles: this.state.getUploadFiles() }),
       ...(this.state.editMode() && { update: true }),
     };
   }
@@ -648,7 +664,7 @@ export class SummaryStepComponent {
       ...(this.state.selectedTags().length > 0 && { tags: this.state.selectedTags() }),
       ...(this.state.selectedStacktype() && { stacktype: this.state.selectedStacktype() ?? undefined }),
       parameterValues,
-      ...(this.state.uploadFiles().length > 0 && { uploadfiles: this.state.uploadFiles() }),
+      ...(this.state.getUploadFiles().length > 0 && { uploadfiles: this.state.getUploadFiles() }),
       ...(this.state.editMode() && { update: true }),
     };
 

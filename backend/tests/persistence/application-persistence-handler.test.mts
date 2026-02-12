@@ -319,6 +319,76 @@ describe("ApplicationPersistenceHandler", () => {
       expect(templateNames).toContain("child-template.json");
     });
 
+    it("should insert child templates into correct category position", () => {
+      // Setup: Parent Application with pre_start AND post_start
+      const parentDir = persistenceHelper.resolve(
+        Volume.JsonApplications,
+        "parent-app",
+      );
+      mkdirSync(parentDir, { recursive: true });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonApplications,
+        "parent-app/application.json",
+        {
+          name: "Parent App",
+          installation: {
+            pre_start: ["100-parent-pre-start.json"],
+            post_start: ["300-parent-post-start.json"],
+          },
+        },
+      );
+
+      // Setup: Child Application with ONLY pre_start
+      // These should be inserted AFTER parent pre_start but BEFORE parent post_start
+      const childDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/child-app",
+      );
+      mkdirSync(childDir, { recursive: true });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/child-app/application.json",
+        {
+          name: "Child App",
+          extends: "parent-app",
+          installation: {
+            pre_start: ["0-child-pre-start.json", "1-child-pre-start-2.json"],
+          },
+        },
+      );
+
+      const opts: IReadApplicationOptions = {
+        applicationHierarchy: [],
+        error: new VEConfigurationError("", "child-app"),
+        taskTemplates: [],
+      };
+
+      handler.readApplication("child-app", opts);
+
+      // Check template order
+      const installationTemplates = opts.taskTemplates.find(
+        (t) => t.task === "installation",
+      );
+      expect(installationTemplates).toBeDefined();
+      const templateNames = getTemplateNames(installationTemplates?.templates);
+
+      // Expected order:
+      // 1. Parent pre_start: 100-parent-pre-start.json
+      // 2. Child pre_start: 0-child-pre-start.json, 1-child-pre-start-2.json (inserted in pre_start category)
+      // 3. Parent post_start: 300-parent-post-start.json
+      expect(templateNames).toEqual([
+        "100-parent-pre-start.json",
+        "0-child-pre-start.json",
+        "1-child-pre-start-2.json",
+        "300-parent-post-start.json",
+      ]);
+
+      // Verify child pre_start templates come BEFORE post_start
+      const childPreStartIndex = templateNames.indexOf("0-child-pre-start.json");
+      const postStartIndex = templateNames.indexOf("300-parent-post-start.json");
+      expect(childPreStartIndex).toBeLessThan(postStartIndex);
+    });
+
     it("should detect cyclic inheritance", () => {
       // Setup: Application that extends itself
       const appDir = persistenceHelper.resolve(
