@@ -153,6 +153,8 @@ export interface E2EApplication {
   uploadfiles?: UploadFile[];
   /** Validation configuration for post-install checks */
   validation?: ValidationConfig;
+  /** Install parameters to pre-fill during installation (e.g., POSTGRES_PASSWORD) */
+  installParams?: Record<string, string>;
 }
 
 /**
@@ -167,6 +169,8 @@ interface AppConf {
   tasktype?: 'default' | 'postgres';
   uploadfiles?: UploadFile[];
   validation?: ValidationConfig;
+  /** Install parameters to pre-fill during installation */
+  installParams?: Record<string, string>;
 }
 
 /**
@@ -231,6 +235,7 @@ export class E2EApplicationLoader {
       envFile: this.findEnvFile(appDir),
       uploadfiles: appConf?.uploadfiles,
       validation: appConf?.validation,
+      installParams: appConf?.installParams,
     };
   }
 

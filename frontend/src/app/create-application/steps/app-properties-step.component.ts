@@ -146,6 +146,8 @@ export class AppPropertiesStepComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     // Load tags config directly
     this.loadTagsConfig();
+    // Load stacktypes
+    this.state.loadStacktypes();
     // Set up async validator for application ID uniqueness
     const applicationIdControl = this.appPropertiesForm.get('applicationId');
     if (applicationIdControl && !applicationIdControl.asyncValidator) {

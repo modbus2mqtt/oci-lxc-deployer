@@ -2,8 +2,5 @@
     "name": "postgres",
     "description": "PostgreSQL is an open source object-relational database system.",
     "tags": ["database"],
-    "tasktype": "postgres",
-    "installParams": {
-        "POSTGRES_PASSWORD": "testpassword123"
-    }
+    "tasktype": "postgres"
 }

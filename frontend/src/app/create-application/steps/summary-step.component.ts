@@ -13,6 +13,7 @@ import { VeConfigurationService } from '../../ve-configuration.service';
 import { IParameter, IParameterValue, IFrameworkApplicationDataBody, IStack, IUploadFile } from '../../../shared/types';
 import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter-group.component';
 import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
+import { StackSelectorComponent } from '../../shared/components/stack-selector/stack-selector.component';
 
 @Component({
   selector: 'app-summary-step',
@@ -25,7 +26,8 @@ import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
     MatTabsModule,
     MatProgressSpinnerModule,
     MatIconModule,
-    ParameterGroupComponent
+    ParameterGroupComponent,
+    StackSelectorComponent
   ],
   template: `
     <div class="summary-step">
@@ -59,6 +61,22 @@ import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
                   <button mat-button (click)="toggleAdvanced()">
                     {{ showAdvanced ? 'Hide' : 'Show' }} Advanced Parameters
                   </button>
+                </div>
+              }
+
+              <!-- Stack selector for applications with stacktype -->
+              @if (state.selectedStacktype() && availableStacks().length > 0) {
+                <div class="secrets-selector">
+                  <app-stack-selector
+                    [availableStacks]="availableStacks()"
+                    [selectedStack]="selectedStack"
+                    [label]="'Secrets'"
+                    [showCreateButton]="false"
+                    [showManageLink]="true"
+                    [showEntryCount]="false"
+                    [showDefaultHint]="true"
+                    (stackSelected)="onStackSelected($event)"
+                  ></app-stack-selector>
                 </div>
               }
 
@@ -216,6 +234,13 @@ import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
       margin-bottom: 1rem;
     }
 
+    .secrets-selector {
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+
     .summary-list {
       display: grid;
       grid-template-columns: auto 1fr;
@@ -287,7 +312,7 @@ export class SummaryStepComponent {
 
   // Stack support
   availableStacks = signal<IStack[]>([]);
-  private selectedStack: IStack | null = null;
+  selectedStack: IStack | null = null;
 
   // Tab state
   selectedTabIndex = 0;

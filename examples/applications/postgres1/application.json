@@ -1,8 +1,8 @@
 {
-  "name": "postgres",
-  "description": "PostgreSQL is an open source object-relational database system.",
+  "name": "Postgres",
+  "description": "aaf",
   "extends": "oci-image",
-  "icon": "Postgresql_elephant.svg",
+  "icon": "icon.png",
   "parameters": [
     {
       "id": "hostname",
@@ -33,7 +33,8 @@
       "multiline": true,
       "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
       "template": "170-conf-set-environment-variables-in-lxc.json",
-      "templatename": "Env Variables in LXC"
+      "templatename": "Env Variables in LXC",
+      "default": "GID=1000\nPGDATA=/var/lib/postgresql/data/pgdata\nPOSTGRES_DB=postgres\nPOSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}\nPOSTGRES_PORT=5432\nPOSTGRES_USER=postgres\nPOSTGRES_VERSION=16-alpine\nUID=1000"
     }
   ],
   "properties": [
@@ -43,7 +44,7 @@
     },
     {
       "id": "uid",
-      "value": "0"
+      "value": "1000"
     },
     {
       "id": "username",
@@ -51,8 +52,5 @@
     }
   ],
   "installation": {},
-  "tags": [
-    "database"
-  ],
   "stacktype": "postgres"
 }

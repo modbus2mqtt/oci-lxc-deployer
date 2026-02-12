@@ -271,6 +271,83 @@ export class ApplicationCreateHelper {
   }
 
   /**
+   * Select stacktype in the stacktype dropdown
+   */
+  async selectStacktype(stacktype: string): Promise<void> {
+    // Find the mat-form-field containing "Stacktype" label
+    const stacktypeFormField = this.page.locator('mat-form-field:has(mat-label:has-text("Stacktype"))');
+
+    // Wait for it to appear (stacktypes loaded from backend)
+    try {
+      await stacktypeFormField.waitFor({ state: 'visible', timeout: 10000 });
+    } catch {
+      console.warn('Stacktype dropdown not visible - stacktypes may not be loaded');
+      return;
+    }
+
+    // Click the mat-select inside
+    const select = stacktypeFormField.locator('mat-select');
+    await select.click();
+
+    // Wait for options panel
+    await this.page.locator('.mat-mdc-select-panel, .mat-select-panel').waitFor({ state: 'visible', timeout: 5000 });
+
+    // Click the matching option
+    const option = this.page.locator(`mat-option:has-text("${stacktype}")`);
+    await option.waitFor({ state: 'visible', timeout: 5000 });
+    await option.click();
+
+    // Wait for panel to close
+    await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+    console.log(`Selected stacktype: ${stacktype}`);
+  }
+
+  /**
+   * Select stack from stack-selector if available in summary step.
+   * Selects the first available stack (usually "default" which has auto-generated passwords).
+   */
+  async selectStackIfAvailable(): Promise<void> {
+    const summaryStep = this.page.locator('app-summary-step');
+    const stackSelector = summaryStep.locator('app-stack-selector');
+
+    // Check if stack selector is present
+    if (await stackSelector.count() === 0) {
+      console.log('No stack selector found - skipping stack selection');
+      return;
+    }
+
+    // Wait for it to be visible
+    try {
+      await stackSelector.waitFor({ state: 'visible', timeout: 5000 });
+    } catch {
+      console.log('Stack selector not visible - skipping');
+      return;
+    }
+
+    // Find and click the mat-select inside
+    const select = stackSelector.locator('mat-select');
+    if (await select.count() === 0) {
+      console.warn('Stack selector has no mat-select');
+      return;
+    }
+
+    await select.click();
+
+    // Wait for options panel
+    await this.page.locator('.mat-mdc-select-panel, .mat-select-panel').waitFor({ state: 'visible', timeout: 5000 });
+
+    // Select first option (usually "default")
+    const firstOption = this.page.locator('mat-option').first();
+    await firstOption.waitFor({ state: 'visible', timeout: 5000 });
+    const optionText = await firstOption.textContent();
+    await firstOption.click();
+
+    // Wait for panel to close
+    await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+    console.log(`Selected stack: ${optionText?.trim()}`);
+  }
+
+  /**
    * Select tags in the tags selector
    */
   async selectTags(tags: string[]): Promise<void> {
@@ -365,11 +442,15 @@ export class ApplicationCreateHelper {
   }
 
   /**
-   * Auto-fill required dropdowns in the summary step's install parameters.
+   * Auto-fill required dropdowns and select stack in the summary step's install parameters.
    * Similar to autoFillRequiredDropdowns in ApplicationInstallHelper but for the summary step.
    */
   async autoFillInstallParameters(): Promise<void> {
     const summaryStep = this.page.locator('app-summary-step');
+
+    // Select stack if stack-selector is present (for applications with stacktype)
+    // The stack provides values like POSTGRES_PASSWORD
+    await this.selectStackIfAvailable();
 
     // Handle app-enum-select components (custom dropdown wrapper)
     const enumSelects = summaryStep.locator('app-enum-select');
@@ -510,6 +591,11 @@ export class ApplicationCreateHelper {
       await this.selectTags(app.tags);
     }
 
+    // Select stacktype if defined (e.g., 'postgres' for applications needing a database stack)
+    if (app.tasktype && app.tasktype !== 'default') {
+      await this.selectStacktype(app.tasktype);
+    }
+
     if (app.icon) {
       await this.uploadIcon(app.icon);
     }
@@ -532,7 +618,7 @@ export class ApplicationCreateHelper {
     if (installAfterSave) {
       // Wait for install parameters to load in summary step
       await this.waitForInstallParametersLoaded();
-      // Auto-fill required dropdowns (like PVE host selection)
+      // Auto-fill required dropdowns (like PVE host selection) and select stack if available
       await this.autoFillInstallParameters();
 
       await this.clickSaveAndInstall();
