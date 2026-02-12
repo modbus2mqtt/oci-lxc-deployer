@@ -17,8 +17,9 @@ import { StderrDialogComponent } from './stderr-dialog.component';
   styleUrl: './process-monitor.scss',
 })
 export class ProcessMonitor implements OnInit, OnDestroy {
-  messages: IVeExecuteMessagesResponse| undefined;
+  messages: IVeExecuteMessagesResponse | undefined;
   private pollInterval?: number;
+  private initialExpandedState = new Map<string, boolean>();  // Track initial expanded state per group
   private veConfigurationService = inject(VeConfigurationService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
@@ -52,21 +53,25 @@ export class ProcessMonitor implements OnInit, OnDestroy {
   }
 
   startPolling() {
-    this.pollInterval = setInterval(() => {
-      this.veConfigurationService.getExecuteMessages().subscribe({
-        next: (msgs) => {
-          if (msgs && msgs.length > 0) {
-            this.zone.run(() => {
-              this.mergeMessages(msgs);
-              this.checkAllFinished();
-            });
-          }
-        },
-        error: () => {
-          // Optionally handle error
+    // Fetch immediately, then poll every 5 seconds
+    this.fetchMessages();
+    this.pollInterval = setInterval(() => this.fetchMessages(), 5000);
+  }
+
+  private fetchMessages() {
+    this.veConfigurationService.getExecuteMessages().subscribe({
+      next: (msgs) => {
+        if (msgs && msgs.length > 0) {
+          this.zone.run(() => {
+            this.mergeMessages(msgs);
+            this.checkAllFinished();
+          });
         }
-      });
-    }, 5000);
+      },
+      error: () => {
+        // Optionally handle error
+      }
+    });
   }
 
   private checkAllFinished() {
@@ -74,41 +79,46 @@ export class ProcessMonitor implements OnInit, OnDestroy {
   }
 
   private mergeMessages(newMsgs: IVeExecuteMessagesResponse) {
+    // Store vmInstallKeys
+    for (const group of newMsgs) {
+      if (group.vmInstallKey && group.restartKey) {
+        this.storedVmInstallKeys[group.restartKey] = group.vmInstallKey;
+      }
+    }
+
     if (!this.messages) {
       this.messages = [...newMsgs];
-      // Store vmInstallKey from backend response if available
-      for (const group of newMsgs) {
-        if (group.vmInstallKey && group.restartKey) {
-          this.storedVmInstallKeys[group.restartKey] = group.vmInstallKey;
-        }
-      }
       return;
     }
-    
+
+    // Create new array (immutable update) to avoid NG0100 errors
+    this.messages = this.messages.map(existing => {
+      const newGroup = newMsgs.find(
+        g => g.application === existing.application && g.task === existing.task
+      );
+      if (!newGroup) {
+        return existing;
+      }
+      // Merge new messages
+      const existingIndices = new Set(existing.messages.map(m => m.index));
+      const newMessages = newGroup.messages.filter(m => !existingIndices.has(m.index));
+      if (newMessages.length === 0 && !newGroup.vmInstallKey) {
+        return existing;
+      }
+      return {
+        ...existing,
+        vmInstallKey: newGroup.vmInstallKey || existing.vmInstallKey,
+        messages: [...existing.messages, ...newMessages]
+      };
+    });
+
+    // Add completely new groups
     for (const newGroup of newMsgs) {
-      const existing = this.messages.find(
+      const exists = this.messages.some(
         g => g.application === newGroup.application && g.task === newGroup.task
       );
-      if (existing) {
-        // Update vmInstallKey if provided in new group
-        if (newGroup.vmInstallKey && newGroup.restartKey) {
-          existing.vmInstallKey = newGroup.vmInstallKey;
-          this.storedVmInstallKeys[newGroup.restartKey] = newGroup.vmInstallKey;
-        }
-        // Append only new messages (by index)
-        const existingIndices = new Set(existing.messages.map(m => m.index));
-        for (const msg of newGroup.messages) {
-          if (!existingIndices.has(msg.index)) {
-            existing.messages.push(msg);
-          }
-        }
-      } else {
-        // Add new application/task group
-        this.messages.push({ ...newGroup });
-        // Store vmInstallKey if available
-        if (newGroup.vmInstallKey && newGroup.restartKey) {
-          this.storedVmInstallKeys[newGroup.restartKey] = newGroup.vmInstallKey;
-        }
+      if (!exists) {
+        this.messages = [...this.messages, { ...newGroup }];
       }
     }
   }
@@ -119,20 +129,34 @@ export class ProcessMonitor implements OnInit, OnDestroy {
     return group.messages.some(msg => msg.error || (msg.exitCode !== undefined && msg.exitCode !== 0));
   }
 
+  /** Check if group is still in progress (not finished and not errored) */
+  isInProgress(group: ISingleExecuteMessagesResponse): boolean {
+    const hasFinished = group.messages.some(msg => msg.finished);
+    const hasError = group.messages.some(msg => msg.error || (msg.exitCode !== undefined && msg.exitCode !== 0));
+    return !hasFinished && !hasError;
+  }
+
+  /** Get initial expanded state for a group (only computed once per group) */
+  shouldBeExpanded(group: ISingleExecuteMessagesResponse): boolean {
+    const key = `${group.application}:${group.task}`;
+    if (!this.initialExpandedState.has(key)) {
+      // First time seeing this group - store initial state based on whether it's in progress
+      this.initialExpandedState.set(key, this.isInProgress(group));
+    }
+    return this.initialExpandedState.get(key)!;
+  }
+
   triggerRestart(group: ISingleExecuteMessagesResponse) {
     if (!group.restartKey) return;
-    
+
     // Parameters are contained in the restart context, no need to send them
     this.veConfigurationService.restartExecution(group.restartKey).subscribe({
       next: () => {
-        // Clear old messages for this group to show fresh run
+        // Clear old messages for this group to show fresh run (immutable)
         if (this.messages) {
-          const idx = this.messages.findIndex(
-            g => g.application === group.application && g.task === group.task
+          this.messages = this.messages.filter(
+            g => !(g.application === group.application && g.task === group.task)
           );
-          if (idx >= 0) {
-            this.messages.splice(idx, 1);
-          }
         }
       },
       error: (err) => {
@@ -160,14 +184,11 @@ export class ProcessMonitor implements OnInit, OnDestroy {
         if (response.vmInstallKey && group.restartKey) {
           this.storedVmInstallKeys[group.restartKey] = response.vmInstallKey;
         }
-        // Clear old messages for this group to show fresh run
+        // Clear old messages for this group to show fresh run (immutable)
         if (this.messages) {
-          const idx = this.messages.findIndex(
-            g => g.application === group.application && g.task === group.task
+          this.messages = this.messages.filter(
+            g => !(g.application === group.application && g.task === group.task)
           );
-          if (idx >= 0) {
-            this.messages.splice(idx, 1);
-          }
         }
       },
       error: (err) => {

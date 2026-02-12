@@ -145,13 +145,26 @@ export class ApplicationInstallHelper {
    * Wait for installation to complete on the monitor page.
    * Waits for either success or error UI elements to appear.
    *
+   * @param applicationName - Optional application name to filter by (waits for this specific app's success/error)
    * @param timeout - Maximum time to wait in milliseconds (default: 3 minutes)
    * @returns true if installation succeeded
    * @throws Error if installation failed or timed out
    */
-  async waitForInstallationComplete(timeout: number = 180000): Promise<boolean> {
-    const successLocator = this.page.locator('[data-testid="installation-success"]');
-    const errorLocator = this.page.locator('[data-testid="installation-error"]');
+  async waitForInstallationComplete(applicationName?: string, timeout: number = 180000): Promise<boolean> {
+    let successLocator;
+    let errorLocator;
+
+    if (applicationName) {
+      // Find the panel with the specific app name, then find success/error within it
+      const panelWithApp = this.page.locator('mat-expansion-panel', {
+        has: this.page.locator(`mat-panel-title:has-text("${applicationName}")`)
+      });
+      successLocator = panelWithApp.locator('[data-testid="installation-success"]');
+      errorLocator = panelWithApp.locator('[data-testid="installation-error"]');
+    } else {
+      successLocator = this.page.locator('[data-testid="installation-success"]');
+      errorLocator = this.page.locator('[data-testid="installation-error"]');
+    }
 
     // Wait for either success or error to appear
     const result = await Promise.race([
@@ -177,11 +190,19 @@ export class ApplicationInstallHelper {
    * 1. Success message: "Created container: 301"
    * 2. Command texts: "Create LXC Container 301" or "start LXC 301"
    *
+   * @param applicationName - Optional application name to filter by
    * @returns The VMID as string, or null if not found
    */
-  async extractCreatedVmId(): Promise<string | null> {
+  async extractCreatedVmId(applicationName?: string): Promise<string | null> {
+    // Get the container (either specific app panel or whole page)
+    const container = applicationName
+      ? this.page.locator('mat-expansion-panel', {
+          has: this.page.locator(`mat-panel-title:has-text("${applicationName}")`)
+        })
+      : this.page;
+
     // First, check the success block for "Created container: XXX"
-    const successBlock = this.page.locator('[data-testid="installation-success"]');
+    const successBlock = container.locator('[data-testid="installation-success"]');
     if (await successBlock.count() > 0) {
       const successText = await successBlock.textContent();
       if (successText) {
@@ -194,7 +215,7 @@ export class ApplicationInstallHelper {
     }
 
     // Fallback: check command texts
-    const commandTexts = this.page.locator('.success-list .command-text');
+    const commandTexts = container.locator('.success-list .command-text');
     const count = await commandTexts.count();
 
     for (let i = 0; i < count; i++) {
@@ -249,6 +270,6 @@ export class ApplicationInstallHelper {
    */
   async createAndInstall(app: E2EApplication, _installParams?: Record<string, string>): Promise<void> {
     await this.createHelper.createApplication(app, { installAfterSave: true });
-    await this.waitForInstallationComplete();
+    await this.waitForInstallationComplete(app.name);
   }
 }

@@ -103,14 +103,14 @@ test.describe('Application Installation E2E Tests', () => {
       await helper.createApplication(app!, { installAfterSave: true });
       console.log(`Installation started: ${app!.name}`);
 
-      // Step 2: Wait for installation to complete
+      // Step 2: Wait for installation to complete (filter by app name for parallel runs)
       console.log(`Waiting for installation to complete: ${app!.name}`);
-      const installed = await helper.waitForInstallationComplete();
+      const installed = await helper.waitForInstallationComplete(app!.name);
       expect(installed).toBe(true);
       console.log(`Installation complete: ${app!.name}`);
 
-      // Step 3: Extract the created container VMID from process monitor
-      const createdVmId = await helper.extractCreatedVmId();
+      // Step 3: Extract the created container VMID from process monitor (filter by app name)
+      const createdVmId = await helper.extractCreatedVmId(app!.name);
       expect(createdVmId, 'Container VMID must be extracted from process monitor').toBeTruthy();
       console.log(`Created container VMID: ${createdVmId}`);
 

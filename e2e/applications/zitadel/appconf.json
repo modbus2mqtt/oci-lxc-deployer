@@ -1,4 +1,6 @@
 {
-    "name": "zitaldel",
+    "name": "zitadel",
+    "description": "ZITADEL is an open source identity management platform.",
+    "tags": ["identity", "auth"],
     "tasktype": "postgres"
 }
