@@ -1,7 +1,7 @@
-import { Component, EventEmitter, Output, inject } from '@angular/core';
+import { Component, EventEmitter, Output, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -10,8 +10,9 @@ import { MatIconModule } from '@angular/material/icon';
 
 import { CreateApplicationStateService } from '../services/create-application-state.service';
 import { VeConfigurationService } from '../../ve-configuration.service';
-import { IParameter, IParameterValue, IFrameworkApplicationDataBody } from '../../../shared/types';
+import { IParameter, IParameterValue, IFrameworkApplicationDataBody, IStack } from '../../../shared/types';
 import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter-group.component';
+import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
 
 @Component({
   selector: 'app-summary-step',
@@ -51,7 +52,7 @@ import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter
                 <span>No additional parameters required for installation.</span>
               </div>
             } @else {
-              <p class="preview-note">These parameters will be shown during installation:</p>
+              <p class="preview-note">Configure install parameters (will be used during installation):</p>
 
               @if (hasAdvancedParams()) {
                 <div class="advanced-toggle">
@@ -67,6 +68,8 @@ import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter
                   [groupedParameters]="installParametersGrouped"
                   [form]="previewForm"
                   [showAdvanced]="showAdvanced"
+                  [availableStacks]="availableStacks()"
+                  (stackSelected)="onStackSelected($event)"
                 ></app-parameter-group>
               }
             }
@@ -313,13 +316,27 @@ export class SummaryStepComponent {
   // Install parameters preview state
   installParameters: IParameter[] = [];
   installParametersGrouped: Record<string, IParameter[]> = {};
-  previewForm: FormGroup = new FormGroup({});
+  private formManager: ParameterFormManager | null = null;
   loading = false;
   error: string | null = null;
   showAdvanced = false;
 
+  // Stack support
+  availableStacks = signal<IStack[]>([]);
+  private selectedStack: IStack | null = null;
+
   // Tab state
   selectedTabIndex = 0;
+
+  /** Getter for template compatibility - returns form from manager or empty FormGroup */
+  get previewForm(): FormGroup {
+    return this.formManager?.form ?? new FormGroup({});
+  }
+
+  /** Getter for parent component to check form validity */
+  get isInstallFormValid(): boolean {
+    return (this.formManager?.valid ?? false) && this.installParameters.length > 0;
+  }
 
   // Called by parent when step becomes active
   loadInstallParameters(): void {
@@ -337,7 +354,8 @@ export class SummaryStepComponent {
       next: (res) => {
         this.installParameters = res.unresolvedParameters;
         this.installParametersGrouped = this.groupByTemplate(res.unresolvedParameters);
-        this.previewForm = this.buildReadonlyForm(res.unresolvedParameters);
+        this.setupEditableForm(res.unresolvedParameters);
+        this.loadStacks();
         this.loading = false;
       },
       error: (err) => {
@@ -416,15 +434,167 @@ export class SummaryStepComponent {
     return grouped;
   }
 
-  private buildReadonlyForm(params: IParameter[]): FormGroup {
-    const group: Record<string, FormControl> = {};
-    for (const param of params) {
-      group[param.id] = new FormControl({
-        value: param.default ?? '',
-        disabled: true
-      });
+  /** Sets up an editable form using ParameterFormManager */
+  private setupEditableForm(params: IParameter[]): void {
+    this.formManager = new ParameterFormManager(
+      params,
+      this.configService,
+      this.router
+    );
+  }
+
+  /** Loads available stacks based on stacktype */
+  private loadStacks(): void {
+    const stacktype = this.state.selectedStacktype();
+    if (!stacktype) {
+      this.availableStacks.set([]);
+      return;
     }
-    return new FormGroup(group);
+
+    this.configService.getStacks(stacktype).subscribe({
+      next: (res) => this.availableStacks.set(res.stacks),
+      error: () => this.availableStacks.set([])
+    });
+  }
+
+  /** Handles stack selection from parameter-group */
+  onStackSelected(stack: IStack): void {
+    this.selectedStack = stack;
+    this.formManager?.setSelectedStack(stack);
+  }
+
+  /**
+   * Saves the application and then installs it.
+   * Called by parent component's "Save & Install" button.
+   */
+  async saveAndInstall(): Promise<void> {
+    // 1. First save the application
+    const applicationId = await this.saveApplicationOnly();
+    if (!applicationId) return;
+
+    // 2. Then install - ParameterFormManager handles everything including navigation
+    if (!this.formManager) {
+      this.state.createError.set('Install form not initialized');
+      return;
+    }
+
+    this.formManager.install(applicationId).subscribe({
+      next: () => {
+        this.state.creating.set(false);
+        // Navigation to /monitor happens automatically in the manager
+      },
+      error: (err: { error?: { error?: string }; message?: string }) => {
+        this.state.creating.set(false);
+        this.state.createError.set(err?.error?.error || err?.message || 'Installation failed');
+      }
+    });
+  }
+
+  /**
+   * Saves the application without installing.
+   * Returns the applicationId on success, null on failure.
+   */
+  private saveApplicationOnly(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const body = this.buildCreateApplicationBody();
+      if (!body) {
+        resolve(null);
+        return;
+      }
+
+      this.state.creating.set(true);
+      this.state.createError.set(null);
+      this.state.createErrorStep.set(null);
+
+      this.configService.createApplicationFromFramework(body).subscribe({
+        next: (res) => {
+          if (res.success) {
+            resolve(body.applicationId);
+          } else {
+            this.state.createError.set('Failed to save application');
+            this.state.creating.set(false);
+            resolve(null);
+          }
+        },
+        error: (err: { error?: { error?: string }; message?: string }) => {
+          this.state.createError.set(err?.error?.error || err?.message || 'Failed to save application');
+          this.state.creating.set(false);
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  /**
+   * Builds the request body for creating/updating an application.
+   * Extracted from createApplication() for reuse.
+   */
+  private buildCreateApplicationBody(): IFrameworkApplicationDataBody & { applicationId: string; update?: boolean } | null {
+    const selectedFramework = this.state.selectedFramework();
+    if (!selectedFramework || this.state.appPropertiesForm.invalid || this.state.parameterForm.invalid) {
+      return null;
+    }
+
+    const parameterValues: { id: string; value: IParameterValue }[] = [];
+    for (const param of this.state.parameters()) {
+      let value = this.state.parameterForm.get(param.id)?.value;
+
+      // Extract base64 content if value has file metadata format
+      if (typeof value === 'string' && value.match(/^file:[^:]+:content:(.+)$/)) {
+        const match = value.match(/^file:[^:]+:content:(.+)$/);
+        if (match) {
+          value = match[1];
+        }
+      }
+
+      if (value !== null && value !== undefined && value !== '') {
+        parameterValues.push({ id: param.id, value });
+      }
+    }
+
+    // Ensure docker-compose essentials are not dropped
+    if (this.state.isDockerComposeFramework()) {
+      const ensuredIds = ['compose_file', 'env_file', 'volumes'] as const;
+      const existing = new Set(parameterValues.map(p => p.id));
+      for (const id of ensuredIds) {
+        if (existing.has(id)) continue;
+        const v = this.state.parameterForm.get(id)?.value;
+        if (v !== null && v !== undefined && String(v).trim() !== '') {
+          parameterValues.push({ id, value: v });
+        }
+      }
+    }
+
+    const selectedIconFile = this.state.selectedIconFile();
+    const iconContent = this.state.iconContent();
+
+    // In edit mode, use editApplicationId
+    const applicationId = this.state.editMode()
+      ? this.state.editApplicationId()
+      : this.state.appPropertiesForm.get('applicationId')?.value;
+
+    return {
+      frameworkId: selectedFramework.id,
+      applicationId,
+      name: this.state.appPropertiesForm.get('name')?.value,
+      description: this.state.appPropertiesForm.get('description')?.value,
+      url: this.state.appPropertiesForm.get('url')?.value || undefined,
+      documentation: this.state.appPropertiesForm.get('documentation')?.value || undefined,
+      source: this.state.appPropertiesForm.get('source')?.value || undefined,
+      vendor: this.state.appPropertiesForm.get('vendor')?.value || undefined,
+      ...(selectedIconFile && iconContent && {
+        icon: selectedIconFile.name,
+        iconContent: iconContent,
+      }),
+      ...(!selectedIconFile && iconContent && this.state.editMode() && {
+        iconContent: iconContent,
+      }),
+      ...(this.state.selectedTags().length > 0 && { tags: this.state.selectedTags() }),
+      ...(this.state.selectedStacktype() && { stacktype: this.state.selectedStacktype() ?? undefined }),
+      parameterValues,
+      ...(this.state.uploadFiles().length > 0 && { uploadfiles: this.state.uploadFiles() }),
+      ...(this.state.editMode() && { update: true }),
+    };
   }
 
   get groupNames(): string[] {

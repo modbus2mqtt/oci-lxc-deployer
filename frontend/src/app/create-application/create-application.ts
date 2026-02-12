@@ -371,6 +371,10 @@ export class CreateApplication implements OnInit, OnDestroy {
     this.summaryStep.createApplication();
   }
 
+  saveAndInstall(): void {
+    this.summaryStep.saveAndInstall();
+  }
+
   onNavigateToStep(stepIndex: number): void {
     if (this.stepper) {
       this.stepper.selectedIndex = stepIndex;

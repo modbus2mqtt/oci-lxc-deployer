@@ -62,11 +62,29 @@
       ></app-summary-step>
       <div class="step-actions">
         <button mat-button matStepperPrevious data-testid="prev-step-btn">Back</button>
-        <button mat-raised-button color="primary" (click)="createApplication()" [disabled]="creating()" data-testid="create-application-btn">
+
+        <!-- Button 1: Save Application only -->
+        <button mat-raised-button
+                (click)="createApplication()"
+                [disabled]="creating()"
+                data-testid="save-application-btn">
           @if (creating()) {
-            {{ editMode() ? 'Updating...' : 'Creating...' }}
+            {{ editMode() ? 'Updating...' : 'Saving...' }}
           } @else {
-            {{ editMode() ? 'Update Application' : 'Create Application' }}
+            {{ editMode() ? 'Update Application' : 'Save Application' }}
+          }
+        </button>
+
+        <!-- Button 2: Save & Install -->
+        <button mat-raised-button
+                color="primary"
+                (click)="saveAndInstall()"
+                [disabled]="creating() || !summaryStep?.isInstallFormValid"
+                data-testid="save-and-install-btn">
+          @if (creating()) {
+            Installing...
+          } @else {
+            Save & Install
           }
         </button>
       </div>
