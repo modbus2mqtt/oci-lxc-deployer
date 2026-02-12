@@ -130,36 +130,6 @@ import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
               </mat-card-content>
             </mat-card>
 
-            @if (getVolumes()) {
-              <mat-card data-testid="summary-volumes">
-                <mat-card-header>
-                  <mat-card-title>Volumes</mat-card-title>
-                </mat-card-header>
-                <mat-card-content>
-                  <ul class="volumes-list">
-                    @for (volume of getVolumesArray(); track volume; let i = $index) {
-                      <li [attr.data-testid]="'summary-volume-' + i">{{ volume }}</li>
-                    }
-                  </ul>
-                </mat-card-content>
-              </mat-card>
-            }
-
-            @if (getEnvs()) {
-              <mat-card data-testid="summary-envs">
-                <mat-card-header>
-                  <mat-card-title>Environment Variables</mat-card-title>
-                </mat-card-header>
-                <mat-card-content>
-                  <ul class="envs-list">
-                    @for (env of getEnvsArray(); track env; let i = $index) {
-                      <li [attr.data-testid]="'summary-env-' + i">{{ env }}</li>
-                    }
-                  </ul>
-                </mat-card-content>
-              </mat-card>
-            }
-
             @if (state.uploadFiles().length > 0) {
               <mat-card data-testid="summary-upload-files">
                 <mat-card-header>
@@ -272,9 +242,7 @@ import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
       color: #f44336;
     }
 
-    .upload-files-list,
-    .volumes-list,
-    .envs-list {
+    .upload-files-list {
       list-style: none;
       padding: 0;
       margin: 0;
@@ -282,16 +250,12 @@ import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
       font-size: 0.9rem;
     }
 
-    .upload-files-list li,
-    .volumes-list li,
-    .envs-list li {
+    .upload-files-list li {
       padding: 0.5rem 0;
       border-bottom: 1px solid #eee;
     }
 
-    .upload-files-list li:last-child,
-    .volumes-list li:last-child,
-    .envs-list li:last-child {
+    .upload-files-list li:last-child {
       border-bottom: none;
     }
 
@@ -328,9 +292,15 @@ export class SummaryStepComponent {
   // Tab state
   selectedTabIndex = 0;
 
-  /** Getter for template compatibility - returns form from manager or empty FormGroup */
+  // Cached empty form to avoid ExpressionChangedAfterItHasBeenCheckedError
+  private readonly emptyForm = new FormGroup({});
+
+  // Cached group names to avoid creating new arrays on each change detection
+  private cachedGroupNames: string[] = [];
+
+  /** Getter for template compatibility - returns form from manager or cached empty FormGroup */
   get previewForm(): FormGroup {
-    return this.formManager?.form ?? new FormGroup({});
+    return this.formManager?.form ?? this.emptyForm;
   }
 
   /** Getter for parent component to check form validity */
@@ -354,6 +324,7 @@ export class SummaryStepComponent {
       next: (res) => {
         this.installParameters = res.unresolvedParameters;
         this.installParametersGrouped = this.groupByTemplate(res.unresolvedParameters);
+        this.cachedGroupNames = Object.keys(this.installParametersGrouped);
         this.setupEditableForm(res.unresolvedParameters);
         this.loadStacks();
         this.loading = false;
@@ -598,28 +569,7 @@ export class SummaryStepComponent {
   }
 
   get groupNames(): string[] {
-    return Object.keys(this.installParametersGrouped);
-  }
-
-  // Helper methods for volumes and envs display
-  getVolumes(): string {
-    return this.state.parameterForm.get('volumes')?.value || '';
-  }
-
-  getVolumesArray(): string[] {
-    const volumes = this.getVolumes();
-    if (!volumes) return [];
-    return volumes.split('\n').filter((v: string) => v.trim());
-  }
-
-  getEnvs(): string {
-    return this.state.parameterForm.get('envs')?.value || '';
-  }
-
-  getEnvsArray(): string[] {
-    const envs = this.getEnvs();
-    if (!envs) return [];
-    return envs.split('\n').filter((e: string) => e.trim());
+    return this.cachedGroupNames;
   }
 
   hasAdvancedParams(): boolean {
