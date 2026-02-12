@@ -203,6 +203,25 @@ get_storage_type() {
   pvesm status -storage "$VOLUME_STORAGE" 2>/dev/null | awk 'NR==2 {print $2}' || true
 }
 
+extract_volid() {
+  # pvesm alloc may output:
+  #   "successfully created 'storage:volname'"
+  # or just:
+  #   "storage:volname"
+  # Extract the actual volume ID
+  _raw="$1"
+  case "$_raw" in
+    *"'"*)
+      # Extract content between single quotes
+      echo "$_raw" | sed -n "s/.*'\\([^']*\\)'.*/\\1/p"
+      ;;
+    *)
+      # Return as-is (trim whitespace)
+      echo "$_raw" | tr -d '[:space:]'
+      ;;
+  esac
+}
+
 alloc_volume() {
   _volname="$1"
   _size="$2"
@@ -214,21 +233,27 @@ alloc_volume() {
   _errfile=$(mktemp)
   _volid=""
 
-  _volid=$(pvesm alloc "$VOLUME_STORAGE" "$_owner_vmid" "$_volname" "$_size" 2>"$_errfile" || true)
+  _raw=$(pvesm alloc "$VOLUME_STORAGE" "$_owner_vmid" "$_volname" "$_size" 2>"$_errfile" || true)
   _rc=$?
-  if [ "$_rc" -eq 0 ] && [ -n "$_volid" ]; then
-    rm -f "$_errfile"
-    echo "$_volid"
-    return 0
-  fi
-
-  if [ "$_type" = "zfspool" ]; then
-    _volid=$(pvesm alloc "$VOLUME_STORAGE" "$_owner_vmid" "$_volname" "$_size" --format subvol 2>"$_errfile" || true)
-    _rc=$?
-    if [ "$_rc" -eq 0 ] && [ -n "$_volid" ]; then
+  if [ "$_rc" -eq 0 ] && [ -n "$_raw" ]; then
+    _volid=$(extract_volid "$_raw")
+    if [ -n "$_volid" ]; then
       rm -f "$_errfile"
       echo "$_volid"
       return 0
+    fi
+  fi
+
+  if [ "$_type" = "zfspool" ]; then
+    _raw=$(pvesm alloc "$VOLUME_STORAGE" "$_owner_vmid" "$_volname" "$_size" --format subvol 2>"$_errfile" || true)
+    _rc=$?
+    if [ "$_rc" -eq 0 ] && [ -n "$_raw" ]; then
+      _volid=$(extract_volid "$_raw")
+      if [ -n "$_volid" ]; then
+        rm -f "$_errfile"
+        echo "$_volid"
+        return 0
+      fi
     fi
   fi
 

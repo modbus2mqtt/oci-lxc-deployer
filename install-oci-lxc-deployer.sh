@@ -551,7 +551,7 @@ icon_base64=$(curl -fsSL "$icon_url" 2>/dev/null | base64 | tr -d '\n' || echo "
 icon_mime_type="image/svg+xml"
 
 execute_script_from_github \
-  "json/shared/scripts/post_start/host-write-lxc-notes.py" \
+  "json/shared/scripts/pre_start/host-write-lxc-notes.py" \
   "notes_written" \
   "vm_id=${vm_id}" \
   "hostname=${hostname}" \
@@ -563,7 +563,10 @@ execute_script_from_github \
   "deployer_base_url=${deployer_base_url}" \
   "ve_context_key=ve_${proxmox_hostname}" \
   "icon_base64=${icon_base64}" \
-  "icon_mime_type=${icon_mime_type}" >/dev/null || echo "  Warning: Failed to write notes (non-fatal)" >&2
+  "icon_mime_type=${icon_mime_type}" || {
+  echo "Error: Failed to write LXC notes" >&2
+  exit 1
+}
 
 # 6) Ensure container is running
 echo "Step 6: Ensuring container is running..." >&2

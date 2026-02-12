@@ -27,18 +27,15 @@ root-ssh-keys = [
 source = "from-dhcp"
 
 [disk-setup]
-# Use ext4 filesystem on the virtual disk
-filesystem = "ext4"
+# Use ZFS filesystem - better for VM storage and nested virtualization
+filesystem = "zfs"
 disk-list = ["sda"]
 
-# LVM configuration for ext4
-[disk-setup.lvm]
-# Use all available space
-hdsize = 30
-# 4GB swap
-swapsize = 4
-# Max 10GB for root, rest for data
-maxroot = 10
+# ZFS options
+[disk-setup.zfs]
+# RAID level (single disk = raid0)
+raid = "raid0"
+# Use full disk (hdsize omitted = use all available space)
 
 [first-boot]
 # Run a script on first boot to configure apt repositories for latest packages

@@ -94,7 +94,7 @@ if [ -z "$KEEP_VM" ]; then
 fi
 
 # Step 4: Create VM
-info "Creating VM $TEST_VMID..."
+info "Creating VM $TEST_VMID (disk: ${VM_DISK_SIZE}G on $VM_STORAGE)..."
 pve_ssh "qm create $TEST_VMID \
     --name $VM_NAME \
     --memory $VM_MEMORY \

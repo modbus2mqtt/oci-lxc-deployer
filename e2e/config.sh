@@ -60,7 +60,16 @@ load_config() {
     export VM_DISK_SIZE=$(jq -r '.defaults.vmDiskSize' "$CONFIG_FILE")
     export VM_STORAGE=$(jq -r '.defaults.vmStorage' "$CONFIG_FILE")
     export VM_BRIDGE=$(jq -r '.defaults.vmBridge' "$CONFIG_FILE")
+    export SWAP_SIZE=$(jq -r '.defaults.swapSize' "$CONFIG_FILE")
     export NESTED_PASSWORD=$(jq -r '.defaults.nestedPassword' "$CONFIG_FILE")
+
+    # Filesystem: instance-specific or default
+    local instance_fs=$(jq -r ".instances[\"$instance\"].filesystem // empty" "$CONFIG_FILE")
+    if [ -n "$instance_fs" ]; then
+        export FILESYSTEM="$instance_fs"
+    else
+        export FILESYSTEM=$(jq -r '.defaults.filesystem' "$CONFIG_FILE")
+    fi
     export OWNER=$(jq -r '.defaults.owner' "$CONFIG_FILE")
     export OCI_OWNER=$(jq -r '.defaults.ociOwner' "$CONFIG_FILE")
     export DEPLOYER_VMID=$(jq -r '.defaults.deployerVmid' "$CONFIG_FILE")

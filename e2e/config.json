@@ -8,7 +8,8 @@
       "vmName": "pve-e2e-local",
       "portOffset": 0,
       "subnet": "10.99.1",
-      "localPath": "./examples"
+      "localPath": "./examples",
+      "filesystem": "zfs"
     },
     "github-action": {
       "description": "GitHub Actions CI testing",
@@ -16,7 +17,8 @@
       "vmId": 9001,
       "vmName": "pve-e2e-ci",
       "portOffset": 1000,
-      "subnet": "10.99.2"
+      "subnet": "10.99.2",
+      "filesystem": "ext4"
     }
   },
   "defaults": {
@@ -25,6 +27,8 @@
     "vmDiskSize": 100,
     "vmStorage": "local-zfs",
     "vmBridge": "vmbr1",
+    "filesystem": "zfs",
+    "swapSize": 4,
     "nestedPassword": "e2e-test-2024",
     "owner": "modbus2mqtt",
     "ociOwner": "modbus2mqtt",

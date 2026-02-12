@@ -46,33 +46,37 @@ else
 fi
 
 # Step 2: Download Proxmox ISO if not present
-if [ ! -f "$ISO_DIR/$PVE_ISO_FILE" ] && [ ! -f "$WORK_DIR/$PVE_ISO_FILE" ]; then
-    # Check for any existing Proxmox ISO first
+# IMPORTANT: We need the EXACT version, not just any ISO
+if [ -f "$ISO_DIR/$PVE_ISO_FILE" ]; then
+    # Exact version exists in template directory - copy to work dir
+    info "Copying cached ISO from $ISO_DIR..."
+    cp "$ISO_DIR/$PVE_ISO_FILE" "$WORK_DIR/$PVE_ISO_FILE"
+    success "ISO copied: $PVE_ISO_FILE"
+elif [ -f "$WORK_DIR/$PVE_ISO_FILE" ]; then
+    # Already in work directory
+    success "Proxmox ISO already in work directory: $PVE_ISO_FILE"
+else
+    # Need to download - existing ISOs with different versions won't work
     if ls "$ISO_DIR"/proxmox-ve_*.iso 1> /dev/null 2>&1; then
-        EXISTING_ISO=$(ls -t "$ISO_DIR"/proxmox-ve_*.iso | head -1)
-        info "Found existing Proxmox ISO: $EXISTING_ISO"
-        cp "$EXISTING_ISO" "$WORK_DIR/$PVE_ISO_FILE"
-        success "Using existing ISO"
-    else
-        info "Downloading Proxmox VE $PVE_VERSION ISO..."
-        info "URL: $PVE_ISO_URL"
-        info "This may take a while (ISO is ~1.8GB)..."
+        info "Note: Found other ISO versions in $ISO_DIR, but need exact version $PVE_VERSION"
+    fi
 
-        # Download from official Proxmox download server
-        if wget --progress=bar:force -O "$PVE_ISO_FILE" "$PVE_ISO_URL"; then
-            success "Proxmox ISO downloaded"
-        else
-            error "Could not download Proxmox ISO from $PVE_ISO_URL
+    info "Downloading Proxmox VE $PVE_VERSION ISO..."
+    info "URL: $PVE_ISO_URL"
+    info "This may take a while (ISO is ~1.8GB)..."
+
+    # Download from official Proxmox download server
+    # Quiet mode - no progress (avoids line spam over SSH)
+    if wget -q -O "$PVE_ISO_FILE" "$PVE_ISO_URL"; then
+        success "Proxmox ISO downloaded"
+        # Save to template directory for future runs
+        cp "$PVE_ISO_FILE" "$ISO_DIR/$PVE_ISO_FILE"
+        info "ISO cached at $ISO_DIR/$PVE_ISO_FILE"
+    else
+        error "Could not download Proxmox ISO from $PVE_ISO_URL
 Please download manually:
   wget -O /var/lib/vz/template/iso/$PVE_ISO_FILE $PVE_ISO_URL"
-        fi
     fi
-elif [ -f "$ISO_DIR/$PVE_ISO_FILE" ]; then
-    info "Copying existing ISO from $ISO_DIR..."
-    cp "$ISO_DIR/$PVE_ISO_FILE" "$WORK_DIR/$PVE_ISO_FILE"
-    success "ISO copied"
-else
-    success "Proxmox ISO already in work directory"
 fi
 
 # Step 3: Get SSH public keys for the answer file
@@ -138,11 +142,27 @@ proxmox-auto-install-assistant prepare-iso \
     $EXTRA_ARGS \
     --output "$OUTPUT_ISO"
 
-success "Custom ISO created: $OUTPUT_ISO"
+# Find the created ISO (tool may use different naming)
+CREATED_ISO=""
+if [ -f "$OUTPUT_ISO" ]; then
+    CREATED_ISO="$OUTPUT_ISO"
+elif [ -f "${PVE_ISO_FILE%.iso}-auto.iso" ]; then
+    # Tool sometimes appends "-auto" to input filename
+    CREATED_ISO="${PVE_ISO_FILE%.iso}-auto.iso"
+else
+    # Search for any recently created ISO
+    CREATED_ISO=$(ls -t *.iso 2>/dev/null | grep -v "^$PVE_ISO_FILE$" | head -1)
+fi
+
+if [ -z "$CREATED_ISO" ] || [ ! -f "$CREATED_ISO" ]; then
+    error "ISO creation failed - no output file found. Check proxmox-auto-install-assistant output above."
+fi
+
+success "Custom ISO created: $CREATED_ISO"
 
 # Step 6: Move ISO to template directory
 info "Moving ISO to $ISO_DIR..."
-mv -f "$OUTPUT_ISO" "$ISO_DIR/$OUTPUT_ISO"
+mv -f "$CREATED_ISO" "$ISO_DIR/$OUTPUT_ISO"
 success "ISO available at: $ISO_DIR/$OUTPUT_ISO"
 
 # Step 7: Cleanup work files (keep originals)
