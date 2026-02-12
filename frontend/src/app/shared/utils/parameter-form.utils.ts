@@ -151,7 +151,7 @@ export class ParameterFormManager {
 
   /**
    * Führt Installation aus: postVeConfiguration + Navigation zu /monitor
-   * Verwendet intern: params, changedParams, selectedAddons
+   * Verwendet intern: params, changedParams, selectedAddons, selectedStack
    */
   install(
     applicationId: string,
@@ -162,13 +162,15 @@ export class ParameterFormManager {
     }
 
     const { params, changedParams } = this.extractParamsWithChanges();
+    const stackId = this.selectedStack?.id;
 
     return this.configService.postVeConfiguration(
       applicationId,
       task,
       params,
       changedParams.length > 0 ? changedParams : undefined,
-      this.selectedAddons.length > 0 ? this.selectedAddons : undefined
+      this.selectedAddons.length > 0 ? this.selectedAddons : undefined,
+      stackId
     ).pipe(
       tap((res) => {
         const extras: NavigationExtras = {

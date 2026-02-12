@@ -288,6 +288,17 @@ export class WebAppVeRouteHandlers {
 
       const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);
 
+      // Load stack entries if stackId is provided
+      const stackId = body.stackId;
+      if (stackId) {
+        const stack = storageContext.getStack(stackId);
+        if (stack && stack.entries) {
+          for (const entry of stack.entries) {
+            defaults.set(entry.name, entry.value);
+          }
+        }
+      }
+
       // Built-in context variables (available to scripts as {{ application_id }}, etc.)
       // Do not require any template parameters.
       defaults.set("application", application);
