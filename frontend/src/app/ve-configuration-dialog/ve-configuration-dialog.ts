@@ -9,13 +9,14 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { IApplicationWeb, IParameter, IParameterValue, IEnumValuesResponse, IAddonWithParameters, IStack, IStacktypeEntry } from '../../shared/types';
-import { VeConfigurationService, VeConfigurationParam } from '../ve-configuration.service';
+import { VeConfigurationService } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
 import { DockerComposeService } from '../shared/services/docker-compose.service';
 import { ParameterGroupComponent } from './parameter-group.component';
 import { TemplateTraceDialog } from './template-trace-dialog';
 import { CreateStackDialog, CreateStackDialogData, CreateStackDialogResult } from '../stacks-page/create-stack-dialog';
-import type { NavigationExtras } from '@angular/router';
+import { ParameterFormManager } from '../shared/utils/parameter-form.utils';
+import { Router } from '@angular/router';
 
 /**
  * Data passed to the VeConfigurationDialog.
@@ -68,11 +69,12 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
   availableStacktypes = signal<IStacktypeEntry[]>([]);
   stacksLoading = signal(false);
   selectedStack: IStack | null = null;
-  private initialValues = new Map<string, IParameterValue>();
+  private formManager!: ParameterFormManager;
   private enumRefreshAttempted = false;
   private hostnameManuallyChanged = false;
   private visibilityHandler = () => this.onVisibilityChange();
   private configService: VeConfigurationService = inject(VeConfigurationService);
+  private router: Router = inject(Router);
   public dialogRef: MatDialogRef<VeConfigurationDialog> = inject(MatDialogRef<VeConfigurationDialog>);
   private errorHandler: ErrorHandlerService = inject(ErrorHandlerService);
   private fb: FormBuilder = inject(FormBuilder);
@@ -115,8 +117,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
           }
           const defaultValue = param.default !== undefined ? param.default : '';
           this.form.addControl(param.id, new FormControl(defaultValue, validators));
-          // Store initial value for comparison
-          this.initialValues.set(param.id, defaultValue);
+          // Initial values will be captured by ParameterFormManager.fromExistingForm()
         }
         // Sort parameters in each group: required first, then optional
         for (const group in this.groupedParameters) {
@@ -127,10 +128,17 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
         this.loading.set(false);
         this.loadEnumValues();
 
+        // Create ParameterFormManager from existing form
+        this.formManager = ParameterFormManager.fromExistingForm(
+          this.form,
+          this.configService,
+          this.router
+        );
+
         // Track manual hostname changes
+        const initialHostname = this.formManager.extractParamsWithChanges().params.find(p => p.name === 'hostname')?.value;
         this.form.get('hostname')?.valueChanges.subscribe(value => {
-          const initial = this.initialValues.get('hostname');
-          if (value !== initial && value !== `${initial}-${this.selectedStack?.id}`) {
+          if (value !== initialHostname && value !== `${initialHostname}-${this.selectedStack?.id}`) {
             this.hostnameManuallyChanged = true;
           }
         });
@@ -170,7 +178,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
             const control = this.form.get(entry.id);
             if (control && (control.value === '' || control.value === null || control.value === undefined)) {
               control.setValue(entry.default);
-              this.initialValues.set(entry.id, entry.default as IParameterValue);
+              this.formManager.updateInitialValue(entry.id, entry.default as IParameterValue);
             }
           }
         }
@@ -190,7 +198,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
                   const control = this.form.get(entry.id);
                   if (control && (control.value === '' || control.value === null || control.value === undefined)) {
                     control.setValue(entry.default);
-                    this.initialValues.set(entry.id, entry.default as IParameterValue);
+                    this.formManager.updateInitialValue(entry.id, entry.default as IParameterValue);
                   }
                 }
               }
@@ -260,7 +268,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
     // Auto-update hostname if not manually modified and stack is not "default"
     if (!this.hostnameManuallyChanged && stack.name.toLowerCase() !== 'default') {
       const hostnameControl = this.form.get('hostname');
-      const baseHostname = this.initialValues.get('hostname');
+      const baseHostname = this.formManager.getInitialValue('hostname');
       if (hostnameControl && baseHostname) {
         hostnameControl.setValue(`${baseHostname}-${stack.id}`);
       }
@@ -304,31 +312,21 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
 
     if (checked) {
       this.selectedAddons.update(addons => [...addons, addonId]);
-      // Add form controls for addon parameters
+      // Add form controls for addon parameters via manager
       if (addon?.parameters) {
-        for (const param of addon.parameters) {
-          if (!this.form.contains(param.id)) {
-            const validators = param.required ? [Validators.required] : [];
-            const defaultValue = param.default !== undefined ? param.default : '';
-            this.form.addControl(param.id, new FormControl(defaultValue, validators));
-            this.initialValues.set(param.id, defaultValue);
-          }
-        }
+        this.formManager.addAddonControls(addon.parameters);
       }
     } else {
       this.selectedAddons.update(addons => addons.filter(id => id !== addonId));
       // Collapse addon when deselected
       this.expandedAddons.update(addons => addons.filter(id => id !== addonId));
-      // Remove form controls for addon parameters
+      // Remove form controls for addon parameters via manager
       if (addon?.parameters) {
-        for (const param of addon.parameters) {
-          if (this.form.contains(param.id)) {
-            this.form.removeControl(param.id);
-            this.initialValues.delete(param.id);
-          }
-        }
+        this.formManager.removeAddonControls(addon.parameters);
       }
     }
+    // Update manager's addon list for install()
+    this.formManager.setSelectedAddons(this.selectedAddons());
   }
 
   isAddonSelected(addonId: string): boolean {
@@ -371,66 +369,14 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
   save() {
     if (this.form.invalid) return;
     this.loading.set(true);
-    
-    // Separate params and changed parameters
-    const params: VeConfigurationParam[] = [];
-    const changedParams: VeConfigurationParam[] = [];
-    
-    for (const [paramId, currentValue] of Object.entries(this.form.value) as [string, IParameterValue][]) {
-      const initialValue = this.initialValues.get(paramId);
-      
-      // Extract base64 content if value has file metadata format: file:filename:content:base64content
-      let processedValue: IParameterValue = currentValue;
-      if (typeof currentValue === 'string' && currentValue.match(/^file:[^:]+:content:(.+)$/)) {
-        const match = currentValue.match(/^file:[^:]+:content:(.+)$/);
-        if (match) {
-          processedValue = match[1]; // Extract only the base64 content
-        }
-      }
-      
-      // Check if value has changed (compare with initial value)
-      const hasChanged = initialValue !== processedValue && 
-                        (processedValue !== null && processedValue !== undefined && processedValue !== '');
-      
-      if (hasChanged) {
-        // Collect changed parameters for vmInstallContext
-        if (processedValue !== null && processedValue !== undefined && processedValue !== '') {
-          changedParams.push({ name: paramId, value: processedValue });
-          params.push({ name: paramId, value: processedValue });
-        }
-      } else if (processedValue !== null && processedValue !== undefined && processedValue !== '') {
-        // Include unchanged values that are not empty (for required fields)
-        params.push({ name: paramId, value: processedValue });
-      }
-    }
-    
-    const application = this.data.app.id;
-    const task = this.task;
-    
-    // Pass changedParams and selectedAddons to backend for vmInstallContext
-        this.configService.postVeConfiguration(
-          application,
-          task,
-          params,
-          changedParams.length > 0 ? changedParams : undefined,
-          this.selectedAddons().length > 0 ? this.selectedAddons() : undefined
-        ).subscribe({
-          next: (res) => {
-            this.loading.set(false);
-            // Navigate to process monitor; pass restartKey, vmInstallKey and original parameters
-            const extras: NavigationExtras = {
-              queryParams: res.restartKey ? { restartKey: res.restartKey } : {},
-              state: { 
-                originalParams: params,
-                application: application,
-                task: task,
-                restartKey: res.restartKey,
-                vmInstallKey: res.vmInstallKey
-              }
-            };
-            this.dialogRef.close(this.form.value);
-            this.configService['router'].navigate(['/monitor'], extras);
-          },
+
+    // Addons are already set in formManager via toggleAddon() -> setSelectedAddons()
+    this.formManager.install(this.data.app.id, this.task).subscribe({
+      next: () => {
+        this.loading.set(false);
+        this.dialogRef.close(this.form.value);
+        // Navigation is handled by formManager.install()
+      },
       error: (err: unknown) => {
         this.errorHandler.handleError('Failed to install configuration', err);
         this.loading.set(false);
