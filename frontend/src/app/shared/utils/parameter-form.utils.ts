@@ -24,6 +24,7 @@ export class ParameterFormManager {
   private readonly initialValues = new Map<string, IParameterValue>();
   private selectedAddons: string[] = [];
   private selectedStack: IStack | null = null;
+  private hostnameManuallyChanged = false;
 
   constructor(
     params: IParameter[],
@@ -74,12 +75,30 @@ export class ParameterFormManager {
     return this.selectedAddons;
   }
 
+  /**
+   * Enables tracking of manual hostname changes.
+   * Call this after form setup to detect when user manually edits hostname.
+   */
+  enableHostnameTracking(): void {
+    const initialHostname = this.initialValues.get('hostname');
+    this.form.get('hostname')?.valueChanges.subscribe(value => {
+      // Consider it manually changed if:
+      // - Not the initial value
+      // - Not the auto-generated format (initial-stackId)
+      if (value !== initialHostname &&
+          !value?.toString().startsWith(`${initialHostname}-`)) {
+        this.hostnameManuallyChanged = true;
+      }
+    });
+  }
+
   /** Setzt ausgewählten Stack und aktualisiert Hostname */
   setSelectedStack(stack: IStack | null): void {
     this.selectedStack = stack;
 
     // Auto-update hostname wenn Stack ausgewählt (nicht "default")
-    if (stack && stack.name.toLowerCase() !== 'default') {
+    // Nur wenn hostname NICHT manuell geändert wurde
+    if (!this.hostnameManuallyChanged && stack && stack.name.toLowerCase() !== 'default') {
       const hostnameControl = this.form.get('hostname');
       const baseHostname = this.initialValues.get('hostname');
       if (hostnameControl && baseHostname) {
@@ -189,10 +208,39 @@ export class ParameterFormManager {
   }
 
   private extractBase64Content(value: IParameterValue): IParameterValue {
-    if (typeof value === 'string' && value.match(/^file:[^:]+:content:(.+)$/)) {
+    return ParameterFormManager.extractBase64FromFileMetadata(value);
+  }
+
+  /**
+   * Extracts base64 content from file metadata format.
+   * File metadata format: "file:filename:content:base64content"
+   * Returns the base64 content if matched, otherwise returns the original value.
+   */
+  static extractBase64FromFileMetadata(value: IParameterValue): IParameterValue {
+    if (typeof value === 'string') {
       const match = value.match(/^file:[^:]+:content:(.+)$/);
-      return match ? match[1] : value;
+      if (match) {
+        return match[1];
+      }
     }
     return value;
+  }
+
+  /**
+   * Extracts filename from file metadata format.
+   * File metadata format: "file:filename:content:base64content"
+   * Returns the filename if matched, otherwise returns null.
+   */
+  static extractFilenameFromFileMetadata(value: string): string | null {
+    const match = value.match(/^file:([^:]+):content:.+$/);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Checks if a value is in file metadata format.
+   * File metadata format: "file:filename:content:base64content"
+   */
+  static isFileMetadataFormat(value: string): boolean {
+    return /^file:[^:]+:content:.+$/.test(value);
   }
 }

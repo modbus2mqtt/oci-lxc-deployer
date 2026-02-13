@@ -388,12 +388,7 @@ export class SummaryStepComponent {
       let value = this.state.parameterForm.get(param.id)?.value;
 
       // Extract base64 content if value has file metadata format
-      if (typeof value === 'string' && value.match(/^file:[^:]+:content:(.+)$/)) {
-        const match = value.match(/^file:[^:]+:content:(.+)$/);
-        if (match) {
-          value = match[1];
-        }
-      }
+      value = ParameterFormManager.extractBase64FromFileMetadata(value);
 
       if (value !== null && value !== undefined && value !== '') {
         parameterValues.push({ id: param.id, value });
@@ -453,6 +448,7 @@ export class SummaryStepComponent {
       this.configService,
       this.router
     );
+    this.formManager.enableHostnameTracking();
   }
 
   /** Loads available stacks based on stacktype */
@@ -552,12 +548,7 @@ export class SummaryStepComponent {
       let value = this.state.parameterForm.get(param.id)?.value;
 
       // Extract base64 content if value has file metadata format
-      if (typeof value === 'string' && value.match(/^file:[^:]+:content:(.+)$/)) {
-        const match = value.match(/^file:[^:]+:content:(.+)$/);
-        if (match) {
-          value = match[1];
-        }
-      }
+      value = ParameterFormManager.extractBase64FromFileMetadata(value);
 
       if (value !== null && value !== undefined && value !== '') {
         parameterValues.push({ id: param.id, value });
@@ -635,13 +626,8 @@ export class SummaryStepComponent {
     for (const param of this.state.parameters()) {
       let value = this.state.parameterForm.get(param.id)?.value;
 
-      // Extract base64 content if value has file metadata format: file:filename:content:base64content
-      if (typeof value === 'string' && value.match(/^file:[^:]+:content:(.+)$/)) {
-        const match = value.match(/^file:[^:]+:content:(.+)$/);
-        if (match) {
-          value = match[1]; // Extract only the base64 content
-        }
-      }
+      // Extract base64 content if value has file metadata format
+      value = ParameterFormManager.extractBase64FromFileMetadata(value);
 
       if (value !== null && value !== undefined && value !== '') {
         parameterValues.push({ id: param.id, value });

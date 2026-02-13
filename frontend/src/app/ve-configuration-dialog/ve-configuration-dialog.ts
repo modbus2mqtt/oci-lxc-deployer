@@ -75,7 +75,6 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
   selectedStack: IStack | null = null;
   private formManager!: ParameterFormManager;
   private enumRefreshAttempted = false;
-  private hostnameManuallyChanged = false;
   private visibilityHandler = () => this.onVisibilityChange();
   private configService: VeConfigurationService = inject(VeConfigurationService);
   private router: Router = inject(Router);
@@ -138,14 +137,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
           this.configService,
           this.router
         );
-
-        // Track manual hostname changes
-        const initialHostname = this.formManager.extractParamsWithChanges().params.find(p => p.name === 'hostname')?.value;
-        this.form.get('hostname')?.valueChanges.subscribe(value => {
-          if (value !== initialHostname && value !== `${initialHostname}-${this.selectedStack?.id}`) {
-            this.hostnameManuallyChanged = true;
-          }
-        });
+        this.formManager.enableHostnameTracking();
       },
       error: (err: unknown) => {
         this.errorHandler.handleError('Failed to load parameters', err);
@@ -265,18 +257,8 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
   }
 
   onStackSelected(stack: IStack): void {
-    // Stack is selected - marker replacement happens in backend
-    // Store the selected stack for later use
     this.selectedStack = stack;
-
-    // Auto-update hostname if not manually modified and stack is not "default"
-    if (!this.hostnameManuallyChanged && stack.name.toLowerCase() !== 'default') {
-      const hostnameControl = this.form.get('hostname');
-      const baseHostname = this.formManager.getInitialValue('hostname');
-      if (hostnameControl && baseHostname) {
-        hostnameControl.setValue(`${baseHostname}-${stack.id}`);
-      }
-    }
+    this.formManager.setSelectedStack(stack);
   }
 
   onStackSelectChange(stackId: string): void {

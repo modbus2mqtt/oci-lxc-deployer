@@ -1,0 +1,51 @@
+{
+    "name": "samba-addon",
+    "description": "E2E test for Samba addon installation on oci-lxc-deployer",
+
+    "baseApplication": "oci-lxc-deployer",
+    "addon": "samba-shares",
+
+    "addonParams": {
+        "smb_user": "testuser",
+        "smb_password": "testpass123"
+    },
+
+    "addonFiles": {
+        "addon_content": "smb.conf"
+    },
+
+    "validation": {
+        "waitBeforeValidation": 10,
+        "processes": [
+            {
+                "name": "smbd",
+                "description": "Samba daemon should be running"
+            }
+        ],
+        "ports": [
+            {
+                "port": 445,
+                "protocol": "tcp",
+                "service": "SMB"
+            },
+            {
+                "port": 139,
+                "protocol": "tcp",
+                "service": "NetBIOS"
+            }
+        ],
+        "files": [
+            {
+                "path": "/etc/samba/smb.conf",
+                "contentPattern": "\\[shared\\]"
+            }
+        ],
+        "commands": [
+            {
+                "command": "pdbedit -L",
+                "expectedOutput": "testuser",
+                "description": "Samba user should exist"
+            }
+        ]
+    }
+}
