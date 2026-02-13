@@ -1,0 +1,5 @@
+{
+    "name": "phpMyAdmin",
+    "description": "phpMyAdmin is a web-based MySQL/MariaDB administration tool.",
+    "tags": ["database"]
+}
