@@ -840,6 +840,11 @@ export class WebAppVeRouteHandlers {
             for (const cmd of template.commands) {
               const command: ICommand = { ...cmd };
 
+              // Set command name from template name if missing (same logic as TemplateProcessor)
+              if (!command.name || command.name.trim() === "") {
+                command.name = template.name || templateName;
+              }
+
               // Set execute_on from template if not on command
               if (!command.execute_on && template.execute_on) {
                 command.execute_on = template.execute_on;

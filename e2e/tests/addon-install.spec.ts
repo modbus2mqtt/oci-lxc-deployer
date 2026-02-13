@@ -357,7 +357,8 @@ test.describe('Addon Installation E2E Tests', () => {
       console.log(`Summary: ${passed.length}/${results.length} addon validations passed`);
       console.log(`${'─'.repeat(60)}\n`);
 
-      expect(failed.length, `${failed.length} addon validations failed`).toBe(0);
+      const failedDetails = failed.map(r => `- ${r.message}${r.details ? ` (${r.details})` : ''}`).join('\n');
+      expect(failed.length, `${failed.length} of ${results.length} addon validations failed:\n${failedDetails}`).toBe(0);
     }
   });
 });
