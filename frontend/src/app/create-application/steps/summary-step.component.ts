@@ -10,10 +10,11 @@ import { MatIconModule } from '@angular/material/icon';
 
 import { CreateApplicationStateService } from '../services/create-application-state.service';
 import { VeConfigurationService } from '../../ve-configuration.service';
-import { IParameter, IParameterValue, IFrameworkApplicationDataBody, IStack, IUploadFile } from '../../../shared/types';
+import { IParameter, IParameterValue, IFrameworkApplicationDataBody, IStack, IUploadFile, IAddonWithParameters } from '../../../shared/types';
 import { ParameterGroupComponent } from '../../ve-configuration-dialog/parameter-group.component';
 import { ParameterFormManager } from '../../shared/utils/parameter-form.utils';
 import { StackSelectorComponent } from '../../shared/components/stack-selector/stack-selector.component';
+import { AddonSectionComponent } from '../../shared/components/addon-section/addon-section.component';
 
 @Component({
   selector: 'app-summary-step',
@@ -27,7 +28,8 @@ import { StackSelectorComponent } from '../../shared/components/stack-selector/s
     MatProgressSpinnerModule,
     MatIconModule,
     ParameterGroupComponent,
-    StackSelectorComponent
+    StackSelectorComponent,
+    AddonSectionComponent
   ],
   template: `
     <div class="summary-step">
@@ -48,7 +50,7 @@ import { StackSelectorComponent } from '../../shared/components/stack-selector/s
                 <span>{{ error }}</span>
                 <button mat-button color="primary" (click)="loadInstallParameters()">Retry</button>
               </div>
-            } @else if (installParameters.length === 0) {
+            } @else if (installParameters.length === 0 && availableAddons.length === 0) {
               <div class="info-container">
                 <mat-icon>info</mat-icon>
                 <span>No additional parameters required for installation.</span>
@@ -89,6 +91,20 @@ import { StackSelectorComponent } from '../../shared/components/stack-selector/s
                   [availableStacks]="availableStacks()"
                   (stackSelected)="onStackSelected($event)"
                 ></app-parameter-group>
+              }
+
+              @if (availableAddons.length > 0) {
+                <app-addon-section
+                  [availableAddons]="availableAddons"
+                  [selectedAddons]="selectedAddons()"
+                  [expandedAddons]="expandedAddons()"
+                  [form]="previewForm"
+                  [showAdvanced]="showAdvanced"
+                  [availableStacks]="availableStacks()"
+                  (addonToggled)="onAddonToggle($event)"
+                  (addonExpandedChanged)="onAddonExpandedToggle($event)"
+                  (stackSelected)="onStackSelected($event)"
+                ></app-addon-section>
               }
             }
           </div>
@@ -314,6 +330,11 @@ export class SummaryStepComponent {
   availableStacks = signal<IStack[]>([]);
   selectedStack: IStack | null = null;
 
+  // Addon support
+  availableAddons: IAddonWithParameters[] = [];
+  selectedAddons = signal<string[]>([]);
+  expandedAddons = signal<string[]>([]);
+
   // Tab state
   selectedTabIndex = 0;
 
@@ -330,7 +351,7 @@ export class SummaryStepComponent {
 
   /** Getter for parent component to check form validity */
   get isInstallFormValid(): boolean {
-    return (this.formManager?.valid ?? false) && this.installParameters.length > 0;
+    return this.formManager?.valid ?? false;
   }
 
   /**
@@ -366,6 +387,7 @@ export class SummaryStepComponent {
         this.installParameters = res.unresolvedParameters;
         this.installParametersGrouped = this.groupByTemplate(res.unresolvedParameters);
         this.cachedGroupNames = Object.keys(this.installParametersGrouped);
+        this.availableAddons = res.addons ?? [];
         this.setupEditableForm(res.unresolvedParameters);
         this.loadStacks();
         this.loading = false;
@@ -463,6 +485,38 @@ export class SummaryStepComponent {
       next: (res) => this.availableStacks.set(res.stacks),
       error: () => this.availableStacks.set([])
     });
+  }
+
+  /** Handles addon toggle from addon-section */
+  onAddonToggle(event: { addonId: string; checked: boolean }): void {
+    const addon = this.availableAddons.find(a => a.id === event.addonId);
+
+    if (event.checked) {
+      this.selectedAddons.update(addons => [...addons, event.addonId]);
+      if (addon?.parameters && this.formManager) {
+        this.formManager.addAddonControls(addon.parameters);
+        // Auto-expand if addon has required parameters
+        if (addon.parameters.some(p => p.required)) {
+          this.expandedAddons.update(addons => [...addons, event.addonId]);
+        }
+      }
+    } else {
+      this.selectedAddons.update(addons => addons.filter(id => id !== event.addonId));
+      this.expandedAddons.update(addons => addons.filter(id => id !== event.addonId));
+      if (addon?.parameters && this.formManager) {
+        this.formManager.removeAddonControls(addon.parameters);
+      }
+    }
+    this.formManager?.setSelectedAddons(this.selectedAddons());
+  }
+
+  /** Handles addon expanded toggle from addon-section */
+  onAddonExpandedToggle(addonId: string): void {
+    this.expandedAddons.update(addons =>
+      addons.includes(addonId)
+        ? addons.filter(id => id !== addonId)
+        : [...addons, addonId]
+    );
   }
 
   /** Handles stack selection from parameter-group */

@@ -301,6 +301,10 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
       // Add form controls for addon parameters via manager
       if (addon?.parameters) {
         this.formManager.addAddonControls(addon.parameters);
+        // Auto-expand if addon has required parameters
+        if (addon.parameters.some(p => p.required)) {
+          this.expandedAddons.update(addons => [...addons, addonId]);
+        }
       }
     } else {
       this.selectedAddons.update(addons => addons.filter(id => id !== addonId));

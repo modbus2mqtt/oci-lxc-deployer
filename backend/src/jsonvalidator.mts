@@ -247,6 +247,10 @@ export class JsonValidator {
     pointers = parsed.pointers;
     (data as any).__sourceMapText = fileText;
     (data as any).__sourceMap = { pointers };
-    return this.serializeJsonWithSchema<T>(data, schemaKey, filePath);
+    const result = this.serializeJsonWithSchema<T>(data, schemaKey, filePath);
+    // Strip internal source map metadata after validation (not needed downstream)
+    delete (result as Record<string, unknown>).__sourceMapText;
+    delete (result as Record<string, unknown>).__sourceMap;
+    return result;
   }
 }

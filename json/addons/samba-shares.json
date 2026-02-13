@@ -45,11 +45,15 @@
       {
         "name": "155-conf-upload-addon-files.json",
         "after": "150-conf-create-storage-volumes-for-lxc.json"
+      },
+      {
+        "name": "165-conf-register-hookscript.json",
+        "after": "100-conf-create-configure-lxc.json"
       }
     ],
     "post_start": [
-      "330-post-install-packages.json",
-      "335-post-samba-configure-service.json"
+      "332-post-install-on-start-dispatcher.json",
+      "337-post-install-samba-on-start.json"
     ]
   },
 
@@ -62,17 +66,21 @@
       {
         "name": "155-conf-upload-addon-files.json",
         "after": "150-conf-create-storage-volumes-for-lxc.json"
+      },
+      {
+        "name": "165-conf-register-hookscript.json",
+        "after": "100-conf-create-configure-lxc.json"
       }
     ],
     "post_start": [
-      "330-post-install-packages.json",
-      "335-post-samba-configure-service.json"
+      "332-post-install-on-start-dispatcher.json",
+      "337-post-install-samba-on-start.json"
     ]
   },
 
   "upgrade": [
-    "330-post-install-packages.json",
-    "335-post-samba-configure-service.json"
+    "332-post-install-on-start-dispatcher.json",
+    "337-post-install-samba-on-start.json"
   ],
 
   "notes_key": "samba-shares"

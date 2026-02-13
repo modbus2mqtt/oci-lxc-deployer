@@ -3,6 +3,7 @@ import fs from "fs";
 import { IConfiguredPathes } from "../backend-types.mjs";
 import { IAddon } from "../types.mjs";
 import { JsonValidator } from "../jsonvalidator.mjs";
+import { MarkdownReader } from "../markdown-reader.mjs";
 
 /**
  * Handles addon-specific persistence operations
@@ -102,6 +103,13 @@ export class AddonPersistenceHandler {
 
     // Set ID from filename
     addonData.id = addonId;
+
+    // Load notice from addon markdown file (## Notice section)
+    const mdPath = addonFile.replace(/\.json$/, ".md");
+    const notice = MarkdownReader.extractSection(mdPath, "Notice");
+    if (notice) {
+      addonData.notice = notice;
+    }
 
     // Cache the addon
     if (this.enableCache) {

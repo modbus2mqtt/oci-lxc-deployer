@@ -142,17 +142,21 @@ test.describe('Addon Installation E2E Tests', () => {
     }).first();
     await expect(sambaCheckbox).toBeVisible({ timeout: 10000 });
     await sambaCheckbox.click();
+    console.log('Samba addon clicked');
+
+    // Step 5b: Confirm the addon notice dialog (if present)
+    const noticeDialog = page.locator('app-addon-notice-dialog');
+    if (await noticeDialog.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const okButton = noticeDialog.locator('button:has-text("OK")');
+      await okButton.click();
+      console.log('Addon notice dialog confirmed');
+      await page.waitForTimeout(500);
+    }
     console.log('Samba addon selected');
 
-    // Step 6: Click Configure button to expand addon parameters
-    // The button is next to the checkbox, look for it within the addon row
-    const configureBtn = page.locator('button').filter({ hasText: /Configure/i }).first();
-    await expect(configureBtn).toBeVisible({ timeout: 5000 });
-    await configureBtn.click();
-    console.log('Clicked Configure button');
-
-    // Wait for the addon parameters panel to expand
-    await page.waitForTimeout(1000);
+    // Step 6: Addon parameters auto-expand for addons with required params
+    // Wait for the addon parameters panel to be visible
+    await page.waitForTimeout(500);
 
     // Step 7: Fill addon parameters
     // Fill smb_user - look for input with the label
@@ -274,7 +278,9 @@ test.describe('Addon Installation E2E Tests', () => {
       if (addonConfig.validation.ports) {
         for (const port of addonConfig.validation.ports) {
           try {
-            const output = appValidator.execInContainer(`ss -tlnp | grep :${port.port}`);
+            const output = appValidator.execInContainer(
+              `netstat -tlnp | grep :${port.port}`
+            );
             results.push({
               success: output.includes(`:${port.port}`),
               message: `Port ${port.port} (${port.service || 'unknown'}) is listening`,

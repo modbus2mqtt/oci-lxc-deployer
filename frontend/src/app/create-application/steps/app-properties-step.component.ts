@@ -5,7 +5,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { Observable, Subject, of } from 'rxjs';
-import { map, catchError, takeUntil, debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { map, catchError, takeUntil } from 'rxjs/operators';
 
 import { CreateApplicationStateService } from '../services/create-application-state.service';
 import { IconUploadComponent, IconSelectedEvent } from '../components/icon-upload.component';
@@ -153,15 +153,6 @@ export class AppPropertiesStepComponent implements OnInit, OnDestroy {
     if (applicationIdControl && !applicationIdControl.asyncValidator) {
       applicationIdControl.setAsyncValidators([this.applicationIdUniqueValidator()]);
     }
-
-    // Set up debounced validation
-    this.state.applicationIdSubject.pipe(
-      takeUntil(this.destroy$),
-      debounceTime(300),
-      distinctUntilChanged()
-    ).subscribe(applicationId => {
-      this.validateApplicationId(applicationId);
-    });
   }
 
   ngOnDestroy(): void {
@@ -202,46 +193,9 @@ export class AppPropertiesStepComponent implements OnInit, OnDestroy {
     };
   }
 
-  onApplicationIdInput(event: Event): void {
-    const applicationId = (event.target as HTMLInputElement).value;
-    this.state.applicationIdSubject.next(applicationId);
+  onApplicationIdInput(_event: Event): void {
     // Sync hostname with applicationId for oci-image and docker-compose frameworks
     this.state.syncHostnameWithApplicationId();
-  }
-
-  validateApplicationId(applicationId: string): void {
-    if (!applicationId || !applicationId.trim()) {
-      this.state.applicationIdError.set(null);
-      return;
-    }
-
-    // In edit mode, skip validation for the current application ID
-    if (this.state.editMode() && applicationId === this.state.editApplicationId()) {
-      this.state.applicationIdError.set(null);
-      return;
-    }
-
-    this.cacheService.isApplicationIdTaken(applicationId).subscribe({
-      next: (isTaken) => {
-        if (isTaken) {
-          this.state.applicationIdError.set(`Application ID "${applicationId}" already exists. Please choose a different ID.`);
-          this.appPropertiesForm.get('applicationId')?.setErrors({ taken: true });
-        } else {
-          this.state.applicationIdError.set(null);
-          // Clear 'taken' error if it exists
-          const control = this.appPropertiesForm.get('applicationId');
-          if (control?.hasError('taken')) {
-            const errors = { ...control.errors };
-            delete errors['taken'];
-            control.setErrors(Object.keys(errors).length > 0 ? errors : null);
-          }
-        }
-      },
-      error: () => {
-        // On error, don't block the user - validation will happen on submit
-        this.state.applicationIdError.set(null);
-      }
-    });
   }
 
   onIconSelected(event: IconSelectedEvent): void {

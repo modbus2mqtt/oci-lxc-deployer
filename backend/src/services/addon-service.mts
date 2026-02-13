@@ -51,6 +51,13 @@ export class AddonService {
   }
 
   /**
+   * Returns all addons with extracted parameters (no compatibility filtering)
+   */
+  getAllAddonsWithParameters(): IAddonWithParameters[] {
+    return this.getAllAddons().map((addon) => this.extractAddonParameters(addon));
+  }
+
+  /**
    * Returns addons compatible with the given application, including extracted parameters
    */
   getCompatibleAddonsWithParameters(

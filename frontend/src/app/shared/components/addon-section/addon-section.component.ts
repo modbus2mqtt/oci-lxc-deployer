@@ -1,11 +1,13 @@
-import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
+import { Component, Input, Output, EventEmitter, signal, inject } from '@angular/core';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatDialog } from '@angular/material/dialog';
 import { IAddonWithParameters, IParameter, IStack } from '../../../../shared/types';
 import { ParameterGroupComponent } from '../../../ve-configuration-dialog/parameter-group.component';
+import { AddonNoticeDialogComponent } from '../addon-notice-dialog/addon-notice-dialog.component';
 
 /**
  * Reusable Addon Section Component
@@ -171,6 +173,8 @@ import { ParameterGroupComponent } from '../../../ve-configuration-dialog/parame
   `]
 })
 export class AddonSectionComponent {
+  private dialog = inject(MatDialog);
+
   /** Available addons to display */
   @Input() availableAddons: IAddonWithParameters[] = [];
 
@@ -228,6 +232,24 @@ export class AddonSectionComponent {
   }
 
   onAddonToggle(addonId: string, checked: boolean): void {
+    const addon = this.availableAddons.find(a => a.id === addonId);
+
+    // Show notice dialog when selecting an addon with a notice
+    if (checked && addon?.notice) {
+      this.dialog.open(AddonNoticeDialogComponent, {
+        data: { addonName: addon.name, notice: addon.notice },
+        width: '500px',
+      }).afterClosed().subscribe(confirmed => {
+        if (confirmed) {
+          this.addonToggled.emit({ addonId, checked: true });
+        } else {
+          // Revert: emit unchecked to ensure parent state stays consistent
+          this.addonToggled.emit({ addonId, checked: false });
+        }
+      });
+      return;
+    }
+
     this.addonToggled.emit({ addonId, checked });
   }
 

@@ -259,8 +259,13 @@ export function registerFrameworkRoutes(
             ctx,
           );
 
+        // Include available addons in the response
+        const addonService = pm.getAddonService();
+        const addons = addonService.getAllAddonsWithParameters();
+
         returnResponse<IUnresolvedParametersResponse>(res, {
           unresolvedParameters,
+          addons,
         });
       } catch (err: any) {
         const statusCode = getErrorStatusCode(err);

@@ -92,7 +92,7 @@ export class ApplicationInstallHelper {
   /**
    * Auto-fill required dropdowns that don't have a value selected.
    */
-  private async autoFillRequiredDropdowns(): Promise<void> {
+  async autoFillRequiredDropdowns(): Promise<void> {
     const dialog = this.page.locator('mat-dialog-container');
 
     // Wait for the postEnumValues API response before interacting with dropdowns

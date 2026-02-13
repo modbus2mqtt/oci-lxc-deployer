@@ -33,7 +33,8 @@
       "multiline": true,
       "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
       "template": "170-conf-set-environment-variables-in-lxc.json",
-      "templatename": "Env Variables in LXC"
+      "templatename": "Env Variables in LXC",
+      "default": "GID=1000\nNODERED_PORT=1880\nNODERED_VERSION=latest\nTZ=Europe/Berlin\nUID=1000"
     }
   ],
   "properties": [
@@ -43,7 +44,7 @@
     },
     {
       "id": "uid",
-      "value": "0"
+      "value": "1000"
     },
     {
       "id": "username",
@@ -51,7 +52,6 @@
     }
   ],
   "installation": {},
-  "source": "https://github.com/node-red/node-red-docker",
   "tags": [
     "api",
     "iot"

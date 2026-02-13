@@ -217,6 +217,7 @@ export type ITagsConfigResponse = ITagsConfig;
 // Response interfaces for all backend endpoints (frontend mirror)
 export interface IUnresolvedParametersResponse {
   unresolvedParameters: IParameter[];
+  addons?: IAddonWithParameters[];
 }
 export interface IEnumValuesEntry {
   id: string;
@@ -483,6 +484,8 @@ export interface IAddon {
   notes_key: string;
   /** Override name/description of parameters defined in templates */
   parameterOverrides?: IParameterOverride[];
+  /** Markdown notice extracted from addon .md file (## Notice section) */
+  notice?: string;
 }
 
 export interface IActiveAddon {
