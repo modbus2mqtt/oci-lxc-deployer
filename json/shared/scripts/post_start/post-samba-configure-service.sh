@@ -63,27 +63,42 @@ fi
 # Enable the Samba user
 smbpasswd -e "$SMB_USER" >&2
 
-# Start/restart Samba service
-if command -v rc-service >/dev/null 2>&1; then
-  # Alpine/OpenRC
-  if rc-service samba status >/dev/null 2>&1; then
-    echo "Restarting Samba service (OpenRC)..." >&2
-    rc-service samba restart >&2
-  else
-    echo "Starting Samba service (OpenRC)..." >&2
-    rc-update add samba default 2>&2 || true
-    rc-service samba start >&2
-  fi
+# Start Samba daemons
+# Works in all environments: OCI containers, Alpine/OpenRC, Debian/systemd
+
+# Kill any existing instances first
+pkill smbd 2>/dev/null || true
+pkill nmbd 2>/dev/null || true
+sleep 1
+
+# Start daemons directly (works everywhere)
+echo "Starting smbd daemon..." >&2
+smbd -D 2>&2
+echo "Starting nmbd daemon..." >&2
+nmbd -D 2>&2
+
+# Additionally register with init system for auto-start on reboot (if available)
+if command -v rc-update >/dev/null 2>&1; then
+  # Alpine/OpenRC - register for auto-start
+  echo "Registering with OpenRC for auto-start..." >&2
+  rc-update add samba default 2>/dev/null || true
 elif command -v systemctl >/dev/null 2>&1; then
-  # Debian/Ubuntu/systemd
-  if systemctl is-active --quiet smbd 2>/dev/null; then
-    echo "Restarting Samba service (systemd)..." >&2
-    systemctl restart smbd nmbd >&2
-  else
-    echo "Starting Samba service (systemd)..." >&2
-    systemctl enable smbd nmbd 2>&2 || true
-    systemctl start smbd nmbd >&2
-  fi
+  # Debian/Ubuntu/systemd - enable for auto-start
+  echo "Registering with systemd for auto-start..." >&2
+  systemctl enable smbd nmbd 2>/dev/null || true
+fi
+
+# Verify daemons are running
+sleep 1
+if pgrep -x smbd >/dev/null 2>&1; then
+  echo "smbd is running" >&2
+else
+  echo "Warning: smbd failed to start" >&2
+fi
+if pgrep -x nmbd >/dev/null 2>&1; then
+  echo "nmbd is running" >&2
+else
+  echo "Warning: nmbd failed to start" >&2
 fi
 
 echo "Samba user setup and service start completed successfully" >&2

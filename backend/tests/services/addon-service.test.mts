@@ -260,12 +260,15 @@ describe("AddonService", () => {
         "template-b.json",
       ];
       const addon = createAddonJson({
-        post_start: ["addon-template.json"],
+        installation: {
+          post_start: ["addon-template.json"],
+        },
       });
 
       const result = service.mergeAddonTemplates(
         baseTemplates,
         addon,
+        "installation",
         "post_start",
       );
 
@@ -282,14 +285,17 @@ describe("AddonService", () => {
         "template-b.json",
       ];
       const addon = createAddonJson({
-        post_start: [
-          { name: "addon-template.json", before: "template-b.json" },
-        ],
+        installation: {
+          post_start: [
+            { name: "addon-template.json", before: "template-b.json" },
+          ],
+        },
       });
 
       const result = service.mergeAddonTemplates(
         baseTemplates,
         addon,
+        "installation",
         "post_start",
       );
 
@@ -306,12 +312,17 @@ describe("AddonService", () => {
         "template-b.json",
       ];
       const addon = createAddonJson({
-        post_start: [{ name: "addon-template.json", after: "template-a.json" }],
+        installation: {
+          post_start: [
+            { name: "addon-template.json", after: "template-a.json" },
+          ],
+        },
       });
 
       const result = service.mergeAddonTemplates(
         baseTemplates,
         addon,
+        "installation",
         "post_start",
       );
 
@@ -325,14 +336,17 @@ describe("AddonService", () => {
     it("should append template when before reference not found", () => {
       const baseTemplates: AddonTemplateReference[] = ["template-a.json"];
       const addon = createAddonJson({
-        post_start: [
-          { name: "addon-template.json", before: "non-existent.json" },
-        ],
+        installation: {
+          post_start: [
+            { name: "addon-template.json", before: "non-existent.json" },
+          ],
+        },
       });
 
       const result = service.mergeAddonTemplates(
         baseTemplates,
         addon,
+        "installation",
         "post_start",
       );
 
@@ -342,13 +356,16 @@ describe("AddonService", () => {
     it("should return original templates when addon has no templates for phase", () => {
       const baseTemplates: AddonTemplateReference[] = ["template-a.json"];
       const addon = createAddonJson({
-        pre_start: ["pre-template.json"],
-        // no post_start
+        installation: {
+          pre_start: ["pre-template.json"],
+          // no post_start
+        },
       });
 
       const result = service.mergeAddonTemplates(
         baseTemplates,
         addon,
+        "installation",
         "post_start",
       );
 
@@ -362,16 +379,19 @@ describe("AddonService", () => {
         "c.json",
       ];
       const addon = createAddonJson({
-        post_start: [
-          { name: "first.json", before: "b.json" },
-          { name: "second.json", after: "b.json" },
-          "third.json",
-        ],
+        installation: {
+          post_start: [
+            { name: "first.json", before: "b.json" },
+            { name: "second.json", after: "b.json" },
+            "third.json",
+          ],
+        },
       });
 
       const result = service.mergeAddonTemplates(
         baseTemplates,
         addon,
+        "installation",
         "post_start",
       );
 
@@ -383,6 +403,54 @@ describe("AddonService", () => {
         "c.json",
         "third.json",
       ]);
+    });
+
+    it("should handle upgrade templates (flat array)", () => {
+      const baseTemplates: AddonTemplateReference[] = [
+        "template-a.json",
+        "template-b.json",
+      ];
+      const addon = createAddonJson({
+        upgrade: ["upgrade-template.json"],
+      });
+
+      const result = service.mergeAddonTemplates(
+        baseTemplates,
+        addon,
+        "upgrade",
+      );
+
+      expect(result).toEqual([
+        "template-a.json",
+        "template-b.json",
+        "upgrade-template.json",
+      ]);
+    });
+
+    it("should handle reconfigure templates", () => {
+      const baseTemplates: AddonTemplateReference[] = ["template-a.json"];
+      const addon = createAddonJson({
+        reconfigure: {
+          pre_start: ["reconfig-pre.json"],
+          post_start: ["reconfig-post.json"],
+        },
+      });
+
+      const resultPre = service.mergeAddonTemplates(
+        baseTemplates,
+        addon,
+        "reconfigure",
+        "pre_start",
+      );
+      const resultPost = service.mergeAddonTemplates(
+        baseTemplates,
+        addon,
+        "reconfigure",
+        "post_start",
+      );
+
+      expect(resultPre).toEqual(["template-a.json", "reconfig-pre.json"]);
+      expect(resultPost).toEqual(["template-a.json", "reconfig-post.json"]);
     });
   });
 

@@ -75,6 +75,23 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
   } catch (err: any) {
     console.error("Failed to initialize PersistenceManager:");
     console.error(`  ${err.message || err}`);
+    // Print nested error details if available (JsonError has details array)
+    if (err.details && Array.isArray(err.details)) {
+      for (const detail of err.details) {
+        const line = detail.line ? ` (line ${detail.line})` : "";
+        console.error(`    - ${detail.message}${line}`);
+        if (detail.details?.length) {
+          for (const sub of detail.details) {
+            const subLine = sub.line ? ` (line ${sub.line})` : "";
+            console.error(`      - ${sub.message}${subLine}`);
+          }
+        }
+      }
+    }
+    // Print stack trace if available for debugging
+    if (err.stack) {
+      console.error("  Stack:", err.stack.split("\n").slice(1, 4).join("\n"));
+    }
     throw new ValidationError(
       `Failed to initialize PersistenceManager: ${err.message || err}`,
     );

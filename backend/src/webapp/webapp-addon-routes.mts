@@ -110,11 +110,12 @@ export function registerAddonRoutes(
           inputs.push({ id: "application_id", value: body.application_id });
         }
 
-        // Collect commands from addon's post_start templates
+        // Collect commands from addon's reconfigure post_start templates
         const commands: ICommand[] = [];
+        const reconfigurePostStart = addon.reconfigure?.post_start;
 
-        if (addon.post_start && addon.post_start.length > 0) {
-          for (const templateRef of addon.post_start) {
+        if (reconfigurePostStart && reconfigurePostStart.length > 0) {
+          for (const templateRef of reconfigurePostStart) {
             const templateName =
               typeof templateRef === "string" ? templateRef : templateRef.name;
 

@@ -95,34 +95,24 @@ export class ApplicationInstallHelper {
   private async autoFillRequiredDropdowns(): Promise<void> {
     const dialog = this.page.locator('mat-dialog-container');
 
-    const enumSelects = dialog.locator('app-enum-select');
-    const enumCount = await enumSelects.count();
-
-    for (let i = 0; i < enumCount; i++) {
-      const enumSelect = enumSelects.nth(i);
-      const label = await enumSelect.locator('..').locator('[class*="label"], label').first().textContent().catch(() => '');
-      const isRequired = label?.includes('*') ?? false;
-
-      if (isRequired) {
-        const combobox = enumSelect.locator('[role="combobox"], mat-select');
-        if (await combobox.count() > 0) {
-          const hasValue = await combobox.locator('.mat-mdc-select-value-text, .mat-select-value-text').count() > 0;
-
-          if (!hasValue) {
-            await combobox.click();
-            await this.page.locator('.mat-mdc-select-panel, .mat-select-panel, [role="listbox"]').waitFor({
-              state: 'visible',
-              timeout: 5000
-            });
-            const firstOption = this.page.locator('mat-option').first();
-            await firstOption.waitFor({ state: 'visible', timeout: 5000 });
-            await firstOption.click();
-            await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-          }
-        }
+    // Wait for the postEnumValues API response before interacting with dropdowns
+    const enumStart = Date.now();
+    const hasRequiredSelects = await dialog.locator('mat-select[required]').count() > 0;
+    if (hasRequiredSelects) {
+      try {
+        await this.page.waitForResponse(
+          (resp) => resp.url().includes('/enum-values') && resp.status() === 200,
+          { timeout: 30000 }
+        );
+        // Give Angular a tick to apply the values
+        await this.page.waitForTimeout(500);
+      } catch {
+        // Response may have already arrived before we started waiting
       }
+      console.log(`[enum-timing] Enum values loaded in ${Date.now() - enumStart}ms`);
     }
 
+    // Now fill required dropdowns that still have no value
     const matSelects = dialog.locator('mat-select[required], mat-select[ng-reflect-required="true"]');
     const selectCount = await matSelects.count();
 
@@ -131,8 +121,8 @@ export class ApplicationInstallHelper {
       const hasValue = await select.locator('.mat-mdc-select-value-text, .mat-select-value-text').count() > 0;
 
       if (!hasValue) {
-        await select.click();
-        await this.page.locator('.mat-mdc-select-panel, .mat-select-panel').waitFor({ state: 'visible', timeout: 5000 });
+        await select.click({ force: true });
+        await this.page.locator('.mat-mdc-select-panel, .mat-select-panel').waitFor({ state: 'visible', timeout: 10000 });
         const firstOption = this.page.locator('mat-option').first();
         await firstOption.waitFor({ state: 'visible', timeout: 5000 });
         await firstOption.click();

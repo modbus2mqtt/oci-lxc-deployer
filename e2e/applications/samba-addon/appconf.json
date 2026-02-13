@@ -1,8 +1,8 @@
 {
     "name": "samba-addon",
-    "description": "E2E test for Samba addon installation on oci-lxc-deployer",
+    "description": "E2E test for Samba addon installation on node-red",
 
-    "baseApplication": "oci-lxc-deployer",
+    "baseApplication": "node-red",
     "addon": "samba-shares",
 
     "addonParams": {

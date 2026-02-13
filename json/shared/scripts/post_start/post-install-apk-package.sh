@@ -18,15 +18,28 @@ set -eu
 PACKAGES="{{ packages }}"
 ADDON_PACKAGES="{{ addon_packages }}"
 
-if [ -z "$PACKAGES" ]; then
-  echo "Missing packages" >&2
-  exit 2
+# Treat NOT_DEFINED as empty (template variable not set)
+if [ "$PACKAGES" = "NOT_DEFINED" ]; then
+  PACKAGES=""
+fi
+if [ "$ADDON_PACKAGES" = "NOT_DEFINED" ]; then
+  ADDON_PACKAGES=""
 fi
 
 # Merge addon_packages with base packages (if addon_packages is set)
-if [ -n "$ADDON_PACKAGES" ] && [ "$ADDON_PACKAGES" != "" ]; then
-  PACKAGES="$PACKAGES $ADDON_PACKAGES"
-  echo "Merged addon_packages with base packages: $PACKAGES" >&2
+if [ -n "$ADDON_PACKAGES" ]; then
+  if [ -n "$PACKAGES" ]; then
+    PACKAGES="$PACKAGES $ADDON_PACKAGES"
+    echo "Merged addon_packages with base packages: $PACKAGES" >&2
+  else
+    PACKAGES="$ADDON_PACKAGES"
+    echo "Using addon_packages only: $PACKAGES" >&2
+  fi
+fi
+
+if [ -z "$PACKAGES" ]; then
+  echo "No packages to install" >&2
+  exit 0
 fi
 
 # pkg_install handles: OS detection, network wait, cache update, installation

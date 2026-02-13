@@ -75,9 +75,12 @@ export class AddonService {
       return this.applyParameterOverrides(addon, []);
     } else {
       // Fallback: extract parameters from addon templates (legacy approach)
+      // Collect templates from all phases (installation, reconfigure, upgrade)
       const allTemplateRefs: AddonTemplateReference[] = [
-        ...(addon.pre_start ?? []),
-        ...(addon.post_start ?? []),
+        ...(addon.installation?.pre_start ?? []),
+        ...(addon.installation?.post_start ?? []),
+        ...(addon.reconfigure?.pre_start ?? []),
+        ...(addon.reconfigure?.post_start ?? []),
         ...(addon.upgrade ?? []),
       ];
 
@@ -202,15 +205,24 @@ export class AddonService {
    *
    * @param baseTemplates The application's base template list
    * @param addon The addon to merge
-   * @param phase Which phase templates to merge (pre_start, post_start, upgrade)
+   * @param taskKey The task context: "installation", "reconfigure", or "upgrade"
+   * @param phase Which phase templates to merge (pre_start, post_start) - not used for upgrade
    * @returns New template list with addon templates inserted
    */
   mergeAddonTemplates(
     baseTemplates: AddonTemplateReference[],
     addon: IAddon,
-    phase: "pre_start" | "post_start" | "upgrade",
+    taskKey: "installation" | "reconfigure" | "upgrade",
+    phase?: "pre_start" | "post_start",
   ): AddonTemplateReference[] {
-    const addonTemplates = addon[phase];
+    let addonTemplates: AddonTemplateReference[] | undefined;
+
+    if (taskKey === "upgrade") {
+      addonTemplates = addon.upgrade;
+    } else if (phase) {
+      addonTemplates = addon[taskKey]?.[phase];
+    }
+
     if (!addonTemplates || addonTemplates.length === 0) {
       return baseTemplates;
     }

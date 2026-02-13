@@ -467,10 +467,16 @@ export interface IAddon {
   properties?: IOutputObject[];
   /** Fixed volumes required by this addon */
   volumes?: IAddonVolume[];
-  /** Templates to run before container start (on VE/host) */
-  pre_start?: AddonTemplateReference[];
-  /** Templates to run after container start (inside LXC) */
-  post_start?: AddonTemplateReference[];
+  /** Templates for new installation (phase-based) */
+  installation?: {
+    pre_start?: AddonTemplateReference[];
+    post_start?: AddonTemplateReference[];
+  };
+  /** Templates for reconfiguring existing container (phase-based) */
+  reconfigure?: {
+    pre_start?: AddonTemplateReference[];
+    post_start?: AddonTemplateReference[];
+  };
   /** Templates for copy-upgrade */
   upgrade?: AddonTemplateReference[];
   /** Key for notes persistence */
@@ -486,7 +492,7 @@ export interface IActiveAddon {
 
 /** Addon with extracted parameters from its templates */
 export interface IAddonWithParameters extends IAddon {
-  /** Parameters extracted from addon templates (pre_start, post_start, upgrade) */
+  /** Parameters extracted from addon templates (installation, reconfigure, upgrade) */
   parameters?: IParameter[];
 }
 

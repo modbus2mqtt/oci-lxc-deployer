@@ -1,5 +1,7 @@
 import { test, expect, getPveHost } from '../fixtures/test-base';
+import { E2EApplicationLoader, E2EApplication } from '../utils/application-loader';
 import { SSHValidator } from '../utils/ssh-validator';
+import { ApplicationInstallHelper } from '../utils/application-install-helper';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, existsSync } from 'fs';
@@ -11,8 +13,8 @@ const __dirname = dirname(__filename);
  * Addon Installation E2E Tests
  *
  * These tests verify the flow of:
- * 1. Installing a base application (oci-lxc-deployer)
- * 2. Adding an addon (samba-shares) with configuration
+ * 1. Creating a base application (node-red) via wizard
+ * 2. Installing it with an addon (samba-shares)
  * 3. Validating the addon installation via SSH
  *
  * Prerequisites:
@@ -36,7 +38,7 @@ interface AddonTestConfig {
   baseApplication: string;
   addon: string;
   addonParams: Record<string, string>;
-  addonFiles: Record<string, string>;
+  addonFiles?: Record<string, string>;
   validation: {
     waitBeforeValidation?: number;
     processes?: Array<{ name: string; description?: string }>;
@@ -50,165 +52,187 @@ interface AddonTestConfig {
  * Load addon test configuration from appconf.json
  */
 function loadAddonConfig(addonName: string): AddonTestConfig {
-  const configPath = join(__dirname, '..', 'applications', addonName, 'appconf.json');
-  if (!existsSync(configPath)) {
-    throw new Error(`Addon config not found: ${configPath}`);
+  const addonConfigPath = join(__dirname, '..', 'applications', addonName, 'appconf.json');
+  if (!existsSync(addonConfigPath)) {
+    throw new Error(`Addon config not found: ${addonConfigPath}`);
   }
-  return JSON.parse(readFileSync(configPath, 'utf-8'));
+  return JSON.parse(readFileSync(addonConfigPath, 'utf-8'));
 }
 
-/**
- * Load file content as base64
- */
-function loadFileAsBase64(addonName: string, fileName: string): string {
-  const filePath = join(__dirname, '..', 'applications', addonName, fileName);
-  if (!existsSync(filePath)) {
-    throw new Error(`File not found: ${filePath}`);
-  }
-  const content = readFileSync(filePath, 'utf-8');
-  return Buffer.from(content).toString('base64');
-}
+const loader = new E2EApplicationLoader(join(__dirname, '../applications'));
 
 test.describe('Addon Installation E2E Tests', () => {
-  let validator: SSHValidator;
+  let applications: E2EApplication[];
 
   test.beforeAll(async () => {
-    validator = new SSHValidator({
-      sshHost: getPveHost(),
-      sshPort: SSH_PORT,
-      containerVmId: '300', // Default deployer container
-    });
+    applications = await loader.loadAll();
+    console.log(`Loaded ${applications.length} test applications`);
   });
 
-  test('install samba-shares addon on oci-lxc-deployer', async ({ page }) => {
-    // Load addon test configuration
-    const config = loadAddonConfig('samba-addon');
-    console.log(`Testing addon: ${config.addon} on base application: ${config.baseApplication}`);
+  test('install node-red with samba-shares addon', async ({ page }) => {
+    // Load addon configuration
+    const addonConfig = loadAddonConfig('samba-addon');
+    console.log(`Testing addon: ${addonConfig.addon} on base application: ${addonConfig.baseApplication}`);
 
-    // Step 1: Navigate to applications and find the base application
+    // Find base application (node-red)
+    const app = applications.find((a) => a.name === addonConfig.baseApplication);
+    expect(app, `Base application ${addonConfig.baseApplication} should exist`).toBeDefined();
+
+    const helper = new ApplicationInstallHelper(page);
+
+    // Step 0: Cleanup existing application
+    console.log(`Cleaning up existing application: ${app!.applicationId}`);
+    const cleanup = helper.cleanupApplication(app!.applicationId);
+    console.log(`Cleanup result: ${cleanup.message}`);
+
+    // Step 1: Create the base application via wizard (Save only, no install yet)
+    console.log(`Creating application: ${app!.name}`);
+    await helper.createApplication(app!, { installAfterSave: false });
+    console.log(`Application created: ${app!.name}`);
+
+    // Step 2: Navigate to Applications page
     await page.goto('/applications');
     await page.waitForLoadState('networkidle');
+    console.log('Navigated to Applications page');
 
-    // Find the oci-lxc-deployer application card
-    const appCard = page.locator(`.card:has(h2:text-is("OCI LXC Deployer"))`).first();
-    await expect(appCard).toBeVisible({ timeout: 10000 });
+    // Step 3: Find the created application card and click Install
+    // The application name shown is from the docker-compose service name or application ID
+    const appCard = page.locator('.card').filter({
+      has: page.locator(`h2:text-is("${app!.name}"), h2:text-is("${app!.applicationId}")`)
+    }).first();
 
-    // Click install button to open configuration dialog
-    const installBtn = appCard.locator('[data-testid="install-app-btn"]').or(
-      appCard.locator('button:has-text("Install")')
-    );
-    await installBtn.click();
+    // If not found by exact name, try partial match
+    let foundCard = await appCard.count() > 0;
+    if (!foundCard) {
+      console.log('Card not found by exact match, trying partial match...');
+      const cards = page.locator('.card');
+      const count = await cards.count();
+      for (let i = 0; i < count; i++) {
+        const cardText = await cards.nth(i).textContent();
+        if (cardText?.toLowerCase().includes(app!.name.toLowerCase())) {
+          foundCard = true;
+          await cards.nth(i).locator('button:has-text("Install")').click();
+          break;
+        }
+      }
+    } else {
+      await expect(appCard).toBeVisible({ timeout: 10000 });
+      const installBtn = appCard.locator('[data-testid="install-app-btn"]').or(
+        appCard.locator('button:has-text("Install")')
+      );
+      await installBtn.click();
+    }
 
-    // Wait for dialog to open
+    expect(foundCard, 'Application card should be found').toBe(true);
+    console.log('Clicked Install button');
+
+    // Step 4: Wait for ve-configuration-dialog to open
     await page.waitForSelector('mat-dialog-container', { timeout: 10000 });
     await page.waitForLoadState('networkidle');
+    console.log('Configuration dialog opened');
 
-    // Step 2: Wait for addons to load and select samba-shares
-    console.log('Waiting for addons to load...');
-
-    // Wait for addon section to appear
-    const addonSection = page.locator('app-addon-section, [data-testid="addon-section"]');
+    // Step 5: Wait for addon section to appear and select samba addon
+    const addonSection = page.locator('app-addon-section');
     await expect(addonSection).toBeVisible({ timeout: 15000 });
+    console.log('Addon section visible');
 
-    // Find and click the samba-shares addon checkbox
-    const sambaAddon = page.locator(`mat-checkbox:has-text("Samba"), [data-testid="addon-samba-shares"]`).first();
-    await expect(sambaAddon).toBeVisible({ timeout: 10000 });
-    await sambaAddon.click();
-
+    // Find and click the samba checkbox
+    const sambaCheckbox = page.locator('mat-checkbox').filter({
+      hasText: /Samba/i
+    }).first();
+    await expect(sambaCheckbox).toBeVisible({ timeout: 10000 });
+    await sambaCheckbox.click();
     console.log('Samba addon selected');
 
-    // Step 3: Click "Configure" button to expand addon parameters
-    const configureBtn = page.locator('button:has-text("Configure")').first();
+    // Step 6: Click Configure button to expand addon parameters
+    // The button is next to the checkbox, look for it within the addon row
+    const configureBtn = page.locator('button').filter({ hasText: /Configure/i }).first();
     await expect(configureBtn).toBeVisible({ timeout: 5000 });
     await configureBtn.click();
+    console.log('Clicked Configure button');
 
-    console.log('Addon configuration expanded');
+    // Wait for the addon parameters panel to expand
+    await page.waitForTimeout(1000);
 
-    // Wait for addon parameters to be visible
-    await page.waitForTimeout(500);
+    // Step 7: Fill addon parameters
+    // Fill smb_user - look for input with the label
+    const smbUserInput = page.locator('input').filter({
+      has: page.locator('xpath=ancestor::mat-form-field//mat-label[contains(text(), "Samba Username")]')
+    }).first();
 
-    // Fill smb_user - search by mat-label text or placeholder
-    // Angular Material uses mat-label inside mat-form-field
-    const smbUserField = page.locator('mat-form-field:has(mat-label:text-is("Samba Username*")), mat-form-field:has(mat-label:has-text("Samba Username"))').first();
-    const smbUserInput = smbUserField.locator('input').first();
-    await expect(smbUserInput).toBeVisible({ timeout: 5000 });
-    await smbUserInput.fill(config.addonParams.smb_user);
-    console.log(`Filled smb_user: ${config.addonParams.smb_user}`);
+    // Alternative: find by looking at visible inputs after Configure was clicked
+    let foundUserInput = false;
+    const allInputs = page.locator('mat-form-field input');
+    const inputCount = await allInputs.count();
+    console.log(`Found ${inputCount} input fields`);
 
-    // Fill smb_password - search by mat-label text
-    const smbPasswordField = page.locator('mat-form-field:has(mat-label:text-is("Samba Password*")), mat-form-field:has(mat-label:has-text("Samba Password"))').first();
-    const smbPasswordInput = smbPasswordField.locator('input').first();
-    await expect(smbPasswordInput).toBeVisible({ timeout: 5000 });
-    await smbPasswordInput.fill(config.addonParams.smb_password);
-    console.log(`Filled smb_password: ***`);
+    for (let i = 0; i < inputCount; i++) {
+      const input = allInputs.nth(i);
+      const formField = input.locator('xpath=ancestor::mat-form-field');
+      const label = await formField.locator('mat-label').textContent().catch(() => '');
+      console.log(`Input ${i}: label="${label}"`);
 
-    // Step 4: Upload smb.conf file (may be in Advanced Options)
-    // First check if there's a file input visible
-    let fileInput = page.locator('input[type="file"]').first();
-    if (await fileInput.count() === 0 || !(await fileInput.isVisible())) {
-      // Click "Show Advanced Options" to reveal file upload
-      const advancedBtn = page.locator('button:has-text("Show Advanced Options"), button:has-text("Advanced")').first();
-      if (await advancedBtn.isVisible()) {
-        await advancedBtn.click();
-        console.log('Expanded Advanced Options');
-        await page.waitForTimeout(500);
+      if (label?.toLowerCase().includes('samba username')) {
+        await input.fill(addonConfig.addonParams.smb_user);
+        console.log(`Filled smb_user: ${addonConfig.addonParams.smb_user}`);
+        foundUserInput = true;
+        break;
       }
-      fileInput = page.locator('input[type="file"]').first();
     }
 
+    expect(foundUserInput, 'Samba Username input should be found').toBe(true);
+    await smbUserInput.fill(addonConfig.addonParams.smb_user);
+    console.log(`Filled smb_user: ${addonConfig.addonParams.smb_user}`);
+
+    // Fill smb_password - find by label
+    let foundPasswordInput = false;
+    for (let i = 0; i < inputCount; i++) {
+      const input = allInputs.nth(i);
+      const formField = input.locator('xpath=ancestor::mat-form-field');
+      const label = await formField.locator('mat-label').textContent().catch(() => '');
+
+      if (label?.toLowerCase().includes('samba password')) {
+        await input.fill(addonConfig.addonParams.smb_password);
+        console.log('Filled smb_password: ***');
+        foundPasswordInput = true;
+        break;
+      }
+    }
+
+    expect(foundPasswordInput, 'Samba Password input should be found').toBe(true);
+
+    // Step 8: Upload smb.conf file if available
+    const fileInput = page.locator('input[type="file"]').first();
     if (await fileInput.count() > 0) {
       const smbConfPath = join(__dirname, '..', 'applications', 'samba-addon', 'smb.conf');
-      await fileInput.setInputFiles(smbConfPath);
-      console.log('Uploaded smb.conf');
-    } else {
-      console.log('No file input found - addon_content may be optional or handled differently');
+      if (existsSync(smbConfPath)) {
+        await fileInput.setInputFiles(smbConfPath);
+        console.log('Uploaded smb.conf');
+      }
     }
 
-    // Step 5: Click Install button
-    const confirmBtn = page.locator('[data-testid="confirm-install-btn"]').or(
-      page.locator('mat-dialog-container button:has-text("Install")')
-    );
+    // Step 9: Auto-fill required dropdowns (storage, network, etc.)
+    await helper.autoFillRequiredDropdowns();
+    console.log('Auto-filled required dropdowns');
 
-    // Wait for button to be enabled (form validation)
-    await expect(confirmBtn).toBeEnabled({ timeout: 10000 });
-    await confirmBtn.click();
-
+    // Step 10: Click Install button
+    const installButton = page.locator('mat-dialog-container button:has-text("Install")');
+    await expect(installButton).toBeEnabled({ timeout: 10000 });
+    await installButton.click();
     console.log('Installation started');
 
-    // Step 6: Wait for installation to complete
-    await expect(page).toHaveURL(/\/monitor/, { timeout: 30000 });
+    // Step 11: Wait for installation to complete
+    const installed = await helper.waitForInstallationComplete(app!.name);
+    expect(installed, 'Installation should complete successfully').toBe(true);
+    console.log('Installation complete');
 
-    // Wait for success indicator
-    const successLocator = page.locator('[data-testid="installation-success"]');
-    const errorLocator = page.locator('[data-testid="installation-error"]');
-
-    const result = await Promise.race([
-      successLocator.waitFor({ state: 'visible', timeout: 180000 }).then(() => 'success' as const),
-      errorLocator.waitFor({ state: 'visible', timeout: 180000 }).then(() => 'error' as const),
-    ]).catch(() => 'timeout' as const);
-
-    if (result === 'error') {
-      const errorText = await errorLocator.textContent().catch(() => 'Unknown error');
-      throw new Error(`Installation failed: ${errorText}`);
-    }
-
-    if (result === 'timeout') {
-      throw new Error('Installation timed out after 3 minutes');
-    }
-
-    console.log('Installation completed successfully');
-
-    // Step 7: Extract created container VMID
-    const successBlock = page.locator('[data-testid="installation-success"]');
-    const successText = await successBlock.textContent();
-    const containerMatch = successText?.match(/Created container:\s*(\d+)/i);
-    const createdVmId = containerMatch ? containerMatch[1] : null;
-
+    // Step 12: Extract created container VMID
+    const createdVmId = await helper.extractCreatedVmId(app!.name);
     expect(createdVmId, 'Container VMID must be extracted').toBeTruthy();
     console.log(`Created container VMID: ${createdVmId}`);
 
-    // Step 8: Validate via SSH
-    if (config.validation && createdVmId) {
+    // Step 13: Validate addon via SSH
+    if (addonConfig.validation && createdVmId) {
       const appValidator = new SSHValidator({
         sshHost: getPveHost(),
         sshPort: SSH_PORT,
@@ -216,22 +240,22 @@ test.describe('Addon Installation E2E Tests', () => {
       });
 
       // Wait before validation
-      if (config.validation.waitBeforeValidation) {
-        console.log(`Waiting ${config.validation.waitBeforeValidation}s before validation...`);
-        await page.waitForTimeout(config.validation.waitBeforeValidation * 1000);
+      if (addonConfig.validation.waitBeforeValidation) {
+        console.log(`Waiting ${addonConfig.validation.waitBeforeValidation}s before validation...`);
+        await page.waitForTimeout(addonConfig.validation.waitBeforeValidation * 1000);
       }
 
       console.log(`\n${'='.repeat(60)}`);
-      console.log(`Validation for: ${config.name} (container ${createdVmId})`);
+      console.log(`Addon Validation for: ${addonConfig.name} (container ${createdVmId})`);
       console.log(`${'='.repeat(60)}`);
 
       const results: Array<{ success: boolean; message: string; details?: string }> = [];
 
       // Validate processes
-      if (config.validation.processes) {
-        for (const proc of config.validation.processes) {
+      if (addonConfig.validation.processes) {
+        for (const proc of addonConfig.validation.processes) {
           try {
-            const output = appValidator.execInContainer(`pgrep -x ${proc.name} || pgrep ${proc.name}`);
+            appValidator.execInContainer(`pgrep -x ${proc.name} || pgrep ${proc.name}`);
             results.push({
               success: true,
               message: `Process ${proc.name} is running`,
@@ -247,8 +271,8 @@ test.describe('Addon Installation E2E Tests', () => {
       }
 
       // Validate ports
-      if (config.validation.ports) {
-        for (const port of config.validation.ports) {
+      if (addonConfig.validation.ports) {
+        for (const port of addonConfig.validation.ports) {
           try {
             const output = appValidator.execInContainer(`ss -tlnp | grep :${port.port}`);
             results.push({
@@ -265,8 +289,8 @@ test.describe('Addon Installation E2E Tests', () => {
       }
 
       // Validate files
-      if (config.validation.files) {
-        for (const file of config.validation.files) {
+      if (addonConfig.validation.files) {
+        for (const file of addonConfig.validation.files) {
           try {
             const output = appValidator.execInContainer(`cat "${file.path}"`);
             const patternMatch = file.contentPattern
@@ -286,8 +310,8 @@ test.describe('Addon Installation E2E Tests', () => {
       }
 
       // Validate commands
-      if (config.validation.commands) {
-        for (const cmd of config.validation.commands) {
+      if (addonConfig.validation.commands) {
+        for (const cmd of addonConfig.validation.commands) {
           try {
             const output = appValidator.execInContainer(cmd.command);
             const outputMatch = cmd.expectedOutput
@@ -330,10 +354,10 @@ test.describe('Addon Installation E2E Tests', () => {
       }
 
       console.log(`\n${'─'.repeat(60)}`);
-      console.log(`Summary: ${passed.length}/${results.length} validations passed`);
+      console.log(`Summary: ${passed.length}/${results.length} addon validations passed`);
       console.log(`${'─'.repeat(60)}\n`);
 
-      expect(failed.length, `${failed.length} validations failed`).toBe(0);
+      expect(failed.length, `${failed.length} addon validations failed`).toBe(0);
     }
   });
 });
