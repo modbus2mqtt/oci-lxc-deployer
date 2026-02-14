@@ -64,34 +64,33 @@ echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
 echo "Static IP configured: $STATIC_IP" >&2
 
-# Get Proxmox version
-PVE_VERSION=$(pveversion | grep -oP 'pve-manager/\K[0-9]+')
-DEBIAN_VERSION=$(cat /etc/debian_version | cut -d. -f1)
+# Determine Debian codename from os-release (works for bookworm, trixie, etc.)
+CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+if [ -z "$CODENAME" ]; then
+    # Fallback: parse debian_version
+    case "$(cat /etc/debian_version | cut -d. -f1)" in
+        12) CODENAME="bookworm" ;;
+        13) CODENAME="trixie" ;;
+        *)  CODENAME="bookworm" ;;
+    esac
+fi
 
-echo "Proxmox VE major version: $PVE_VERSION" >&2
-echo "Debian version: $DEBIAN_VERSION" >&2
+echo "Debian codename: $CODENAME" >&2
+echo "Proxmox version: $(pveversion 2>/dev/null || echo unknown)" >&2
 
-# Determine Debian codename
-case "$DEBIAN_VERSION" in
-    12) CODENAME="bookworm" ;;
-    11) CODENAME="bullseye" ;;
-    *)  CODENAME="bookworm" ;;  # Default to latest
-esac
-
-echo "Using Debian codename: $CODENAME" >&2
+# Disable ALL enterprise repositories (require paid subscription)
+for f in /etc/apt/sources.list.d/*enterprise*.list /etc/apt/sources.list.d/ceph*.list; do
+    if [ -f "$f" ]; then
+        mv "$f" "${f}.disabled"
+        echo "Disabled $(basename "$f")" >&2
+    fi
+done
 
 # Configure Proxmox no-subscription repository (free)
 cat > /etc/apt/sources.list.d/pve-no-subscription.list << EOF
-# Proxmox VE No-Subscription Repository
-# This is NOT recommended for production, but fine for testing
+# Proxmox VE No-Subscription Repository (for testing/development)
 deb http://download.proxmox.com/debian/pve $CODENAME pve-no-subscription
 EOF
-
-# Disable enterprise repository if present
-if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
-    mv /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/pve-enterprise.list.disabled
-    echo "Disabled pve-enterprise.list" >&2
-fi
 
 # Configure Debian repositories for latest packages
 cat > /etc/apt/sources.list << EOF
@@ -101,9 +100,12 @@ deb http://deb.debian.org/debian $CODENAME-updates main contrib non-free non-fre
 deb http://security.debian.org/debian-security $CODENAME-security main contrib non-free-firmware
 EOF
 
-# Update package lists
+# Update package lists and upgrade system
 echo "Updating apt package lists..." >&2
 apt-get update -qq
+
+echo "Running dist-upgrade..." >&2
+DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -qq
 
 # Install useful tools for E2E testing
 echo "Installing additional tools..." >&2

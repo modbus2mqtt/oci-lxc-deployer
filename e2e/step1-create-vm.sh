@@ -237,6 +237,11 @@ success "Nested VM IP: $NESTED_IP"
 echo "$NESTED_IP" > "$NESTED_IP_FILE"
 info "IP saved to $NESTED_IP_FILE"
 
+# Helper for nested SSH with timeout
+nested_sshpass() {
+    pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$NESTED_STATIC_IP $*"
+}
+
 # Step 9: Verify Proxmox is running (via PVE host, not direct)
 info "Verifying Proxmox VE installation..."
 PVE_VERSION=$(pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$NESTED_IP pveversion 2>/dev/null" || echo "unknown")
@@ -247,14 +252,59 @@ else
     info "Could not verify Proxmox version (may need time to fully initialize)"
 fi
 
+# Step 10: Configure free Proxmox repositories and update system
+header "Configuring Free Repositories & System Update"
+
+info "Configuring no-subscription repository and disabling enterprise repos..."
+nested_sshpass "'
+    # Determine Debian codename (trixie for PVE 9.x, bookworm for PVE 8.x)
+    CODENAME=\$(. /etc/os-release && echo \$VERSION_CODENAME)
+    [ -z \"\$CODENAME\" ] && CODENAME=bookworm
+
+    # Disable ALL enterprise repositories (require paid subscription)
+    for f in /etc/apt/sources.list.d/*enterprise*.list /etc/apt/sources.list.d/ceph*.list; do
+        [ -f \"\$f\" ] && mv \"\$f\" \"\${f}.disabled\"
+    done
+
+    # Add Proxmox no-subscription repository (free)
+    cat > /etc/apt/sources.list.d/pve-no-subscription.list << REPOEOF
+# Proxmox VE No-Subscription Repository (for testing/development)
+deb http://download.proxmox.com/debian/pve \$CODENAME pve-no-subscription
+REPOEOF
+'" || error "Failed to configure repositories"
+success "Free Proxmox repositories configured"
+
+info "Running apt update && apt dist-upgrade (this may take a few minutes)..."
+nested_sshpass "'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -qq'" || error "Failed to update packages"
+success "System packages updated"
+
+# Verify Proxmox is up to date
+info "Verifying Proxmox version..."
+VERSION_INFO=$(nested_sshpass "'
+    INSTALLED=\$(pveversion 2>/dev/null)
+    CANDIDATE=\$(apt-cache policy pve-manager 2>/dev/null | grep Candidate | awk \"{print \\\$2}\")
+    CURRENT=\$(dpkg-query -W -f \"\${Version}\" pve-manager 2>/dev/null)
+    if [ \"\$CURRENT\" = \"\$CANDIDATE\" ]; then
+        echo \"UP_TO_DATE|\$INSTALLED|pve-manager \$CURRENT\"
+    else
+        echo \"OUTDATED|\$INSTALLED|installed: \$CURRENT, available: \$CANDIDATE\"
+    fi
+'" 2>/dev/null)
+
+PVE_STATUS=$(echo "$VERSION_INFO" | cut -d'|' -f1)
+PVE_FULL=$(echo "$VERSION_INFO" | cut -d'|' -f2)
+PVE_DETAIL=$(echo "$VERSION_INFO" | cut -d'|' -f3)
+
+if [ "$PVE_STATUS" = "UP_TO_DATE" ]; then
+    success "Proxmox is up to date: $PVE_FULL ($PVE_DETAIL)"
+else
+    info "Proxmox may need a reboot to complete upgrade ($PVE_DETAIL)"
+    info "Current: $PVE_FULL"
+fi
+
 # Step 10b: Create vmbr1 NAT bridge in nested VM for containers
 header "Setting up Container NAT Bridge (vmbr1)"
 info "Creating vmbr1 in nested VM for container networking..."
-
-# Helper for nested SSH with timeout
-nested_sshpass() {
-    pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$NESTED_STATIC_IP $*"
-}
 
 # Check if vmbr1 already exists
 if nested_sshpass "ip link show vmbr1" &>/dev/null; then
