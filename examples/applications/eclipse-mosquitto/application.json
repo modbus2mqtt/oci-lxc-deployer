@@ -1,6 +1,6 @@
 {
-  "name": "MariaDB",
-  "description": "MariaDB is an open source relational database management system.",
+  "name": "mosquitto",
+  "description": "Eclipse Mosquitto is an open source message broker that implements the MQTT protocol.",
   "extends": "oci-image",
   "icon": "icon.svg",
   "parameters": [
@@ -12,7 +12,7 @@
       "description": "Hostname for the LXC container",
       "template": "100-conf-create-configure-lxc.json",
       "templatename": "Create and Configure LXC",
-      "default": "mariadb"
+      "default": "eclipse-mosquitto"
     },
     {
       "id": "volumes",
@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "data:/var/lib/mysql"
+      "default": "config:/mosquitto/config:ro"
     },
     {
       "id": "envs",
@@ -34,29 +34,36 @@
       "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
       "template": "170-conf-set-environment-variables-in-lxc.json",
       "templatename": "Env Variables in LXC",
-      "default": "GID=999\nMARIADB_DATABASE=appdb\nMARIADB_PASSWORD={{ MARIADB_PASSWORD }}\nMARIADB_PORT=3306\nMARIADB_ROOT_PASSWORD={{ MARIADB_ROOT_PASSWORD }}\nMARIADB_USER=appuser\nMARIADB_VERSION=11\nUID=999"
+      "default": "GID=1883\nMOSQUITTO_VERSION=2\nMQTT_PORT=1883\nMQTT_WS_PORT=9001\nUID=1883"
     }
   ],
   "properties": [
     {
       "id": "oci_image",
-      "value": "mariadb:11"
+      "value": "eclipse-mosquitto:2"
     },
     {
       "id": "uid",
-      "value": "999"
+      "value": "1883"
     },
     {
       "id": "username",
       "value": "root"
     }
   ],
-  "installation": {},
-  "url": "https://github.com/MariaDB/mariadb-docker",
-  "documentation": "https://hub.docker.com/_/mariadb/",
-  "source": "https://github.com/MariaDB/mariadb-docker",
-  "vendor": "MariaDB Community",
+  "installation": {
+    "pre_start": [
+      "0-upload-mosquitto.json",
+      "1-upload-ca.json",
+      "2-upload-server.json",
+      "3-upload-server.json"
+    ]
+  },
+  "url": "https://mosquitto.org/",
+  "documentation": "https://mosquitto.org/documentation/",
+  "source": "https://github.com/eclipse-mosquitto/mosquitto",
   "tags": [
-    "database"
+    "messaging",
+    "iot"
   ]
 }

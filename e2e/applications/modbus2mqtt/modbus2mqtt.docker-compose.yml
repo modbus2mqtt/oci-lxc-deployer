@@ -1,8 +1,8 @@
 services:
   modbus2mqtt:
-    image: ghcr.io/modbus2mqtt/server:${MODBUS2MQTT_VERSION:-latest}
+    image: ghcr.io/modbus2mqtt/modbus2mqtt:${MODBUS2MQTT_VERSION:-latest}
     restart: unless-stopped
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "${UID:-999}:${GID:-999}"
     environment:
       TZ: ${TZ:-Europe/Berlin}
     volumes:

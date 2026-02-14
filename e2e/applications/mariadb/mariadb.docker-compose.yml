@@ -2,7 +2,7 @@ services:
   mariadb:
     image: mariadb:${MARIADB_VERSION:-11}
     restart: unless-stopped
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "${UID:-999}:${GID:-999}"
     environment:
       MARIADB_ROOT_PASSWORD: "{{ MARIADB_ROOT_PASSWORD }}"
       MARIADB_DATABASE: ${MARIADB_DATABASE:-appdb}
