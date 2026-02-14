@@ -1,0 +1,20 @@
+services:
+  github-runner:
+    image: ghcr.io/modbus2mqtt/github-actions-runner:latest
+    restart: unless-stopped
+    environment:
+      REPO_URL: "https://github.com/modbus2mqtt/oci-lxc-deployer"
+      ACCESS_TOKEN: "{{ GITHUB_RUNNER_TOKEN }}"
+      RUNNER_NAME: "${RUNNER_NAME:-lxc-manager-runner}"
+      RUNNER_WORKDIR: "/tmp/runner-work"
+      LABELS: "self-hosted,linux,x64,pve1"
+      DISABLE_AUTO_UPDATE: "true"
+      EPHEMERAL: "false"
+    volumes:
+      - ./work:/tmp/runner-work
+    # Host network required for WOL broadcast packets (UDP port 9)
+    network_mode: host
+    deploy:
+      resources:
+        limits:
+          memory: 3G

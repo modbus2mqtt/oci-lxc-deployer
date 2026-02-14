@@ -54,6 +54,9 @@ load_config() {
     export PORT_OFFSET=$(jq -r ".instances[\"$instance\"].portOffset" "$CONFIG_FILE")
     export SUBNET=$(jq -r ".instances[\"$instance\"].subnet" "$CONFIG_FILE")
 
+    # Optional WOL configuration (for waking sleeping hosts)
+    export WOL_MAC=$(jq -r ".instances[\"$instance\"].wol.macAddress // empty" "$CONFIG_FILE")
+
     # Load defaults
     export VM_MEMORY=$(jq -r '.defaults.vmMemory' "$CONFIG_FILE")
     export VM_CORES=$(jq -r '.defaults.vmCores' "$CONFIG_FILE")

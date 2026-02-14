@@ -18,7 +18,10 @@
       "vmName": "pve-e2e-ci",
       "portOffset": 1000,
       "subnet": "10.99.2",
-      "filesystem": "ext4"
+      "filesystem": "ext4",
+      "wol": {
+        "macAddress": "XX:XX:XX:XX:XX:XX"
+      }
     }
   },
   "defaults": {
