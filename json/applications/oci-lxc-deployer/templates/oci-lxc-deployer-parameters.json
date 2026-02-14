@@ -24,11 +24,15 @@
         },
         {
           "id": "uid",
-          "value": "0"
+          "value": "1001"
+        },
+        {
+          "id": "gid",
+          "value": "1001"
         },
         {
           "id": "username",
-          "value": "root"
+          "value": "lxc"
         },
         {
           "id": "volume_backup",

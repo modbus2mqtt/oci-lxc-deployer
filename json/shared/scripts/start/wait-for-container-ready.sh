@@ -37,14 +37,13 @@ while [ $(date +%s) -lt $END ]; do
     sleep "$SLEEP"
     continue
   fi
-  # Has network? hostname -i returns something
-  if ! lxc-attach -n "$VMID" -- /bin/sh -c 'hostname -i | grep -q .' >/dev/null 2>&1; then
+  # Has network? Check for any IPv4 address on eth0 (avoids hostname -i blocking on DHCPv6)
+  if ! lxc-attach -n "$VMID" -- /bin/sh -c 'ip -4 addr show 2>/dev/null | grep -q "inet " || hostname -i 2>/dev/null | grep -q .' >/dev/null 2>&1; then
     sleep "$SLEEP"
     continue
   fi
-  # apk works? quick update dry-run (list repos)
-  if check_cmd "apk --version"; then
-    # Ready enough
+  # Package manager available? Support Alpine (apk), Debian/Ubuntu (dpkg), or any OCI image (true)
+  if check_cmd "apk --version" || check_cmd "dpkg --version" || check_cmd "true"; then
     echo '[{"id":"ready","value":"true"}]'
     exit 0
   fi
