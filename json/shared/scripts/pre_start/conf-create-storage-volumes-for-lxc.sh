@@ -99,25 +99,37 @@ fi
 EFFECTIVE_UID="$UID_VALUE"
 EFFECTIVE_GID="$GID_VALUE"
 
-if [ -n "$MAPPED_UID" ] && [ "$MAPPED_UID" != "" ]; then
+if [ -n "$MAPPED_UID" ] && [ "$MAPPED_UID" != "" ] && [ "$MAPPED_UID" != "NOT_DEFINED" ]; then
   EFFECTIVE_UID="$MAPPED_UID"
 elif is_number "$UID_VALUE"; then
   MID=$(map_id_via_idmap u "$UID_VALUE")
   if [ -n "$MID" ]; then
     EFFECTIVE_UID="$MID"
   elif [ "$IS_UNPRIV" -eq 1 ]; then
-    EFFECTIVE_UID=$((100000 + UID_VALUE))
+    # Check if custom idmap exists (passthrough UIDs) - if so, UID is already
+    # a 1:1 mapped passthrough and should be used directly on the host
+    HAS_IDMAP=$(echo "$PCT_CONFIG" | grep -c 'lxc\.idmap' 2>/dev/null || echo 0)
+    if [ "$HAS_IDMAP" -gt 0 ]; then
+      EFFECTIVE_UID="$UID_VALUE"
+    else
+      EFFECTIVE_UID=$((100000 + UID_VALUE))
+    fi
   fi
 fi
 
-if [ -n "$MAPPED_GID" ] && [ "$MAPPED_GID" != "" ]; then
+if [ -n "$MAPPED_GID" ] && [ "$MAPPED_GID" != "" ] && [ "$MAPPED_GID" != "NOT_DEFINED" ]; then
   EFFECTIVE_GID="$MAPPED_GID"
 elif is_number "$GID_VALUE"; then
   MID=$(map_id_via_idmap g "$GID_VALUE")
   if [ -n "$MID" ]; then
     EFFECTIVE_GID="$MID"
   elif [ "$IS_UNPRIV" -eq 1 ]; then
-    EFFECTIVE_GID=$((100000 + GID_VALUE))
+    HAS_IDMAP=$(echo "$PCT_CONFIG" | grep -c 'lxc\.idmap' 2>/dev/null || echo 0)
+    if [ "$HAS_IDMAP" -gt 0 ]; then
+      EFFECTIVE_GID="$GID_VALUE"
+    else
+      EFFECTIVE_GID=$((100000 + GID_VALUE))
+    fi
   fi
 fi
 

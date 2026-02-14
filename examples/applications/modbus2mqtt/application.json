@@ -1,8 +1,8 @@
 {
-  "name": "node-red",
-  "description": "Node-RED is a flow-based programming tool for wiring together hardware devices, APIs and online services.",
+  "name": "modbus2mqtt",
+  "description": "Modbus2MQTT is a Modbus to MQTT gateway for connecting industrial devices to IoT networks.",
   "extends": "oci-image",
-  "icon": "icon.svg",
+  "icon": "icon.png",
   "parameters": [
     {
       "id": "hostname",
@@ -12,7 +12,7 @@
       "description": "Hostname for the LXC container",
       "template": "100-conf-create-configure-lxc.json",
       "templatename": "Create and Configure LXC",
-      "default": "node-red"
+      "default": "modbus2mqtt"
     },
     {
       "id": "volumes",
@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "data:/data"
+      "default": "config:/config\ndata:/data\nssl:/ssl"
     },
     {
       "id": "envs",
@@ -34,17 +34,17 @@
       "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
       "template": "170-conf-set-environment-variables-in-lxc.json",
       "templatename": "Env Variables in LXC",
-      "default": "GID=1001\nNODERED_PORT=1880\nNODERED_VERSION=latest\nTZ=Europe/Berlin\nUID=1001"
+      "default": "GID=999\nMODBUS2MQTT_PORT=3000\nMODBUS2MQTT_VERSION=latest\nTZ=Europe/Berlin\nUID=999"
     }
   ],
   "properties": [
     {
       "id": "oci_image",
-      "value": "nodered/node-red:latest"
+      "value": "ghcr.io/modbus2mqtt/modbus2mqtt:latest"
     },
     {
       "id": "uid",
-      "value": "1001"
+      "value": "999"
     },
     {
       "id": "username",
@@ -52,9 +52,12 @@
     }
   ],
   "installation": {},
-  "source": "https://github.com/node-red/node-red-docker",
+  "url": "https://github.com/modbus2mqtt/hassio-addon-repository",
+  "documentation": "https://github.com/modbus2mqtt/modbus2mqtt/blob/main/README.md",
+  "source": "https://github.com/modbus2mqtt/modbus2mqtt",
+  "vendor": "Carcam 360",
   "tags": [
-    "api",
-    "iot"
+    "iot",
+    "messaging"
   ]
 }

@@ -104,25 +104,37 @@ fi
 EFFECTIVE_UID="$UID_VALUE"
 EFFECTIVE_GID="$GID_VALUE"
 
-if [ -n "$MAPPED_UID" ] && [ "$MAPPED_UID" != "" ]; then
+if [ -n "$MAPPED_UID" ] && [ "$MAPPED_UID" != "" ] && [ "$MAPPED_UID" != "NOT_DEFINED" ]; then
   EFFECTIVE_UID="$MAPPED_UID"
 elif is_number "$UID_VALUE"; then
   MID=$(map_id_via_idmap u "$UID_VALUE")
   if [ -n "$MID" ]; then
     EFFECTIVE_UID="$MID"
   elif [ "$IS_UNPRIV" -eq 1 ]; then
-    EFFECTIVE_UID=$((100000 + UID_VALUE))
+    # Check if custom idmap exists (passthrough UIDs) - if so, UID is already
+    # a 1:1 mapped passthrough and should be used directly on the host
+    HAS_IDMAP=$(echo "$PCT_CONFIG" | grep -c 'lxc\.idmap' 2>/dev/null || echo 0)
+    if [ "$HAS_IDMAP" -gt 0 ]; then
+      EFFECTIVE_UID="$UID_VALUE"
+    else
+      EFFECTIVE_UID=$((100000 + UID_VALUE))
+    fi
   fi
 fi
 
-if [ -n "$MAPPED_GID" ] && [ "$MAPPED_GID" != "" ]; then
+if [ -n "$MAPPED_GID" ] && [ "$MAPPED_GID" != "" ] && [ "$MAPPED_GID" != "NOT_DEFINED" ]; then
   EFFECTIVE_GID="$MAPPED_GID"
 elif is_number "$GID_VALUE"; then
   MID=$(map_id_via_idmap g "$GID_VALUE")
   if [ -n "$MID" ]; then
     EFFECTIVE_GID="$MID"
   elif [ "$IS_UNPRIV" -eq 1 ]; then
-    EFFECTIVE_GID=$((100000 + GID_VALUE))
+    HAS_IDMAP=$(echo "$PCT_CONFIG" | grep -c 'lxc\.idmap' 2>/dev/null || echo 0)
+    if [ "$HAS_IDMAP" -gt 0 ]; then
+      EFFECTIVE_GID="$GID_VALUE"
+    else
+      EFFECTIVE_GID=$((100000 + GID_VALUE))
+    fi
   fi
 fi
 
@@ -144,7 +156,12 @@ compute_effective_uid() {
   if [ -n "$_mid" ]; then
     echo "$_mid"
   elif [ "$IS_UNPRIV" -eq 1 ]; then
-    echo $((100000 + _cuid))
+    HAS_IDMAP=$(echo "$PCT_CONFIG" | grep -c 'lxc\.idmap' 2>/dev/null || echo 0)
+    if [ "$HAS_IDMAP" -gt 0 ]; then
+      echo "$_cuid"
+    else
+      echo $((100000 + _cuid))
+    fi
   else
     echo "$_cuid"
   fi
@@ -162,7 +179,12 @@ compute_effective_gid() {
   if [ -n "$_mid" ]; then
     echo "$_mid"
   elif [ "$IS_UNPRIV" -eq 1 ]; then
-    echo $((100000 + _cgid))
+    HAS_IDMAP=$(echo "$PCT_CONFIG" | grep -c 'lxc\.idmap' 2>/dev/null || echo 0)
+    if [ "$HAS_IDMAP" -gt 0 ]; then
+      echo "$_cgid"
+    else
+      echo $((100000 + _cgid))
+    fi
   else
     echo "$_cgid"
   fi
@@ -431,9 +453,10 @@ if [ "$WAS_RUNNING" -eq 1 ]; then
   fi
 fi
 
-# Note: Permissions are set on the host with mapped UID/GID (UID + 100000, GID + 100000)
-# This is because we use standard Proxmox mapping where Container UID N → Host UID (100000 + N)
-# No need to set permissions inside the container as they are already correct on the host
+# Note: Permissions are set on the host with mapped UID/GID.
+# For containers with custom idmaps (passthrough UIDs), the UID is used directly.
+# For standard unprivileged containers, Container UID N → Host UID (100000 + N).
+# No need to set permissions inside the container as they are already correct on the host.
 
 echo "Successfully processed volumes for container $VMID" >&2
 exit 0

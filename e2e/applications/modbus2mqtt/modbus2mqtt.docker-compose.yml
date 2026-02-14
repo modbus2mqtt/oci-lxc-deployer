@@ -6,7 +6,9 @@ services:
     environment:
       TZ: ${TZ:-Europe/Berlin}
     volumes:
-      - ./data:/app/data
+      - ./config:/config
+      - ./data:/data
+      - ./ssl:/ssl
     ports:
       - "${MODBUS2MQTT_PORT:-3000}:3000"
 
