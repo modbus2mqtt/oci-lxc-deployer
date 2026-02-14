@@ -52,6 +52,19 @@ export async function isTestHostReachable(
 ): Promise<boolean> {
   if (_reachableCache !== undefined) return _reachableCache;
 
+  // 0. Fast ping check – if host is unreachable, skip immediately
+  const ping = await spawnAsync(
+    "ping",
+    ["-c", "1", "-W", "2", config.host],
+    { timeout: 5000 },
+  );
+
+  if (ping.exitCode !== 0) {
+    _skipReason = `Host not reachable (ping failed): ${config.host}`;
+    _reachableCache = false;
+    return false;
+  }
+
   // 1. SSH connectivity
   const ssh = await spawnAsync(
     "ssh",
