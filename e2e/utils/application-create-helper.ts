@@ -262,11 +262,18 @@ export class ApplicationCreateHelper {
       }
     }
 
+    const descInput = this.page.locator('[data-testid="app-description-input"]').or(
+      this.page.locator('textarea[formControlName="description"]')
+    );
+
     if (description) {
-      const descInput = this.page.locator('[data-testid="app-description-input"]').or(
-        this.page.locator('textarea[formControlName="description"]')
-      );
       await descInput.fill(description);
+    } else {
+      // Wait for description to be auto-filled from OCI image annotations
+      await expect(async () => {
+        const value = await descInput.inputValue();
+        expect(value.trim().length).toBeGreaterThan(0);
+      }).toPass({ timeout: 15000 });
     }
   }
 
@@ -625,21 +632,11 @@ export class ApplicationCreateHelper {
       // When using Save & Install, we navigate to /monitor
       await expect(this.page).toHaveURL(/\/monitor/, { timeout: 30000 });
     } else {
+      // Listen for the browser alert() before clicking Save
+      this.page.once('dialog', dialog => dialog.accept());
       await this.clickSave();
-      await this.page.waitForLoadState('networkidle');
-
-      const successIndicator = this.page.locator('[data-testid="installation-success"]').or(
-        this.page.locator('text=successfully')
-      );
-
-      try {
-        await successIndicator.waitFor({ timeout: 30000 });
-      } catch {
-        const currentUrl = this.page.url();
-        if (!currentUrl.includes('/applications')) {
-          throw new Error('Application creation failed - no success indicator found');
-        }
-      }
+      // After alert is accepted, the app navigates to /applications
+      await expect(this.page).toHaveURL(/\/applications/, { timeout: 15000 });
     }
   }
 

@@ -1,5 +1,14 @@
 {
     "name": "node-red",
     "description": "Node-RED is a flow-based programming tool for wiring together hardware devices, APIs and online services.",
-    "tags": ["api", "iot"]
+    "tags": ["api", "iot"],
+    "validation": {
+        "commands": [
+            {
+                "command": "pid=$(netstat -tlnp 2>/dev/null | grep ':1880' | head -1 | awk '{print $NF}' | cut -d/ -f1); cat /proc/$pid/status | grep '^Uid:' | awk '{print $2}'",
+                "expectedOutput": "1000",
+                "description": "Process on port 1880 should run as UID 1000"
+            }
+        ]
+    }
 }

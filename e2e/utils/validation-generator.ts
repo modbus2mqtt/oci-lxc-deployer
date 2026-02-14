@@ -2,10 +2,6 @@ import { readFileSync } from 'fs';
 import { parse as parseYaml } from 'yaml';
 import {
   ValidationConfig,
-  PortValidation,
-  ProcessValidation,
-  VolumeValidation,
-  UploadFileValidation,
   UploadFile,
 } from './application-loader';
 
@@ -44,8 +40,6 @@ export class ValidationGenerator {
     dockerComposePath?: string;
     uploadFiles?: UploadFile[];
     uploadFilesBasePath?: string;
-    /** Override process name if different from image name */
-    processName?: string;
     /** Wait time before validation in seconds */
     waitBeforeValidation?: number;
   }): ValidationConfig {
@@ -58,7 +52,7 @@ export class ValidationGenerator {
     if (options.dockerComposePath) {
       const compose = this.parseDockerCompose(options.dockerComposePath);
       if (compose) {
-        volumeMappings = this.addFromCompose(config, compose, options.processName);
+        volumeMappings = this.addFromCompose(config, compose);
       }
     }
 
@@ -88,8 +82,7 @@ export class ValidationGenerator {
    */
   private static addFromCompose(
     config: ValidationConfig,
-    compose: ComposeFile,
-    processNameOverride?: string
+    compose: ComposeFile
   ): Map<string, string> {
     const volumeMappings = new Map<string, string>();
 
@@ -105,16 +98,9 @@ export class ValidationGenerator {
     // Extract UID from user field (e.g., "1883:1883" or "1883")
     const uid = this.extractUid(service.user);
 
-    // Add process validation
-    const processName = processNameOverride || this.extractProcessName(service.image);
-    if (processName) {
-      config.processes = config.processes || [];
-      config.processes.push({
-        name: processName,
-        expectedUid: uid,
-        description: `Process '${processName}' is running${uid ? ` as UID ${uid}` : ''}`,
-      });
-    }
+    // Note: Process validation is NOT auto-generated.
+    // Process names cannot be reliably derived from Docker image names.
+    // Use appconf.json "validation.processes" for explicit process checks.
 
     // Add port validations
     if (service.ports) {
@@ -125,7 +111,7 @@ export class ValidationGenerator {
           config.ports.push({
             port: port.containerPort,
             protocol: 'tcp',
-            service: processName || primaryServiceName,
+            service: primaryServiceName,
           });
         }
       }
@@ -229,36 +215,6 @@ export class ValidationGenerator {
     }
 
     return undefined;
-  }
-
-  /**
-   * Extract process name from image (e.g., "eclipse-mosquitto:latest" -> "mosquitto")
-   */
-  private static extractProcessName(image?: string): string | undefined {
-    if (!image) return undefined;
-
-    // Remove registry prefix if present
-    let name = image;
-    if (name.includes('/')) {
-      name = name.split('/').pop() || name;
-    }
-
-    // Remove tag
-    if (name.includes(':')) {
-      name = name.split(':')[0];
-    }
-
-    // For some common images, extract the process name
-    const processNameMap: Record<string, string> = {
-      'eclipse-mosquitto': 'mosquitto',
-      'postgres': 'postgres',
-      'redis': 'redis-server',
-      'nginx': 'nginx',
-      'node': 'node',
-      'nodered/node-red': 'node-red',
-    };
-
-    return processNameMap[name] || name;
   }
 
   /**

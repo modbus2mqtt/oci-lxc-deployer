@@ -388,7 +388,8 @@ export class CreateApplicationStateService {
     this.iconContent.set(null);
     this.selectedTags.set([]);
 
-    this.resetControlsToDefaults(['compose_file', 'env_file', 'volumes']);
+    // Preserve compose-derived controls (uid, gid, initial_command come from compose, not image annotations)
+    this.resetControlsToDefaults(['compose_file', 'env_file', 'volumes', 'envs', 'uid', 'gid', 'initial_command']);
 
     this.imageAnnotationsReceived.set(false);
     this.lastAnnotationsResponse.set(null);
