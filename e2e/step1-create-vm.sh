@@ -262,9 +262,16 @@ nested_sshpass "'
     [ -z \"\$CODENAME\" ] && CODENAME=bookworm
 
     # Disable ALL enterprise repositories (require paid subscription)
-    for f in /etc/apt/sources.list.d/*enterprise*.list /etc/apt/sources.list.d/ceph*.list; do
+    # Handle both .list (classic) and .sources (DEB822 format, PVE 9+/trixie)
+    for f in /etc/apt/sources.list.d/*enterprise*.list /etc/apt/sources.list.d/ceph*.list \
+             /etc/apt/sources.list.d/*enterprise*.sources /etc/apt/sources.list.d/ceph*.sources; do
         [ -f \"\$f\" ] && mv \"\$f\" \"\${f}.disabled\"
     done
+
+    # Remove duplicate entries: if debian.sources exists, clear sources.list to avoid duplicates
+    if [ -f /etc/apt/sources.list.d/debian.sources ] && [ -s /etc/apt/sources.list ]; then
+        echo \"# Cleared to avoid duplicates with debian.sources\" > /etc/apt/sources.list
+    fi
 
     # Add Proxmox no-subscription repository (free)
     cat > /etc/apt/sources.list.d/pve-no-subscription.list << REPOEOF
