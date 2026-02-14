@@ -60,12 +60,12 @@ describe("FrameworkFromImage - Integration Tests", () => {
         // Check if script exists
         const scriptPath = persistenceHelper.resolve(
           Volume.JsonSharedScripts,
-          "get-oci-image-annotations.py",
+          "image/get-oci-image-annotations.py",
         );
         try {
           persistenceHelper.readTextSync(
             Volume.JsonSharedScripts,
-            "get-oci-image-annotations.py",
+            "image/get-oci-image-annotations.py",
           );
         } catch {
           throw new Error(`Script not found: ${scriptPath}`);
