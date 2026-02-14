@@ -413,9 +413,12 @@ export class CreateApplicationStateService {
     this.composeServices.set(parsed.services);
     this.composeProperties.set(parsed.properties);
 
-    // Fill volumes ONLY if there are volumes AND field is empty
-    if (parsed.volumes && parsed.volumes.length > 0) {
-      const volumesText = parsed.volumes.join('\n');
+    // Fill volumes ONLY if there are volumes AND field is empty.
+    // Use parsed.properties.volumes which is in key=path format (e.g., "config=mosquitto/config")
+    // instead of parsed.volumes which contains raw Docker format (e.g., "config:/mosquitto/config:ro")
+    // that includes volume flags like :ro which the backend doesn't understand.
+    if (parsed.properties.volumes) {
+      const volumesText = parsed.properties.volumes;
       const volumesCtrl = this.parameterForm.get('volumes');
       if (volumesCtrl) {
         const currentValue = volumesCtrl.value;
