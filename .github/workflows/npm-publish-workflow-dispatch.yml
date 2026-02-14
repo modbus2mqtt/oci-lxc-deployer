@@ -70,15 +70,11 @@ jobs:
           (cd backend && pnpm install --frozen-lockfile && pnpm build)
           echo "::endgroup::"
           echo "::group::Building root  ..."
-          pnpm build
-          echo "::endgroup::"
-          echo "::group::Packing npm tarball ..."
-          info=$(npm pack --json)
-          tarball=$(echo "$info" | grep -o '"filename": "[^"]*"' | sed 's/"filename": "\(.*\)"/\1/')
-          version=$(echo "$info" | grep -o '"version": "[^"]*"' | sed 's/"version": "\(.*\)"/\1/')
-          mv "$tarball" docker/oci-lxc-deployer.tgz
-          echo "tarball=docker/oci-lxc-deployer.tgz" >> $GITHUB_OUTPUT
-          echo "version=$version" >> $GITHUB_OUTPUT
+          (npm ci && npm run build)
+          echo "::endgroup::"          
+          echo "::group::Publishing to NPM registry ..."  
+          npm set registry https://registry.npmjs.org/
+          npm publish --access public
           echo "::endgroup::"
 
       - name: Log in to GHCR
