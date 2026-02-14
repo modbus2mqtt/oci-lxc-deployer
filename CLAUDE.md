@@ -4,6 +4,8 @@
 
 LXC container management system for Proxmox VE with template-based deployment.
 
+**Important:** This project does NOT use Docker or Docker Swarm. The `docker-compose.yml` files are a configuration format that oci-lxc-deployer **parses and interprets** to create and configure LXC containers. There is no Docker daemon involved. Docker-specific features like `deploy.resources.limits`, `network_mode`, or Docker socket mounts are irrelevant.
+
 ## File Locations
 
 - Shared templates: `json/shared/templates/`

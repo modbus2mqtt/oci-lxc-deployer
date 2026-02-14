@@ -1,20 +1,28 @@
 services:
-  github-runner:
+  runner-modbus2mqtt:
     image: ghcr.io/modbus2mqtt/github-actions-runner:latest
     restart: unless-stopped
     environment:
       REPO_URL: "https://github.com/modbus2mqtt/oci-lxc-deployer"
-      ACCESS_TOKEN: "{{ GITHUB_RUNNER_TOKEN }}"
-      RUNNER_NAME: "${RUNNER_NAME:-lxc-manager-runner}"
+      ACCESS_TOKEN: "{{ GITHUB_RUNNER_TOKEN_MODBUS2MQTT }}"
+      RUNNER_NAME: "${RUNNER_NAME:-pve1-modbus2mqtt}"
       RUNNER_WORKDIR: "/tmp/runner-work"
       LABELS: "self-hosted,linux,x64,pve1"
       DISABLE_AUTO_UPDATE: "true"
       EPHEMERAL: "false"
     volumes:
-      - ./work:/tmp/runner-work
-    # Host network required for WOL broadcast packets (UDP port 9)
-    network_mode: host
-    deploy:
-      resources:
-        limits:
-          memory: 3G
+      - ./work-modbus2mqtt:/tmp/runner-work
+
+  runner-volkmarnissen:
+    image: ghcr.io/modbus2mqtt/github-actions-runner:latest
+    restart: unless-stopped
+    environment:
+      REPO_URL: "https://github.com/volkmarnissen/oci-lxc-deployer"
+      ACCESS_TOKEN: "{{ GITHUB_RUNNER_TOKEN_VOLKMARNISSEN }}"
+      RUNNER_NAME: "${RUNNER_NAME:-pve1-volkmarnissen}"
+      RUNNER_WORKDIR: "/tmp/runner-work"
+      LABELS: "self-hosted,linux,x64,pve1"
+      DISABLE_AUTO_UPDATE: "true"
+      EPHEMERAL: "false"
+    volumes:
+      - ./work-volkmarnissen:/tmp/runner-work
