@@ -38,7 +38,7 @@ describe("FrameworkFromImage - Integration Tests", () => {
     beforeAll(() => {
       env = createTestEnvironment(import.meta.url, {
         jsonIncludePatterns: [
-          "^shared/scripts/get-oci-image-annotations\\.py$",
+          "^shared/scripts/image/get-oci-image-annotations\\.py$",
         ],
       });
       persistenceHelper = new TestPersistenceHelper({
