@@ -556,6 +556,13 @@ export class ApplicationCreateHelper {
     }
 
     console.log(`Validated ${actualCount} upload files in summary`);
+
+    // Switch back to Install Parameters tab so waitForInstallParametersLoaded() works correctly.
+    // If we stay on Application Data tab, the loading spinner is hidden (wrong tab) and
+    // waitForInstallParametersLoaded() resolves immediately before parameters are actually loaded.
+    const installParamsTab = this.page.locator('mat-tab-header .mdc-tab:has-text("Install Parameters")');
+    await installParamsTab.click();
+    await this.page.waitForTimeout(300);
   }
 
   /**
