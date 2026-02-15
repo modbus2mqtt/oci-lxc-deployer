@@ -35,6 +35,7 @@ export class TemplateTestHelper {
       "-p",
       String(config.sshPort),
       `root@${config.host}`,
+      "sh",
     ];
   }
 

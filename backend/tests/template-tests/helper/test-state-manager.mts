@@ -15,6 +15,7 @@ export class TestStateManager {
       "-p",
       String(config.sshPort),
       `root@${config.host}`,
+      "sh",
     ];
   }
 
@@ -79,10 +80,7 @@ export class TestStateManager {
   async ensureNoContainer(vmId: string): Promise<void> {
     const status = await this.getContainerStatus(vmId);
     if (status === "absent") return;
-    if (status === "running") {
-      await this.execOnHost(`pct stop ${vmId} --force 1`, 30000);
-    }
-    await this.execOnHost(`pct destroy ${vmId} --purge 1`, 30000);
+    await this.execOnHost(`pct destroy ${vmId} --force --purge`, 30000);
   }
 
   async ensureContainerCreatedStopped(
@@ -97,7 +95,7 @@ export class TestStateManager {
     const status = await this.getContainerStatus(vmId);
     if (status === "stopped") return;
     if (status === "running") {
-      await this.execOnHost(`pct stop ${vmId} --force 1`, 30000);
+      await this.execOnHost(`pct stop ${vmId}`, 30000);
       return;
     }
 

@@ -245,7 +245,12 @@ export class FrameworkLoader {
         const param: IParameter = {
           ...paramDef,
         };
-        if (paramValue !== undefined) {
+        if (
+          paramValue !== undefined &&
+          String(paramValue) !== String(paramDef.default)
+        ) {
+          // Only store user value if it differs from template default.
+          // This ensures template default changes propagate to existing apps.
           param.default = paramValue;
         } else if (paramDef.default !== undefined) {
           param.default = paramDef.default;
@@ -290,6 +295,21 @@ export class FrameworkLoader {
           id: propId,
           value: paramValue,
         });
+      }
+    }
+
+    // Persist remaining parameterValues that match template parameters
+    // but aren't listed in framework.properties (e.g., memory, disk_size from Step 5).
+    // Only store values that differ from template defaults, so template updates propagate.
+    const processedIds = new Set([
+      ...templateParameters.map((p) => p.id),
+      ...templateProperties.map((p) => p.id),
+    ]);
+    for (const [paramId, paramValue] of paramValuesMap) {
+      if (processedIds.has(paramId)) continue;
+      const paramDef = allParameters.find((p) => p.id === paramId);
+      if (paramDef && String(paramValue) !== String(paramDef.default)) {
+        templateParameters.push({ ...paramDef, default: paramValue });
       }
     }
 

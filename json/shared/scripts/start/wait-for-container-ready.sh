@@ -23,7 +23,7 @@ SLEEP=3
 END=$(( $(date +%s) + TIMEOUT ))
 
 check_cmd() {
-  lxc-attach -n "$VMID" -- /bin/sh -c "$1" >/dev/null 2>&1
+  lxc-attach -n "$VMID" -- /bin/sh -c "$1" </dev/null >/dev/null 2>&1
 }
 
 while [ $(date +%s) -lt $END ]; do
@@ -38,7 +38,7 @@ while [ $(date +%s) -lt $END ]; do
     continue
   fi
   # Has network? Check for any IPv4 address on eth0 (avoids hostname -i blocking on DHCPv6)
-  if ! lxc-attach -n "$VMID" -- /bin/sh -c 'ip -4 addr show 2>/dev/null | grep -q "inet " || hostname -i 2>/dev/null | grep -q .' >/dev/null 2>&1; then
+  if ! lxc-attach -n "$VMID" -- /bin/sh -c 'ip -4 addr show 2>/dev/null | grep -q "inet " || hostname -i 2>/dev/null | grep -q .' </dev/null >/dev/null 2>&1; then
     sleep "$SLEEP"
     continue
   fi
