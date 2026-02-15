@@ -26,6 +26,19 @@ export class TestStateManager {
     return spawnAsync("ssh", this.sshArgs, { input: command, timeout });
   }
 
+  private assertSuccess(
+    result: SpawnAsyncResult,
+    context: string,
+  ): void {
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `${context} failed (exit code ${result.exitCode}):\n` +
+          `  stdout: ${result.stdout.trim()}\n` +
+          `  stderr: ${result.stderr.trim()}`,
+      );
+    }
+  }
+
   private async getContainerStatus(
     vmId: string,
   ): Promise<"running" | "stopped" | "absent"> {
@@ -49,7 +62,9 @@ export class TestStateManager {
     }
 
     // Download if not available locally
-    await this.execOnHost("pveam update", 60000);
+    const updateResult = await this.execOnHost("pveam update", 60000);
+    this.assertSuccess(updateResult, "pveam update");
+
     const { stdout: available } = await this.execOnHost(
       `pveam available --section system | grep '${osType}'`,
     );
@@ -62,7 +77,11 @@ export class TestStateManager {
     const templateFile = availableLines[availableLines.length - 1]!
       .trim()
       .split(/\s+/)[1]!;
-    await this.execOnHost(`pveam download local ${templateFile}`, 120000);
+    const dlResult = await this.execOnHost(
+      `pveam download local ${templateFile}`,
+      120000,
+    );
+    this.assertSuccess(dlResult, `pveam download ${templateFile}`);
     return `local:vztmpl/${templateFile}`;
   }
 
@@ -95,7 +114,10 @@ export class TestStateManager {
     const status = await this.getContainerStatus(vmId);
     if (status === "stopped") return;
     if (status === "running") {
-      await this.execOnHost(`pct stop ${vmId}`, 30000);
+      this.assertSuccess(
+        await this.execOnHost(`pct stop ${vmId}`, 30000),
+        `pct stop ${vmId}`,
+      );
       return;
     }
 
@@ -105,13 +127,16 @@ export class TestStateManager {
     const storage = opts?.storage || (await this.findStorage());
     const template = await this.findOsTemplate(osType);
 
-    await this.execOnHost(
-      `pct create ${vmId} ${template}` +
-        ` --hostname ${hostname} --memory ${memory}` +
-        ` --rootfs ${storage}:1` +
-        ` --net0 name=eth0,bridge=vmbr0,ip=dhcp` +
-        ` --unprivileged 1`,
-      60000,
+    this.assertSuccess(
+      await this.execOnHost(
+        `pct create ${vmId} ${template}` +
+          ` --hostname ${hostname} --memory ${memory}` +
+          ` --rootfs ${storage}:1` +
+          ` --net0 name=eth0,bridge=vmbr0,ip=dhcp` +
+          ` --unprivileged 1`,
+        60000,
+      ),
+      `pct create ${vmId}`,
     );
   }
 
@@ -129,7 +154,10 @@ export class TestStateManager {
     if (status === "absent") {
       await this.ensureContainerCreatedStopped(vmId, opts);
     }
-    await this.execOnHost(`pct start ${vmId}`, 30000);
+    this.assertSuccess(
+      await this.execOnHost(`pct start ${vmId}`, 30000),
+      `pct start ${vmId}`,
+    );
   }
 
   async ensureContainerReady(
