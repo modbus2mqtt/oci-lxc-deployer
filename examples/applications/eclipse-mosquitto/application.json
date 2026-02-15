@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "config:/mosquitto/config:ro"
+      "default": "config=mosquitto/config"
     },
     {
       "id": "envs",

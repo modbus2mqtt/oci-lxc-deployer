@@ -48,6 +48,7 @@ export interface IProcessedTemplate {
   isShared: boolean; // true = shared template, false = app-specific
   skipped: boolean; // true = all commands skipped
   conditional: boolean; // true = skip_if_all_missing or skip_if_property_set
+  category?: string; // Category subdirectory (e.g., "pre_start", "list")
   referencedBy?: string[]; // Templates that reference this template
   references?: string[]; // Templates referenced by this template
   templateData?: ITemplate; // Full template data (validated)

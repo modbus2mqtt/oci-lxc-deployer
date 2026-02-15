@@ -77,8 +77,8 @@ export class TemplateProcessor extends EventEmitter {
       this.resolver.normalizeTemplateName.bind(this.resolver),
     );
     this.outputProcessor = new TemplateOutputProcessor(
-      (applicationId, templateName) =>
-        this.resolver.resolveTemplate(applicationId, templateName),
+      (applicationId, templateName, category) =>
+        this.resolver.resolveTemplate(applicationId, templateName, category),
       this.resolver.normalizeTemplateName.bind(this.resolver),
     );
   }
@@ -358,7 +358,7 @@ export class TemplateProcessor extends EventEmitter {
     const resolvedTemplate = this.resolver.resolveTemplate(
       opts.application,
       templateName,
-      opts.templateCategory,
+      opts.templateCategory!,
     );
     if (!resolvedTemplate) {
       const msg =
@@ -431,6 +431,7 @@ export class TemplateProcessor extends EventEmitter {
         isShared: isSharedTemplate,
         skipped: shouldSkip,
         conditional: isConditional,
+        ...(tmplRef.category !== undefined && { category: tmplRef.category }),
       });
     }
 
@@ -706,12 +707,13 @@ export class TemplateProcessor extends EventEmitter {
     const tasks = Array.from(new Set(enumTemplates)).map(
       async (enumTemplate) => {
         try {
-          const resolved = this.resolver.resolveTemplate(appId, enumTemplate);
+          const resolved = this.resolver.resolveTemplate(appId, enumTemplate, "list");
           const executeOn = resolved?.template?.execute_on;
           const opts: IProcessTemplateOpts = {
             application: appId,
             template: enumTemplate,
             templatename: enumTemplate,
+            templateCategory: "list",
             resolvedParams: [],
             visitedTemplates: new Set<string>(),
             parameters: [],

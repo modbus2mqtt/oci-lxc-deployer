@@ -38,7 +38,7 @@ export class TemplateResolver {
   resolveTemplate(
     applicationId: string,
     templateName: string,
-    category?: string,
+    category: string,
   ): { template: ITemplate; ref: TemplateRef } | null {
     const ref = this.repositories.resolveTemplateRef(
       applicationId,

@@ -44,11 +44,13 @@ export class TemplateAnalyzer {
     templateName: string,
     applicationId: string,
     commands: ICommand[],
+    category: string,
   ): boolean {
     const repositories = PersistenceManager.getInstance().getRepositories();
     const templateRef = repositories.resolveTemplateRef(
       applicationId,
       templateName,
+      category,
     );
     const templateData = templateRef
       ? repositories.getTemplate(templateRef)
@@ -161,9 +163,10 @@ export class TemplateAnalyzer {
           const installationTemplates = this.getInstallationTemplates(appData);
           if (installationTemplates.length > 0) {
             let templateFound = false;
+            let foundCategory = "";
 
             // First, check if template is directly in installation list
-            for (const templateRef of installationTemplates) {
+            for (const { ref: templateRef, category } of installationTemplates) {
               const refTemplateName =
                 typeof templateRef === "string"
                   ? templateRef
@@ -174,13 +177,14 @@ export class TemplateAnalyzer {
 
               if (normalizedRef === normalizedTemplate) {
                 templateFound = true;
+                foundCategory = category;
                 break;
               }
             }
 
             // Also check referenced templates
             if (!templateFound) {
-              for (const templateRef of installationTemplates) {
+              for (const { ref: templateRef, category } of installationTemplates) {
                 const refTemplateName =
                   typeof templateRef === "string"
                     ? templateRef
@@ -189,6 +193,7 @@ export class TemplateAnalyzer {
                 const resolvedTemplateRef = repositories.resolveTemplateRef(
                   appName,
                   refTemplateName,
+                  category,
                 );
                 const templateData = resolvedTemplateRef
                   ? repositories.getTemplate(resolvedTemplateRef)
@@ -204,6 +209,7 @@ export class TemplateAnalyzer {
                       this.pathResolver.normalizeTemplateName(refTemplateName);
                     if (cmdTemplateName === normalizedTemplate) {
                       templateFound = true;
+                      foundCategory = category;
                       break;
                     }
                   }
@@ -245,7 +251,7 @@ export class TemplateAnalyzer {
 
                 // Check if template is skipped using the same logic as in generateApplicationReadme
                 if (
-                  !this.isTemplateSkipped(normalizedTemplate, appName, commands)
+                  !this.isTemplateSkipped(normalizedTemplate, appName, commands, foundCategory)
                 ) {
                   usingApplications.push(appName);
                 }
@@ -271,19 +277,21 @@ export class TemplateAnalyzer {
    * Extracts a flat list of templates from the installation object.
    * Installation format: { image: [...], pre_start: [...], start: [...], post_start: [...] }
    */
-  private getInstallationTemplates(appData: IApplication): (string | ITemplateReference)[] {
+  private getInstallationTemplates(appData: IApplication): { ref: string | ITemplateReference; category: string }[] {
     const installation = (appData as any).installation;
     if (!installation || typeof installation !== "object") {
       return [];
     }
 
-    const templates: (string | ITemplateReference)[] = [];
+    const templates: { ref: string | ITemplateReference; category: string }[] = [];
     const categories = ["image", "pre_start", "start", "post_start"];
 
     for (const category of categories) {
       const list = installation[category];
       if (Array.isArray(list)) {
-        templates.push(...list);
+        for (const item of list) {
+          templates.push({ ref: item, category });
+        }
       }
     }
 

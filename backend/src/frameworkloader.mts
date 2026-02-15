@@ -452,6 +452,11 @@ export class FrameworkLoader {
         const destParamId = `upload_${sanitized.replace(/-/g, "_")}_destination`;
         const outputId = `upload_${sanitized.replace(/-/g, "_")}_uploaded`;
 
+        // Merge content from parameterValues if not already on uploadFile
+        const fileContent =
+          uploadFile.content ??
+          (paramValuesMap.get(contentParamId) as string | undefined);
+
         // Generate the template
         const uploadTemplate = {
           name: `Upload ${fileLabel}`,
@@ -467,7 +472,7 @@ export class FrameworkLoader {
               required: uploadFile.required ?? false,
               advanced: uploadFile.advanced ?? false,
               description: `Configuration file: ${fileLabel}`,
-              ...(uploadFile.content ? { default: uploadFile.content } : {}),
+              ...(fileContent ? { default: fileContent } : {}),
             },
             {
               id: destParamId,

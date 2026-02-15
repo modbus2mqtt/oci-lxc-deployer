@@ -127,15 +127,6 @@ export class EnumValuesResolver {
       ) {
         EnumValuesResolver.enumValuesCache.set(cacheKey, cached);
       }
-      if (process.env.ENUM_TRACE === "1" || process.env.CACHE_TRACE === "1") {
-        const parent =
-          typeof opts.template === "string"
-            ? opts.template
-            : opts.template.name;
-        console.info(
-          `[enum-trace] cache-hit enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
-        );
-      }
       return cached;
     }
 
@@ -148,15 +139,6 @@ export class EnumValuesResolver {
           | undefined
         > => {
           try {
-            if (process.env.ENUM_TRACE === "1") {
-              const parent =
-                typeof opts.template === "string"
-                  ? opts.template
-                  : opts.template.name;
-              console.info(
-                `[enum-trace] refresh execute enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
-              );
-            }
             const tmpCommands: ICommand[] = [];
             const tmpParams: IParameterWithTemplate[] = [];
             const tmpErrors: IJsonError[] = [];
@@ -213,27 +195,9 @@ export class EnumValuesResolver {
       : cacheKey;
     const inFlight = EnumValuesResolver.enumValuesInFlight.get(inFlightKey);
     if (inFlight) {
-      if (process.env.ENUM_TRACE === "1") {
-        const parent =
-          typeof opts.template === "string"
-            ? opts.template
-            : opts.template.name;
-        console.info(
-          `[enum-trace] in-flight enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
-        );
-      }
       return await inFlight;
     }
     const runner = (async () => {
-      if (process.env.ENUM_TRACE === "1") {
-        const parent =
-          typeof opts.template === "string"
-            ? opts.template
-            : opts.template.name;
-        console.info(
-          `[enum-trace] execute enumTemplate=${enumTemplate} parent=${parent} key=${cacheKey}`,
-        );
-      }
       const tmpCommands: ICommand[] = [];
       const tmpParams: IParameterWithTemplate[] = [];
       const tmpErrors: IJsonError[] = [];

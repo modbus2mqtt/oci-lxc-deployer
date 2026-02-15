@@ -28,50 +28,21 @@ export function registerSshRoutes(
 ): void {
   const collectEnumValueTemplates = (pathes: IConfiguredPathes): string[] => {
     const results = new Set<string>();
-    const addFromFile = (filePath: string) => {
-      if (!filePath.endsWith(".json")) return;
-      try {
-        const raw = fs.readFileSync(filePath, "utf-8");
-        const data = JSON.parse(raw) as {
-          parameters?: Array<{ enumValuesTemplate?: string }>;
-        };
-        const params = Array.isArray(data?.parameters) ? data.parameters : [];
-        for (const param of params) {
-          if (
-            param?.enumValuesTemplate &&
-            typeof param.enumValuesTemplate === "string"
-          ) {
-            results.add(param.enumValuesTemplate);
-          }
-        }
-      } catch {
-        // ignore invalid files
-      }
-    };
 
-    const scanTemplatesDir = (dir: string) => {
-      if (!fs.existsSync(dir)) return;
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+    // Scan shared/templates/list/ directories - all files there are enum value templates
+    const scanListDir = (dir: string) => {
+      const listDir = path.join(dir, "shared", "templates", "list");
+      if (!fs.existsSync(listDir)) return;
+      const entries = fs.readdirSync(listDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        addFromFile(path.join(dir, entry.name));
+        if (entry.isFile() && entry.name.endsWith(".json")) {
+          results.add(entry.name);
+        }
       }
     };
 
-    const scanApplications = (appsRoot: string) => {
-      if (!fs.existsSync(appsRoot)) return;
-      const appEntries = fs.readdirSync(appsRoot, { withFileTypes: true });
-      for (const entry of appEntries) {
-        if (!entry.isDirectory()) continue;
-        const templatesDir = path.join(appsRoot, entry.name, "templates");
-        scanTemplatesDir(templatesDir);
-      }
-    };
-
-    scanTemplatesDir(path.join(pathes.localPath, "shared", "templates"));
-    scanTemplatesDir(path.join(pathes.jsonPath, "shared", "templates"));
-    scanApplications(path.join(pathes.localPath, "applications"));
-    scanApplications(path.join(pathes.jsonPath, "applications"));
+    scanListDir(pathes.localPath);
+    scanListDir(pathes.jsonPath);
 
     return Array.from(results);
   };
@@ -269,4 +240,11 @@ export function registerSshRoutes(
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Startup warmup: if there's already a current VE context (from a previous session),
+  // pre-load enum values immediately so they're cached when the user opens the UI.
+  const currentVeKey = storageContext.getCurrentVEContext()?.getKey();
+  if (currentVeKey) {
+    triggerEnumWarmup(currentVeKey);
+  }
 }

@@ -42,7 +42,7 @@ fi
 
 stor="$PREFERRED_STORAGE"
 
-ROOTFS="$stor:$(({{ disk_size }} * 1024))"
+ROOTFS="$stor:{{ disk_size }}"
 echo "Rootfs: $ROOTFS" >&2
 
 # Auto-select VMID if not set

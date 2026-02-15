@@ -54,7 +54,7 @@ export interface ITemplateRepository {
   resolveTemplateRef(
     applicationId: string,
     templateName: string,
-    category?: string,
+    category: string,
   ): TemplateRef | null;
   getTemplate(ref: TemplateRef): ITemplate | null;
 }
@@ -158,7 +158,7 @@ export class InMemoryRepositories
   resolveTemplateRef(
     applicationId: string,
     templateName: string,
-    category?: string,
+    category: string,
   ): TemplateRef | null {
     const normalized = TemplatePathResolver.normalizeTemplateName(templateName);
     const appKey = `${applicationId}:${normalized}`;
@@ -366,7 +366,7 @@ export class FileSystemRepositories
   resolveTemplateRef(
     applicationId: string,
     templateName: string,
-    category?: string,
+    category: string,
   ): TemplateRef | null {
     // Get the full application hierarchy (child -> parent -> grandparent...)
     const hierarchy = this.getApplicationHierarchy(applicationId);

@@ -34,6 +34,7 @@ export interface ApplyOutputsOptions {
 export type ResolveTemplateFn = (
   applicationId: string,
   templateName: string,
+  category: string,
 ) => { template: ITemplate } | null;
 export type NormalizeTemplateNameFn = (templateName: string) => string;
 
@@ -188,6 +189,7 @@ export class TemplateOutputProcessor {
               const conflictingResolved = this.resolveTemplate(
                 applicationId,
                 conflictingTemplate,
+                conflictingTemplateInfo?.category ?? "",
               );
               const conflictingTmplData = conflictingResolved?.template ?? null;
               if (!conflictingTmplData) {
