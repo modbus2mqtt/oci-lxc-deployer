@@ -3,7 +3,7 @@ import { E2EApplication, UploadFile } from './application-loader';
 import { SSHValidator } from './ssh-validator';
 import { getPveHost, getLocalPath } from '../fixtures/test-base';
 import { readFileSync, existsSync, rmSync } from 'fs';
-import { join, dirname, resolve } from 'path';
+import { join, dirname, resolve, basename, extname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -632,6 +632,12 @@ export class ApplicationCreateHelper {
     if (installAfterSave) {
       // Wait for install parameters to load in summary step
       await this.waitForInstallParametersLoaded();
+
+      // Upload files for upload parameters (e.g., mosquitto.conf)
+      if (app.uploadfiles && app.uploadfiles.length > 0) {
+        await this.uploadFilesForParameters(app.uploadfiles, app.directory);
+      }
+
       // Auto-fill required dropdowns (like PVE host selection) and select stack if available
       await this.autoFillInstallParameters();
 
@@ -645,6 +651,48 @@ export class ApplicationCreateHelper {
       // After alert is accepted, the app navigates to /applications
       await expect(this.page).toHaveURL(/\/applications/, { timeout: 15000 });
     }
+  }
+
+  /**
+   * Upload files for upload parameters in the summary step.
+   * Finds file inputs by parameter ID and uploads the corresponding file.
+   */
+  async uploadFilesForParameters(uploadfiles: UploadFile[], appDirectory: string): Promise<void> {
+    for (const uploadFile of uploadfiles) {
+      if (!uploadFile.file) continue;
+
+      const filePath = join(appDirectory, uploadFile.file);
+      if (!existsSync(filePath)) {
+        console.warn(`Upload file not found: ${filePath}`);
+        continue;
+      }
+
+      // Derive paramId from destination (same logic as backend frameworkloader.mts:sanitizeFilename)
+      const paramId = this.getUploadParamId(uploadFile.destination);
+      const fileInputId = `file-${paramId}`;
+
+      const fileInput = this.page.locator(`#${fileInputId}`);
+      if (await fileInput.count() > 0) {
+        await fileInput.setInputFiles(filePath);
+        console.log(`Uploaded ${uploadFile.file} → ${paramId}`);
+        await this.page.waitForTimeout(300);
+      } else {
+        console.warn(`File input #${fileInputId} not found`);
+      }
+    }
+  }
+
+  /**
+   * Derive upload parameter ID from destination.
+   * Matches backend logic in frameworkloader.mts:sanitizeFilename()
+   */
+  private getUploadParamId(destination: string): string {
+    const colonIndex = destination.indexOf(':');
+    const filePath = colonIndex >= 0 ? destination.slice(colonIndex + 1) : destination;
+    const filename = basename(filePath);
+    const base = basename(filename, extname(filename));
+    const sanitized = base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return `upload_${sanitized.replace(/-/g, '_')}_content`;
   }
 
   /**

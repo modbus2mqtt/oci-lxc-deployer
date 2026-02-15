@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "pgadmin:/var/lib/pgadmin\ndata:/var/lib/postgresql/data"
+      "default": "pgadmin=var/lib/pgadmin\ndata=var/lib/postgresql/data"
     },
     {
       "id": "envs",

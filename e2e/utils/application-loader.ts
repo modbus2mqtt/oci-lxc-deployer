@@ -13,6 +13,7 @@ export interface UploadFile {
   label?: string;      // Optional display label (default: basename of destination)
   required?: boolean;  // If true, file must exist
   advanced?: boolean;  // If true, skip validation (optional advanced config)
+  file?: string;       // Relative path to file in app directory (for e2e upload during install)
 }
 
 /**
