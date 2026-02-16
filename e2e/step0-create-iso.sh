@@ -85,7 +85,7 @@ else
     PVE_NODE=$(pve_ssh "hostname")
 
     # Create vmbr1 bridge via Proxmox API
-    pve_ssh "pvesh create /nodes/\$PVE_NODE/network \
+    pve_ssh "pvesh create /nodes/$PVE_NODE/network \
         --iface vmbr1 \
         --type bridge \
         --address $GATEWAY \
@@ -94,7 +94,7 @@ else
         --comments 'NAT bridge for E2E test VMs'"
 
     # Apply network config
-    pve_ssh "pvesh set /nodes/\$PVE_NODE/network"
+    pve_ssh "pvesh set /nodes/$PVE_NODE/network"
     sleep 2
 
     # Enable IP forwarding and NAT masquerading

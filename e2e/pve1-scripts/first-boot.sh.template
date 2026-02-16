@@ -1,8 +1,11 @@
 #!/bin/bash
 # First boot script for E2E test Proxmox installation
 # This script runs after network is up to configure:
-# - APT repositories for latest packages
-# - NAT networking for isolated container network
+# - Static IP on vmbr0 (replacing DHCP from autoinstall)
+# - DNS resolvers
+#
+# All other configuration (repos, apt, kernel modules, vmbr1, dnsmasq)
+# is handled by step1-create-vm.sh after SSH becomes available.
 
 set -e
 
@@ -12,7 +15,7 @@ echo "=== E2E Test: First Boot Configuration ===" >&2
 # Configure Static IP on External Interface
 # ============================================
 # Replace DHCP with static IP for reliable access
-# This VM runs on pve1's vmbr1 NAT network (10.99.0.0/24)
+# This VM runs on the PVE host's vmbr1 NAT network
 
 STATIC_IP="{{STATIC_IP}}"
 GATEWAY="{{GATEWAY}}"
@@ -64,111 +67,8 @@ echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
 echo "Static IP configured: $STATIC_IP" >&2
 
-# Determine Debian codename from os-release (works for bookworm, trixie, etc.)
-CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
-if [ -z "$CODENAME" ]; then
-    # Fallback: parse debian_version
-    case "$(cat /etc/debian_version | cut -d. -f1)" in
-        12) CODENAME="bookworm" ;;
-        13) CODENAME="trixie" ;;
-        *)  CODENAME="bookworm" ;;
-    esac
-fi
-
-echo "Debian codename: $CODENAME" >&2
-echo "Proxmox version: $(pveversion 2>/dev/null || echo unknown)" >&2
-
-# Disable ALL enterprise repositories (require paid subscription)
-for f in /etc/apt/sources.list.d/*enterprise*.list /etc/apt/sources.list.d/ceph*.list; do
-    if [ -f "$f" ]; then
-        mv "$f" "${f}.disabled"
-        echo "Disabled $(basename "$f")" >&2
-    fi
-done
-
-# Configure Proxmox no-subscription repository (free)
-cat > /etc/apt/sources.list.d/pve-no-subscription.list << EOF
-# Proxmox VE No-Subscription Repository (for testing/development)
-deb http://download.proxmox.com/debian/pve $CODENAME pve-no-subscription
-EOF
-
-# Configure Debian repositories for latest packages
-cat > /etc/apt/sources.list << EOF
-# Debian $CODENAME repositories
-deb http://deb.debian.org/debian $CODENAME main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian $CODENAME-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security $CODENAME-security main contrib non-free-firmware
-EOF
-
-# Update package lists and upgrade system
-echo "Updating apt package lists..." >&2
-apt-get update -qq
-
-echo "Running dist-upgrade..." >&2
-DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -qq
-
-# Install useful tools for E2E testing
-echo "Installing additional tools..." >&2
-apt-get install -y -qq jq curl netcat-openbsd
-
-# Enable QEMU guest agent for VM introspection from pve1
-systemctl enable qemu-guest-agent
-systemctl start qemu-guest-agent || true
-
-# ============================================
-# Configure NAT Network for Container Isolation
-# ============================================
-# This creates an isolated network (10.0.0.0/24) for LXC containers
-# Containers can access internet via NAT but don't conflict with pve1's network
-
-echo "Configuring NAT network for containers..." >&2
-
-# Create vmbr1 as NAT bridge for containers
-if ! grep -q "vmbr1" /etc/network/interfaces; then
-    cat >> /etc/network/interfaces << 'NETEOF'
-
-# NAT bridge for E2E test containers
-auto vmbr1
-iface vmbr1 inet static
-    address 10.0.0.1/24
-    bridge-ports none
-    bridge-stp off
-    bridge-fd 0
-    post-up   echo 1 > /proc/sys/net/ipv4/ip_forward
-    post-up   iptables -t nat -A POSTROUTING -s '10.0.0.0/24' -o vmbr0 -j MASQUERADE
-    post-down iptables -t nat -D POSTROUTING -s '10.0.0.0/24' -o vmbr0 -j MASQUERADE
-NETEOF
-    echo "NAT bridge vmbr1 configured" >&2
-fi
-
-# Bring up vmbr1
-ifup vmbr1 2>/dev/null || true
-
-# Enable IP forwarding permanently
-echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/99-e2e-nat.conf
-sysctl -p /etc/sysctl.d/99-e2e-nat.conf
-
-# Configure dnsmasq for DHCP on vmbr1
-apt-get install -y -qq dnsmasq
-
-cat > /etc/dnsmasq.d/e2e-nat.conf << 'DNSEOF'
-# E2E Test NAT Network DHCP
-interface=vmbr1
-bind-interfaces
-dhcp-range=10.0.0.100,10.0.0.200,24h
-dhcp-option=option:router,10.0.0.1
-dhcp-option=option:dns-server,10.0.0.1,8.8.8.8
-# Local DNS for containers
-local=/e2e.local/
-domain=e2e.local
-expand-hosts
-DNSEOF
-
-# Restart dnsmasq
-systemctl enable dnsmasq
-systemctl restart dnsmasq
-
-echo "NAT network configured: 10.0.0.0/24 on vmbr1" >&2
-echo "Containers should use: bridge=vmbr1, ip=dhcp" >&2
+# Enable QEMU guest agent for VM introspection from PVE host
+systemctl enable qemu-guest-agent 2>/dev/null || true
+systemctl start qemu-guest-agent 2>/dev/null || true
 
 echo "=== E2E Test: First boot configuration complete ===" >&2

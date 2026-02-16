@@ -2,10 +2,14 @@
 # step1-create-vm.sh - Creates nested Proxmox VM for E2E testing
 #
 # This script:
-# 1. Creates a QEMU VM on pve1.cluster with the custom ISO
-# 2. Waits for unattended Proxmox installation to complete
-# 3. Retrieves the nested VM's IP address
-# 4. Tests SSH access from dev machine (direct, not via pve1)
+# 1. Creates a QEMU VM on the PVE host with the custom ISO
+# 2. Waits for unattended Proxmox installation + first-boot (Static IP only)
+# 3. Copies SSH keys for passwordless access
+# 4. Configures repos, runs apt dist-upgrade, installs tools
+# 5. Loads kernel modules for Docker-in-LXC
+# 6. Sets up vmbr1 NAT bridge + dnsmasq DHCP for containers
+# 7. Reboots to apply kernel upgrade + verifies everything
+# 8. Configures port forwarding on PVE host
 #
 # After this step, subsequent steps can connect directly to the nested VM.
 #
@@ -252,6 +256,36 @@ else
     info "Could not verify Proxmox version (may need time to fully initialize)"
 fi
 
+# Step 9b: Wait for first-boot.sh to complete
+# first-boot.sh only configures Static IP + DNS now, so it completes quickly
+info "Waiting for first-boot script to complete..."
+FIRST_BOOT_TIMEOUT=120
+FIRST_BOOT_WAITED=0
+while [ $FIRST_BOOT_WAITED -lt $FIRST_BOOT_TIMEOUT ]; do
+    # Note: This is a oneshot service with RemainAfterExit=yes, so status is "active" when done
+    FB_STATUS=$(nested_sshpass "systemctl is-active proxmox-first-boot-network-online.service 2>/dev/null; true" 2>/dev/null | tr -d '[:space:]')
+    case "$FB_STATUS" in
+        active|inactive) break ;;
+        failed)
+            info "First-boot service failed - checking logs..."
+            nested_sshpass "journalctl -u proxmox-first-boot-network-online.service --no-pager -n 20" 2>/dev/null || true
+            break ;;
+    esac
+    sleep 5
+    FIRST_BOOT_WAITED=$((FIRST_BOOT_WAITED + 5))
+    if [ $((FIRST_BOOT_WAITED % 30)) -eq 0 ]; then
+        info "Still waiting for first-boot... ${FIRST_BOOT_WAITED}s/$FIRST_BOOT_TIMEOUT"
+    fi
+done
+
+if [ $FIRST_BOOT_WAITED -ge $FIRST_BOOT_TIMEOUT ]; then
+    info "First-boot did not complete within ${FIRST_BOOT_TIMEOUT}s - continuing anyway"
+elif [ "$FB_STATUS" = "failed" ]; then
+    info "First-boot failed (${FIRST_BOOT_WAITED}s) - continuing with step1 configuration"
+else
+    success "First-boot completed (${FIRST_BOOT_WAITED}s)"
+fi
+
 # Step 10: Configure free Proxmox repositories and update system
 header "Configuring Free Repositories & System Update"
 
@@ -285,31 +319,40 @@ info "Running apt update && apt dist-upgrade (this may take a few minutes)..."
 nested_sshpass "'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -qq'" || error "Failed to update packages"
 success "System packages updated"
 
-# Verify Proxmox is up to date
-info "Verifying Proxmox version..."
-VERSION_INFO=$(nested_sshpass "'
-    INSTALLED=\$(pveversion 2>/dev/null)
-    CANDIDATE=\$(apt-cache policy pve-manager 2>/dev/null | grep Candidate | awk \"{print \\\$2}\")
-    CURRENT=\$(dpkg-query -W -f \"\${Version}\" pve-manager 2>/dev/null)
-    if [ \"\$CURRENT\" = \"\$CANDIDATE\" ]; then
-        echo \"UP_TO_DATE|\$INSTALLED|pve-manager \$CURRENT\"
-    else
-        echo \"OUTDATED|\$INSTALLED|installed: \$CURRENT, available: \$CANDIDATE\"
-    fi
-'" 2>/dev/null)
+# Install tools needed for E2E testing
+info "Installing additional tools..."
+nested_sshpass "'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq curl netcat-openbsd'" || error "Failed to install tools"
+success "Tools installed (jq, curl, netcat)"
 
-PVE_STATUS=$(echo "$VERSION_INFO" | cut -d'|' -f1)
-PVE_FULL=$(echo "$VERSION_INFO" | cut -d'|' -f2)
-PVE_DETAIL=$(echo "$VERSION_INFO" | cut -d'|' -f3)
+# Step 10b: Configure kernel modules for Docker-in-LXC
+header "Configuring Kernel Modules for Docker-in-LXC"
 
-if [ "$PVE_STATUS" = "UP_TO_DATE" ]; then
-    success "Proxmox is up to date: $PVE_FULL ($PVE_DETAIL)"
+info "Loading and persisting kernel modules..."
+nested_sshpass "'
+    # Try to load modules immediately (may fail in nested VMs - that is OK)
+    modprobe overlay 2>/dev/null || true
+    modprobe ip_tables 2>/dev/null || true
+    modprobe ip6_tables 2>/dev/null || true
+    modprobe br_netfilter 2>/dev/null || true
+
+    # Persist for next boot via systemd-modules-load
+    mkdir -p /etc/modules-load.d
+    cat > /etc/modules-load.d/docker.conf << MODEOF
+overlay
+ip_tables
+ip6_tables
+br_netfilter
+MODEOF
+'" || error "Failed to configure kernel modules"
+
+# Check if overlay is available now
+if nested_sshpass "lsmod | grep -q '^overlay ' || test -d /sys/module/overlay" 2>/dev/null; then
+    success "Kernel modules loaded (overlay available)"
 else
-    info "Proxmox may need a reboot to complete upgrade ($PVE_DETAIL)"
-    info "Current: $PVE_FULL"
+    info "Overlay module not loaded yet - will be available after reboot"
 fi
 
-# Step 10b: Create vmbr1 NAT bridge in nested VM for containers
+# Step 10c: Create vmbr1 NAT bridge in nested VM for containers
 header "Setting up Container NAT Bridge (vmbr1)"
 info "Creating vmbr1 in nested VM for container networking..."
 
@@ -337,6 +380,83 @@ EOF
     # Bring up vmbr1
     nested_sshpass "ifup vmbr1" || error "Failed to bring up vmbr1"
     success "vmbr1 created with NAT (10.0.0.0/24)"
+fi
+
+# Step 10d: Install and configure dnsmasq for DHCP on vmbr1
+info "Setting up DHCP server (dnsmasq) on vmbr1..."
+nested_sshpass "'
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dnsmasq
+
+    cat > /etc/dnsmasq.d/e2e-nat.conf << DNSEOF
+# E2E Test NAT Network DHCP
+interface=vmbr1
+bind-interfaces
+dhcp-range=10.0.0.100,10.0.0.200,24h
+dhcp-option=option:router,10.0.0.1
+dhcp-option=option:dns-server,10.0.0.1,8.8.8.8
+local=/e2e.local/
+domain=e2e.local
+expand-hosts
+DNSEOF
+
+    systemctl enable dnsmasq
+    systemctl restart dnsmasq
+'" || error "Failed to configure dnsmasq"
+success "DHCP server configured on vmbr1 (10.0.0.100-200)"
+
+# Step 10e: Reboot nested VM to apply kernel upgrade + load modules
+header "Rebooting Nested VM"
+info "Rebooting to apply kernel upgrade and load modules..."
+nested_sshpass "reboot" 2>/dev/null || true
+
+# Wait for SSH to come back after reboot
+info "Waiting for nested VM to come back online..."
+REBOOT_TIMEOUT=180
+REBOOT_WAITED=0
+sleep 10  # Give it time to actually shut down
+
+while [ $REBOOT_WAITED -lt $REBOOT_TIMEOUT ]; do
+    if pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@$NESTED_STATIC_IP 'echo SSH_OK'" 2>/dev/null | grep -q "SSH_OK"; then
+        break
+    fi
+    sleep 5
+    REBOOT_WAITED=$((REBOOT_WAITED + 5))
+    if [ $((REBOOT_WAITED % 30)) -eq 0 ]; then
+        info "Still waiting... ${REBOOT_WAITED}s/$REBOOT_TIMEOUT"
+    fi
+done
+
+if [ $REBOOT_WAITED -ge $REBOOT_TIMEOUT ]; then
+    error "Nested VM did not come back after reboot within ${REBOOT_TIMEOUT}s"
+fi
+success "Nested VM back online after reboot (${REBOOT_WAITED}s)"
+
+# Verify kernel modules are loaded after reboot
+info "Verifying kernel modules after reboot..."
+if nested_sshpass "lsmod | grep -q '^overlay ' || test -d /sys/module/overlay" 2>/dev/null; then
+    success "Overlay module loaded"
+else
+    info "Warning: overlay module still not available after reboot"
+fi
+
+# Verify Proxmox version after upgrade + reboot
+info "Verifying Proxmox version..."
+PVE_FULL=$(nested_sshpass "pveversion 2>/dev/null" 2>/dev/null || echo "unknown")
+success "Proxmox version: $PVE_FULL"
+
+# Verify vmbr1 and dnsmasq survived reboot
+if nested_sshpass "ip link show vmbr1" &>/dev/null; then
+    success "vmbr1 active after reboot"
+else
+    info "Warning: vmbr1 not active after reboot - bringing up..."
+    nested_sshpass "ifup vmbr1" 2>/dev/null || true
+fi
+
+if nested_sshpass "systemctl is-active dnsmasq" 2>/dev/null | grep -q "active"; then
+    success "dnsmasq running after reboot"
+else
+    info "Warning: dnsmasq not running - restarting..."
+    nested_sshpass "systemctl restart dnsmasq" 2>/dev/null || true
 fi
 
 # Step 11: Set up port forwarding on PVE host to nested VM
@@ -400,6 +520,7 @@ echo "Network Configuration:"
 echo "  - vmbr1 on $PVE_HOST: NAT network (${SUBNET}.0/24)"
 echo "  - vmbr0 in nested VM: External network"
 echo "  - vmbr1 in nested VM: NAT for containers (10.0.0.0/24)"
+echo "  - dnsmasq DHCP: 10.0.0.100-200 on vmbr1"
 echo ""
 echo "Port Forwarding (offset: $PORT_OFFSET):"
 echo "  - $PVE_HOST:$PORT_PVE_SSH -> $NESTED_IP:22 (SSH)"
