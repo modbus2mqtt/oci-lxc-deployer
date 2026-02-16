@@ -473,16 +473,6 @@ while IFS= read -r line <&3; do
   [ -z "$VOLUME_PATH" ] && continue
   VOLUME_PATH=$(printf '%s' "$VOLUME_PATH" | sed -E 's#^/*#/#')
 
-  # Skip if this mount target already exists (don't remove user-created mounts)
-  if [ "$ATTACH_TO_CT" -eq 1 ]; then
-    case " $EXISTING_TARGETS " in
-      *" $VOLUME_PATH "*)
-        log "Skipping $VOLUME_PATH - mount already exists (preserving existing configuration)"
-        continue
-        ;;
-    esac
-  fi
-
   SAFE_KEY=$(sanitize_name "$VOLUME_KEY")
   SUBDIR="${SHARED_VOLPATH}/volumes/${SAFE_HOST}/${SAFE_KEY}"
   mkdir -p "$SUBDIR"
@@ -493,6 +483,16 @@ while IFS= read -r line <&3; do
   fi
   if [ -n "$EFFECTIVE_UID" ] && [ -n "$EFFECTIVE_GID" ]; then
     chown "$EFFECTIVE_UID:$EFFECTIVE_GID" "$SUBDIR" 2>/dev/null || true
+  fi
+
+  # Skip mount attachment if this mount target already exists (don't remove user-created mounts)
+  if [ "$ATTACH_TO_CT" -eq 1 ]; then
+    case " $EXISTING_TARGETS " in
+      *" $VOLUME_PATH "*)
+        log "Skipping mount for $VOLUME_PATH - already exists (permissions updated)"
+        continue
+        ;;
+    esac
   fi
 
   if [ "$ATTACH_TO_CT" -eq 1 ]; then

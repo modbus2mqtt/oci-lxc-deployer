@@ -5,7 +5,7 @@
     "validation": {
         "commands": [
             {
-                "command": "pid=$(netstat -tlnp 2>/dev/null | grep ':1880' | head -1 | awk '{print $NF}' | cut -d/ -f1); cat /proc/$pid/status | grep '^Uid:' | awk '{print $2}'",
+                "command": "awk '$2 ~ /:0758$/ && $4 == \"0A\" {print $8}' /proc/net/tcp | head -1",
                 "expectedOutput": "1000",
                 "description": "Process on port 1880 should run as UID 1000"
             }

@@ -312,22 +312,20 @@ export class ApplicationCreateHelper {
   /**
    * Select stack from stack-selector if available in summary step.
    * Selects the first available stack (usually "default" which has auto-generated passwords).
+   * @param expectStack - If true, waits longer for the stack selector to appear (stacks API may still be loading)
    */
-  async selectStackIfAvailable(): Promise<void> {
+  async selectStackIfAvailable(expectStack = false): Promise<void> {
     const summaryStep = this.page.locator('app-summary-step');
     const stackSelector = summaryStep.locator('app-stack-selector');
 
-    // Check if stack selector is present
-    if (await stackSelector.count() === 0) {
-      console.log('No stack selector found - skipping stack selection');
-      return;
-    }
-
-    // Wait for it to be visible
+    // Wait for stack selector to appear.
+    // When expectStack is true, the stacks API may still be loading so we wait longer.
+    // When false, we do a quick check to avoid wasting time on apps without stacktype.
+    const timeout = expectStack ? 10000 : 1000;
     try {
-      await stackSelector.waitFor({ state: 'visible', timeout: 5000 });
+      await stackSelector.waitFor({ state: 'visible', timeout });
     } catch {
-      console.log('Stack selector not visible - skipping');
+      console.log('Stack selector not visible - skipping stack selection');
       return;
     }
 
@@ -451,13 +449,14 @@ export class ApplicationCreateHelper {
   /**
    * Auto-fill required dropdowns and select stack in the summary step's install parameters.
    * Similar to autoFillRequiredDropdowns in ApplicationInstallHelper but for the summary step.
+   * @param hasStacktype - If true, expects a stack selector and waits for stacks to load
    */
-  async autoFillInstallParameters(): Promise<void> {
+  async autoFillInstallParameters(hasStacktype = false): Promise<void> {
     const summaryStep = this.page.locator('app-summary-step');
 
     // Select stack if stack-selector is present (for applications with stacktype)
     // The stack provides values like POSTGRES_PASSWORD
-    await this.selectStackIfAvailable();
+    await this.selectStackIfAvailable(hasStacktype);
 
     // Handle app-enum-select components (custom dropdown wrapper)
     const enumSelects = summaryStep.locator('app-enum-select');
@@ -639,7 +638,8 @@ export class ApplicationCreateHelper {
       }
 
       // Auto-fill required dropdowns (like PVE host selection) and select stack if available
-      await this.autoFillInstallParameters();
+      const hasStacktype = !!app.tasktype && app.tasktype !== 'default';
+      await this.autoFillInstallParameters(hasStacktype);
 
       await this.clickSaveAndInstall();
       // When using Save & Install, we navigate to /monitor
