@@ -2,5 +2,22 @@
     "name": "postgres",
     "description": "PostgreSQL is an open source object-relational database system.",
     "tags": ["database"],
-    "tasktype": "postgres"
+    "tasktype": "postgres",
+    "installParams": {
+        "bridge": "vmbr1",
+        "static_ip": "10.0.0.50/24",
+        "static_gw": "10.0.0.1"
+    },
+    "validation": {
+        "waitBeforeValidation": 15,
+        "ports": [
+            { "port": 5432, "protocol": "tcp", "service": "postgres" }
+        ],
+        "commands": [
+            {
+                "command": "ip -4 addr show eth0 | grep '10.0.0.50'",
+                "description": "Static IP 10.0.0.50 is configured"
+            }
+        ]
+    }
 }

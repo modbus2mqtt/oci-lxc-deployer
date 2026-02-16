@@ -8,5 +8,8 @@
         { "destination": "config:certs/server.crt", "advanced": true },
         { "destination": "config:certs/server.key", "advanced": true }
     ],
-    "tags": ["messaging", "iot"]
+    "tags": ["messaging", "iot"],
+    "installParams": {
+        "bridge": "vmbr1"
+    }
 }

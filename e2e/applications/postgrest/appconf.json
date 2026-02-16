@@ -2,5 +2,19 @@
     "name": "postgrest",
     "description": "PostgreSQL REST API server.",
     "tags": ["api", "database"],
-    "tasktype": "postgres"
+    "tasktype": "postgres",
+    "framework": "docker-compose",
+    "dependsOn": ["postgres"],
+    "installParams": {
+        "bridge": "vmbr1"
+    },
+    "validation": {
+        "waitBeforeValidation": 30,
+        "containers": [
+            { "image": "postgrest/postgrest", "state": "running" }
+        ],
+        "ports": [
+            { "port": 3000, "protocol": "tcp", "service": "postgrest" }
+        ]
+    }
 }

@@ -507,6 +507,63 @@ export class ApplicationCreateHelper {
   }
 
   /**
+   * Show advanced parameters in the summary step if the toggle is available.
+   */
+  async showAdvancedParametersIfNeeded(): Promise<void> {
+    const summaryStep = this.page.locator('app-summary-step');
+    const advancedToggle = summaryStep.locator('button:has-text("Show Advanced Parameters")');
+
+    try {
+      await advancedToggle.waitFor({ state: 'visible', timeout: 3000 });
+      await advancedToggle.click();
+      console.log('Showed advanced parameters');
+      await this.page.waitForTimeout(300);
+    } catch {
+      console.log('No advanced parameters toggle found - skipping');
+    }
+  }
+
+  /**
+   * Apply install parameters by finding inputs by formControlName and setting values.
+   * Works for both regular text inputs and mat-select dropdowns.
+   */
+  async applyInstallParams(params: Record<string, string>): Promise<void> {
+    const summaryStep = this.page.locator('app-summary-step');
+
+    for (const [paramId, value] of Object.entries(params)) {
+      // Try regular input first
+      const input = summaryStep.locator(`input[formControlName="${paramId}"]`);
+      if (await input.count() > 0) {
+        await input.fill(value);
+        console.log(`Set install param ${paramId} = ${value}`);
+        continue;
+      }
+
+      // Try textarea
+      const textarea = summaryStep.locator(`textarea[formControlName="${paramId}"]`);
+      if (await textarea.count() > 0) {
+        await textarea.fill(value);
+        console.log(`Set install param ${paramId} = ${value}`);
+        continue;
+      }
+
+      // Try mat-select
+      const select = summaryStep.locator(`mat-select[formControlName="${paramId}"]`);
+      if (await select.count() > 0) {
+        await select.click();
+        const option = this.page.locator(`mat-option:has-text("${value}")`);
+        await option.waitFor({ state: 'visible', timeout: 5000 });
+        await option.click();
+        await this.page.locator('.cdk-overlay-backdrop').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+        console.log(`Set install param ${paramId} = ${value} (select)`);
+        continue;
+      }
+
+      console.warn(`Install param ${paramId}: no matching input found`);
+    }
+  }
+
+  /**
    * Validate that all configured upload files are displayed in the summary step.
    * Each upload file should have its own entry in the summary.
    * @throws Error if expected upload files are not found or count doesn't match
@@ -588,6 +645,11 @@ export class ApplicationCreateHelper {
 
     await this.goToCreateApplication();
 
+    // Select framework if not the default oci-image
+    if (app.framework && app.framework !== 'oci-image') {
+      await this.selectFramework(app.framework);
+    }
+
     if (app.dockerCompose) {
       await this.uploadDockerCompose(app.dockerCompose);
     }
@@ -635,6 +697,12 @@ export class ApplicationCreateHelper {
       // Upload files for upload parameters (e.g., mosquitto.conf)
       if (app.uploadfiles && app.uploadfiles.length > 0) {
         await this.uploadFilesForParameters(app.uploadfiles, app.directory);
+      }
+
+      // Show advanced parameters and apply install params if specified
+      if (app.installParams && Object.keys(app.installParams).length > 0) {
+        await this.showAdvancedParametersIfNeeded();
+        await this.applyInstallParams(app.installParams);
       }
 
       // Auto-fill required dropdowns (like PVE host selection) and select stack if available

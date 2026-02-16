@@ -51,10 +51,11 @@ function deduplicateByKey<T>(arr: T[] | undefined, key: keyof T): T[] {
 const allApplications = await loader.loadAll();
 
 // Filter: only apps with docker-compose (excludes addon-only entries like samba-addon)
+// Apps with dependsOn are skipped here and handled by dedicated test files
 // Can be restricted via E2E_TEST_APPS env var (comma-separated applicationIds)
 const filterIds = process.env.E2E_TEST_APPS?.split(',').map(s => s.trim());
 const testApplications = allApplications.filter(app =>
-  app.dockerCompose && (!filterIds || filterIds.includes(app.applicationId))
+  app.dockerCompose && !app.dependsOn?.length && (!filterIds || filterIds.includes(app.applicationId))
 );
 
 test.describe('Application Installation E2E Tests', () => {

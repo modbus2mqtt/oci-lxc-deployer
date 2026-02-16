@@ -144,6 +144,10 @@ export interface E2EApplication {
   tags?: string[];
   /** Task type for special handling (e.g., postgres setup) */
   tasktype?: 'default' | 'postgres';
+  /** Framework to use (default: 'oci-image') */
+  framework?: 'oci-image' | 'docker-compose';
+  /** Application IDs this app depends on (skipped in main test, handled by dedicated test) */
+  dependsOn?: string[];
   /** Absolute path to icon file (svg preferred, then png) */
   icon?: string;
   /** Absolute path to docker-compose file */
@@ -154,7 +158,7 @@ export interface E2EApplication {
   uploadfiles?: UploadFile[];
   /** Validation configuration for post-install checks */
   validation?: ValidationConfig;
-  /** Install parameters to pre-fill during installation (e.g., POSTGRES_PASSWORD) */
+  /** Install parameters to pre-fill during installation (e.g., bridge, static_ip) */
   installParams?: Record<string, string>;
 }
 
@@ -168,6 +172,10 @@ interface AppConf {
   description?: string;
   tags?: string[];
   tasktype?: 'default' | 'postgres';
+  /** Framework to use (default: 'oci-image') */
+  framework?: 'oci-image' | 'docker-compose';
+  /** Application IDs this app depends on */
+  dependsOn?: string[];
   uploadfiles?: UploadFile[];
   validation?: ValidationConfig;
   /** Install parameters to pre-fill during installation */
@@ -231,6 +239,8 @@ export class E2EApplicationLoader {
       description: appConf?.description,
       tags: appConf?.tags,
       tasktype: appConf?.tasktype,
+      framework: appConf?.framework,
+      dependsOn: appConf?.dependsOn,
       icon: this.findIcon(appDir),
       dockerCompose: this.findDockerCompose(appDir),
       envFile: this.findEnvFile(appDir),

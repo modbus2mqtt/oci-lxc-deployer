@@ -2,5 +2,8 @@
     "name": "pgAdmin",
     "description": "pgAdmin is a feature-rich open source administration and development platform for PostgreSQL.",
     "tags": ["database"],
-    "tasktype": "postgres"
+    "tasktype": "postgres",
+    "installParams": {
+        "bridge": "vmbr1"
+    }
 }

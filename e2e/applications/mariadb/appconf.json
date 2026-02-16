@@ -1,5 +1,8 @@
 {
     "name": "MariaDB",
     "description": "MariaDB is an open source relational database management system.",
-    "tags": ["database"]
+    "tags": ["database"],
+    "installParams": {
+        "bridge": "vmbr1"
+    }
 }

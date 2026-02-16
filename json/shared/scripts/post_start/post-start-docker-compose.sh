@@ -110,5 +110,21 @@ elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
   docker compose -f "$COMPOSE_FILE" ps >&2
 fi
 
+# Ensure containers restart automatically on boot
+# Docker daemon is enabled at boot (rc-update/systemctl enable)
+# Setting restart policy ensures Docker starts these containers when daemon starts
+echo "Setting restart policy for containers..." >&2
+if command -v docker-compose >/dev/null 2>&1; then
+  CONTAINER_IDS=$(docker-compose -f "$COMPOSE_FILE" ps -q 2>/dev/null)
+elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  CONTAINER_IDS=$(docker compose -f "$COMPOSE_FILE" ps -q 2>/dev/null)
+fi
+if [ -n "$CONTAINER_IDS" ]; then
+  echo "$CONTAINER_IDS" | xargs docker update --restart=unless-stopped >&2 || true
+  echo "Restart policy set for all containers" >&2
+else
+  echo "Warning: No container IDs found to set restart policy" >&2
+fi
+
 echo "Docker Compose services started successfully" >&2
 echo '[{"id": "docker_compose_started", "value": "true"}, {"id": "compose_dir", "value": "'"$PROJECT_DIR"'"}]'
