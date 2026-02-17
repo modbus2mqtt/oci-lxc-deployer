@@ -662,6 +662,9 @@ export class VeExecution extends EventEmitter {
           continue; // Skip unknown command type
         }
 
+        // Resolve {{ }} markers inside base64-encoded inputs and outputs (e.g., compose_file)
+        this.variableResolver.resolveBase64Inputs(this.inputs, this.outputs);
+
         // Execute command based on target
         let lastMsg: IVeExecuteMessage | undefined;
         try {

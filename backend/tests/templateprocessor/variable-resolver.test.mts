@@ -116,6 +116,199 @@ describe("VariableResolver", () => {
     expect(result2.split("\n").length).toBe(2);
   });
 
+  it("should resolve nested {{ }} markers in a second pass", () => {
+    const outputs = new Map<string, string | number | boolean>();
+    const defaults = new Map<string, string | number | boolean>();
+    defaults.set("POSTGRES_PASSWORD", "stack-secret-pw");
+    defaults.set("JWT_SECRET", "stack-jwt-64chars");
+
+    const inputs: Record<string, string | number | boolean> = {
+      envs: "POSTGRES_DB=postgres\nPOSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}\nJWT={{ JWT_SECRET }}",
+    };
+
+    const resolver = new VariableResolver(
+      () => outputs,
+      () => inputs,
+      () => defaults,
+    );
+
+    // Simulates script template: ENVS="{{ envs }}"
+    const script = 'ENVS="{{ envs }}"';
+    const result = resolver.replaceVars(script);
+
+    expect(result).toContain("POSTGRES_PASSWORD=stack-secret-pw");
+    expect(result).toContain("JWT=stack-jwt-64chars");
+    expect(result).toContain("POSTGRES_DB=postgres");
+    expect(result).not.toContain("{{ POSTGRES_PASSWORD }}");
+    expect(result).not.toContain("{{ JWT_SECRET }}");
+  });
+
+  describe("resolveBase64Inputs", () => {
+    it("should resolve {{ }} markers inside base64-encoded input values", () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {
+        POSTGRES_PASSWORD: "secret123",
+        POSTGRES_HOST: "10.0.0.50",
+      };
+      const defaults = new Map<string, string | number | boolean>();
+      const resolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+
+      const yamlContent =
+        'PGRST_DB_URI: "postgres://postgres:{{ POSTGRES_PASSWORD }}@{{ POSTGRES_HOST }}:5432/postgres"';
+      const base64Content = Buffer.from(yamlContent).toString("base64");
+
+      const testInputs: Record<string, string | number | boolean> = {
+        ...inputs,
+        compose_file: base64Content,
+      };
+
+      resolver.resolveBase64Inputs(testInputs);
+
+      const resolved = Buffer.from(
+        testInputs.compose_file as string,
+        "base64",
+      ).toString("utf-8");
+      expect(resolved).toBe(
+        'PGRST_DB_URI: "postgres://postgres:secret123@10.0.0.50:5432/postgres"',
+      );
+    });
+
+    it("should preserve Docker ${} env vars while resolving {{ }} markers", () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {
+        POSTGRES_PASSWORD: "secret",
+        POSTGRES_HOST: "db.local",
+      };
+      const defaults = new Map<string, string | number | boolean>();
+      const resolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+
+      const yamlContent =
+        'PGRST_DB_URI: "postgres://{{ POSTGRES_PASSWORD }}@{{ POSTGRES_HOST }}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}"';
+      const base64Content = Buffer.from(yamlContent).toString("base64");
+
+      const testInputs: Record<string, string | number | boolean> = {
+        ...inputs,
+        compose_file: base64Content,
+      };
+
+      resolver.resolveBase64Inputs(testInputs);
+
+      const resolved = Buffer.from(
+        testInputs.compose_file as string,
+        "base64",
+      ).toString("utf-8");
+      expect(resolved).toContain("secret@db.local");
+      expect(resolved).toContain("${POSTGRES_PORT:-5432}");
+      expect(resolved).toContain("${POSTGRES_DB:-postgres}");
+    });
+
+    it("should not modify base64 content without {{ }} markers", () => {
+      const resolver = new VariableResolver(
+        () => new Map(),
+        () => ({}),
+        () => new Map(),
+      );
+
+      const yamlContent = "image: postgrest/postgrest:latest";
+      const base64Content = Buffer.from(yamlContent).toString("base64");
+
+      const testInputs: Record<string, string | number | boolean> = {
+        compose_file: base64Content,
+      };
+
+      resolver.resolveBase64Inputs(testInputs);
+      expect(testInputs.compose_file).toBe(base64Content);
+    });
+
+    it("should skip non-string and short values", () => {
+      const resolver = new VariableResolver(
+        () => new Map(),
+        () => ({}),
+        () => new Map(),
+      );
+
+      const testInputs: Record<string, string | number | boolean> = {
+        vm_id: 101,
+        short: "abc",
+        flag: true,
+      };
+
+      resolver.resolveBase64Inputs(testInputs);
+
+      expect(testInputs.vm_id).toBe(101);
+      expect(testInputs.short).toBe("abc");
+      expect(testInputs.flag).toBe(true);
+    });
+
+    it("should resolve {{ }} markers inside base64 values in outputs map", () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {
+        POSTGRES_PASSWORD: "stack-generated-pw",
+        JWT_SECRET: "stack-generated-jwt-secret-min-32-chars!",
+      };
+      const resolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => new Map(),
+      );
+
+      // Simulate properties command storing unresolved base64 in outputs
+      const yamlContent =
+        'PGRST_DB_URI: "postgres://postgres:{{ POSTGRES_PASSWORD }}@${POSTGRES_HOST:-postgres}:5432/postgres"\nPGRST_JWT_SECRET: "{{ JWT_SECRET }}"';
+      const base64Content = Buffer.from(yamlContent).toString("base64");
+      outputs.set("compose_file", base64Content);
+      outputs.set("hostname", "postgrest");
+
+      const testInputs: Record<string, string | number | boolean> = {
+        ...inputs,
+      };
+
+      resolver.resolveBase64Inputs(testInputs, outputs);
+
+      const resolved = Buffer.from(
+        outputs.get("compose_file") as string,
+        "base64",
+      ).toString("utf-8");
+      expect(resolved).toContain("stack-generated-pw");
+      expect(resolved).toContain("stack-generated-jwt-secret-min-32-chars!");
+      expect(resolved).toContain("${POSTGRES_HOST:-postgres}");
+      expect(outputs.get("hostname")).toBe("postgrest"); // non-base64 unchanged
+    });
+
+    it("should be idempotent", () => {
+      const inputs: Record<string, string | number | boolean> = {
+        JWT_SECRET: "my-jwt-secret-that-is-long-enough",
+      };
+      const resolver = new VariableResolver(
+        () => new Map(),
+        () => inputs,
+        () => new Map(),
+      );
+
+      const yamlContent = 'PGRST_JWT_SECRET: "{{ JWT_SECRET }}"';
+      const base64Content = Buffer.from(yamlContent).toString("base64");
+
+      const testInputs: Record<string, string | number | boolean> = {
+        ...inputs,
+        compose_file: base64Content,
+      };
+
+      resolver.resolveBase64Inputs(testInputs);
+      const afterFirst = testInputs.compose_file;
+
+      resolver.resolveBase64Inputs(testInputs);
+      expect(testInputs.compose_file).toBe(afterFirst);
+    });
+  });
+
   it("should return NOT_DEFINED for undefined variables", () => {
     const outputs = new Map<string, string | number | boolean>();
     const inputs: Record<string, string | number | boolean> = {};

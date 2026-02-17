@@ -57,6 +57,7 @@ const vmUrl = process.env.E2E_VM_URL || `http://${instance.pveHost}:${deployerPo
 const isNestedVmOnly = process.argv.includes('--project=nested-vm');
 
 export default defineConfig({
+  globalSetup: './e2e/global-setup.ts',
   testDir: './e2e',
   fullyParallel: false, // Sequential for Proxmox state-dependent tests
   forbidOnly: !!process.env.CI,

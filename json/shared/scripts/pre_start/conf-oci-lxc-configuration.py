@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+import string
 import sys
 
 # Get parameters
@@ -95,6 +96,40 @@ if initial_command and initial_command != "NOT_DEFINED":
         
     except Exception as e:
         print(f"Error substituting variables in command: {e}", file=sys.stderr)
+
+# 3. Handle environment variables
+# Set lxc.environment entries from envs, removing lxc.environment.runtime duplicates
+env_dict = parse_envs(envs_str)
+if env_dict:
+    # Collect existing lxc.environment keys (preserve user-created entries)
+    existing_env_keys = set()
+    for line in new_lines:
+        m = re.match(r'^lxc\.environment:\s*([^=]+)=', line.strip())
+        if m:
+            existing_env_keys.add(m.group(1))
+
+    env_count = 0
+    env_skipped = 0
+    env_runtime_removed = 0
+    for key, value in env_dict.items():
+        if key in existing_env_keys:
+            print(f"Skipping {key} - environment variable already exists", file=sys.stderr)
+            env_skipped += 1
+            continue
+
+        # Remove matching lxc.environment.runtime entry (user value takes precedence)
+        runtime_pattern = re.compile(rf'^lxc\.environment\.runtime:\s*{re.escape(key)}=')
+        before_len = len(new_lines)
+        new_lines = [line for line in new_lines if not runtime_pattern.match(line.strip())]
+        if len(new_lines) < before_len:
+            print(f"Removed runtime default for {key} (user value takes precedence)", file=sys.stderr)
+            env_runtime_removed += 1
+
+        new_lines.append(f"lxc.environment: {key}={value}\n")
+        print(f"Set environment variable {key}={value}", file=sys.stderr)
+        env_count += 1
+
+    print(f"Set {env_count} environment variable(s) (skipped {env_skipped}, replaced {env_runtime_removed} runtime defaults)", file=sys.stderr)
 
 # Write back config
 try:

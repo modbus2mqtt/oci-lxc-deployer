@@ -189,6 +189,9 @@ export enum ApiUri {
   Stacks = "/api/stacks",
   Stack = "/api/stack/:id",
 
+  // Version / build info
+  Version = "/api/version",
+
   // Logger endpoints
   LoggerConfig = "/api/logger/config",
   LoggerLevel = "/api/logger/level/:level",

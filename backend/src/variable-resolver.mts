@@ -23,9 +23,15 @@ export class VariableResolver {
 
   /**
    * Replaces {{var}} in a string with values from inputs or outputs.
+   * Performs a second pass if the first replacement introduced new {{ }} markers
+   * (e.g., when {{ envs }} contains "POSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}").
    */
   replaceVars(str: string): string {
-    return this.replaceVarsWithContext(str, {});
+    const result = this.replaceVarsWithContext(str, {});
+    if (result !== str && /{{\s*[^}\s]+\s*}}/.test(result)) {
+      return this.replaceVarsWithContext(result, {});
+    }
+    return result;
   }
 
   /**
@@ -125,6 +131,52 @@ export class VariableResolver {
    *   volume1=/var/libs/myapp/data
    *   volume2=/var/libs/myapp/log
    */
+  /**
+   * Resolves {{ }} template markers embedded inside base64-encoded string values
+   * in inputs and outputs. Handles upload parameters like compose_file
+   * whose base64-decoded content may contain {{ variable }} placeholders.
+   *
+   * Must process both inputs (Record) and outputs (Map) because properties
+   * commands copy base64 values to outputs early, before markers can be resolved.
+   * The script template resolution checks outputs first, so unresolved base64
+   * in outputs would shadow resolved values in inputs.
+   *
+   * Modifies both collections in-place. Safe to call multiple times (idempotent).
+   */
+  resolveBase64Inputs(
+    inputs: Record<string, string | number | boolean>,
+    outputs?: Map<string, string | number | boolean>,
+  ): void {
+    for (const [key, value] of Object.entries(inputs)) {
+      if (typeof value !== "string" || value.length < 20) continue;
+      try {
+        const decoded = Buffer.from(value, "base64").toString("utf-8");
+        if (!/{{\s*[^}\s]+\s*}}/.test(decoded)) continue;
+        const resolved = this.replaceVars(decoded);
+        if (resolved !== decoded) {
+          inputs[key] = Buffer.from(resolved).toString("base64");
+        }
+      } catch {
+        // Not valid base64, skip
+      }
+    }
+    if (outputs) {
+      for (const [key, value] of outputs.entries()) {
+        if (typeof value !== "string" || value.length < 20) continue;
+        try {
+          const decoded = Buffer.from(value, "base64").toString("utf-8");
+          if (!/{{\s*[^}\s]+\s*}}/.test(decoded)) continue;
+          const resolved = this.replaceVars(decoded);
+          if (resolved !== decoded) {
+            outputs.set(key, Buffer.from(resolved).toString("base64"));
+          }
+        } catch {
+          // Not valid base64, skip
+        }
+      }
+    }
+  }
+
   replaceVarsWithContext(str: string, ctx: Record<string, any>): string {
     return str.replace(/{{\s*([^}\s]+)\s*}}/g, (_: string, v: string) => {
       // Try to resolve as list variable first

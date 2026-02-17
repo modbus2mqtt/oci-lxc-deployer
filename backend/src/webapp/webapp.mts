@@ -9,6 +9,7 @@ import { registerSshRoutes } from "./webapp-ssh-routes.mjs";
 import { registerAddonRoutes } from "./webapp-addon-routes.mjs";
 import { registerLogsHtmlRoute } from "./webapp-logs-html.mjs";
 import { registerLoggerRoutes } from "./webapp-logger-routes.mjs";
+import { registerVersionRoutes } from "./webapp-version-routes.mjs";
 import { setupStaticRoutes } from "./webapp-static.mjs";
 import { WebAppVE } from "./webapp-ve.mjs";
 import { WebAppStack } from "./webapp-stack-routes.mjs";
@@ -32,6 +33,7 @@ export class VEWebApp {
 
     registerLogsHtmlRoute(this.app);
     registerLoggerRoutes(this.app);
+    registerVersionRoutes(this.app);
 
     registerSshRoutes(
       this.app,

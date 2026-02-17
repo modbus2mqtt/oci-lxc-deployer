@@ -160,10 +160,6 @@
       "template": "150-conf-create-storage-volumes-for-lxc.json"
     },
     {
-      "name": "Set Env Variables in LXC",
-      "template": "170-conf-set-environment-variables-in-lxc.json"
-    },
-    {
       "name": "Write LXC Notes",
       "template": "190-host-write-lxc-notes.json"
     }

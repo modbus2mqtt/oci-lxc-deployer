@@ -250,8 +250,9 @@ export class WebAppVeRouteHandlers {
         body.changedParams !== undefined ? body.changedParams : body.params;
 
       // Prepare initialInputs for loadApplication (for skip_if_all_missing checks)
-      // Convert params to initialInputs format (only non-empty values)
-      const initialInputs = paramsToUse
+      // Must use body.params (all parameters), not paramsToUse (changedParams only),
+      // because skip_if_all_missing needs to see all provided parameters, not just changed ones.
+      const initialInputs = body.params
         .filter(
           (p) => p.value !== null && p.value !== undefined && p.value !== "",
         )
