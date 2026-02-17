@@ -282,7 +282,11 @@ export class SSHValidator {
     const description = cmd.description || `Command: ${cmd.command}`;
 
     try {
-      const output = this.execInContainer(cmd.command);
+      // Replace {vmId} placeholder and choose execution target
+      const resolvedCommand = cmd.command.replace(/\{vmId\}/g, this.containerVmId);
+      const output = cmd.executeOn === 'host'
+        ? this.execOnHost(resolvedCommand)
+        : this.execInContainer(resolvedCommand);
 
       if (cmd.expectedOutput && !new RegExp(cmd.expectedOutput).test(output)) {
         return {

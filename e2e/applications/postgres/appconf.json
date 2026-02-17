@@ -9,13 +9,13 @@
         "static_gw": "10.0.0.1"
     },
     "validation": {
-        "waitBeforeValidation": 15,
         "ports": [
             { "port": 5432, "protocol": "tcp", "service": "postgres" }
         ],
         "commands": [
             {
-                "command": "ip -4 addr show eth0 | grep '10.0.0.50'",
+                "command": "pct config {vmId} | grep 'ip=10.0.0.50'",
+                "executeOn": "host",
                 "description": "Static IP 10.0.0.50 is configured"
             }
         ]

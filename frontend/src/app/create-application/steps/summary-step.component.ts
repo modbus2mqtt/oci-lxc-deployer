@@ -67,10 +67,10 @@ import { AddonSectionComponent } from '../../shared/components/addon-section/add
               }
 
               <!-- Stack selector for applications with stacktype -->
-              @if (state.selectedStacktype() && availableStacks().length > 0) {
+              @if (state.selectedStacktype() && availableStacks.length > 0) {
                 <div class="secrets-selector">
                   <app-stack-selector
-                    [availableStacks]="availableStacks()"
+                    [availableStacks]="availableStacks"
                     [selectedStack]="selectedStack"
                     [label]="'Secrets'"
                     [showCreateButton]="false"
@@ -88,7 +88,7 @@ import { AddonSectionComponent } from '../../shared/components/addon-section/add
                   [groupedParameters]="installParametersGrouped"
                   [form]="previewForm"
                   [showAdvanced]="showAdvanced"
-                  [availableStacks]="availableStacks()"
+                  [availableStacks]="availableStacks"
                   (stackSelected)="onStackSelected($event)"
                 ></app-parameter-group>
               }
@@ -100,7 +100,7 @@ import { AddonSectionComponent } from '../../shared/components/addon-section/add
                   [expandedAddons]="expandedAddons()"
                   [form]="previewForm"
                   [showAdvanced]="showAdvanced"
-                  [availableStacks]="availableStacks()"
+                  [availableStacks]="availableStacks"
                   (addonToggled)="onAddonToggle($event)"
                   (addonExpandedChanged)="onAddonExpandedToggle($event)"
                   (stackSelected)="onStackSelected($event)"
@@ -327,7 +327,7 @@ export class SummaryStepComponent {
   showAdvanced = false;
 
   // Stack support
-  availableStacks = signal<IStack[]>([]);
+  availableStacks: IStack[] = [];
   selectedStack: IStack | null = null;
 
   // Addon support
@@ -477,13 +477,13 @@ export class SummaryStepComponent {
   private loadStacks(): void {
     const stacktype = this.state.selectedStacktype();
     if (!stacktype) {
-      this.availableStacks.set([]);
+      this.availableStacks = [];
       return;
     }
 
     this.configService.getStacks(stacktype).subscribe({
-      next: (res) => this.availableStacks.set(res.stacks),
-      error: () => this.availableStacks.set([])
+      next: (res) => this.availableStacks = res.stacks,
+      error: () => this.availableStacks = []
     });
   }
 

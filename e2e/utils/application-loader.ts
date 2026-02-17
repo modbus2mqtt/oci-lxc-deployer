@@ -52,8 +52,10 @@ export interface FileValidation {
  * Command validation configuration
  */
 export interface CommandValidation {
-  /** Command to execute in container */
+  /** Command to execute (in container by default, on PVE host if executeOn is "host") */
   command: string;
+  /** Where to execute: "container" (default) or "host" ({vmId} in command is replaced with container VMID) */
+  executeOn?: 'container' | 'host';
   /** Expected exit code (default: 0) */
   expectedExitCode?: number;
   /** Regex pattern to match output */

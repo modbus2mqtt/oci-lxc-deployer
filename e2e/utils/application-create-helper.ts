@@ -316,7 +316,7 @@ export class ApplicationCreateHelper {
    */
   async selectStackIfAvailable(expectStack = false): Promise<void> {
     const summaryStep = this.page.locator('app-summary-step');
-    const stackSelector = summaryStep.locator('app-stack-selector');
+    const stackSelector = summaryStep.locator('.secrets-selector app-stack-selector');
 
     // Wait for stack selector to appear.
     // When expectStack is true, the stacks API may still be loading so we wait longer.
@@ -524,15 +524,27 @@ export class ApplicationCreateHelper {
   }
 
   /**
-   * Apply install parameters by finding inputs by formControlName and setting values.
-   * Works for both regular text inputs and mat-select dropdowns.
+   * Apply install parameters by finding inputs via their mat-label in the mat-form-field.
+   * Angular's [formControlName] directive does not render as a DOM attribute,
+   * so we locate fields by their visible label text instead.
    */
   async applyInstallParams(params: Record<string, string>): Promise<void> {
     const summaryStep = this.page.locator('app-summary-step');
 
     for (const [paramId, value] of Object.entries(params)) {
-      // Try regular input first
-      const input = summaryStep.locator(`input[formControlName="${paramId}"]`);
+      // Find mat-form-field by its mat-label text (exact match first, then substring)
+      let formField = summaryStep.locator(`mat-form-field:has(mat-label:text-is("${paramId}"))`);
+      if (await formField.count() === 0) {
+        formField = summaryStep.locator(`mat-form-field:has(mat-label:has-text("${paramId}"))`);
+      }
+
+      if (await formField.count() === 0) {
+        console.warn(`Install param ${paramId}: no matching mat-form-field found`);
+        continue;
+      }
+
+      // Try input
+      const input = formField.first().locator('input');
       if (await input.count() > 0) {
         await input.fill(value);
         console.log(`Set install param ${paramId} = ${value}`);
@@ -540,7 +552,7 @@ export class ApplicationCreateHelper {
       }
 
       // Try textarea
-      const textarea = summaryStep.locator(`textarea[formControlName="${paramId}"]`);
+      const textarea = formField.first().locator('textarea');
       if (await textarea.count() > 0) {
         await textarea.fill(value);
         console.log(`Set install param ${paramId} = ${value}`);
@@ -548,7 +560,7 @@ export class ApplicationCreateHelper {
       }
 
       // Try mat-select
-      const select = summaryStep.locator(`mat-select[formControlName="${paramId}"]`);
+      const select = formField.first().locator('mat-select');
       if (await select.count() > 0) {
         await select.click();
         const option = this.page.locator(`mat-option:has-text("${value}")`);
@@ -559,7 +571,7 @@ export class ApplicationCreateHelper {
         continue;
       }
 
-      console.warn(`Install param ${paramId}: no matching input found`);
+      console.warn(`Install param ${paramId}: no input/textarea/select in form field`);
     }
   }
 
@@ -699,15 +711,17 @@ export class ApplicationCreateHelper {
         await this.uploadFilesForParameters(app.uploadfiles, app.directory);
       }
 
-      // Show advanced parameters and apply install params if specified
+      // Auto-fill required dropdowns (like PVE host selection) and select stack FIRST.
+      // Stack selection fills in default values (e.g., passwords).
+      const hasStacktype = !!app.tasktype && app.tasktype !== 'default';
+      await this.autoFillInstallParameters(hasStacktype);
+
+      // THEN show advanced parameters and apply install params to override specific values.
+      // This must happen after stack selection, otherwise the stack resets form values.
       if (app.installParams && Object.keys(app.installParams).length > 0) {
         await this.showAdvancedParametersIfNeeded();
         await this.applyInstallParams(app.installParams);
       }
-
-      // Auto-fill required dropdowns (like PVE host selection) and select stack if available
-      const hasStacktype = !!app.tasktype && app.tasktype !== 'default';
-      await this.autoFillInstallParameters(hasStacktype);
 
       await this.clickSaveAndInstall();
       // When using Save & Install, we navigate to /monitor

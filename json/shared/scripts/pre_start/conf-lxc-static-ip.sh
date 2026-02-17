@@ -25,9 +25,18 @@ output_result() {
 }
 ipv4_ok=true
 
- # Initialize IP variables (already computed or provided)
+ # Initialize variables from template
+# Unresolved template variables are replaced with "NOT_DEFINED" - treat as empty
 static_ip="{{ static_ip }}"
 static_ip6="{{ static_ip6 }}"
+static_gw="{{ static_gw }}"
+static_gw6="{{ static_gw6 }}"
+bridge="{{ bridge }}"
+[ "$static_ip" = "NOT_DEFINED" ] && static_ip=""
+[ "$static_ip6" = "NOT_DEFINED" ] && static_ip6=""
+[ "$static_gw" = "NOT_DEFINED" ] && static_gw=""
+[ "$static_gw6" = "NOT_DEFINED" ] && static_gw6=""
+[ "$bridge" = "NOT_DEFINED" ] && bridge=""
 
 # Auto-detect static IP usage
 if [ -z "$static_ip" ] && [ -z "$static_ip6" ]; then
@@ -111,7 +120,7 @@ if [ -n "$static_ip" ]; then
   ipv4_ok=true
 else
   # If gateway is provided without IP, that's invalid
-  if [ -n "{{ static_gw }}" ]; then
+  if [ -n "$static_gw" ]; then
     echo "IPv4 gateway provided without IPv4 address!" >&2
     output_result "false" ""
     exit 2
@@ -128,7 +137,7 @@ if [ -n "$static_ip6" ]; then
   ipv6_ok=true
 else
   # If gateway is provided without IP, that's invalid
-  if [ -n "{{ static_gw6 }}" ]; then
+  if [ -n "$static_gw6" ]; then
     echo "IPv6 gateway provided without IPv6 address!" >&2
     output_result "false" ""
     exit 2
@@ -142,17 +151,17 @@ if [ "$ipv4_ok" = false ] && [ "$ipv6_ok" = false ]; then
   exit 2
 fi
 
-NET_OPTS="name=eth0,bridge={{ bridge }}"
+NET_OPTS="name=eth0,bridge=${bridge}"
 if [ "$ipv4_ok" = true ]; then
   NET_OPTS="$NET_OPTS,ip=$static_ip"
-  if [ -n "{{ static_gw }}" ]; then
-    NET_OPTS="$NET_OPTS,gw={{ static_gw }}"
+  if [ -n "$static_gw" ]; then
+    NET_OPTS="$NET_OPTS,gw=$static_gw"
   fi
 fi
 if [ "$ipv6_ok" = true ]; then
   NET_OPTS="$NET_OPTS,ip6=$static_ip6"
-  if [ -n "{{ static_gw6 }}" ]; then
-    NET_OPTS="$NET_OPTS,gw6={{ static_gw6 }}"
+  if [ -n "$static_gw6" ]; then
+    NET_OPTS="$NET_OPTS,gw6=$static_gw6"
   fi
 fi
 pct set {{ vm_id }} --net0 "$NET_OPTS" >&2

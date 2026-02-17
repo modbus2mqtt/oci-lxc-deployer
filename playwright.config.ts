@@ -62,7 +62,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1, // Single worker for stateful tests
-  timeout: 180000, // 3min per test (container creation is slow)
+  timeout: 600000, // 10min per test (OCI image download + container creation is slow)
 
   reporter: process.env.CI ? 'github' : 'list',
 

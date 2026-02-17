@@ -1,4 +1,4 @@
-import { Page, expect, Locator } from '@playwright/test';
+import { Page, expect, Locator, Response } from '@playwright/test';
 import { E2EApplication } from './application-loader';
 import { ApplicationCreateHelper } from './application-create-helper';
 
@@ -18,6 +18,8 @@ import { ApplicationCreateHelper } from './application-create-helper';
  */
 export class ApplicationInstallHelper {
   private createHelper: ApplicationCreateHelper;
+  /** VMID extracted from the last successful installation API response */
+  private lastCreatedVmId: string | null = null;
 
   constructor(private page: Page) {
     this.createHelper = new ApplicationCreateHelper(page);
@@ -120,46 +122,63 @@ export class ApplicationInstallHelper {
   }
 
   /**
-   * Wait for installation to complete on the monitor page.
-   * Waits for either success or error UI elements to appear.
+   * Wait for installation to complete by monitoring the polling API responses.
+   * Intercepts GET /api/ve/execute/ responses and checks for finished or error messages.
    *
-   * @param applicationName - Optional application name to filter by (waits for this specific app's success/error)
-   * @param timeout - Maximum time to wait in milliseconds (default: 3 minutes)
+   * @param applicationName - Optional application name to filter by
+   * @param timeout - Maximum time to wait in milliseconds (default: 9 minutes)
    * @returns true if installation succeeded
    * @throws Error if installation failed or timed out
    */
-  async waitForInstallationComplete(applicationName?: string, timeout: number = 180000): Promise<boolean> {
-    let successLocator;
-    let errorLocator;
+  async waitForInstallationComplete(applicationName?: string, timeout: number = 540000): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      let settled = false;
 
-    if (applicationName) {
-      // Find the panel with the specific app name, then find success/error within it
-      const panelWithApp = this.page.locator('mat-expansion-panel', {
-        has: this.page.locator(`mat-panel-title:has-text("${applicationName}")`)
-      });
-      successLocator = panelWithApp.locator('[data-testid="installation-success"]');
-      errorLocator = panelWithApp.locator('[data-testid="installation-error"]');
-    } else {
-      successLocator = this.page.locator('[data-testid="installation-success"]');
-      errorLocator = this.page.locator('[data-testid="installation-error"]');
-    }
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.page.off('response', responseHandler);
+        reject(new Error(`Installation timed out after ${timeout}ms`));
+      }, timeout);
 
-    // Wait for either success or error to appear
-    const result = await Promise.race([
-      successLocator.waitFor({ state: 'visible', timeout }).then(() => 'success' as const),
-      errorLocator.waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
-    ]).catch(() => 'timeout' as const);
+      const responseHandler = async (response: Response) => {
+        if (settled) return;
+        if (!response.url().includes('/api/ve/execute/')) return;
+        if (response.status() !== 200) return;
 
-    if (result === 'success') {
-      return true;
-    }
+        try {
+          const groups = await response.json();
+          for (const group of groups) {
+            if (applicationName && !group.application?.toLowerCase().includes(applicationName.toLowerCase())) continue;
+            for (const msg of group.messages || []) {
+              if (msg.finished === true) {
+                settled = true;
+                clearTimeout(timeoutId);
+                this.page.off('response', responseHandler);
+                console.log(`Installation finished: ${msg.result}`);
+                if (msg.vmId) {
+                  this.lastCreatedVmId = String(msg.vmId);
+                  console.log(`Created container VMID (from API): ${this.lastCreatedVmId}`);
+                }
+                resolve(true);
+                return;
+              }
+              if (msg.exitCode !== undefined && msg.exitCode !== 0 && !msg.finished) {
+                settled = true;
+                clearTimeout(timeoutId);
+                this.page.off('response', responseHandler);
+                reject(new Error(`Installation failed: ${msg.command} (exit code ${msg.exitCode})`));
+                return;
+              }
+            }
+          }
+        } catch {
+          // Response parsing failed, skip
+        }
+      };
 
-    if (result === 'error') {
-      const errorText = await errorLocator.textContent().catch(() => 'Unknown error');
-      throw new Error(`Installation failed: ${errorText}`);
-    }
-
-    throw new Error(`Installation timed out after ${timeout}ms`);
+      this.page.on('response', responseHandler);
+    });
   }
 
   /**
@@ -171,50 +190,14 @@ export class ApplicationInstallHelper {
    * @param applicationName - Optional application name to filter by
    * @returns The VMID as string, or null if not found
    */
-  async extractCreatedVmId(applicationName?: string): Promise<string | null> {
-    // Get the container (either specific app panel or whole page)
-    const container = applicationName
-      ? this.page.locator('mat-expansion-panel', {
-          has: this.page.locator(`mat-panel-title:has-text("${applicationName}")`)
-        })
-      : this.page;
-
-    // First, check the success block for "Created container: XXX"
-    const successBlock = container.locator('[data-testid="installation-success"]');
-    if (await successBlock.count() > 0) {
-      const successText = await successBlock.textContent();
-      if (successText) {
-        const containerMatch = successText.match(/Created container:\s*(\d+)/i);
-        if (containerMatch) {
-          console.log(`Found VMID in success message: ${containerMatch[1]}`);
-          return containerMatch[1];
-        }
-      }
+  async extractCreatedVmId(_applicationName?: string): Promise<string | null> {
+    // Prefer VMID from API response (set by waitForInstallationComplete)
+    if (this.lastCreatedVmId) {
+      console.log(`Using VMID from API response: ${this.lastCreatedVmId}`);
+      return this.lastCreatedVmId;
     }
 
-    // Fallback: check command texts
-    const commandTexts = container.locator('.success-list .command-text');
-    const count = await commandTexts.count();
-
-    for (let i = 0; i < count; i++) {
-      const text = await commandTexts.nth(i).textContent();
-      if (!text) continue;
-
-      // Look for patterns like "Create LXC Container 301" or "start LXC 301"
-      const createMatch = text.match(/Create LXC Container\s+(\d+)/i);
-      if (createMatch) {
-        console.log(`Found VMID in command: ${text}`);
-        return createMatch[1];
-      }
-
-      const startMatch = text.match(/start LXC\s+(\d+)/i);
-      if (startMatch) {
-        console.log(`Found VMID in command: ${text}`);
-        return startMatch[1];
-      }
-    }
-
-    console.log('Could not extract VMID from process monitor');
+    console.log('Could not extract VMID - waitForInstallationComplete did not capture vmId');
     return null;
   }
 

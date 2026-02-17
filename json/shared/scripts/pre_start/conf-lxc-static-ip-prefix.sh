@@ -26,31 +26,41 @@ has6=false
 ip4_val=""
 ip6_val=""
 
+# Unresolved template variables are replaced with "NOT_DEFINED" - treat as empty
+ip4_prefix="{{ ip4_prefix }}"
+ip4_cidr="{{ ip4_cidr }}"
+ip6_prefix="{{ ip6_prefix }}"
+ip6_cidr="{{ ip6_cidr }}"
+[ "$ip4_prefix" = "NOT_DEFINED" ] && ip4_prefix=""
+[ "$ip4_cidr" = "NOT_DEFINED" ] && ip4_cidr=""
+[ "$ip6_prefix" = "NOT_DEFINED" ] && ip6_prefix=""
+[ "$ip6_cidr" = "NOT_DEFINED" ] && ip6_cidr=""
+
 # IPv4 from prefix
-if [ -n "{{ ip4_prefix }}" ]; then
+if [ -n "$ip4_prefix" ]; then
   if [ -z "{{ vm_id }}" ]; then
     echo "Missing vm_id for IPv4 prefix" >&2
     exit 2
   fi
-  if [ -z "{{ ip4_cidr }}" ]; then
+  if [ -z "$ip4_cidr" ]; then
     echo "ip4_cidr must be set when ip4_prefix is used" >&2
     exit 2
   fi
-  ip4_val="{{ ip4_prefix }}.{{ vm_id }}/{{ ip4_cidr }}"
+  ip4_val="${ip4_prefix}.{{ vm_id }}/${ip4_cidr}"
   has4=true
 fi
 
 # IPv6 from prefix
-if [ -n "{{ ip6_prefix }}" ]; then
+if [ -n "$ip6_prefix" ]; then
   if [ -z "{{ vm_id }}" ]; then
     echo "Missing vm_id for IPv6 prefix" >&2
     exit 2
   fi
-  if [ -z "{{ ip6_cidr }}" ]; then
+  if [ -z "$ip6_cidr" ]; then
     echo "ip6_cidr must be set when ip6_prefix is used" >&2
     exit 2
   fi
-  ip6_val="{{ ip6_prefix }}:{{ vm_id }}/{{ ip6_cidr }}"
+  ip6_val="${ip6_prefix}:{{ vm_id }}/${ip6_cidr}"
   has6=true
 fi
 
