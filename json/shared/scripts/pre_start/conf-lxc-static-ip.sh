@@ -164,6 +164,11 @@ if [ "$ipv6_ok" = true ]; then
     NET_OPTS="$NET_OPTS,gw6=$static_gw6"
   fi
 fi
+
+# Enable host-managed networking so Proxmox generates lxc.net.0.ipv4.address
+# and lxc.net.0.flags=up in the LXC config. Without this, OCI containers
+# (which lack an init system to configure networking) get no IP assigned.
+NET_OPTS="$NET_OPTS,host-managed=1"
 pct set {{ vm_id }} --net0 "$NET_OPTS" >&2
 RC=$?
 if [ $RC -ne 0 ]; then

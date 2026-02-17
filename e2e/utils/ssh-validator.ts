@@ -62,7 +62,7 @@ export class SSHValidator {
   /**
    * Execute command on the PVE host via SSH (via stdin to avoid escaping issues)
    */
-  private execOnHost(command: string, timeout?: number): string {
+  execOnHost(command: string, timeout?: number): string {
     const sshCmd = [
       'ssh',
       '-o', 'StrictHostKeyChecking=no',

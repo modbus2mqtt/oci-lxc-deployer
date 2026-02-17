@@ -57,8 +57,8 @@ test.describe('PostgREST docker-compose E2E Test', () => {
     // --- Step 1: Ensure Postgres is running ---
     let postgresAlreadyRunning = false;
     try {
-      // Check if port 5432 is reachable on the expected static IP
-      hostValidator.execInContainer(`nc -z ${POSTGRES_HOST} ${POSTGRES_PORT}`);
+      // Check if port 5432 is reachable on the expected static IP (from PVE host)
+      hostValidator.execOnHost(`nc -z ${POSTGRES_HOST} ${POSTGRES_PORT}`);
       postgresAlreadyRunning = true;
       console.log(`Postgres already running on ${POSTGRES_HOST}:${POSTGRES_PORT} - skipping installation`);
     } catch {

@@ -182,9 +182,7 @@ export class ApplicationCreateHelper {
    * Select a framework in step 1
    */
   async selectFramework(frameworkId: string): Promise<void> {
-    const frameworkSelect = this.page.locator('[data-testid="framework-select"]').or(
-      this.page.locator('mat-select').first()
-    );
+    const frameworkSelect = this.page.locator('[data-testid="framework-select"]');
     await frameworkSelect.click();
 
     const option = this.page.locator(`mat-option:has-text("${frameworkId}")`);

@@ -6,7 +6,10 @@
     "framework": "docker-compose",
     "dependsOn": ["postgres"],
     "installParams": {
-        "bridge": "vmbr1"
+        "bridge": "vmbr1",
+        "POSTGRES_HOST": "10.0.0.50",
+        "POSTGRES_PASSWORD": "e2e-test-password",
+        "JWT_SECRET": "e2e-test-jwt-secret-minimum-32-chars!"
     },
     "validation": {
         "waitBeforeValidation": 30,
