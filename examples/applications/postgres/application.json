@@ -31,10 +31,10 @@
       "type": "string",
       "advanced": true,
       "multiline": true,
-      "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
-      "template": "170-conf-set-environment-variables-in-lxc.json",
-      "templatename": "Env Variables in LXC",
-      "default": "GID=70\nPGDATA=/var/lib/postgresql/data/pgdata\nPOSTGRES_DB=postgres\nPOSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}\nPOSTGRES_PORT=5432\nPOSTGRES_USER=postgres\nPOSTGRES_VERSION=16-alpine\nUID=70"
+      "default": "GID=70\nPGDATA=/var/lib/postgresql/data/pgdata\nPOSTGRES_DB=postgres\nPOSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}\nPOSTGRES_PORT=5432\nPOSTGRES_USER=postgres\nPOSTGRES_VERSION=16-alpine\nUID=70",
+      "description": "Environment variables to substitute in initial_command.",
+      "template": "107-conf-oci-lxc-configuration.json",
+      "templatename": "Configure LXC for OCI"
     }
   ],
   "properties": [
