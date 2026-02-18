@@ -22,8 +22,7 @@
       "required": false,
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
-      "templatename": "Create Storage Volumes for LXC",
-      "default": "data=var/lib/postgresql/data"
+      "templatename": "Create Storage Volumes for LXC"
     },
     {
       "id": "envs",
@@ -31,10 +30,10 @@
       "type": "string",
       "advanced": true,
       "multiline": true,
-      "description": "Environment variables in key=value format, one per line. Each line sets an environment variable in the container configuration. Example:\nMYAPP_HOST=localhost\nMYAPP_PORT=8080\nDATABASE_URL=postgresql://localhost:5432/mydb",
-      "template": "170-conf-set-environment-variables-in-lxc.json",
-      "templatename": "Env Variables in LXC",
-      "default": "POSTGRES_USER=postgres\nZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD={{ POSTGRES_PASSWORD }}\nZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=postgres\nZITADEL_DATABASE_POSTGRES_DATABASE=zitadel\nZITADEL_DATABASE_POSTGRES_HOST=postgres\nZITADEL_DATABASE_POSTGRES_PORT=5432\nZITADEL_DATABASE_POSTGRES_USER_PASSWORD={{ POSTGRES_PASSWORD }}\nZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_USER_USERNAME=postgres\nZITADEL_DB=zitadel\nZITADEL_EXTERNALDOMAIN=localhost\nZITADEL_EXTERNALPORT=8080\nZITADEL_EXTERNALSECURE=false\nZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD=Password1!\nZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME=admin\nZITADEL_PORT=8080\nZITADEL_VERSION=latest"
+      "default": "POSTGRES_HOST=10.0.0.50\nPOSTGRES_PORT=5432\nPOSTGRES_USER=postgres\nZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD={{ POSTGRES_PASSWORD }}\nZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=postgres\nZITADEL_DATABASE_POSTGRES_DATABASE=zitadel\nZITADEL_DATABASE_POSTGRES_HOST=10.0.0.50\nZITADEL_DATABASE_POSTGRES_PORT=5432\nZITADEL_DATABASE_POSTGRES_USER_PASSWORD={{ POSTGRES_PASSWORD }}\nZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_USER_USERNAME=postgres\nZITADEL_DB=zitadel\nZITADEL_EXTERNALDOMAIN=localhost\nZITADEL_EXTERNALPORT=8080\nZITADEL_EXTERNALSECURE=false\nZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD=Password1!\nZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME=admin\nZITADEL_PORT=8080\nZITADEL_VERSION=latest",
+      "description": "Environment variables to substitute in initial_command.",
+      "template": "107-conf-oci-lxc-configuration.json",
+      "templatename": "Configure LXC for OCI"
     }
   ],
   "properties": [
@@ -56,9 +55,5 @@
     }
   ],
   "installation": {},
-  "url": "https://github.com/zitadel/zitadel",
-  "documentation": "https://zitadel.com/docs",
-  "source": "https://github.com/zitadel/zitadel",
-  "vendor": "ZITADEL",
   "stacktype": "postgres"
 }

@@ -1,5 +1,5 @@
 import { test, expect, getPveHost } from '../fixtures/test-base';
-import { E2EApplicationLoader, ValidationConfig } from '../utils/application-loader';
+import { E2EApplicationLoader, E2EApplication, ValidationConfig } from '../utils/application-loader';
 import { SSHValidator } from '../utils/ssh-validator';
 import { ValidationGenerator } from '../utils/validation-generator';
 import { ApplicationInstallHelper } from '../utils/application-install-helper';
@@ -36,154 +36,134 @@ function deduplicateByKey<T>(arr: T[] | undefined, key: keyof T): T[] {
 }
 
 /**
- * PostgREST docker-compose E2E Test
- *
- * Tests the docker-compose framework with a real multi-container scenario:
- * 1. Postgres runs as a separate LXC container with static IP
- * 2. PostgREST runs via docker-compose (network_mode: host) connecting to Postgres
- *
- * The test checks if Postgres is already running (from a previous test run)
- * and only installs it if needed.
+ * Installs an application, validates it, and returns the container VMID.
  */
-test.describe('PostgREST docker-compose E2E Test', () => {
+async function installAndValidate(page: import('@playwright/test').Page, app: E2EApplication): Promise<string> {
+  const helper = new ApplicationInstallHelper(page);
 
-  test('install postgres and postgrest, validate connectivity', async ({ page }) => {
-    const helper = new ApplicationInstallHelper(page);
+  // Cleanup
+  console.log(`Cleaning up existing application: ${app.applicationId}`);
+  const cleanup = helper.cleanupApplication(app.applicationId);
+  console.log(`Cleanup result: ${cleanup.message}`);
+
+  // Install
+  console.log(`Creating and installing ${app.name}...`);
+  await helper.createApplication(app, { installAfterSave: true });
+
+  const installed = await helper.waitForInstallationComplete(app.name);
+  expect(installed).toBe(true);
+  console.log(`${app.name} installation complete`);
+
+  const vmId = await helper.extractCreatedVmId(app.name);
+  expect(vmId, `${app.name} container VMID must be extracted`).toBeTruthy();
+  console.log(`${app.name} container VMID: ${vmId}`);
+
+  // Validate
+  const generatedValidation = app.dockerCompose
+    ? ValidationGenerator.generate({
+        dockerComposePath: app.dockerCompose,
+        uploadFiles: app.uploadfiles,
+        uploadFilesBasePath: app.directory,
+        waitBeforeValidation: app.validation?.waitBeforeValidation,
+      })
+    : null;
+
+  const validationConfig: ValidationConfig = {
+    ...generatedValidation,
+    ...app.validation,
+    containers: [...(generatedValidation?.containers || []), ...(app.validation?.containers || [])],
+    processes: [...(generatedValidation?.processes || []), ...(app.validation?.processes || [])],
+    volumes: [...(generatedValidation?.volumes || []), ...(app.validation?.volumes || [])],
+    ports: [...(generatedValidation?.ports || []), ...(app.validation?.ports || [])],
+    commands: [...(generatedValidation?.commands || []), ...(app.validation?.commands || [])],
+    uploadFiles: [...(generatedValidation?.uploadFiles || []), ...(app.validation?.uploadFiles || [])],
+  };
+
+  validationConfig.containers = deduplicateByKey(validationConfig.containers, 'image');
+  validationConfig.processes = deduplicateByKey(validationConfig.processes, 'name');
+  validationConfig.volumes = deduplicateByKey(validationConfig.volumes, 'path');
+  validationConfig.ports = deduplicateByKey(validationConfig.ports, 'port');
+  validationConfig.uploadFiles = deduplicateByKey(validationConfig.uploadFiles, 'path');
+
+  const appValidator = new SSHValidator({
+    sshHost: getPveHost(),
+    sshPort: SSH_PORT,
+    containerVmId: vmId!,
+  });
+
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`Validation for: ${app.name} (container ${vmId})`);
+  console.log(`${'='.repeat(60)}`);
+
+  const { success, results, summary } = await appValidator.validate(validationConfig);
+
+  const passed = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  if (passed.length > 0) {
+    console.log(`\n✓ Passed (${passed.length}):`);
+    for (const result of passed) {
+      console.log(`  ✓ ${result.message}`);
+    }
+  }
+
+  if (failed.length > 0) {
+    console.log(`\n✗ Failed (${failed.length}):`);
+    for (const result of failed) {
+      console.log(`  ✗ ${result.message}`);
+      if (result.details) {
+        console.log(`    Details: ${result.details.substring(0, 200)}`);
+      }
+    }
+  }
+
+  console.log(`\n${'─'.repeat(60)}`);
+  console.log(`Summary: ${summary}`);
+  console.log(`${'─'.repeat(60)}\n`);
+
+  const detailedError = failed.length > 0
+    ? `Validation failed for ${app.name}:\n${failed.map((r) => `  - ${r.message}`).join('\n')}`
+    : `Validation failed: ${summary}`;
+
+  expect(success, detailedError).toBe(true);
+
+  return vmId!;
+}
+
+/**
+ * Postgres-dependent docker-compose E2E Tests
+ *
+ * Tests docker-compose applications that depend on a shared Postgres instance:
+ * 1. Ensures Postgres is running (installs only if not reachable)
+ * 2. PostgREST and Zitadel are installed and validated independently
+ */
+test.describe('Postgres-dependent docker-compose E2E Tests', () => {
+
+  test('ensure postgres is running', async ({ page }) => {
     const hostValidator = new SSHValidator({
       sshHost: getPveHost(),
       sshPort: SSH_PORT,
     });
 
-    // --- Step 1: Ensure Postgres is running ---
-    let postgresAlreadyRunning = false;
     try {
-      // Check if port 5432 is reachable on the expected static IP (from PVE host)
       hostValidator.execOnHost(`nc -z ${POSTGRES_HOST} ${POSTGRES_PORT}`);
-      postgresAlreadyRunning = true;
-      console.log(`Postgres already running on ${POSTGRES_HOST}:${POSTGRES_PORT} - skipping installation`);
+      console.log(`Postgres already running on ${POSTGRES_HOST}:${POSTGRES_PORT}`);
+      return;
     } catch {
-      console.log(`Postgres not reachable on ${POSTGRES_HOST}:${POSTGRES_PORT} - will install`);
+      console.log(`Postgres not reachable on ${POSTGRES_HOST}:${POSTGRES_PORT} - installing...`);
     }
 
-    if (!postgresAlreadyRunning) {
-      const postgresApp = await loader.load('postgres');
+    const postgresApp = await loader.load('postgres');
+    await installAndValidate(page, postgresApp);
+  });
 
-      // Cleanup existing postgres application (if any)
-      console.log(`Cleaning up existing application: ${postgresApp.applicationId}`);
-      const cleanup = helper.cleanupApplication(postgresApp.applicationId);
-      console.log(`Cleanup result: ${cleanup.message}`);
-
-      // Create and install postgres with static IP
-      console.log('Creating and installing postgres with static IP...');
-      await helper.createApplication(postgresApp, { installAfterSave: true });
-
-      const installed = await helper.waitForInstallationComplete(postgresApp.name);
-      expect(installed).toBe(true);
-      console.log('Postgres installation complete');
-
-      const postgresVmId = await helper.extractCreatedVmId(postgresApp.name);
-      expect(postgresVmId, 'Postgres container VMID must be extracted').toBeTruthy();
-      console.log(`Postgres container VMID: ${postgresVmId}`);
-
-      // Validate postgres
-      if (postgresApp.validation) {
-        const postgresValidator = new SSHValidator({
-          sshHost: getPveHost(),
-          sshPort: SSH_PORT,
-          containerVmId: postgresVmId!,
-        });
-
-        const { success, summary } = await postgresValidator.validate(postgresApp.validation);
-        console.log(`Postgres validation: ${summary}`);
-        expect(success, `Postgres validation failed: ${summary}`).toBe(true);
-      }
-    }
-
-    // --- Step 2: Install PostgREST ---
+  test('install postgrest', async ({ page }) => {
     const postgrestApp = await loader.load('postgrest');
+    await installAndValidate(page, postgrestApp);
+  });
 
-    // Cleanup existing postgrest application (if any)
-    console.log(`Cleaning up existing application: ${postgrestApp.applicationId}`);
-    const cleanup = helper.cleanupApplication(postgrestApp.applicationId);
-    console.log(`Cleanup result: ${cleanup.message}`);
-
-    // Create and install postgrest with docker-compose framework
-    console.log('Creating and installing postgrest (docker-compose framework)...');
-    await helper.createApplication(postgrestApp, { installAfterSave: true });
-
-    const installed = await helper.waitForInstallationComplete(postgrestApp.name);
-    expect(installed).toBe(true);
-    console.log('PostgREST installation complete');
-
-    const postgrestVmId = await helper.extractCreatedVmId(postgrestApp.name);
-    expect(postgrestVmId, 'PostgREST container VMID must be extracted').toBeTruthy();
-    console.log(`PostgREST container VMID: ${postgrestVmId}`);
-
-    // --- Step 3: Validate PostgREST ---
-    const generatedValidation = postgrestApp.dockerCompose
-      ? ValidationGenerator.generate({
-          dockerComposePath: postgrestApp.dockerCompose,
-          waitBeforeValidation: postgrestApp.validation?.waitBeforeValidation,
-        })
-      : null;
-
-    const validationConfig: ValidationConfig = {
-      ...generatedValidation,
-      ...postgrestApp.validation,
-      containers: [...(generatedValidation?.containers || []), ...(postgrestApp.validation?.containers || [])],
-      processes: [...(generatedValidation?.processes || []), ...(postgrestApp.validation?.processes || [])],
-      volumes: [...(generatedValidation?.volumes || []), ...(postgrestApp.validation?.volumes || [])],
-      ports: [...(generatedValidation?.ports || []), ...(postgrestApp.validation?.ports || [])],
-      commands: [...(generatedValidation?.commands || []), ...(postgrestApp.validation?.commands || [])],
-      uploadFiles: [...(generatedValidation?.uploadFiles || []), ...(postgrestApp.validation?.uploadFiles || [])],
-    };
-
-    validationConfig.containers = deduplicateByKey(validationConfig.containers, 'image');
-    validationConfig.processes = deduplicateByKey(validationConfig.processes, 'name');
-    validationConfig.volumes = deduplicateByKey(validationConfig.volumes, 'path');
-    validationConfig.ports = deduplicateByKey(validationConfig.ports, 'port');
-    validationConfig.uploadFiles = deduplicateByKey(validationConfig.uploadFiles, 'path');
-
-    const postgrestValidator = new SSHValidator({
-      sshHost: getPveHost(),
-      sshPort: SSH_PORT,
-      containerVmId: postgrestVmId!,
-    });
-
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`Validation for: ${postgrestApp.name} (container ${postgrestVmId})`);
-    console.log(`${'='.repeat(60)}`);
-
-    const { success, results, summary } = await postgrestValidator.validate(validationConfig);
-
-    const passed = results.filter((r) => r.success);
-    const failed = results.filter((r) => !r.success);
-
-    if (passed.length > 0) {
-      console.log(`\n✓ Passed (${passed.length}):`);
-      for (const result of passed) {
-        console.log(`  ✓ ${result.message}`);
-      }
-    }
-
-    if (failed.length > 0) {
-      console.log(`\n✗ Failed (${failed.length}):`);
-      for (const result of failed) {
-        console.log(`  ✗ ${result.message}`);
-        if (result.details) {
-          console.log(`    Details: ${result.details.substring(0, 200)}`);
-        }
-      }
-    }
-
-    console.log(`\n${'─'.repeat(60)}`);
-    console.log(`Summary: ${summary}`);
-    console.log(`${'─'.repeat(60)}\n`);
-
-    const detailedError = failed.length > 0
-      ? `Validation failed for ${postgrestApp.name}:\n${failed.map((r) => `  - ${r.message}`).join('\n')}`
-      : `Validation failed: ${summary}`;
-
-    expect(success, detailedError).toBe(true);
+  test('install zitadel', async ({ page }) => {
+    const zitadelApp = await loader.load('zitadel');
+    await installAndValidate(page, zitadelApp);
   });
 });

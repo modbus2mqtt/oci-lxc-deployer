@@ -512,9 +512,9 @@ export class ApplicationPersistenceHandler {
         const iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
 
         if (ext === ".svg") {
-          // For SVG: normalize size to 64x64 before base64 encoding
+          // For SVG: normalize size to 16x16 before base64 encoding
           const svgContent = fs.readFileSync(iconPath, { encoding: "utf-8" });
-          const normalizedSvg = this.normalizeSvgSize(svgContent, 64);
+          const normalizedSvg = this.normalizeSvgSize(svgContent, 16);
           const iconContent = Buffer.from(normalizedSvg, "utf-8").toString(
             "base64",
           );
