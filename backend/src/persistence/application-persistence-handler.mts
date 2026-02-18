@@ -310,29 +310,23 @@ export class ApplicationPersistenceHandler {
         }
       }
 
-      // Check for icon in the application directory (supports .png and .svg)
-      let icon = appData?.icon ? appData.icon : "icon.png";
-      let iconFound = false;
-      if (appPath) {
-        const iconPath = path.join(appPath, icon);
-        if (fs.existsSync(iconPath)) {
-          appData.icon = icon;
-          appData.iconContent = fs.readFileSync(iconPath, {
-            encoding: "base64",
-          });
-          // Determine MIME type based on file extension
-          const ext = path.extname(icon).toLowerCase();
-          appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
-          iconFound = true;
-          // Store icon data for inheritance
-          (opts as any).inheritedIcon = icon;
-          (opts as any).inheritedIconContent = appData.iconContent;
-          (opts as any).inheritedIconType = appData.iconType;
-        }
-      }
-
-      // If no icon found and we have inherited icon data from parent, use it
-      if (!iconFound && (opts as any).inheritedIconContent) {
+      // Check for icon in the application directory
+      const iconFile = appPath
+        ? this.findIconFile(appPath, appData?.icon)
+        : null;
+      if (iconFile) {
+        appData.icon = iconFile;
+        appData.iconContent = fs.readFileSync(path.join(appPath!, iconFile), {
+          encoding: "base64",
+        });
+        const ext = path.extname(iconFile).toLowerCase();
+        appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
+        // Store icon data for inheritance
+        (opts as any).inheritedIcon = iconFile;
+        (opts as any).inheritedIconContent = appData.iconContent;
+        (opts as any).inheritedIconType = appData.iconType;
+      } else if ((opts as any).inheritedIconContent) {
+        // Use inherited icon data from parent
         appData.icon = (opts as any).inheritedIcon || "icon.png";
         appData.iconContent = (opts as any).inheritedIconContent;
         appData.iconType = (opts as any).inheritedIconType;
@@ -450,29 +444,23 @@ export class ApplicationPersistenceHandler {
         }
       }
 
-      // Check for icon in the application directory (supports .png and .svg)
-      let icon = appData?.icon ? appData.icon : "icon.png";
-      let iconFound = false;
-      if (appPath) {
-        const iconPath = path.join(appPath, icon);
-        if (fs.existsSync(iconPath)) {
-          appData.icon = icon;
-          appData.iconContent = fs.readFileSync(iconPath, {
-            encoding: "base64",
-          });
-          // Determine MIME type based on file extension
-          const ext = path.extname(icon).toLowerCase();
-          appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
-          iconFound = true;
-          // Store icon data for inheritance
-          (opts as any).inheritedIcon = icon;
-          (opts as any).inheritedIconContent = appData.iconContent;
-          (opts as any).inheritedIconType = appData.iconType;
-        }
-      }
-
-      // If no icon found and we have inherited icon data from parent, use it
-      if (!iconFound && (opts as any).inheritedIconContent) {
+      // Check for icon in the application directory
+      const iconFile = appPath
+        ? this.findIconFile(appPath, appData?.icon)
+        : null;
+      if (iconFile) {
+        appData.icon = iconFile;
+        appData.iconContent = fs.readFileSync(path.join(appPath!, iconFile), {
+          encoding: "base64",
+        });
+        const ext = path.extname(iconFile).toLowerCase();
+        appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
+        // Store icon data for inheritance
+        (opts as any).inheritedIcon = iconFile;
+        (opts as any).inheritedIconContent = appData.iconContent;
+        (opts as any).inheritedIconType = appData.iconType;
+      } else if ((opts as any).inheritedIconContent) {
+        // Use inherited icon data from parent
         appData.icon = (opts as any).inheritedIcon || "icon.png";
         appData.iconContent = (opts as any).inheritedIconContent;
         appData.iconType = (opts as any).inheritedIconType;
@@ -494,6 +482,40 @@ export class ApplicationPersistenceHandler {
     throw opts.error;
   }
 
+  /**
+   * Find icon file in a directory with priority:
+   * 1. iconHint (custom name from application.json "icon" property)
+   * 2. Standard names: icon.png, icon.svg
+   * 3. Any .svg or .png file in the directory
+   * Returns the filename (not full path) or null if not found.
+   */
+  private findIconFile(dir: string, iconHint?: string): string | null {
+    const candidates: string[] = [];
+
+    if (iconHint) candidates.push(iconHint);
+    candidates.push("icon.png", "icon.svg");
+
+    // Any .svg or .png file in the directory
+    try {
+      const files = fs.readdirSync(dir);
+      const svgFile = files.find(
+        (f) => f.endsWith(".svg") && !candidates.includes(f),
+      );
+      if (svgFile) candidates.push(svgFile);
+      const pngFile = files.find(
+        (f) => f.endsWith(".png") && !candidates.includes(f),
+      );
+      if (pngFile) candidates.push(pngFile);
+    } catch {
+      // ignore readdir errors
+    }
+
+    for (const name of candidates) {
+      if (fs.existsSync(path.join(dir, name))) return name;
+    }
+    return null;
+  }
+
   readApplicationIcon(applicationName: string): {
     iconContent: string;
     iconType: string;
@@ -503,26 +525,37 @@ export class ApplicationPersistenceHandler {
       return null;
     }
 
-    // Try to find icon
-    const iconNames = ["icon.png", "icon.svg"];
-    for (const iconName of iconNames) {
-      const iconPath = path.join(appPath, iconName);
-      if (fs.existsSync(iconPath)) {
-        const ext = path.extname(iconName).toLowerCase();
-        const iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
+    // Read icon hint from application.json
+    let iconHint: string | undefined;
+    const appJsonPath = path.join(appPath, "application.json");
+    if (fs.existsSync(appJsonPath)) {
+      try {
+        const appData = JSON.parse(
+          fs.readFileSync(appJsonPath, { encoding: "utf-8" }),
+        );
+        iconHint = appData.icon;
+      } catch {
+        // ignore parse errors
+      }
+    }
 
-        if (ext === ".svg") {
-          // For SVG: normalize size to 16x16 before base64 encoding
-          const svgContent = fs.readFileSync(iconPath, { encoding: "utf-8" });
-          const normalizedSvg = this.normalizeSvgSize(svgContent, 16);
-          const iconContent = Buffer.from(normalizedSvg, "utf-8").toString(
-            "base64",
-          );
-          return { iconContent, iconType };
-        } else {
-          const iconContent = fs.readFileSync(iconPath, { encoding: "base64" });
-          return { iconContent, iconType };
-        }
+    const iconName = this.findIconFile(appPath, iconHint);
+    if (iconName) {
+      const iconPath = path.join(appPath, iconName);
+      const ext = path.extname(iconName).toLowerCase();
+      const iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
+
+      if (ext === ".svg") {
+        // For SVG: normalize size to 16x16 before base64 encoding
+        const svgContent = fs.readFileSync(iconPath, { encoding: "utf-8" });
+        const normalizedSvg = this.normalizeSvgSize(svgContent, 16);
+        const iconContent = Buffer.from(normalizedSvg, "utf-8").toString(
+          "base64",
+        );
+        return { iconContent, iconType };
+      } else {
+        const iconContent = fs.readFileSync(iconPath, { encoding: "base64" });
+        return { iconContent, iconType };
       }
     }
 
@@ -542,7 +575,7 @@ export class ApplicationPersistenceHandler {
     const hue2 = (hue + 45) % 360;
     const bg = `hsl(${hue}, 65%, 45%)`;
     const fg = `hsl(${hue2}, 70%, 75%)`;
-    const size = 96;
+    const size = 16;
     const pad = 12;
     const cx = size / 2;
     const cy = size / 2;
@@ -557,21 +590,38 @@ export class ApplicationPersistenceHandler {
   }
 
   /**
-   * Normalizes SVG size by replacing width/height attributes with a fixed size.
+   * Normalizes SVG size by setting width/height attributes to a fixed size.
+   * Handles multiline <svg> tags and SVGs with only viewBox (no width/height).
    * Preserves viewBox for proper scaling.
    */
   private normalizeSvgSize(svgContent: string, size: number): string {
-    // Replace width and height attributes in the <svg> tag
-    // Handles values with units like "432.071pt" or "100px" or just "100"
-    let normalized = svgContent.replace(
-      /<svg([^>]*)\swidth\s*=\s*["'][^"']*["']/i,
-      `<svg$1 width="${size}"`,
-    );
-    normalized = normalized.replace(
-      /<svg([^>]*)\sheight\s*=\s*["'][^"']*["']/i,
-      `<svg$1 height="${size}"`,
-    );
-    return normalized;
+    // Extract the <svg ...> opening tag (may span multiple lines)
+    const svgTagMatch = svgContent.match(/<svg\b[^>]*>/is);
+    if (!svgTagMatch) return svgContent;
+
+    let svgTag = svgTagMatch[0];
+
+    // Replace or add width attribute
+    if (/\swidth\s*=\s*["'][^"']*["']/i.test(svgTag)) {
+      svgTag = svgTag.replace(
+        /\swidth\s*=\s*["'][^"']*["']/i,
+        ` width="${size}"`,
+      );
+    } else {
+      svgTag = svgTag.replace(/<svg\b/i, `<svg width="${size}"`);
+    }
+
+    // Replace or add height attribute
+    if (/\sheight\s*=\s*["'][^"']*["']/i.test(svgTag)) {
+      svgTag = svgTag.replace(
+        /\sheight\s*=\s*["'][^"']*["']/i,
+        ` height="${size}"`,
+      );
+    } else {
+      svgTag = svgTag.replace(/<svg\b/i, `<svg height="${size}"`);
+    }
+
+    return svgContent.replace(svgTagMatch[0], svgTag);
   }
 
   writeApplication(applicationName: string, application: IApplication): void {

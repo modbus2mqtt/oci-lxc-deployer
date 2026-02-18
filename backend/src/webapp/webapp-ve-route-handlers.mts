@@ -333,23 +333,14 @@ export class WebAppVeRouteHandlers {
       defaults.set("ve_context_key", veContextKey);
 
       // Icon data for embedding in notes (Data URL avoids mixed content issues)
-      // Try application data first, then fall back to readApplicationIcon (which generates a fallback SVG)
-      const appData = loaded.application as any;
-      let iconContent = appData?.iconContent;
-      let iconType = appData?.iconType;
-      if (!iconContent || !iconType) {
-        const iconData =
-          PersistenceManager.getInstance()
-            .getApplicationService()
-            .readApplicationIcon(application);
-        if (iconData) {
-          iconContent = iconData.iconContent;
-          iconType = iconData.iconType;
-        }
-      }
-      if (iconContent && iconType) {
-        defaults.set("icon_base64", iconContent);
-        defaults.set("icon_mime_type", iconType);
+      // Always use readApplicationIcon() which normalizes SVG size for notes display
+      const iconData =
+        PersistenceManager.getInstance()
+          .getApplicationService()
+          .readApplicationIcon(application);
+      if (iconData) {
+        defaults.set("icon_base64", iconData.iconContent);
+        defaults.set("icon_mime_type", iconData.iconType);
       }
 
       // Store selected addon IDs for notes update (comma-separated for shell script)

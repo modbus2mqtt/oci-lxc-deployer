@@ -3,10 +3,11 @@
     "description": "ZITADEL is an open source identity management platform.",
     "tags": ["identity", "auth"],
     "tasktype": "postgres",
-    "framework": "oci-image",
+    "framework": "docker-compose",
     "dependsOn": ["postgres"],
     "installParams": {
-        "bridge": "vmbr1"
+        "bridge": "vmbr1",
+        "memory": "2048"
     },
     "validation": {
         "ports": [

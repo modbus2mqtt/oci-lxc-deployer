@@ -529,6 +529,103 @@ export class SSHValidator {
   }
 
   /**
+   * Find and destroy old LXC containers with the same hostname, keeping the newly created one.
+   * Also cleans up volume directories of destroyed containers.
+   *
+   * Safety: Only runs when deployerStaticIp is in 10.0.0.* subnet (test environment).
+   *
+   * @param hostname - Container hostname (the "Name" column in pct list)
+   * @param keepVmId - VMID of the newly created container to keep (use '0' to destroy all)
+   * @param deployerStaticIp - Deployer's static IP from config (for safety check)
+   * @returns Summary of destroyed containers
+   */
+  cleanupOldContainers(
+    hostname: string,
+    keepVmId: string,
+    deployerStaticIp: string,
+  ): { success: boolean; destroyed: string[]; message: string } {
+    // Safety check: only run in test environments
+    const ipWithoutCidr = deployerStaticIp.split('/')[0];
+    if (!ipWithoutCidr.startsWith('10.0.0.')) {
+      const msg = `Safety check: deployerStaticIp="${deployerStaticIp}" is not in 10.0.0.* subnet. Skipping container cleanup.`;
+      console.log(`[cleanupOldContainers] ${msg}`);
+      return { success: true, destroyed: [], message: msg };
+    }
+
+    const DEPLOYER_VMID = '300';
+    const destroyed: string[] = [];
+
+    try {
+      const pctOutput = this.execOnHost('pct list').trim();
+      const lines = pctOutput.split('\n').slice(1); // Skip header line
+
+      // Find containers with matching hostname
+      const oldVmIds: string[] = [];
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 3) continue;
+        const vmId = parts[0];
+        const name = parts[parts.length - 1]; // Name is always the last column
+
+        if (name.toLowerCase() === hostname.toLowerCase()
+            && vmId !== keepVmId
+            && vmId !== DEPLOYER_VMID) {
+          oldVmIds.push(vmId);
+        }
+      }
+
+      if (oldVmIds.length === 0) {
+        const msg = `No old containers found with hostname "${hostname}" (keeping ${keepVmId})`;
+        console.log(`[cleanupOldContainers] ${msg}`);
+        return { success: true, destroyed: [], message: msg };
+      }
+
+      console.log(`[cleanupOldContainers] Found ${oldVmIds.length} old container(s) with hostname "${hostname}": ${oldVmIds.join(', ')}`);
+
+      // Collect volume directories before destroying
+      const volumeDirs: string[] = [];
+
+      for (const vmId of oldVmIds) {
+        try {
+          const config = this.execOnHost(`pct config ${vmId}`);
+          for (const match of config.matchAll(/mp\d+:\s*([^,]+),mp=/g)) {
+            const hostPath = match[1].trim();
+            const parentDir = hostPath.replace(/\/[^/]+$/, '');
+            if (!volumeDirs.includes(parentDir)) {
+              volumeDirs.push(parentDir);
+            }
+          }
+        } catch {
+          console.log(`[cleanupOldContainers] Could not read config for ${vmId} - continuing with destroy`);
+        }
+
+        this.execOnHost(`pct stop ${vmId} 2>/dev/null || true`);
+        this.execOnHost(`pct destroy ${vmId} --purge 2>/dev/null || true`);
+        destroyed.push(vmId);
+        console.log(`[cleanupOldContainers] Destroyed container ${vmId} (hostname: ${hostname})`);
+      }
+
+      // Clean up volume directories
+      for (const dir of volumeDirs) {
+        try {
+          this.execOnHost(`rm -rf "${dir}"`);
+          console.log(`[cleanupOldContainers] Deleted volume directory: ${dir}`);
+        } catch {
+          console.log(`[cleanupOldContainers] Failed to delete volume directory: ${dir}`);
+        }
+      }
+
+      const msg = `Destroyed ${destroyed.length} old container(s) with hostname "${hostname}": ${destroyed.join(', ')}`;
+      console.log(`[cleanupOldContainers] ${msg}`);
+      return { success: true, destroyed, message: msg };
+    } catch (error) {
+      const msg = `Failed to cleanup old containers for "${hostname}": ${error}`;
+      console.log(`[cleanupOldContainers] ${msg}`);
+      return { success: false, destroyed, message: msg };
+    }
+  }
+
+  /**
    * Run all validations from a ValidationConfig
    */
   async runValidations(config: ValidationConfig): Promise<ValidationResult[]> {

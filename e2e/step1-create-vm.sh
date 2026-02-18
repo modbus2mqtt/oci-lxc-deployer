@@ -324,6 +324,26 @@ info "Installing additional tools..."
 nested_sshpass "'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq curl netcat-openbsd'" || error "Failed to install tools"
 success "Tools installed (jq, curl, netcat)"
 
+# Install helper scripts on nested VM
+info "Installing helper scripts..."
+nested_sshpass "'cat > /usr/local/bin/pct-cleanup << \"SCRIPTEOF\"
+#!/bin/bash
+# pct-cleanup - Destroy a range of LXC containers
+# Usage: pct-cleanup <from> <to>
+FROM=\${1:?Usage: pct-cleanup <from> <to>}
+TO=\${2:?Usage: pct-cleanup <from> <to>}
+for vmid in \$(seq \"\$FROM\" \"\$TO\"); do
+    if pct status \"\$vmid\" &>/dev/null; then
+        pct stop \"\$vmid\" 2>/dev/null
+        pct destroy \"\$vmid\" --purge && echo \"Destroyed \$vmid\" || echo \"Failed to destroy \$vmid\"
+    else
+        echo \"Skipped \$vmid (not found)\"
+    fi
+done
+SCRIPTEOF
+chmod +x /usr/local/bin/pct-cleanup'"
+success "Helper scripts installed (pct-cleanup)"
+
 # Step 10b: Configure kernel modules for Docker-in-LXC
 header "Configuring Kernel Modules for Docker-in-LXC"
 

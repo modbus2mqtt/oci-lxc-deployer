@@ -28,6 +28,7 @@ const __dirname = dirname(__filename);
 // Load config for SSH port
 interface E2EConfig {
   ports: { pveSsh: number };
+  defaults: { deployerStaticIp: string };
 }
 const configPath = join(__dirname, '..', 'config.json');
 const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
@@ -175,6 +176,18 @@ test.describe('Application Installation E2E Tests', () => {
       } else {
         console.log(`No validation config for: ${app.name}`);
       }
+
+      // Cleanup old containers with same hostname (from previous test runs)
+      const hostValidator = new SSHValidator({
+        sshHost: getPveHost(),
+        sshPort: SSH_PORT,
+      });
+      const cleanupResult = hostValidator.cleanupOldContainers(
+        app.applicationId,
+        createdVmId!,
+        e2eConfig.defaults.deployerStaticIp,
+      );
+      console.log(`Container cleanup: ${cleanupResult.message}`);
     });
   }
 });

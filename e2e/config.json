@@ -25,7 +25,7 @@
     }
   },
   "defaults": {
-    "vmMemory": 2048,
+    "vmMemory": 4096,
     "vmCores": 2,
     "vmDiskSize": 100,
     "vmStorage": "local-zfs",

@@ -26,6 +26,7 @@ const __dirname = dirname(__filename);
 // Load config for SSH port
 interface E2EConfig {
   ports: { pveSsh: number };
+  defaults: { deployerStaticIp: string };
 }
 const configPath = join(__dirname, '..', 'config.json');
 const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
@@ -365,6 +366,20 @@ test.describe('Addon Installation E2E Tests', () => {
 
       const failedDetails = failed.map(r => `- ${r.message}${r.details ? ` (${r.details})` : ''}`).join('\n');
       expect(failed.length, `${failed.length} of ${results.length} addon validations failed:\n${failedDetails}`).toBe(0);
+    }
+
+    // Cleanup old containers with same hostname (from previous test runs)
+    if (createdVmId) {
+      const cleanupValidator = new SSHValidator({
+        sshHost: getPveHost(),
+        sshPort: SSH_PORT,
+      });
+      const cleanupResult = cleanupValidator.cleanupOldContainers(
+        app!.applicationId,
+        createdVmId,
+        e2eConfig.defaults.deployerStaticIp,
+      );
+      console.log(`Container cleanup: ${cleanupResult.message}`);
     }
   });
 });

@@ -37,17 +37,17 @@ export interface CreateStackDialogResult {
     KeyValueTableComponent
   ],
   template: `
-    <h2 mat-dialog-title>Create Environment Stack</h2>
+    <h2 mat-dialog-title>Create Secrets</h2>
     <mat-dialog-content>
       <form [formGroup]="stackForm">
         <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Stack Name</mat-label>
+          <mat-label>Name</mat-label>
           <input matInput formControlName="name" required placeholder="e.g., production, staging, default" />
           <mat-hint>Name "default" keeps the original hostname during deployment</mat-hint>
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Stack Type</mat-label>
+          <mat-label>Type</mat-label>
           <mat-select formControlName="stacktype" required>
             @for (tt of data.stacktypes; track tt.name) {
               <mat-option [value]="tt.name">{{ tt.name }}</mat-option>
@@ -55,7 +55,7 @@ export interface CreateStackDialogResult {
           </mat-select>
         </mat-form-field>
 
-        <h4>Environment Variables</h4>
+        <h4>Variables</h4>
         @if (data.suggestedEntries && data.suggestedEntries.length > 0) {
           <p class="hint">Pre-filled from detected markers. Add values for each variable.</p>
         }

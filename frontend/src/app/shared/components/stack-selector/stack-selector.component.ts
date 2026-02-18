@@ -48,14 +48,14 @@ import { IStack } from '../../../../shared/types';
         </mat-select>
         @if (showManageLink) {
           <a mat-icon-button matSuffix href="/stacks" target="_blank"
-             matTooltip="Manage secrets (new tab)" (click)="$event.stopPropagation()">
+             matTooltip="Manage Secrets" (click)="$event.stopPropagation()">
             <mat-icon>edit</mat-icon>
           </a>
         }
       </mat-form-field>
       @if (showCreateButton) {
         <button mat-icon-button type="button" (click)="onCreateStack()"
-                matTooltip="Create new stack" class="create-stack-btn">
+                matTooltip="Create new secrets" class="create-stack-btn">
           <mat-icon>add</mat-icon>
         </button>
       }
@@ -100,7 +100,7 @@ export class StackSelectorComponent {
   @Input() selectedStack: IStack | null = null;
 
   /** Label for the select field */
-  @Input() label = 'Select Stack';
+  @Input() label = 'Select Secrets';
 
   /** Show create button */
   @Input() showCreateButton = true;
