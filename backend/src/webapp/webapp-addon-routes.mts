@@ -4,18 +4,13 @@ import {
   IVeConfigurationResponse,
   ICommand,
   ITemplate,
+  IPostAddonInstallBody,
 } from "@src/types.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { VeExecution } from "../ve-execution/ve-execution.mjs";
 import { determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
-import { serializeError } from "./webapp-error-utils.mjs";
-
-export interface IPostAddonInstallBody {
-  vm_id: number;
-  application_id?: string;
-  params?: { name: string; value: string | number | boolean }[];
-}
+import { sendErrorResponse } from "./webapp-error-utils.mjs";
 
 export function registerAddonRoutes(
   app: express.Application,
@@ -213,12 +208,7 @@ export function registerAddonRoutes(
         };
         res.status(200).json(response);
       } catch (err: unknown) {
-        const serializedError = serializeError(err);
-        res.status(500).json({
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-          serializedError,
-        });
+        sendErrorResponse(res, err, { success: false });
       }
     },
   );

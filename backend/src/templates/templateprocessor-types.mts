@@ -6,10 +6,17 @@ import {
   IParameter,
   IJsonError,
   IParameterValue,
+  ITemplateTraceEntry,
+  IParameterTraceEntry,
+  ITemplateTraceInfo,
+  ITemplateProcessorLoadResult as ITemplateProcessorLoadResultBase,
 } from "@src/types.mjs";
 import { IVEContext } from "@src/backend-types.mjs";
 import { ITemplateReference } from "../backend-types.mjs";
 import { type TemplateRef } from "../persistence/repositories.mjs";
+
+// Re-export trace interfaces from shared types for convenience
+export type { ITemplateTraceEntry, IParameterTraceEntry, ITemplateTraceInfo };
 
 export interface IProcessTemplateOpts {
   application: string;
@@ -57,54 +64,12 @@ export interface IProcessedTemplate {
   usedByApplications?: string[]; // Applications that use this template
 }
 
-export interface ITemplateTraceEntry {
-  name: string;
-  path: string;
-  origin:
-    | "application-local"
-    | "application-json"
-    | "shared-local"
-    | "shared-json"
-    | "unknown";
-  isShared: boolean;
-  skipped: boolean;
-  conditional: boolean;
-}
-
-export interface IParameterTraceEntry {
-  id: string;
-  name: string;
-  required?: boolean;
-  default?: string | number | boolean;
-  template?: string;
-  templatename?: string;
-  source:
-    | "user_input"
-    | "template_output"
-    | "template_properties"
-    | "default"
-    | "missing";
-  sourceTemplate?: string;
-  sourceKind?: "outputs" | "properties";
-}
-
-export interface ITemplateTraceInfo {
-  application: string;
-  task: TaskType;
-  localDir: string;
-  jsonDir: string;
-  appLocalDir?: string;
-  appJsonDir?: string;
-}
-
-export interface ITemplateProcessorLoadResult {
+// Full load result extending the shared base with backend-specific fields
+export interface ITemplateProcessorLoadResult extends ITemplateProcessorLoadResultBase {
   commands: ICommand[];
   parameters: IParameterWithTemplate[];
   resolvedParams: IResolvedParam[];
   webuiTemplates: string[];
   application?: IApplication; // Full application data (incl. parent)
   processedTemplates?: IProcessedTemplate[]; // List of all processed templates
-  templateTrace?: ITemplateTraceEntry[];
-  parameterTrace?: IParameterTraceEntry[];
-  traceInfo?: ITemplateTraceInfo;
 }

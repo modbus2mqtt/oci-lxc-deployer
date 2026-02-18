@@ -9,7 +9,6 @@
         "bridge": "vmbr1"
     },
     "validation": {
-        "waitBeforeValidation": 30,
         "containers": [
             { "image": "postgrest/postgrest", "state": "running" }
         ],

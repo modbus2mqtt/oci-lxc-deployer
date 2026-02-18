@@ -20,6 +20,7 @@
     "postinstall": "pnpm install-hooks",
     "prettier": "cd backend && pnpm prettier && cd ../frontend && pnpm prettier",
     "sync-dependencies": "node scripts/sync-dependencies.mjs",
+    "dupcheck": "npx jscpd --config .jscpd.json backend/src frontend/src",
     "prepack": "pnpm sync-dependencies"
   },
   "bin": {

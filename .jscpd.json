@@ -1,0 +1,20 @@
+{
+  "threshold": 5,
+  "minTokens": 100,
+  "reporters": ["console", "consoleFull"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/*.spec.ts",
+    "**/*.test.mts",
+    "**/test-results/**",
+    "e2e/**",
+    "**/documentation-generator.mts",
+    "**/application-document-generator.mts",
+    "frontend/src/shared/types.ts"
+  ],
+  "format": ["typescript", "javascript"],
+  "absolute": true,
+  "gitignore": true
+}

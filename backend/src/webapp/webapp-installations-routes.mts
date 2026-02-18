@@ -4,7 +4,7 @@ import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { VeExecution } from "../ve-execution/ve-execution.mjs";
 import { determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
-import { serializeError } from "./webapp-error-utils.mjs";
+import { sendErrorResponse } from "./webapp-error-utils.mjs";
 
 export function registerInstallationsRoutes(
   app: express.Application,
@@ -78,11 +78,7 @@ export function registerInstallationsRoutes(
         : [];
       res.status(200).json(payload);
     } catch (err: any) {
-      const serializedError = serializeError(err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 }

@@ -13,7 +13,7 @@ import {
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { ITemplateProcessorLoadResult } from "../templates/templateprocessor.mjs";
-import { getErrorStatusCode, serializeError } from "./webapp-error-utils.mjs";
+import { sendErrorResponse, asyncHandler } from "./webapp-error-utils.mjs";
 
 type ReturnResponse = <T>(
   res: express.Response,
@@ -26,11 +26,12 @@ export function registerApplicationRoutes(
   storageContext: ContextManager,
   returnResponse: ReturnResponse,
 ): void {
-  app.get(ApiUri.UnresolvedParameters, async (req, res) => {
-    try {
-      const application: string = req.params.application;
-      const taskKey: string = req.params.task;
-      const veContextKey: string = req.params.veContext;
+  app.get(
+    ApiUri.UnresolvedParameters,
+    asyncHandler(async (req, res) => {
+      const application = String(req.params.application);
+      const taskKey = String(req.params.task);
+      const veContextKey = String(req.params.veContext);
       if (!taskKey) {
         return res.status(400).json({ success: false, error: "Missing task" });
       }
@@ -49,16 +50,8 @@ export function registerApplicationRoutes(
       returnResponse<IUnresolvedParametersResponse>(res, {
         unresolvedParameters: unresolved,
       });
-    } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      return res.status(statusCode).json({
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
-    }
-  });
+    }),
+  );
 
   app.get(ApiUri.Applications, (_req, res) => {
     try {
@@ -69,11 +62,7 @@ export function registerApplicationRoutes(
       const payload: IApplicationsResponse = applications;
       res.json(payload).status(200);
     } catch (err: any) {
-      const serializedError = serializeError(err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 
@@ -84,11 +73,7 @@ export function registerApplicationRoutes(
       const ids = Array.from(localAppNames.keys());
       res.json(ids).status(200);
     } catch (err: any) {
-      const serializedError = serializeError(err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 
@@ -98,19 +83,17 @@ export function registerApplicationRoutes(
       const tagsConfig = pm.getTagsConfig();
       returnResponse<ITagsConfigResponse>(res, tagsConfig);
     } catch (err: any) {
-      const serializedError = serializeError(err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 
-  app.post(ApiUri.EnumValues, express.json(), async (req, res) => {
-    try {
-      const application: string = req.params.application;
-      const task: string = req.params.task;
-      const veContextKey: string = req.params.veContext;
+  app.post(
+    ApiUri.EnumValues,
+    express.json(),
+    asyncHandler(async (req, res) => {
+      const application = String(req.params.application);
+      const task = String(req.params.task);
+      const veContextKey = String(req.params.veContext);
       if (!task) {
         return res.status(400).json({ success: false, error: "Missing task" });
       }
@@ -157,20 +140,13 @@ export function registerApplicationRoutes(
       returnResponse<IEnumValuesResponse>(res, {
         enumValues,
       });
-    } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      return res.status(statusCode).json({
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
-    }
-  });
+    }),
+  );
 
-  app.get(ApiUri.TemplateDetailsForApplication, async (req, res) => {
-    try {
-      const veContext = storageContext.getVEContextByKey(req.params.veContext);
+  app.get(
+    ApiUri.TemplateDetailsForApplication,
+    asyncHandler(async (req, res) => {
+      const veContext = storageContext.getVEContextByKey(String(req.params.veContext));
       if (!veContext) {
         return res
           .status(404)
@@ -179,15 +155,13 @@ export function registerApplicationRoutes(
       const application = await storageContext
         .getTemplateProcessor()
         .loadApplication(
-          req.params.application,
-          req.params.task as TaskType,
+          String(req.params.application),
+          String(req.params.task) as TaskType,
           veContext,
         );
       returnResponse<ITemplateProcessorLoadResult>(res, application);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+    }),
+  );
 
   app.get(ApiUri.ApplicationFrameworkData, (req, res) => {
     try {
@@ -308,12 +282,7 @@ export function registerApplicationRoutes(
 
       returnResponse<IApplicationFrameworkDataResponse>(res, response);
     } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      res.status(statusCode).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 
@@ -347,12 +316,7 @@ export function registerApplicationRoutes(
         addons: compatibleAddons,
       });
     } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      res.status(statusCode).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 }

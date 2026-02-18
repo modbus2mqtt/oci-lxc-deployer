@@ -17,6 +17,20 @@ jobs:
   # Fast tests on GitHub-hosted runners (parallel, no Proxmox)
   # ============================================================
 
+  code-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Run jscpd duplicate check
+        run: npx jscpd --config .jscpd.json backend/src frontend/src
+
   frontend-vitest:
     runs-on: ubuntu-latest
     timeout-minutes: 10

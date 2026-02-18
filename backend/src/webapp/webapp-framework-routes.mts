@@ -17,7 +17,7 @@ import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { FrameworkLoader } from "../frameworkloader.mjs";
 import { FrameworkFromImage } from "../framework-from-image.mjs";
 import { VEConfigurationError } from "../backend-types.mjs";
-import { getErrorStatusCode, serializeError } from "./webapp-error-utils.mjs";
+import { sendErrorResponse, asyncHandler } from "./webapp-error-utils.mjs";
 
 type ReturnResponse = <T>(
   res: express.Response,
@@ -56,18 +56,14 @@ export function registerFrameworkRoutes(
         frameworks: frameworkNames,
       });
     } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      res.status(statusCode).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 
-  app.get(ApiUri.FrameworkParameters, async (req, res) => {
-    try {
-      const frameworkId: string = req.params.frameworkId;
+  app.get(
+    ApiUri.FrameworkParameters,
+    asyncHandler(async (req, res) => {
+      const frameworkId = String(req.params.frameworkId);
       if (!frameworkId) {
         return res.status(400).json({ error: "Missing frameworkId" });
       }
@@ -101,67 +97,53 @@ export function registerFrameworkRoutes(
       returnResponse<IFrameworkParametersResponse>(res, {
         parameters,
       });
-    } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      res.status(statusCode).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
-    }
-  });
+    }),
+  );
 
   app.post(
     ApiUri.FrameworkCreateApplication,
     express.json(),
-    async (req, res) => {
-      try {
-        const body = req.body as IPostFrameworkCreateApplicationBody;
+    asyncHandler(async (req, res) => {
+      const body = req.body as IPostFrameworkCreateApplicationBody;
 
-        if (!body.frameworkId) {
-          return res.status(400).json({ error: "Missing frameworkId" });
-        }
-        if (!body.applicationId) {
-          return res.status(400).json({ error: "Missing applicationId" });
-        }
-        if (!body.name) {
-          return res.status(400).json({ error: "Missing name" });
-        }
-        if (!body.description) {
-          return res.status(400).json({ error: "Missing description" });
-        }
-
-        const pm = PersistenceManager.getInstance();
-        const frameworkLoader = new FrameworkLoader(
-          {
-            schemaPath: pm.getPathes().schemaPath,
-            jsonPath: pm.getPathes().jsonPath,
-            localPath: pm.getPathes().localPath,
-          },
-          storageContext,
-          pm.getPersistence(),
-        );
-
-        const applicationId =
-          await frameworkLoader.createApplicationFromFramework(body);
-
-        returnResponse<IPostFrameworkCreateApplicationResponse>(res, {
-          success: true,
-          applicationId: applicationId,
-        });
-      } catch (err: any) {
-        const statusCode = getErrorStatusCode(err);
-        const serializedError = serializeError(err);
-        res.status(statusCode).json({
-          error: err instanceof Error ? err.message : String(err),
-          serializedError: serializedError,
-        });
+      if (!body.frameworkId) {
+        return res.status(400).json({ error: "Missing frameworkId" });
       }
-    },
+      if (!body.applicationId) {
+        return res.status(400).json({ error: "Missing applicationId" });
+      }
+      if (!body.name) {
+        return res.status(400).json({ error: "Missing name" });
+      }
+      if (!body.description) {
+        return res.status(400).json({ error: "Missing description" });
+      }
+
+      const pm = PersistenceManager.getInstance();
+      const frameworkLoader = new FrameworkLoader(
+        {
+          schemaPath: pm.getPathes().schemaPath,
+          jsonPath: pm.getPathes().jsonPath,
+          localPath: pm.getPathes().localPath,
+        },
+        storageContext,
+        pm.getPersistence(),
+      );
+
+      const applicationId =
+        await frameworkLoader.createApplicationFromFramework(body);
+
+      returnResponse<IPostFrameworkCreateApplicationResponse>(res, {
+        success: true,
+        applicationId: applicationId,
+      });
+    }),
   );
 
-  app.post("/api/framework-from-image", express.json(), async (req, res) => {
-    try {
+  app.post(
+    "/api/framework-from-image",
+    express.json(),
+    asyncHandler(async (req, res) => {
       const body = req.body as IPostFrameworkFromImageBody;
 
       if (!body.image) {
@@ -208,73 +190,57 @@ export function registerFrameworkRoutes(
         annotations,
         defaults,
       });
-    } catch (err: any) {
-      const statusCode = getErrorStatusCode(err);
-      const serializedError = serializeError(err);
-      res.status(statusCode).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
-    }
-  });
+    }),
+  );
 
   // Preview unresolved parameters for a framework-based application
   app.post(
     ApiUri.PreviewUnresolvedParameters,
     express.json(),
-    async (req, res) => {
-      try {
-        const veContextKey = req.params.veContext;
-        const ctx = storageContext.getVEContextByKey(veContextKey);
-        if (!ctx) {
-          return res
-            .status(404)
-            .json({ success: false, error: "VE context not found" });
-        }
+    asyncHandler(async (req, res) => {
+      const veContextKey = String(req.params.veContext);
+      const ctx = storageContext.getVEContextByKey(veContextKey);
+      if (!ctx) {
+        return res
+          .status(404)
+          .json({ success: false, error: "VE context not found" });
+      }
 
-        const body = req.body as IPostPreviewUnresolvedParametersBody;
+      const body = req.body as IPostPreviewUnresolvedParametersBody;
 
-        if (!body.frameworkId) {
-          return res.status(400).json({ error: "Missing frameworkId" });
-        }
-        if (!body.name) {
-          return res.status(400).json({ error: "Missing name" });
-        }
+      if (!body.frameworkId) {
+        return res.status(400).json({ error: "Missing frameworkId" });
+      }
+      if (!body.name) {
+        return res.status(400).json({ error: "Missing name" });
+      }
 
-        const pm = PersistenceManager.getInstance();
-        const frameworkLoader = new FrameworkLoader(
-          {
-            schemaPath: pm.getPathes().schemaPath,
-            jsonPath: pm.getPathes().jsonPath,
-            localPath: pm.getPathes().localPath,
-          },
-          storageContext,
-          pm.getPersistence(),
+      const pm = PersistenceManager.getInstance();
+      const frameworkLoader = new FrameworkLoader(
+        {
+          schemaPath: pm.getPathes().schemaPath,
+          jsonPath: pm.getPathes().jsonPath,
+          localPath: pm.getPathes().localPath,
+        },
+        storageContext,
+        pm.getPersistence(),
+      );
+
+      const unresolvedParameters =
+        await frameworkLoader.getPreviewUnresolvedParameters(
+          body,
+          "installation" as TaskType,
+          ctx,
         );
 
-        const unresolvedParameters =
-          await frameworkLoader.getPreviewUnresolvedParameters(
-            body,
-            "installation" as TaskType,
-            ctx,
-          );
+      // Include available addons in the response
+      const addonService = pm.getAddonService();
+      const addons = addonService.getAllAddonsWithParameters();
 
-        // Include available addons in the response
-        const addonService = pm.getAddonService();
-        const addons = addonService.getAllAddonsWithParameters();
-
-        returnResponse<IUnresolvedParametersResponse>(res, {
-          unresolvedParameters,
-          addons,
-        });
-      } catch (err: any) {
-        const statusCode = getErrorStatusCode(err);
-        const serializedError = serializeError(err);
-        res.status(statusCode).json({
-          error: err instanceof Error ? err.message : String(err),
-          serializedError: serializedError,
-        });
-      }
-    },
+      returnResponse<IUnresolvedParametersResponse>(res, {
+        unresolvedParameters,
+        addons,
+      });
+    }),
   );
 }

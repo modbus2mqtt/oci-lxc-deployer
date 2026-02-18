@@ -9,6 +9,9 @@ frontend/dist/
 # Test coverage
 coverage/
 
+# jscpd report output
+report/
+
 # Cypress/Playwright outputs
 cypress/
 playwright-report/

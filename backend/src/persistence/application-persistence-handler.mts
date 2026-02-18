@@ -213,18 +213,17 @@ export class ApplicationPersistenceHandler {
   }
 
   /**
-   * Lightweight version of readApplication that only loads metadata (id, name, description, icon)
-   * without processing templates. Used for building the application list for the frontend.
+   * Resolves application path and file from application name.
+   * Handles "json:" prefix and local/json directory lookup.
    */
-  private readApplicationLightweight(
+  private resolveApplicationPath(
     applicationName: string,
     opts: IReadApplicationOptions,
-  ): IApplication {
-    let appPath: string | undefined;
-    let appFile: string | undefined;
+  ): { appName: string; appPath: string; appFile: string } {
     let appName = applicationName;
+    let appPath: string;
+    let appFile: string;
 
-    // Handle json: prefix
     if (applicationName.startsWith("json:")) {
       appName = applicationName.replace(/^json:/, "");
       appPath = path.join(this.pathes.jsonPath, "applications", appName);
@@ -233,7 +232,6 @@ export class ApplicationPersistenceHandler {
         throw new Error(`application.json not found for ${applicationName}`);
       }
     } else {
-      // First check local, then json
       const localPath = path.join(
         this.pathes.localPath,
         "applications",
@@ -264,42 +262,117 @@ export class ApplicationPersistenceHandler {
       );
     }
 
-    // Read and validate file
+    return { appName, appPath, appFile };
+  }
+
+  /**
+   * Deserializes application.json and initializes hierarchy tracking.
+   */
+  private deserializeAndInitApp(
+    appFile: string,
+    appName: string,
+    appPath: string,
+    applicationName: string,
+    opts: IReadApplicationOptions,
+  ): IApplication {
     let appData: IApplication;
     try {
-      try {
-        appData = this.jsonValidator.serializeJsonFileWithSchema<IApplication>(
-          appFile,
-          "application",
-        );
-      } catch (e: Error | any) {
-        appData = {
-          id: applicationName,
-          name: applicationName,
-        } as IApplication;
-        this.addErrorToOptions(opts, e);
-      }
+      appData = this.jsonValidator.serializeJsonFileWithSchema<IApplication>(
+        appFile,
+        "application",
+      );
+    } catch (e: Error | any) {
+      appData = {
+        id: applicationName,
+        name: applicationName,
+      } as IApplication;
+      this.addErrorToOptions(opts, e);
+    }
 
-      appData.id = appName;
+    appData.id = appName;
 
-      // Save the first application in the hierarchy
-      if (!opts.application) {
-        opts.application = appData;
-        opts.appPath = appPath;
-      }
-      // First application is first in hierarchy
-      opts.applicationHierarchy.push(appPath);
+    if (!opts.application) {
+      opts.application = appData;
+      opts.appPath = appPath;
+    }
+    opts.applicationHierarchy.push(appPath);
+
+    return appData;
+  }
+
+  /**
+   * Resolves icon for an application: checks local icon file, then inherited icon.
+   */
+  private resolveAppIcon(
+    appData: IApplication,
+    appPath: string,
+    opts: IReadApplicationOptions,
+  ): void {
+    const iconFile = appPath
+      ? this.findIconFile(appPath, appData?.icon)
+      : null;
+    if (iconFile) {
+      appData.icon = iconFile;
+      appData.iconContent = fs.readFileSync(path.join(appPath, iconFile), {
+        encoding: "base64",
+      });
+      const ext = path.extname(iconFile).toLowerCase();
+      appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
+      (opts as any).inheritedIcon = iconFile;
+      (opts as any).inheritedIconContent = appData.iconContent;
+      (opts as any).inheritedIconType = appData.iconType;
+    } else if ((opts as any).inheritedIconContent) {
+      appData.icon = (opts as any).inheritedIcon || "icon.png";
+      appData.iconContent = (opts as any).inheritedIconContent;
+      appData.iconType = (opts as any).inheritedIconType;
+    }
+  }
+
+  /**
+   * Checks if a template already exists in a task's template list.
+   * Reports error if duplicate found.
+   * @returns true if duplicate was found (caller should skip adding)
+   */
+  private isTemplateDuplicate(
+    taskEntry: { templates: (string | ITemplateReference)[] },
+    name: string,
+    taskName: string,
+    opts: IReadApplicationOptions,
+  ): boolean {
+    const existingTemplates = taskEntry.templates.map((t) =>
+      typeof t === "string" ? t : (t as ITemplateReference).name,
+    );
+    if (existingTemplates.includes(name)) {
+      const error = new JsonError(
+        `Template '${name}' appears multiple times in ${taskName} task. Each template can only appear once per task.`,
+      );
+      this.addErrorToOptions(opts, error);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Lightweight version of readApplication that only loads metadata (id, name, description, icon)
+   * without processing templates. Used for building the application list for the frontend.
+   */
+  private readApplicationLightweight(
+    applicationName: string,
+    opts: IReadApplicationOptions,
+  ): IApplication {
+    const { appName, appPath, appFile } = this.resolveApplicationPath(applicationName, opts);
+
+    try {
+      const appData = this.deserializeAndInitApp(appFile, appName, appPath, applicationName, opts);
 
       // Recursive inheritance - load parent first to get icon data
       if (appData.extends) {
-        // Track extends chain for framework detection
         const extendsOpts = opts as typeof opts & { extendsChain?: string[] };
         if (extendsOpts.extendsChain) {
           extendsOpts.extendsChain.push(appData.extends);
         }
         try {
           const parent = this.readApplicationLightweight(appData.extends, opts);
-          // Inherit icon if not found
           if (!appData.icon && parent.icon) {
             appData.icon = parent.icon;
             appData.iconContent = parent.iconContent;
@@ -310,31 +383,9 @@ export class ApplicationPersistenceHandler {
         }
       }
 
-      // Check for icon in the application directory
-      const iconFile = appPath
-        ? this.findIconFile(appPath, appData?.icon)
-        : null;
-      if (iconFile) {
-        appData.icon = iconFile;
-        appData.iconContent = fs.readFileSync(path.join(appPath!, iconFile), {
-          encoding: "base64",
-        });
-        const ext = path.extname(iconFile).toLowerCase();
-        appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
-        // Store icon data for inheritance
-        (opts as any).inheritedIcon = iconFile;
-        (opts as any).inheritedIconContent = appData.iconContent;
-        (opts as any).inheritedIconType = appData.iconType;
-      } else if ((opts as any).inheritedIconContent) {
-        // Use inherited icon data from parent
-        appData.icon = (opts as any).inheritedIcon || "icon.png";
-        appData.iconContent = (opts as any).inheritedIconContent;
-        appData.iconType = (opts as any).inheritedIconType;
-      }
+      this.resolveAppIcon(appData, appPath, opts);
 
       // NOTE: We intentionally skip processTemplates() here for performance
-      // Templates are only needed when actually installing/configuring an application
-
       return appData;
     } catch (e: Error | any) {
       this.addErrorToOptions(opts, e);
@@ -346,49 +397,7 @@ export class ApplicationPersistenceHandler {
     applicationName: string,
     opts: IReadApplicationOptions,
   ): IApplication {
-    let appPath: string | undefined;
-    let appFile: string | undefined;
-    let appName = applicationName;
-
-    // Handle json: prefix
-    if (applicationName.startsWith("json:")) {
-      appName = applicationName.replace(/^json:/, "");
-      appPath = path.join(this.pathes.jsonPath, "applications", appName);
-      appFile = path.join(appPath, "application.json");
-      if (!fs.existsSync(appFile)) {
-        throw new Error(`application.json not found for ${applicationName}`);
-      }
-    } else {
-      // First check local, then json
-      const localPath = path.join(
-        this.pathes.localPath,
-        "applications",
-        applicationName,
-        "application.json",
-      );
-      const jsonPath = path.join(
-        this.pathes.jsonPath,
-        "applications",
-        applicationName,
-        "application.json",
-      );
-      if (fs.existsSync(localPath)) {
-        appFile = localPath;
-        appPath = path.dirname(localPath);
-      } else if (fs.existsSync(this.pathes.jsonPath)) {
-        appFile = jsonPath;
-        appPath = path.dirname(jsonPath);
-      } else {
-        throw new Error(`application.json not found for ${applicationName}`);
-      }
-    }
-
-    // Check for cyclic inheritance
-    if (opts.applicationHierarchy.includes(appPath)) {
-      throw new Error(
-        `Cyclic inheritance detected for application: ${appName}`,
-      );
-    }
+    const { appName, appPath, appFile } = this.resolveApplicationPath(applicationName, opts);
 
     // Check cache first (only for local apps)
     const isLocal = appPath.startsWith(this.pathes.localPath);
@@ -403,37 +412,13 @@ export class ApplicationPersistenceHandler {
       }
     }
 
-    // Read and validate file
-    let appData: IApplication;
     try {
-      try {
-        appData = this.jsonValidator.serializeJsonFileWithSchema<IApplication>(
-          appFile,
-          "application",
-        );
-      } catch (e: Error | any) {
-        appData = {
-          id: applicationName,
-          name: applicationName,
-        } as IApplication;
-        this.addErrorToOptions(opts, e);
-      }
-
-      appData.id = appName;
-
-      // Save the first application in the hierarchy
-      if (!opts.application) {
-        opts.application = appData;
-        opts.appPath = appPath;
-      }
-      // First application is first in hierarchy
-      opts.applicationHierarchy.push(appPath);
+      const appData = this.deserializeAndInitApp(appFile, appName, appPath, applicationName, opts);
 
       // Recursive inheritance - load parent first to get icon data
       if (appData.extends) {
         try {
           const parent = this.readApplication(appData.extends, opts);
-          // Inherit icon if not found
           if (!appData.icon && parent.icon) {
             appData.icon = parent.icon;
             appData.iconContent = parent.iconContent;
@@ -444,27 +429,7 @@ export class ApplicationPersistenceHandler {
         }
       }
 
-      // Check for icon in the application directory
-      const iconFile = appPath
-        ? this.findIconFile(appPath, appData?.icon)
-        : null;
-      if (iconFile) {
-        appData.icon = iconFile;
-        appData.iconContent = fs.readFileSync(path.join(appPath!, iconFile), {
-          encoding: "base64",
-        });
-        const ext = path.extname(iconFile).toLowerCase();
-        appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
-        // Store icon data for inheritance
-        (opts as any).inheritedIcon = iconFile;
-        (opts as any).inheritedIconContent = appData.iconContent;
-        (opts as any).inheritedIconType = appData.iconType;
-      } else if ((opts as any).inheritedIconContent) {
-        // Use inherited icon data from parent
-        appData.icon = (opts as any).inheritedIcon || "icon.png";
-        appData.iconContent = (opts as any).inheritedIconContent;
-        appData.iconType = (opts as any).inheritedIconType;
-      }
+      this.resolveAppIcon(appData, appPath, opts);
 
       // Process templates (adds template references to opts.taskTemplates)
       this.processTemplates(appData, opts);
@@ -548,7 +513,7 @@ export class ApplicationPersistenceHandler {
       if (ext === ".svg") {
         // For SVG: normalize size to 16x16 before base64 encoding
         const svgContent = fs.readFileSync(iconPath, { encoding: "utf-8" });
-        const normalizedSvg = this.normalizeSvgSize(svgContent, 16);
+        const normalizedSvg = this.normalizeSvgSize(svgContent, 64);
         const iconContent = Buffer.from(normalizedSvg, "utf-8").toString(
           "base64",
         );
@@ -807,17 +772,12 @@ export class ApplicationPersistenceHandler {
                 : null;
 
           if (beforeName) {
+            if (this.isTemplateDuplicate(taskEntry, name, taskName, opts)) {
+              return;
+            }
             const existingTemplates = taskEntry.templates.map((t) =>
               typeof t === "string" ? t : (t as ITemplateReference).name,
             );
-            // Check for duplicates before inserting
-            if (existingTemplates.includes(name)) {
-              const error = new JsonError(
-                `Template '${name}' appears multiple times in ${taskName} task. Each template can only appear once per task.`,
-              );
-              this.addErrorToOptions(opts, error);
-              return; // Don't add duplicate
-            }
             const idx = existingTemplates.indexOf(beforeName);
             if (idx !== -1) {
               taskEntry.templates.splice(idx, 0, templateRef);
@@ -838,17 +798,12 @@ export class ApplicationPersistenceHandler {
                 : null;
 
           if (afterName) {
+            if (this.isTemplateDuplicate(taskEntry, name, taskName, opts)) {
+              return;
+            }
             const existingTemplates = taskEntry.templates.map((t) =>
               typeof t === "string" ? t : (t as ITemplateReference).name,
             );
-            // Check for duplicates before inserting
-            if (existingTemplates.includes(name)) {
-              const error = new JsonError(
-                `Template '${name}' appears multiple times in ${taskName} task. Each template can only appear once per task.`,
-              );
-              this.addErrorToOptions(opts, error);
-              return; // Don't add duplicate
-            }
             const idx = existingTemplates.indexOf(afterName);
             if (idx !== -1) {
               taskEntry.templates.splice(idx + 1, 0, templateRef);

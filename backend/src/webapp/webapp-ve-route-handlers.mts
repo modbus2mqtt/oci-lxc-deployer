@@ -12,12 +12,11 @@ import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
 import { WebAppVeExecutionSetup } from "./webapp-ve-execution-setup.mjs";
 import {
-  VEConfigurationError,
   IVEContext,
   IVMInstallContext,
 } from "@src/backend-types.mjs";
-import { JsonError } from "@src/jsonvalidator.mjs";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
+import { getErrorStatusCode, serializeError } from "./webapp-error-utils.mjs";
 import { VMInstallContext } from "@src/context-manager.mjs";
 import {
   determineExecutionMode,
@@ -37,134 +36,32 @@ export class WebAppVeRouteHandlers {
   ) {}
 
   /**
-   * Determines the appropriate HTTP status code for an error.
-   * Returns 422 (Unprocessable Entity) for validation/configuration errors,
-   * 500 (Internal Server Error) for unexpected server errors.
+   * Builds a standardized error result object for handler methods.
    */
-  private getErrorStatusCode(err: unknown): number {
-    // Check if error is a validation/configuration error
-    if (err instanceof JsonError || err instanceof VEConfigurationError) {
-      return 422; // Unprocessable Entity - validation/configuration error
+  private buildErrorResult(err: unknown): {
+    success: false;
+    error: string;
+    errorDetails?: IJsonError;
+    statusCode: number;
+  } {
+    const serialized = serializeError(err);
+    const result: {
+      success: false;
+      error: string;
+      errorDetails?: IJsonError;
+      statusCode: number;
+    } = {
+      success: false,
+      error:
+        typeof serialized === "string"
+          ? serialized
+          : serialized.message || "Unknown error",
+      statusCode: getErrorStatusCode(err),
+    };
+    if (typeof serialized === "object") {
+      result.errorDetails = serialized;
     }
-    // Check if error has a name property indicating it's a validation error
-    if (err && typeof err === "object" && "name" in err) {
-      const errorName = (err as { name?: string }).name;
-      if (
-        errorName === "JsonError" ||
-        errorName === "VEConfigurationError" ||
-        errorName === "ValidateJsonError"
-      ) {
-        return 422;
-      }
-    }
-    // Default to 500 for unexpected errors
-    return 500;
-  }
-
-  /**
-   * Recursively serializes an array of details, handling both JsonError instances and plain objects.
-   */
-  private serializeDetailsArray(
-    details: IJsonError[] | undefined,
-  ): IJsonError[] | undefined {
-    if (!details || !Array.isArray(details)) {
-      return undefined;
-    }
-
-    return details.map((d) => {
-      // If it's a JsonError instance with toJSON, use it
-      if (
-        d &&
-        typeof d === "object" &&
-        typeof (d as any).toJSON === "function"
-      ) {
-        return (d as any).toJSON();
-      }
-
-      // If it's already a plain object with the expected structure, ensure details are serialized
-      if (d && typeof d === "object") {
-        const result: any = {
-          name: (d as any).name,
-          message: (d as any).message,
-          line: (d as any).line,
-        };
-
-        // Recursively serialize nested details if they exist
-        if ((d as any).details && Array.isArray((d as any).details)) {
-          result.details = this.serializeDetailsArray((d as any).details);
-        }
-
-        if ((d as any).filename !== undefined)
-          result.filename = (d as any).filename;
-
-        return result as IJsonError;
-      }
-
-      // Fallback: convert to string or return as-is
-      return {
-        name: "Error",
-        message: String(d),
-        details: undefined,
-      } as IJsonError;
-    });
-  }
-
-  /**
-   * Serializes an error to a JSON-serializable object.
-   * Uses toJSON() if available, otherwise extracts error properties.
-   */
-  private serializeError(err: unknown): IJsonError | string {
-    if (!err) {
-      return "Unknown error";
-    }
-
-    // If error has a toJSON method, use it
-    if (
-      err &&
-      typeof err === "object" &&
-      "toJSON" in err &&
-      typeof (err as any).toJSON === "function"
-    ) {
-      return (err as any).toJSON();
-    }
-
-    // If it's an Error instance, extract properties
-    if (err instanceof Error) {
-      const errorObj: any = {
-        name: err.name,
-        message: err.message,
-      };
-
-      // If it's a JsonError or VEConfigurationError, try to get details
-      if (err instanceof JsonError || err instanceof VEConfigurationError) {
-        // Use toJSON() if available to ensure proper recursive serialization
-        if (typeof (err as any).toJSON === "function") {
-          return (err as any).toJSON();
-        }
-
-        // Fallback: manually extract details and serialize them
-        if ((err as any).details) {
-          errorObj.details = this.serializeDetailsArray((err as any).details);
-        }
-        if ((err as any).filename) {
-          errorObj.filename = (err as any).filename;
-        }
-      }
-
-      return errorObj;
-    }
-
-    // For other types, try to convert to string or return as-is
-    if (typeof err === "string") {
-      return err;
-    }
-
-    // Last resort: try to serialize the object
-    try {
-      return JSON.parse(JSON.stringify(err)) as IJsonError;
-    } catch {
-      return String(err);
-    }
+    return result;
   }
 
   /**
@@ -391,25 +288,7 @@ export class WebAppVeRouteHandlers {
         restartKey,
       };
     } catch (err: any) {
-      const serializedError = this.serializeError(err);
-      const statusCode = this.getErrorStatusCode(err);
-      const result: {
-        success: false;
-        error: string;
-        errorDetails?: IJsonError;
-        statusCode: number;
-      } = {
-        success: false,
-        error:
-          typeof serializedError === "string"
-            ? serializedError
-            : serializedError.message || "Unknown error",
-        statusCode,
-      };
-      if (typeof serializedError === "object") {
-        result.errorDetails = serializedError;
-      }
-      return result;
+      return this.buildErrorResult(err);
     }
   }
 
@@ -513,25 +392,7 @@ export class WebAppVeRouteHandlers {
         initialInputs,
       );
     } catch (err: any) {
-      const serializedError = this.serializeError(err);
-      const statusCode = this.getErrorStatusCode(err);
-      const result: {
-        success: false;
-        error: string;
-        errorDetails?: IJsonError;
-        statusCode: number;
-      } = {
-        success: false,
-        error:
-          typeof serializedError === "string"
-            ? serializedError
-            : serializedError.message || "Unknown error",
-        statusCode,
-      };
-      if (typeof serializedError === "object") {
-        result.errorDetails = serializedError;
-      }
-      return result;
+      return this.buildErrorResult(err);
     }
     const commands = loaded.commands;
     const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);
@@ -660,25 +521,7 @@ export class WebAppVeRouteHandlers {
         initialInputs, // Pass initialInputs so skip_if_all_missing can check user inputs
       );
     } catch (err: any) {
-      const serializedError = this.serializeError(err);
-      const statusCode = this.getErrorStatusCode(err);
-      const result: {
-        success: false;
-        error: string;
-        errorDetails?: IJsonError;
-        statusCode: number;
-      } = {
-        success: false,
-        error:
-          typeof serializedError === "string"
-            ? serializedError
-            : serializedError.message || "Unknown error",
-        statusCode,
-      };
-      if (typeof serializedError === "object") {
-        result.errorDetails = serializedError;
-      }
-      return result;
+      return this.buildErrorResult(err);
     }
     const commands = loaded.commands;
     const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);

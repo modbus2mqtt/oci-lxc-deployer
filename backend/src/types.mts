@@ -294,7 +294,16 @@ export interface IManagedOciContainer {
   application_name?: string;
   version?: string;
   status?: string;
-  mount_points?: Array<{ source: string; target: string }>;
+  addons?: string[];
+  username?: string;
+  uid?: string;
+  gid?: string;
+  memory?: number;
+  cores?: number;
+  rootfs_storage?: string;
+  disk_size?: string;
+  bridge?: string;
+  mount_points?: { source: string; target: string }[];
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];
@@ -544,4 +553,59 @@ export interface IStacksResponse {
 
 export interface IStackResponse {
   stack: IStack;
+}
+
+// Template trace interfaces (used by frontend trace dialog and backend template processor)
+export interface ITemplateTraceEntry {
+  name: string;
+  path: string;
+  origin:
+    | "application-local"
+    | "application-json"
+    | "shared-local"
+    | "shared-json"
+    | "unknown";
+  isShared: boolean;
+  skipped: boolean;
+  conditional: boolean;
+}
+
+export interface IParameterTraceEntry {
+  id: string;
+  name: string;
+  required?: boolean;
+  default?: string | number | boolean;
+  template?: string;
+  templatename?: string;
+  source:
+    | "user_input"
+    | "template_output"
+    | "template_properties"
+    | "default"
+    | "missing";
+  sourceTemplate?: string;
+  sourceKind?: "outputs" | "properties";
+}
+
+export interface ITemplateTraceInfo {
+  application: string;
+  task: TaskType;
+  localDir: string;
+  jsonDir: string;
+  appLocalDir?: string;
+  appJsonDir?: string;
+}
+
+// Simplified load result for API responses (backend extends this with full fields)
+export interface ITemplateProcessorLoadResult {
+  templateTrace?: ITemplateTraceEntry[];
+  parameterTrace?: IParameterTraceEntry[];
+  traceInfo?: ITemplateTraceInfo;
+}
+
+// Addon install body (shared between frontend service and backend route)
+export interface IPostAddonInstallBody {
+  vm_id: number;
+  application_id?: string;
+  params?: { name: string; value: string | number | boolean }[];
 }

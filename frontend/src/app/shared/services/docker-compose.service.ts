@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import * as yaml from 'js-yaml';
-import { IComposeWarning } from '../../../shared/types';
+import { IComposeWarning } from '../../../shared/types-frontend';
 
 export interface ComposeService {
   name: string;

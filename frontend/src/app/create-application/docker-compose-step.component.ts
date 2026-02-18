@@ -12,7 +12,7 @@ import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked } from 'marked';
 import { ComposeService, DockerComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';
-import { IComposeWarning } from '../../shared/types';
+import { IComposeWarning } from '../../shared/types-frontend';
 
 @Component({
   selector: 'app-docker-compose-step',

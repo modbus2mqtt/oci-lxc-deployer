@@ -399,12 +399,7 @@ export class SummaryStepComponent {
     });
   }
 
-  private buildPreviewRequestBody(): IFrameworkApplicationDataBody | null {
-    const selectedFramework = this.state.selectedFramework();
-    if (!selectedFramework) {
-      return null;
-    }
-
+  private collectParameterValues(): { id: string; value: IParameterValue }[] {
     const parameterValues: { id: string; value: IParameterValue }[] = [];
     for (const param of this.state.parameters()) {
       let value = this.state.parameterForm.get(param.id)?.value;
@@ -430,6 +425,15 @@ export class SummaryStepComponent {
       }
     }
 
+    return parameterValues;
+  }
+
+  private buildPreviewRequestBody(): IFrameworkApplicationDataBody | null {
+    const selectedFramework = this.state.selectedFramework();
+    if (!selectedFramework) {
+      return null;
+    }
+
     return {
       frameworkId: selectedFramework.id,
       name: this.state.appPropertiesForm.get('name')?.value || '',
@@ -440,7 +444,7 @@ export class SummaryStepComponent {
       vendor: this.state.appPropertiesForm.get('vendor')?.value || undefined,
       tags: this.state.selectedTags().length > 0 ? this.state.selectedTags() : undefined,
       stacktype: this.state.selectedStacktype() ?? undefined,
-      parameterValues,
+      parameterValues: this.collectParameterValues(),
       uploadfiles: this.state.getUploadFiles().length > 0 ? this.state.getUploadFiles() : undefined,
     };
   }
@@ -597,31 +601,6 @@ export class SummaryStepComponent {
       return null;
     }
 
-    const parameterValues: { id: string; value: IParameterValue }[] = [];
-    for (const param of this.state.parameters()) {
-      let value = this.state.parameterForm.get(param.id)?.value;
-
-      // Extract base64 content if value has file metadata format
-      value = ParameterFormManager.extractBase64FromFileMetadata(value);
-
-      if (value !== null && value !== undefined && value !== '') {
-        parameterValues.push({ id: param.id, value });
-      }
-    }
-
-    // Ensure docker-compose essentials are not dropped
-    if (this.state.isDockerComposeFramework()) {
-      const ensuredIds = ['compose_file', 'env_file', 'volumes'] as const;
-      const existing = new Set(parameterValues.map(p => p.id));
-      for (const id of ensuredIds) {
-        if (existing.has(id)) continue;
-        const v = this.state.parameterForm.get(id)?.value;
-        if (v !== null && v !== undefined && String(v).trim() !== '') {
-          parameterValues.push({ id, value: v });
-        }
-      }
-    }
-
     const selectedIconFile = this.state.selectedIconFile();
     const iconContent = this.state.iconContent();
 
@@ -648,7 +627,7 @@ export class SummaryStepComponent {
       }),
       ...(this.state.selectedTags().length > 0 && { tags: this.state.selectedTags() }),
       ...(this.state.selectedStacktype() && { stacktype: this.state.selectedStacktype() ?? undefined }),
-      parameterValues,
+      parameterValues: this.collectParameterValues(),
       ...(this.state.getUploadFiles().length > 0 && { uploadfiles: this.state.getUploadFiles() }),
       ...(this.state.editMode() && { update: true }),
     };
@@ -667,71 +646,14 @@ export class SummaryStepComponent {
   }
 
   createApplication(): void {
-    const selectedFramework = this.state.selectedFramework();
-    if (!selectedFramework || this.state.appPropertiesForm.invalid || this.state.parameterForm.invalid) {
+    const body = this.buildCreateApplicationBody();
+    if (!body) {
       return;
     }
 
     this.state.creating.set(true);
     this.state.createError.set(null);
     this.state.createErrorStep.set(null);
-
-    const parameterValues: { id: string; value: IParameterValue }[] = [];
-    for (const param of this.state.parameters()) {
-      let value = this.state.parameterForm.get(param.id)?.value;
-
-      // Extract base64 content if value has file metadata format
-      value = ParameterFormManager.extractBase64FromFileMetadata(value);
-
-      if (value !== null && value !== undefined && value !== '') {
-        parameterValues.push({ id: param.id, value });
-      }
-    }
-
-    // Ensure docker-compose essentials are not dropped even if backend didn't list them in `parameters`
-    if (this.state.isDockerComposeFramework()) {
-      const ensuredIds = ['compose_file', 'env_file', 'volumes'] as const;
-      const existing = new Set(parameterValues.map(p => p.id));
-      for (const id of ensuredIds) {
-        if (existing.has(id)) continue;
-        const v = this.state.parameterForm.get(id)?.value;
-        if (v !== null && v !== undefined && String(v).trim() !== '') {
-          parameterValues.push({ id, value: v });
-        }
-      }
-    }
-
-    const selectedIconFile = this.state.selectedIconFile();
-    const iconContent = this.state.iconContent();
-
-    // In edit mode, use getRawValue() to get disabled field value
-    const applicationId = this.state.editMode()
-      ? this.state.editApplicationId()
-      : this.state.appPropertiesForm.get('applicationId')?.value;
-
-    const body = {
-      frameworkId: selectedFramework.id,
-      applicationId,
-      name: this.state.appPropertiesForm.get('name')?.value,
-      description: this.state.appPropertiesForm.get('description')?.value,
-      url: this.state.appPropertiesForm.get('url')?.value || undefined,
-      documentation: this.state.appPropertiesForm.get('documentation')?.value || undefined,
-      source: this.state.appPropertiesForm.get('source')?.value || undefined,
-      vendor: this.state.appPropertiesForm.get('vendor')?.value || undefined,
-      ...(selectedIconFile && iconContent && {
-        icon: selectedIconFile.name,
-        iconContent: iconContent,
-      }),
-      // In edit mode, preserve existing icon if no new one selected
-      ...(!selectedIconFile && iconContent && this.state.editMode() && {
-        iconContent: iconContent,
-      }),
-      ...(this.state.selectedTags().length > 0 && { tags: this.state.selectedTags() }),
-      ...(this.state.selectedStacktype() && { stacktype: this.state.selectedStacktype() ?? undefined }),
-      parameterValues,
-      ...(this.state.getUploadFiles().length > 0 && { uploadfiles: this.state.getUploadFiles() }),
-      ...(this.state.editMode() && { update: true }),
-    };
 
     const actionText = this.state.editMode() ? 'updated' : 'created';
     this.configService.createApplicationFromFramework(body).subscribe({
