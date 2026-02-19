@@ -11,7 +11,6 @@ import {
 export interface ILogResponse {
   success: boolean;
   vmId: number;
-  logType: "console" | "docker";
   service?: string;
   lines: number;
   content: string;
@@ -148,6 +147,7 @@ export class VeLogsService {
     return result.stdout.trim();
   }
 
+
   /**
    * Gets the configured log path from lxc.console.logfile in the LXC config.
    */
@@ -240,7 +240,6 @@ export class VeLogsService {
       return {
         success: false,
         vmId,
-        logType: "console",
         lines,
         content: "",
         error: "Invalid VM ID",
@@ -253,7 +252,6 @@ export class VeLogsService {
       return {
         success: false,
         vmId,
-        logType: "console",
         lines,
         content: "",
         error: `Container ${vmId} not found`,
@@ -269,7 +267,6 @@ export class VeLogsService {
       return {
         success: false,
         vmId,
-        logType: "console",
         lines,
         content: "",
         error: `No log file found for container ${vmId}. Tried: lxc.console.logfile config, /var/log/lxc/${hostname || "?"}-${vmId}.log, /var/log/lxc/container-${vmId}.log`,
@@ -284,7 +281,6 @@ export class VeLogsService {
       return {
         success: false,
         vmId,
-        logType: "console",
         lines,
         content: result.stderr || result.stdout,
         error: `Failed to read console logs from ${logPath}: exit code ${result.exitCode}`,
@@ -294,7 +290,6 @@ export class VeLogsService {
     return {
       success: true,
       vmId,
-      logType: "console",
       lines,
       content: result.stdout,
     };
@@ -314,7 +309,6 @@ export class VeLogsService {
     const response: ILogResponse = {
       success,
       vmId,
-      logType: "docker",
       lines,
       content,
     };
@@ -438,5 +432,79 @@ export class VeLogsService {
       result.stdout,
       service,
     );
+  }
+
+  /**
+   * Auto-detects container type and fetches the appropriate logs.
+   * If /opt/docker-compose exists inside the container, fetches docker-compose logs.
+   * Otherwise, fetches console logs from the LXC log file.
+   * Combines detection and log fetching into a single SSH command.
+   */
+  async getLogs(options: ILogOptions): Promise<ILogResponse> {
+    const { vmId } = options;
+    const lines = this.normalizeLines(options.lines);
+
+    if (!this.validateVmId(vmId)) {
+      return { success: false, vmId, lines, content: "", error: "Invalid VM ID" };
+    }
+
+    const status = await this.checkContainerStatus(vmId);
+    if (!status.exists) {
+      return { success: false, vmId, lines, content: "", error: `Container ${vmId} not found` };
+    }
+
+    // Single script that auto-detects and fetches the right logs
+    const script = `
+if lxc-attach -n ${vmId} -- test -d /opt/docker-compose 2>/dev/null; then
+  lxc-attach -n ${vmId} -- sh -c '
+    COMPOSE_DIR=$(find /opt/docker-compose -maxdepth 1 -type d ! -name docker-compose 2>/dev/null | head -1)
+    if [ -n "$COMPOSE_DIR" ] && [ -f "$COMPOSE_DIR/docker-compose.yaml" ]; then
+      cd "$COMPOSE_DIR"
+      if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose logs --tail ${lines} 2>&1
+      elif docker compose version >/dev/null 2>&1; then
+        docker compose logs --tail ${lines} 2>&1
+      else
+        echo "Error: Neither docker-compose nor docker compose plugin found"
+      fi
+    else
+      echo "Error: No docker-compose.yaml found in /opt/docker-compose/*/"
+    fi
+  '
+else
+  HOSTNAME=$(grep -E "^hostname:" /etc/pve/lxc/${vmId}.conf 2>/dev/null | awk "{print \\$2}" | head -1)
+  LOG_PATH=""
+  CONFIGURED=$(grep -E "^lxc\\.console\\.logfile:" /etc/pve/lxc/${vmId}.conf 2>/dev/null | awk "{print \\$2}" | head -1)
+  if [ -n "$CONFIGURED" ] && [ -f "$CONFIGURED" ]; then
+    LOG_PATH="$CONFIGURED"
+  elif [ -n "$HOSTNAME" ] && [ -f "/var/log/lxc/$HOSTNAME-${vmId}.log" ]; then
+    LOG_PATH="/var/log/lxc/$HOSTNAME-${vmId}.log"
+  elif [ -f "/var/log/lxc/container-${vmId}.log" ]; then
+    LOG_PATH="/var/log/lxc/container-${vmId}.log"
+  fi
+  if [ -n "$LOG_PATH" ]; then
+    tail -n ${lines} "$LOG_PATH" 2>/dev/null
+  else
+    echo "Error: No log file found for container ${vmId}"
+  fi
+fi`.trim();
+
+    const result = await this.executeOnHost(script);
+
+    const hasError =
+      result.exitCode !== 0 ||
+      (result.stdout.startsWith("Error:") && result.stdout.split("\n").length <= 2);
+
+    if (hasError) {
+      return {
+        success: false,
+        vmId,
+        lines,
+        content: result.stdout || result.stderr,
+        error: result.stderr || result.stdout || "Failed to get logs",
+      };
+    }
+
+    return { success: true, vmId, lines, content: result.stdout };
   }
 }

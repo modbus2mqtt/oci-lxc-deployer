@@ -6,6 +6,7 @@ import { IVEContext } from "../backend-types.mjs";
 /**
  * Register HTML log viewer route at /logs/:vmId/:veContext
  * This is a human-readable endpoint for direct browser access (e.g., from Proxmox notes).
+ * Auto-detects whether to show docker-compose logs or console logs.
  * Hostname is loaded asynchronously via /api/ve/logs/:vmId/:veContext/hostname (in webapp-ve.mts)
  */
 export function registerLogsHtmlRoute(app: express.Application): void {
@@ -41,13 +42,13 @@ export function registerLogsHtmlRoute(app: express.Application): void {
       return;
     }
 
-    // Fetch logs
+    // Fetch logs (auto-detects docker-compose vs console)
     const logsService = new VeLogsService(veContext);
     const logOptions: { vmId: number; lines?: number } = { vmId };
     if (linesStr) {
       logOptions.lines = parseInt(linesStr, 10);
     }
-    const result = await logsService.getConsoleLogs(logOptions);
+    const result = await logsService.getLogs(logOptions);
 
     const content =
       result.success && result.content
@@ -73,7 +74,7 @@ function renderHtml(
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Console Logs - CT ${vmId}</title>
+  <title>Logs - CT ${vmId}</title>
   <style>
     body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }
     h1 { color: #569cd6; margin-bottom: 10px; }
@@ -83,7 +84,7 @@ function renderHtml(
   </style>
 </head>
 <body>
-  <h1 id="title">Console Logs - CT ${vmId}</h1>
+  <h1 id="title">Logs - CT ${vmId}</h1>
   <div class="meta">VE: ${veContextKey} | Lines: ${lines || "N/A"}</div>
   <pre${isError ? ' class="error"' : ""}>${escapedContent}</pre>
   <script>
@@ -93,8 +94,8 @@ function renderHtml(
         const data = await res.json();
         if (data.hostname) {
           const title = data.hostname + ' (CT ${vmId})';
-          document.getElementById('title').textContent = 'Console Logs - ' + title;
-          document.title = 'Console Logs - ' + title;
+          document.getElementById('title').textContent = 'Logs - ' + title;
+          document.title = 'Logs - ' + title;
         }
       } catch (e) {
         // Ignore - keep default CT title

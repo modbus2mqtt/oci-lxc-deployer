@@ -387,7 +387,7 @@ export class WebAppVE {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Console Logs - CT ${vmId}</title>
+  <title>Logs - CT ${vmId}</title>
   <style>
     body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }
     h1 { color: #569cd6; margin-bottom: 10px; }
@@ -397,7 +397,7 @@ export class WebAppVE {
   </style>
 </head>
 <body>
-  <h1>Console Logs - CT ${vmId}</h1>
+  <h1>Logs - CT ${vmId}</h1>
   <div class="meta">VE: ${veContextKey} | Lines: ${result.lines || "N/A"}</div>
   <pre${result.success ? "" : ' class="error"'}>${logContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
 </body>

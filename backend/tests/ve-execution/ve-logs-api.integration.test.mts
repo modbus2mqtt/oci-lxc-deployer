@@ -113,7 +113,6 @@ describe("VE Logs API Integration", () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.vmId).toBe(100);
-      expect(response.body.logType).toBe("console");
       expect(response.body.lines).toBe(100); // default
       expect(response.body.content).toBe(logContent);
     });
@@ -195,7 +194,6 @@ describe("VE Logs API Integration", () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.vmId).toBe(100);
-      expect(response.body.logType).toBe("docker");
       expect(response.body.content).toBe(dockerLogs);
       expect(response.body).not.toHaveProperty("service");
     });

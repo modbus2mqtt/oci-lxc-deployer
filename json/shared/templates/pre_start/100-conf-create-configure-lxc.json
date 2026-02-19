@@ -162,6 +162,10 @@
     {
       "name": "Write LXC Notes",
       "template": "190-host-write-lxc-notes.json"
+    },
+    {
+      "name": "Write Docker Compose Notes",
+      "template": "191-host-write-docker-compose-notes.json"
     }
   ]
 }

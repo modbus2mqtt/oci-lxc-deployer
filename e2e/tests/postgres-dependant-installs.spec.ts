@@ -211,6 +211,51 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     const postgrestApp = await loader.load('postgrest');
     const vmId = await installAndValidate(page, postgrestApp);
 
+    // --- PostgREST API end-to-end query ---
+    console.log('\n--- PostgREST API Query Verification ---');
+
+    const postgrestValidator = new SSHValidator({
+      sshHost: getPveHost(),
+      sshPort: SSH_PORT,
+      containerVmId: vmId,
+    });
+
+    // Install postgresql-client in the PostgREST LXC for table setup
+    console.log('Installing postgresql-client...');
+    postgrestValidator.execInContainer('apk add --no-cache postgresql-client', 60000);
+
+    // Extract DB URI from running PostgREST container environment
+    console.log('Extracting DB connection from PostgREST container...');
+    const dbUri = postgrestValidator.execInContainer(
+      [
+        'PGRST_CID=$(docker ps -q --filter ancestor=postgrest/postgrest | head -1)',
+        "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $PGRST_CID | grep ^PGRST_DB_URI= | cut -d= -f2-",
+      ].join(' && ')
+    ).trim();
+    expect(dbUri, 'PostgREST DB URI must be extractable').toBeTruthy();
+    console.log('DB URI extracted successfully');
+
+    // Create test table, insert data, and notify PostgREST to reload schema
+    console.log('Creating test table and inserting data...');
+    postgrestValidator.execInContainer(
+      `psql '${dbUri}' -c "CREATE TABLE IF NOT EXISTS e2e_test (id serial PRIMARY KEY, name text NOT NULL); INSERT INTO e2e_test (name) SELECT 'postgrest-works' WHERE NOT EXISTS (SELECT 1 FROM e2e_test WHERE name = 'postgrest-works'); NOTIFY pgrst, 'reload schema';"`,
+      15000
+    );
+    console.log('Test table created and schema reload triggered');
+
+    // Wait for PostgREST to pick up schema change
+    console.log('Waiting for PostgREST schema reload...');
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    // Query the test table through PostgREST REST API
+    console.log('Querying PostgREST API...');
+    const apiResponse = postgrestValidator.execInContainer(
+      "wget -qO- 'http://localhost:3000/e2e_test?select=name&limit=1'"
+    );
+    console.log(`PostgREST API response: ${apiResponse}`);
+    expect(apiResponse).toContain('postgrest-works');
+    console.log('PostgREST API query verification passed!');
+
     // Cleanup old containers with same hostname (from previous test runs)
     const hostValidator = new SSHValidator({
       sshHost: getPveHost(),

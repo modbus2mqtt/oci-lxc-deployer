@@ -443,7 +443,6 @@ export interface IApplicationFrameworkDataResponse {
 export interface IVeLogsResponse {
   success: boolean;
   vmId: number;
-  logType: "console" | "docker";
   service?: string;
   lines: number;
   content: string;

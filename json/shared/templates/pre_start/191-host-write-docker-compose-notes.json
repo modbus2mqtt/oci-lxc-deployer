@@ -1,8 +1,8 @@
 {
   "execute_on": "ve",
-  "name": "Write LXC Notes",
-  "skip_if_property_set": "compose_file",
-  "description": "Writes the container notes/description for standard (non-docker-compose) apps.\n\nSkipped for docker-compose apps (compose_file is set) - see 191-host-write-docker-compose-notes.json.\n\nThe notes contain:\n- Hidden markers for machine parsing (oci-lxc-deployer:managed, oci-image, application-id, etc.)\n- Visible Markdown content with application info, version, and links",
+  "name": "Write Docker Compose Notes",
+  "skip_if_all_missing": ["compose_file"],
+  "description": "Writes the container notes/description for docker-compose apps.\n\nOnly runs when compose_file is set. Differences from standard notes (190):\n- No 'LXC template' line\n- No 'Log file' line (logs come from docker-compose, auto-detected by log viewer)\n- Link text: 'Logs' instead of 'Console Logs'",
   "parameters": [
     {
       "id": "vm_id",
@@ -17,18 +17,6 @@
       "type": "string",
       "required": true,
       "description": "Container hostname"
-    },
-    {
-      "id": "template_path",
-      "name": "Template Path",
-      "type": "string",
-      "description": "LXC template path (for non-OCI installations)"
-    },
-    {
-      "id": "oci_image",
-      "name": "OCI Image",
-      "type": "string",
-      "description": "OCI image reference (e.g. docker://alpine:3.19)"
     },
     {
       "id": "application_id",
@@ -100,8 +88,8 @@
   ],
   "commands": [
     {
-      "name": "Write LXC Notes",
-      "script": "host-write-lxc-notes.py",
+      "name": "Write Docker Compose Notes",
+      "script": "host-write-docker-compose-notes.py",
       "library": "lxc-notes-common.py",
       "outputs": ["notes_written"]
     }

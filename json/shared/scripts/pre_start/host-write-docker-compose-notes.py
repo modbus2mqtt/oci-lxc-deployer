@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-# host-write-lxc-notes.py
-# Writes the LXC container notes/description for standard (non-docker-compose) apps.
+# host-write-docker-compose-notes.py
+# Writes the LXC container notes/description for docker-compose apps.
 # Uses lxc-notes-common.py library for shared functions.
+#
+# Differences from standard notes:
+# - No "LXC template" line (Alpine OS template is not useful info)
+# - No "Log file" line (logs come from docker-compose, not console)
+# - Link text: "Logs" (generic, auto-detected by log viewer)
 
 # Template variables (will be replaced by backend)
 VMID = "{{ vm_id }}"
-TEMPLATE_PATH = "{{ template_path }}"
-OCI_IMAGE_RAW = "{{ oci_image }}"
 APP_ID_RAW = "{{ application_id }}"
 APP_NAME_RAW = "{{ application_name }}"
 VERSION_RAW = "{{ oci_image_tag }}"
@@ -26,22 +29,17 @@ def build_notes(include_icon):
     version = normalize_value(VERSION_RAW)
     deployer_url = normalize_value(DEPLOYER_URL_RAW)
     ve_context = normalize_value(VE_CONTEXT_RAW)
-    hostname = normalize_value(HOSTNAME_RAW)
     icon_base64 = normalize_value(ICON_BASE64)
     icon_mime_type = normalize_value(ICON_MIME_TYPE)
     username = normalize_value(USERNAME_RAW)
     uid = normalize_value(UID_RAW)
     gid = normalize_value(GID_RAW)
-    template_path = normalize_value(TEMPLATE_PATH)
-    oci_image_raw = normalize_value(OCI_IMAGE_RAW)
-
-    oci_image_visible = strip_oci_prefix(oci_image_raw)
 
     lines = build_hidden_markers(
-        VMID, oci_image_visible=oci_image_visible, app_id=app_id,
-        app_name=app_name, version=version, deployer_url=deployer_url,
-        ve_context=ve_context, icon_base64=icon_base64,
-        icon_mime_type=icon_mime_type, username=username, uid=uid, gid=gid,
+        VMID, app_id=app_id, app_name=app_name, version=version,
+        deployer_url=deployer_url, ve_context=ve_context,
+        icon_base64=icon_base64, icon_mime_type=icon_mime_type,
+        username=username, uid=uid, gid=gid,
     )
 
     lines += build_visible_header(
@@ -52,21 +50,8 @@ def build_notes(include_icon):
 
     lines += build_app_info(app_id=app_id, app_name=app_name, version=version)
 
-    # OCI image or LXC template
-    if oci_image_visible:
-        lines.append("")
-        lines.append("OCI image: %s" % oci_image_visible)
-    elif template_path:
-        lines.append("")
-        lines.append("LXC template: %s" % template_path)
-
-    # Log file location
-    if hostname:
-        log_file = "/var/log/lxc/%s-%s.log" % (hostname, VMID)
-        lines.append("")
-        lines.append("Log file: %s" % log_file)
-
-    lines += build_links_section(VMID, deployer_url, ve_context, link_text="Console Logs")
+    # No "LXC template" or "Log file" for docker-compose apps
+    lines += build_links_section(VMID, deployer_url, ve_context, link_text="Logs")
 
     return "\n".join(lines)
 

@@ -264,7 +264,6 @@ describe("VeLogsService", () => {
       const result = await service.getConsoleLogs({ vmId: 100, lines: 50 });
 
       expect(result.success).toBe(true);
-      expect(result.logType).toBe("console");
       expect(result.vmId).toBe(100);
       expect(result.lines).toBe(50);
       expect(result.content).toBe(logContent);
@@ -363,7 +362,6 @@ describe("VeLogsService", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.logType).toBe("docker");
       expect(result.service).toBe("nextcloud");
       expect(result.content).toBe(dockerLogs);
     });
@@ -382,7 +380,6 @@ describe("VeLogsService", () => {
       const result = await service.getDockerLogs({ vmId: 100 });
 
       expect(result.success).toBe(true);
-      expect(result.logType).toBe("docker");
       expect(result.service).toBeUndefined();
       expect(result.content).toBe(composeLogs);
     });
@@ -492,6 +489,96 @@ describe("VeLogsService", () => {
       const firstCall = mockSpawnAsync.mock.calls[0];
       expect(firstCall[1]).toContain("root@myserver");
       expect(firstCall[1]).toContain("2222");
+    });
+  });
+
+  describe("getLogs (auto-detect)", () => {
+    it("should return error for invalid VM ID", async () => {
+      const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
+      const result = await service.getLogs({ vmId: -1 });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Invalid VM ID");
+    });
+
+    it("should return error when container not found", async () => {
+      mockSpawnAsync.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "not found",
+        exitCode: 1,
+      });
+
+      const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
+      const result = await service.getLogs({ vmId: 999 });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Container 999 not found");
+    });
+
+    it("should return docker-compose logs when /opt/docker-compose exists", async () => {
+      const dockerLogs = "db | Starting\nnextcloud | Ready";
+      mockSpawnAsync
+        .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 }) // checkContainerStatus
+        .mockResolvedValueOnce({ stdout: dockerLogs, stderr: "", exitCode: 0 }); // combined script
+
+      const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
+      const result = await service.getLogs({ vmId: 100 });
+
+      expect(result.success).toBe(true);
+      expect(result.content).toBe(dockerLogs);
+      expect(result.vmId).toBe(100);
+    });
+
+    it("should return console logs when /opt/docker-compose does not exist", async () => {
+      const consoleLogs = "Alpine Linux starting...";
+      mockSpawnAsync
+        .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 }) // checkContainerStatus
+        .mockResolvedValueOnce({ stdout: consoleLogs, stderr: "", exitCode: 0 }); // combined script
+
+      const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
+      const result = await service.getLogs({ vmId: 100 });
+
+      expect(result.success).toBe(true);
+      expect(result.content).toBe(consoleLogs);
+    });
+
+    it("should return error when script outputs Error:", async () => {
+      mockSpawnAsync
+        .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 }) // checkContainerStatus
+        .mockResolvedValueOnce({ stdout: "Error: No log file found for container 100", stderr: "", exitCode: 0 }); // combined script
+
+      const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
+      const result = await service.getLogs({ vmId: 100 });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("No log file found");
+    });
+
+    it("should respect lines parameter", async () => {
+      mockSpawnAsync
+        .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 })
+        .mockResolvedValueOnce({ stdout: "logs", stderr: "", exitCode: 0 });
+
+      const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
+      const result = await service.getLogs({ vmId: 100, lines: 50 });
+
+      expect(result.lines).toBe(50);
+      // Verify the script contains the correct lines count
+      const scriptCall = mockSpawnAsync.mock.calls[1]!;
+      const command = scriptCall[1][1];
+      expect(command).toContain("--tail 50");
+      expect(command).toContain("tail -n 50");
+    });
+
+    it("should not include service field in response", async () => {
+      mockSpawnAsync
+        .mockResolvedValueOnce({ stdout: "running", stderr: "", exitCode: 0 })
+        .mockResolvedValueOnce({ stdout: "logs", stderr: "", exitCode: 0 });
+
+      const service = new VeLogsService(mockVeContext, ExecutionMode.TEST);
+      const result = await service.getLogs({ vmId: 100 });
+
+      expect(result).not.toHaveProperty("service");
     });
   });
 
