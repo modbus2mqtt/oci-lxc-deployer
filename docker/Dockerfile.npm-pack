@@ -1,11 +1,11 @@
 # Runtime image built from the npm pack tarball
-FROM node:20-alpine
+ARG NODE_MAJOR=24
+FROM node:${NODE_MAJOR}-alpine
 
 # Install tools needed for SSH key generation (ssh-keygen)
 RUN apk add --no-cache openssh-client
 
 # Build metadata
-ARG NPM_TARBALL="docker/oci-lxc-deployer.tgz"
 ARG BUILD_DATE
 ARG BUILD_DESCRIPTION="Deploys and manages LXC containers on Proxmox from OCI images via a web UI and API, and lets you easily define custom container services"
 ARG BUILD_REF="main"
@@ -16,7 +16,7 @@ ARG IMAGE_NAME="oci-lxc-deployer"
 ENV NODE_ENV=production
 
 # Copy the pre-built tarball into the image
-COPY ${NPM_TARBALL} /tmp/app.tgz
+COPY docker/oci-lxc-deployer.tgz /tmp/app.tgz
 
 # Install the application globally from the tarball and create a non-root user
 # Use fixed UID/GID 1000:1000 for easier volume permission management
