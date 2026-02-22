@@ -25,9 +25,9 @@
         "--local",
         "${workspaceFolder}/examples",
         "--storageContextFilePath",
-        "~/oci-lxc-deployer/examples/storagecontext.json",
+        "${workspaceFolder}/../storagecontext.json",
         "--secretsFilePath",
-        "~/oci-lxc-deployer/examples/secret.txt"
+        "${workspaceFolder}/../secret.txt"
       ],
 
       "trace": true,

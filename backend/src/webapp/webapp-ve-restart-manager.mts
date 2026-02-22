@@ -1,7 +1,6 @@
 import { IPostVeConfigurationBody } from "@src/types.mjs";
 import { IRestartInfo } from "@src/ve-execution/ve-execution-constants.mjs";
 
-
 /**
  * Manages restart information for execution retries.
  */
@@ -25,7 +24,9 @@ export class WebAppVeRestartManager {
   /**
    * Creates a fallback restart info when execution fails before producing a result.
    */
-  createFallbackRestartInfo(params: IPostVeConfigurationBody["params"]): IRestartInfo {
+  createFallbackRestartInfo(
+    params: IPostVeConfigurationBody["params"],
+  ): IRestartInfo {
     return {
       lastSuccessfull: -1,
       inputs: params.map((p) => ({ name: p.name, value: p.value })),
@@ -34,4 +35,3 @@ export class WebAppVeRestartManager {
     };
   }
 }
-

@@ -11,16 +11,33 @@ export interface ISsh {
   installSshServer?: string;
   permissionOk?: boolean;
 }
+export interface IUploadFile {
+  destination: string;          // Required: "volumename:path/to/file" (e.g., "config:mosquitto.conf")
+  label?: string;               // Optional: Display label (default: basename of destination)
+  content?: string;             // Base64 encoded file content
+  required?: boolean;
+  advanced?: boolean;
+}
+
 export interface IApplicationBase {
   name: string;
   description: string;
   icon?: string | undefined;
   extends?: string;
+  tags?: string[];
   url?: string;
   documentation?: string;
   source?: string;
   vendor?: string;
+  stacktype?: string;
+  uploadfiles?: IUploadFile[];
   errors?: string[];
+  /** User-configurable parameters defined directly in application.json (new approach) */
+  parameters?: IParameter[];
+  /** Fixed property values set by this application (same format as template command properties) */
+  properties?: IOutputObject[];
+  /** Override name/description of parameters defined in templates */
+  parameterOverrides?: IParameterOverride[];
 }
 export interface IApplicationWeb {
   name: string;
@@ -29,6 +46,11 @@ export interface IApplicationWeb {
   iconContent?: string | undefined;
   iconType?: string | undefined;
   id: string;
+  tags?: string[] | undefined;
+  source: "local" | "json";
+  framework?: string | undefined;
+  extends?: string | undefined;
+  stacktype?: string | undefined;
   errors?: IJsonError[];
 }
 export type TaskType =
@@ -40,11 +62,23 @@ export type TaskType =
   | "upgrade"
   | "copy-upgrade"
   | "copy-rollback"
-  | "webui";
+  | "addon-reconfigure"
+  | "webui"
+  | "addon";
 // Generated from template.schema.json
 export interface IOutputObject {
   id: string;
-  value?: string | number | boolean | (string | { name: string; value: string | number | boolean } | { id: string; value: string | number | boolean })[];
+  value?:
+    | string
+    | number
+    | boolean
+    | (
+        | string
+        | { name: string; value: string | number | boolean }
+        | { id: string; value: string | number | boolean }
+      )[];
+  /** Default value for the parameter. Unlike 'value', this will show the parameter as editable in the UI. */
+  default?: string | number | boolean;
 }
 
 export interface ICommand {
@@ -77,6 +111,7 @@ export interface IVeExecuteMessage {
   index?: number;
   finished?: boolean;
   partial?: boolean; // If true, this is a partial/streaming output chunk (process still running)
+  vmId?: number; // Container VMID (available in final success message)
 }
 
 export type ParameterType = "string" | "number" | "boolean" | "enum";
@@ -97,6 +132,12 @@ export interface IParameter {
   templatename?: string;
   template?: string;
   if?: string;
+}
+
+export interface IParameterOverride {
+  id: string;
+  name?: string;
+  description?: string;
 }
 
 export interface ITemplate {
@@ -122,7 +163,11 @@ export enum ApiUri {
   VeRestart = "/api/ve/restart/:restartKey/:veContext",
   VeRestartInstallation = "/api/ve/restart-installation/:vmInstallKey/:veContext",
   VeExecute = "/api/ve/execute/:veContext",
+  VeLogs = "/api/ve/logs/:vmId/:veContext",
+  VeLogsHostname = "/api/ve/logs/:vmId/:veContext/hostname",
+  VeDockerLogs = "/api/ve/logs/:vmId/docker/:veContext",
   Applications = "/api/applications",
+  ApplicationTags = "/api/applications/tags",
   LocalApplicationIds = "/api/applications/local/ids",
   Installations = "/api/installations/:veContext",
   TemplateDetailsForApplication = "/api/template-details/:application/:task/:veContext",
@@ -132,13 +177,50 @@ export enum ApiUri {
   FrameworkParameters = "/api/framework-parameters/:frameworkId",
   FrameworkCreateApplication = "/api/framework-create-application",
   FrameworkFromImage = "/api/framework-from-image",
+  ApplicationFrameworkData = "/api/application/:applicationId/framework-data",
 
   VeCopyUpgrade = "/api/ve/copy-upgrade/:application/:veContext",
+
+  CompatibleAddons = "/api/addons/compatible/:application",
+  AddonInstall = "/api/addons/install/:addonId/:veContext",
+  PreviewUnresolvedParameters = "/api/preview-unresolved-parameters/:veContext",
+
+  Stacktypes = "/api/stacktypes",
+  Stacks = "/api/stacks",
+  Stack = "/api/stack/:id",
+
+  // Version / build info
+  Version = "/api/version",
+
+  // Logger endpoints
+  LoggerConfig = "/api/logger/config",
+  LoggerLevel = "/api/logger/level/:level",
+  LoggerDebugComponents = "/api/logger/debug-components",
 }
+
+// Tags definition interfaces
+export interface ITagDefinition {
+  id: string;
+  name: string;
+}
+
+export interface ITagGroup {
+  id: string;
+  name: string;
+  tags: ITagDefinition[];
+}
+
+export interface ITagsConfig {
+  groups: ITagGroup[];
+  internal: string[];
+}
+
+export type ITagsConfigResponse = ITagsConfig;
 
 // Response interfaces for all backend endpoints (frontend mirror)
 export interface IUnresolvedParametersResponse {
   unresolvedParameters: IParameter[];
+  addons?: IAddonWithParameters[];
 }
 export interface IEnumValuesEntry {
   id: string;
@@ -174,6 +256,8 @@ export interface IPostVeConfigurationBody {
   params: { name: string; value: IParameterValue }[];
   outputs?: { id: string; value: IParameterValue }[];
   changedParams?: { name: string; value: IParameterValue }[];
+  selectedAddons?: string[];
+  stackId?: string;
 }
 export interface IPostEnumValuesBody {
   params?: { id: string; value: IParameterValue }[];
@@ -210,6 +294,16 @@ export interface IManagedOciContainer {
   application_name?: string;
   version?: string;
   status?: string;
+  addons?: string[];
+  username?: string;
+  uid?: string;
+  gid?: string;
+  memory?: number;
+  cores?: number;
+  rootfs_storage?: string;
+  disk_size?: string;
+  bridge?: string;
+  mount_points?: { source: string; target: string }[];
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];
@@ -267,9 +361,9 @@ export interface IFrameworkNamesResponse {
 export interface IFrameworkParametersResponse {
   parameters: IParameter[];
 }
-export interface IPostFrameworkCreateApplicationBody {
+// Base interface for framework-based requests (shared between create and preview)
+export interface IFrameworkApplicationDataBody {
   frameworkId: string;
-  applicationId: string;
   name: string;
   description: string;
   url?: string;
@@ -278,8 +372,21 @@ export interface IPostFrameworkCreateApplicationBody {
   vendor?: string;
   icon?: string;
   iconContent?: string;
+  tags?: string[];
+  stacktype?: string;
   parameterValues: { id: string; value: string | number | boolean }[];
+  uploadfiles?: IUploadFile[];
 }
+
+// For creating applications - extends base with applicationId
+export interface IPostFrameworkCreateApplicationBody
+  extends IFrameworkApplicationDataBody {
+  applicationId: string;
+  update?: boolean; // If true, overwrite existing application
+}
+
+// For preview - uses base directly
+export type IPostPreviewUnresolvedParametersBody = IFrameworkApplicationDataBody;
 export interface IPostFrameworkCreateApplicationResponse {
   success: boolean;
   applicationId?: string;
@@ -314,4 +421,190 @@ export interface IApplicationDefaults {
 export interface IPostFrameworkFromImageResponse {
   annotations: IOciImageAnnotations;
   defaults: IApplicationDefaults;
+}
+
+export interface IApplicationFrameworkDataResponse {
+  frameworkId: string;
+  applicationId: string;
+  name: string;
+  description: string;
+  url?: string;
+  documentation?: string;
+  source?: string;
+  vendor?: string;
+  icon?: string;
+  iconContent?: string;
+  tags?: string[];
+  stacktype?: string;
+  parameterValues: { id: string; value: string | number | boolean }[];
+}
+
+// Log API response interfaces
+export interface IVeLogsResponse {
+  success: boolean;
+  vmId: number;
+  service?: string;
+  lines: number;
+  content: string;
+  error?: string;
+}
+
+// Addon interfaces
+export interface IAddonVolume {
+  id: string;
+  mount_point: string;
+  default_size?: string;
+}
+
+/** Template reference: either a string or object with name and optional before/after */
+export type AddonTemplateReference =
+  | string
+  | {
+      name: string;
+      before?: string;
+      after?: string;
+    };
+
+export interface IAddon {
+  /** Addon ID (derived from filename without .json) */
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  /** Application IDs, 'tag:<tag-id>' or '*' for all */
+  compatible_with: string[] | "*";
+  /** User-configurable parameters defined directly in addon JSON */
+  parameters?: IParameter[];
+  /** Fixed property values set by this addon (same format as template command properties) */
+  properties?: IOutputObject[];
+  /** Fixed volumes required by this addon */
+  volumes?: IAddonVolume[];
+  /** Templates for new installation (phase-based) */
+  installation?: {
+    pre_start?: AddonTemplateReference[];
+    post_start?: AddonTemplateReference[];
+  };
+  /** Templates for reconfiguring existing container (phase-based) */
+  reconfigure?: {
+    pre_start?: AddonTemplateReference[];
+    post_start?: AddonTemplateReference[];
+  };
+  /** Templates for copy-upgrade */
+  upgrade?: AddonTemplateReference[];
+  /** Key for notes persistence */
+  notes_key: string;
+  /** Override name/description of parameters defined in templates */
+  parameterOverrides?: IParameterOverride[];
+  /** Markdown notice extracted from addon .md file (## Notice section) */
+  notice?: string;
+}
+
+export interface IActiveAddon {
+  addonId: string;
+  parameters: Record<string, string | number | boolean>;
+}
+
+/** Addon with extracted parameters from its templates */
+export interface IAddonWithParameters extends IAddon {
+  /** Parameters extracted from addon templates (installation, reconfigure, upgrade) */
+  parameters?: IParameter[];
+}
+
+export interface ICompatibleAddonsResponse {
+  addons: IAddonWithParameters[];
+}
+
+// Stacktype variable definition (items in stacktype json files)
+export interface IStacktypeVariable {
+  name: string;
+  external?: boolean; // true = manual input required, false/undefined = auto-generate
+  length?: number; // length of generated secret (default: 32)
+}
+
+// Stacktype entry (aggregated from json/stacktypes/*.json)
+export interface IStacktypeEntry {
+  name: string; // derived from filename
+  entries: IStacktypeVariable[];
+}
+
+// Stack entry (items in stack.entries array)
+export interface IStackEntry {
+  name: string;
+  value: string | number | boolean;
+}
+
+// Stack (from stack.schema.json)
+export interface IStack {
+  id: string;
+  name: string;
+  stacktype: string;
+  entries: IStackEntry[];
+}
+
+// API Response types for stacks
+export interface IStacktypesResponse {
+  stacktypes: IStacktypeEntry[];
+}
+
+export interface IStacksResponse {
+  stacks: IStack[];
+}
+
+export interface IStackResponse {
+  stack: IStack;
+}
+
+// Template trace interfaces (used by frontend trace dialog and backend template processor)
+export interface ITemplateTraceEntry {
+  name: string;
+  path: string;
+  origin:
+    | "application-local"
+    | "application-json"
+    | "shared-local"
+    | "shared-json"
+    | "unknown";
+  isShared: boolean;
+  skipped: boolean;
+  conditional: boolean;
+}
+
+export interface IParameterTraceEntry {
+  id: string;
+  name: string;
+  required?: boolean;
+  default?: string | number | boolean;
+  template?: string;
+  templatename?: string;
+  source:
+    | "user_input"
+    | "template_output"
+    | "template_properties"
+    | "default"
+    | "missing";
+  sourceTemplate?: string;
+  sourceKind?: "outputs" | "properties";
+}
+
+export interface ITemplateTraceInfo {
+  application: string;
+  task: TaskType;
+  localDir: string;
+  jsonDir: string;
+  appLocalDir?: string;
+  appJsonDir?: string;
+}
+
+// Simplified load result for API responses (backend extends this with full fields)
+export interface ITemplateProcessorLoadResult {
+  templateTrace?: ITemplateTraceEntry[];
+  parameterTrace?: IParameterTraceEntry[];
+  traceInfo?: ITemplateTraceInfo;
+}
+
+// Addon install body (shared between frontend service and backend route)
+export interface IPostAddonInstallBody {
+  vm_id: number;
+  application_id?: string;
+  params?: { name: string; value: string | number | boolean }[];
 }

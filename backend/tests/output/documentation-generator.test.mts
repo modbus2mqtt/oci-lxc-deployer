@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { DocumentationGenerator } from "@src/documentation-generator.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("DocumentationGenerator", () => {
   let env: TestEnvironment;
@@ -32,11 +38,13 @@ describe("DocumentationGenerator", () => {
     const appJson = {
       name: "Test Application",
       description: "A test application for documentation generation",
-      installation: [
-        "set-parameters.json",
-        "test-template.json",
-        "shared-template.json",
-      ],
+      installation: {
+        post_start: [
+          "set-parameters.json",
+          "test-template.json",
+          "shared-template.json",
+        ],
+      },
     };
     persistenceHelper.writeJsonSync(
       Volume.JsonApplications,
@@ -90,10 +98,7 @@ describe("DocumentationGenerator", () => {
         {
           name: "test-script",
           script: "test-script.sh",
-          outputs: [
-            { id: "output1" },
-            { id: "output2", default: true },
-          ],
+          outputs: [{ id: "output1" }, { id: "output2", default: true }],
         },
       ],
       parameters: [
@@ -192,13 +197,15 @@ echo "Shared script"
     });
 
     it("should generate application.md with correct structure", async () => {
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
       expect(() =>
-        persistenceHelper.readTextSync(
-          Volume.LocalRoot,
-          "html/test-app.md",
-        ),
+        persistenceHelper.readTextSync(Volume.LocalRoot, "html/test-app.md"),
       ).not.toThrow();
 
       const content = persistenceHelper.readTextSync(
@@ -210,7 +217,9 @@ echo "Shared script"
       expect(content).toContain("# Test Application");
 
       // Check description
-      expect(content).toContain("A test application for documentation generation");
+      expect(content).toContain(
+        "A test application for documentation generation",
+      );
 
       // Check Installation Templates section
       expect(content).toContain("## Installation Templates");
@@ -232,7 +241,12 @@ echo "Shared script"
     });
 
     it("should include parameters table in application.md", async () => {
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
 
       const content = persistenceHelper.readTextSync(
@@ -241,7 +255,9 @@ echo "Shared script"
       );
 
       // Check parameter table headers
-      expect(content).toContain("| Parameter | Type | Required | Default | Description |");
+      expect(content).toContain(
+        "| Parameter | Type | Required | Default | Description |",
+      );
 
       // Check parameter1
       expect(content).toMatch(/param1.*string.*Yes/);
@@ -259,7 +275,12 @@ echo "Shared script"
     });
 
     it("should generate template.md with correct structure", async () => {
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
       expect(() =>
         persistenceHelper.readTextSync(
@@ -303,7 +324,12 @@ echo "Shared script"
     });
 
     it("should extract capabilities from script headers", async () => {
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
       const content = persistenceHelper.readTextSync(
         Volume.LocalRoot,
@@ -318,7 +344,12 @@ echo "Shared script"
     });
 
     it("should include parameters table in template.md", async () => {
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
       const content = persistenceHelper.readTextSync(
         Volume.LocalRoot,
@@ -326,13 +357,20 @@ echo "Shared script"
       );
 
       // Check parameter table
-      expect(content).toContain("| Parameter | Type | Required | Default | Description |");
+      expect(content).toContain(
+        "| Parameter | Type | Required | Default | Description |",
+      );
       expect(content).toMatch(/test_param.*string/);
       expect(content).toContain("A test parameter");
     });
 
     it("should include outputs table in template.md", async () => {
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
       const content = persistenceHelper.readTextSync(
         Volume.LocalRoot,
@@ -347,7 +385,12 @@ echo "Shared script"
     });
 
     it("should show properties table for properties-only template", async () => {
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
       const content = persistenceHelper.readTextSync(
         Volume.LocalRoot,
@@ -375,7 +418,7 @@ echo "Shared script"
       const otherAppJson = {
         name: "Other Application",
         description: "Another test application",
-        installation: ["set-parameters.json", "shared-template.json"],
+        installation: { post_start: ["set-parameters.json", "shared-template.json"] },
       };
       persistenceHelper.writeJsonSync(
         Volume.JsonApplications,
@@ -388,9 +431,7 @@ echo "Shared script"
         name: "Set Parameters",
         commands: [
           {
-            properties: [
-              { id: "missing_param", value: "provided" },
-            ],
+            properties: [{ id: "missing_param", value: "provided" }],
           },
         ],
       };
@@ -402,11 +443,16 @@ echo "Shared script"
 
       // Cache is disabled, no need to invalidate
 
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("other-app");
-      
+
       // Wait a bit for async operations
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       try {
         const content = persistenceHelper.readTextSync(
@@ -436,11 +482,13 @@ echo "Shared script"
         const appJson = {
           name: "Test Application",
           description: "A test application for documentation generation",
-          installation: [
-            "set-parameters.json",
-            "test-template.json",
-            "shared-template.json",
-          ],
+          installation: {
+            post_start: [
+              "set-parameters.json",
+              "test-template.json",
+              "shared-template.json",
+            ],
+          },
         };
         persistenceHelper.writeJsonSync(
           Volume.JsonApplications,
@@ -448,12 +496,17 @@ echo "Shared script"
           appJson,
         );
       }
-      
-      const generator = new DocumentationGenerator(jsonPath, localPath, schemaPath, htmlPath);
+
+      const generator = new DocumentationGenerator(
+        jsonPath,
+        localPath,
+        schemaPath,
+        htmlPath,
+      );
       await generator.generateDocumentation("test-app");
 
       // Wait a bit for async operations
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // If the file exists, check that test-app is not in the list if it skips
       try {
@@ -461,7 +514,7 @@ echo "Shared script"
           Volume.LocalRoot,
           "html/json/shared/templates/shared-template.md",
         );
-        
+
         // If test-app skips shared-template, it should not appear in Used By Applications
         // This test verifies the skip logic works
         const hasUsedBySection = content.includes("## Used By Applications");
@@ -494,4 +547,3 @@ echo "Shared script"
     }, 10000);
   });
 });
-

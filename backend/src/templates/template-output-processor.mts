@@ -3,10 +3,17 @@ import { IResolvedParam } from "@src/backend-types.mjs";
 import { ITemplate, IJsonError } from "@src/types.mjs";
 import { IProcessedTemplate } from "./templateprocessor-types.mjs";
 
+export interface PropertyDefaultEntry {
+  id: string;
+  default: string | number | boolean;
+}
+
 export interface OutputCollectionResult {
   allOutputIds: Set<string>;
   outputIdsFromOutputs: Set<string>;
   outputIdsFromProperties: Set<string>;
+  /** Properties that use 'default' instead of 'value' - these should NOT be added to resolvedParams */
+  propertyDefaults: PropertyDefaultEntry[];
   duplicateIds: Set<string>;
 }
 
@@ -16,7 +23,10 @@ export interface ApplyOutputsOptions {
   isConditional: boolean;
   outputCollection: OutputCollectionResult;
   resolvedParams: IResolvedParam[];
-  outputSources?: Map<string, { template: string; kind: "outputs" | "properties" }>;
+  outputSources?: Map<
+    string,
+    { template: string; kind: "outputs" | "properties" }
+  >;
   processedTemplates?: Map<string, IProcessedTemplate>;
   errors?: IJsonError[];
 }
@@ -24,6 +34,7 @@ export interface ApplyOutputsOptions {
 export type ResolveTemplateFn = (
   applicationId: string,
   templateName: string,
+  category: string,
 ) => { template: ITemplate } | null;
 export type NormalizeTemplateNameFn = (templateName: string) => string;
 
@@ -37,6 +48,7 @@ export class TemplateOutputProcessor {
     const allOutputIds = new Set<string>();
     const outputIdsFromOutputs = new Set<string>();
     const outputIdsFromProperties = new Set<string>();
+    const propertyDefaults: PropertyDefaultEntry[] = [];
     const duplicateIds = new Set<string>();
     const seenIds = new Set<string>();
 
@@ -55,31 +67,47 @@ export class TemplateOutputProcessor {
       }
 
       if (cmd.properties !== undefined) {
-        const propertyIds: string[] = [];
         const propertyIdsInCommand = new Set<string>();
+        const propertiesArray = Array.isArray(cmd.properties)
+          ? cmd.properties
+          : [cmd.properties];
 
-        if (Array.isArray(cmd.properties)) {
-          for (const prop of cmd.properties) {
-            if (prop && typeof prop === "object" && prop.id) {
-              if (propertyIdsInCommand.has(prop.id)) {
+        for (const prop of propertiesArray) {
+          if (prop && typeof prop === "object" && prop.id) {
+            if (propertyIdsInCommand.has(prop.id)) {
+              duplicateIds.add(prop.id);
+              continue;
+            }
+            propertyIdsInCommand.add(prop.id);
+
+            // Check if this property has 'default' instead of 'value'
+            // Properties with 'default' should NOT be added to resolvedParams
+            // They should only set the parameter's default value
+            const hasValue = prop.value !== undefined;
+            const hasDefault = prop.default !== undefined;
+
+            if (hasDefault && !hasValue) {
+              // This property only sets a default - don't mark as resolved
+              propertyDefaults.push({
+                id: prop.id,
+                default: prop.default as string | number | boolean,
+              });
+              // Still track in seenIds to detect duplicates
+              if (seenIds.has(prop.id)) {
                 duplicateIds.add(prop.id);
               } else {
-                propertyIdsInCommand.add(prop.id);
-                propertyIds.push(prop.id);
+                seenIds.add(prop.id);
+              }
+            } else {
+              // This property has a value - mark as resolved
+              if (seenIds.has(prop.id)) {
+                duplicateIds.add(prop.id);
+              } else {
+                seenIds.add(prop.id);
+                allOutputIds.add(prop.id);
+                outputIdsFromProperties.add(prop.id);
               }
             }
-          }
-        } else if (cmd.properties && typeof cmd.properties === "object" && cmd.properties.id) {
-          propertyIds.push(cmd.properties.id);
-        }
-
-        for (const propId of propertyIds) {
-          if (seenIds.has(propId)) {
-            duplicateIds.add(propId);
-          } else {
-            seenIds.add(propId);
-            allOutputIds.add(propId);
-            outputIdsFromProperties.add(propId);
           }
         }
       }
@@ -89,6 +117,7 @@ export class TemplateOutputProcessor {
       allOutputIds,
       outputIdsFromOutputs,
       outputIdsFromProperties,
+      propertyDefaults,
       duplicateIds,
     };
   }
@@ -116,13 +145,17 @@ export class TemplateOutputProcessor {
         if (outputSources) {
           outputSources.set(outputId, {
             template: currentTemplateName,
-            kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+            kind: outputIdsFromProperties.has(outputId)
+              ? "properties"
+              : "outputs",
           });
         }
       } else {
         const conflictingTemplate = existing.template;
         if (conflictingTemplate === "user_input") {
-          const existingIndex = resolvedParams.findIndex((p) => p.id === outputId);
+          const existingIndex = resolvedParams.findIndex(
+            (p) => p.id === outputId,
+          );
           if (existingIndex !== -1) {
             resolvedParams[existingIndex] = {
               id: outputId,
@@ -132,7 +165,9 @@ export class TemplateOutputProcessor {
           if (outputSources) {
             outputSources.set(outputId, {
               template: currentTemplateName,
-              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+              kind: outputIdsFromProperties.has(outputId)
+                ? "properties"
+                : "outputs",
             });
           }
           continue;
@@ -141,13 +176,21 @@ export class TemplateOutputProcessor {
         let conflictingTemplateIsConditional = false;
         let conflictingTemplateSetsOutput = true;
         if (processedTemplates) {
-          const normalizedConflictingName = this.normalizeTemplateName(conflictingTemplate);
-          const conflictingTemplateInfo = processedTemplates.get(normalizedConflictingName);
+          const normalizedConflictingName =
+            this.normalizeTemplateName(conflictingTemplate);
+          const conflictingTemplateInfo = processedTemplates.get(
+            normalizedConflictingName,
+          );
           if (conflictingTemplateInfo) {
-            conflictingTemplateIsConditional = conflictingTemplateInfo.conditional || false;
+            conflictingTemplateIsConditional =
+              conflictingTemplateInfo.conditional || false;
 
             try {
-              const conflictingResolved = this.resolveTemplate(applicationId, conflictingTemplate);
+              const conflictingResolved = this.resolveTemplate(
+                applicationId,
+                conflictingTemplate,
+                conflictingTemplateInfo?.category ?? "",
+              );
               const conflictingTmplData = conflictingResolved?.template ?? null;
               if (!conflictingTmplData) {
                 conflictingTemplateSetsOutput = true;
@@ -156,7 +199,8 @@ export class TemplateOutputProcessor {
                 for (const cmd of conflictingTmplData.commands ?? []) {
                   if (cmd.outputs) {
                     for (const output of cmd.outputs) {
-                      const id = typeof output === "string" ? output : output.id;
+                      const id =
+                        typeof output === "string" ? output : output.id;
                       if (id === outputId) {
                         conflictingTemplateSetsOutput = true;
                         break;
@@ -166,7 +210,11 @@ export class TemplateOutputProcessor {
                   if (cmd.properties !== undefined) {
                     if (Array.isArray(cmd.properties)) {
                       for (const prop of cmd.properties) {
-                        if (prop && typeof prop === "object" && prop.id === outputId) {
+                        if (
+                          prop &&
+                          typeof prop === "object" &&
+                          prop.id === outputId
+                        ) {
                           conflictingTemplateSetsOutput = true;
                           break;
                         }
@@ -189,7 +237,9 @@ export class TemplateOutputProcessor {
         }
 
         if (!conflictingTemplateSetsOutput) {
-          const existingIndex = resolvedParams.findIndex((p) => p.id === outputId);
+          const existingIndex = resolvedParams.findIndex(
+            (p) => p.id === outputId,
+          );
           if (existingIndex !== -1) {
             resolvedParams[existingIndex] = {
               id: outputId,
@@ -199,11 +249,15 @@ export class TemplateOutputProcessor {
           if (outputSources) {
             outputSources.set(outputId, {
               template: currentTemplateName,
-              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+              kind: outputIdsFromProperties.has(outputId)
+                ? "properties"
+                : "outputs",
             });
           }
         } else if (isConditional || conflictingTemplateIsConditional) {
-          const existingIndex = resolvedParams.findIndex((p) => p.id === outputId);
+          const existingIndex = resolvedParams.findIndex(
+            (p) => p.id === outputId,
+          );
           if (existingIndex !== -1) {
             resolvedParams[existingIndex] = {
               id: outputId,
@@ -213,7 +267,9 @@ export class TemplateOutputProcessor {
           if (outputSources) {
             outputSources.set(outputId, {
               template: currentTemplateName,
-              kind: outputIdsFromProperties.has(outputId) ? "properties" : "outputs",
+              kind: outputIdsFromProperties.has(outputId)
+                ? "properties"
+                : "outputs",
             });
           }
         } else {
@@ -223,6 +279,25 @@ export class TemplateOutputProcessor {
             ),
           );
         }
+      }
+    }
+  }
+
+  /**
+   * Apply property defaults to parameters.
+   * This sets the default value on parameters without marking them as resolved,
+   * allowing them to appear as editable in the UI with pre-filled values.
+   */
+  applyPropertyDefaults(
+    propertyDefaults: PropertyDefaultEntry[],
+    parameters: Array<{ id: string; default?: string | number | boolean }>,
+  ): void {
+    for (const propDefault of propertyDefaults) {
+      const param = parameters.find((p) => p.id === propDefault.id);
+      if (param) {
+        // Only set the default if parameter doesn't already have one
+        // (property default overrides parameter default)
+        param.default = propDefault.default;
       }
     }
   }

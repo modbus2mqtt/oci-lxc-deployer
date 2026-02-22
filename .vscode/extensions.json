@@ -1,5 +1,16 @@
 {
-    "recommendations": [
-        "saoudrizwan.claude-dev"
-    ]
+  "recommendations": [
+    "Angular.ng-template",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "eamodio.gitlens",
+    "christian-kohler.path-intellisense",
+    "christian-kohler.npm-intellisense",
+    "ms-playwright.playwright",
+    "vitest.explorer",
+    "mhutchie.git-graph",
+    "EditorConfig.EditorConfig",
+    "saoudrizwan.claude-dev"
+  ],
+  "unwantedRecommendations": []
 }

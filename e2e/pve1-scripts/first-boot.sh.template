@@ -1,0 +1,74 @@
+#!/bin/bash
+# First boot script for E2E test Proxmox installation
+# This script runs after network is up to configure:
+# - Static IP on vmbr0 (replacing DHCP from autoinstall)
+# - DNS resolvers
+#
+# All other configuration (repos, apt, kernel modules, vmbr1, dnsmasq)
+# is handled by step1-create-vm.sh after SSH becomes available.
+
+set -e
+
+echo "=== E2E Test: First Boot Configuration ===" >&2
+
+# ============================================
+# Configure Static IP on External Interface
+# ============================================
+# Replace DHCP with static IP for reliable access
+# This VM runs on the PVE host's vmbr1 NAT network
+
+STATIC_IP="{{STATIC_IP}}"
+GATEWAY="{{GATEWAY}}"
+NETMASK="255.255.255.0"
+
+echo "Configuring static IP: $STATIC_IP..." >&2
+
+# Find the primary network interface (the one bridged to vmbr0)
+# At first boot, vmbr0 already exists with the physical interface as bridge-port
+PRIMARY_IF=$(grep -A5 "iface vmbr0" /etc/network/interfaces 2>/dev/null | grep bridge-ports | awk '{print $2}')
+if [ -z "$PRIMARY_IF" ] || [ "$PRIMARY_IF" = "none" ]; then
+    # Fallback: find first ethernet interface that's not a bridge
+    PRIMARY_IF=$(ip link show | grep -E "^[0-9]+: (ens|eth|enp)" | head -1 | cut -d: -f2 | tr -d ' ')
+fi
+if [ -z "$PRIMARY_IF" ]; then
+    PRIMARY_IF="ens18"  # Last resort fallback for virtio
+fi
+echo "Primary interface: $PRIMARY_IF" >&2
+
+# Update /etc/network/interfaces for vmbr0 with static IP
+# Proxmox creates vmbr0 bridging the primary interface
+cat > /etc/network/interfaces << NETCFG
+# Network configuration - Static IP for E2E testing
+auto lo
+iface lo inet loopback
+
+auto $PRIMARY_IF
+iface $PRIMARY_IF inet manual
+
+auto vmbr0
+iface vmbr0 inet static
+    address $STATIC_IP
+    netmask $NETMASK
+    gateway $GATEWAY
+    bridge-ports $PRIMARY_IF
+    bridge-stp off
+    bridge-fd 0
+NETCFG
+
+# Apply network configuration
+echo "Applying static IP configuration..." >&2
+ip addr flush dev vmbr0 2>/dev/null || true
+ip addr add $STATIC_IP/$NETMASK dev vmbr0 2>/dev/null || true
+ip route add default via $GATEWAY dev vmbr0 2>/dev/null || true
+
+# Configure DNS
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+
+echo "Static IP configured: $STATIC_IP" >&2
+
+# Enable QEMU guest agent for VM introspection from PVE host
+systemctl enable qemu-guest-agent 2>/dev/null || true
+systemctl start qemu-guest-agent 2>/dev/null || true
+
+echo "=== E2E Test: First boot configuration complete ===" >&2

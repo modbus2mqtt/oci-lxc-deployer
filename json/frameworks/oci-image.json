@@ -2,12 +2,12 @@
   "name": "oci-image",
   "extends": "oci-image",
   "properties": [
-    "hostname",
+    { "id":"hostname", "default": true },
     "oci_image",
     "uid",
     "username",
-    "volumes",
-    "envs"
+    { "id":"volumes", "default": true },
+    { "id":"envs", "default": true },
+    "initial_command"
   ]
 }
-

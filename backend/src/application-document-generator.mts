@@ -2,7 +2,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ApplicationLoader } from "./apploader.mjs";
-import { VEConfigurationError, IApplication, IConfiguredPathes, IReadApplicationOptions, ITemplateReference } from "./backend-types.mjs";
+import {
+  VEConfigurationError,
+  IApplication,
+  IConfiguredPathes,
+  IReadApplicationOptions,
+  ITemplateReference,
+} from "./backend-types.mjs";
 import { DocumentationPathResolver } from "./documentation-path-resolver.mjs";
 import { TemplateAnalyzer } from "./templates/template-analyzer.mjs";
 import { TemplatePathResolver } from "./templates/template-path-resolver.mjs";
@@ -65,7 +71,8 @@ export class ApplicationDocumentGenerator {
     }
 
     // Installation Templates
-    if (appData.installation && appData.installation.length > 0) {
+    const installationTemplates = this.getInstallationTemplates(appData);
+    if (installationTemplates.length > 0) {
       lines.push("## Installation Templates");
       lines.push("");
       lines.push(
@@ -75,24 +82,32 @@ export class ApplicationDocumentGenerator {
       lines.push("| Template | Description | Status |");
       lines.push("|----------|-------------|--------|");
 
-      for (const templateRef of appData.installation) {
-        const templateName = typeof templateRef === "string"
-          ? templateRef
-          : (templateRef as ITemplateReference).name;
-        
-        const resolved = this.pathResolver.resolveTemplatePath(templateName, appPath);
+      for (const templateRef of installationTemplates) {
+        const templateName =
+          typeof templateRef === "string"
+            ? templateRef
+            : (templateRef as ITemplateReference).name;
+
+        const resolved = this.pathResolver.resolveTemplatePath(
+          templateName,
+          appPath,
+        );
         const isShared = resolved?.isShared ?? true;
         const isLocal = !isShared;
-        
-        const templateDocName = this.pathResolver.getTemplateDocName(templateName);
+
+        const templateDocName =
+          this.pathResolver.getTemplateDocName(templateName);
         const templateDocPath = isLocal
           ? `json/applications/${applicationName}/templates/${templateDocName}`
           : `json/shared/templates/${templateDocName}`;
-        
+
         // Try to read template for description
         let description = "";
         let referencedTemplates: string[] = [];
-        const templateData = this.pathResolver.loadTemplate(templateName, appPath);
+        const templateData = this.pathResolver.loadTemplate(
+          templateName,
+          appPath,
+        );
         if (templateData) {
           description = templateData.description || "";
           // Take only the first sentence (before first period or newline) for table readability
@@ -106,30 +121,42 @@ export class ApplicationDocumentGenerator {
           if (description.length > 80) {
             description = description.substring(0, 77) + "...";
           }
-          
+
           // Extract referenced templates from commands
-          referencedTemplates = TemplatePathResolver.extractTemplateReferences(templateData);
+          referencedTemplates =
+            TemplatePathResolver.extractTemplateReferences(templateData);
         }
 
         // Check if template is fully skipped
         const isFullySkipped = skippedTemplates.has(templateName);
-        
+
         // Check if template is conditionally executed
-        const isConditionallyExecuted = templateData ? this.templateAnalyzer.isConditionallyExecuted(templateData) : false;
-        
+        const isConditionallyExecuted = templateData
+          ? this.templateAnalyzer.isConditionallyExecuted(templateData)
+          : false;
+
         // Format status with color highlighting
-        const status = this.formatTemplateStatus(isFullySkipped, isConditionallyExecuted);
+        const status = this.formatTemplateStatus(
+          isFullySkipped,
+          isConditionallyExecuted,
+        );
 
         lines.push(
           `| [${templateName}](${templateDocPath}) | ${description} | ${status} |`,
         );
-        
+
         // Add referenced templates as indented rows
         for (const refTemplateName of referencedTemplates) {
-          const refResolved = this.pathResolver.resolveTemplatePath(refTemplateName, appPath);
+          const refResolved = this.pathResolver.resolveTemplatePath(
+            refTemplateName,
+            appPath,
+          );
           const refIsShared = refResolved?.isShared ?? true;
-          
-          const refTemplateData = this.pathResolver.loadTemplate(refTemplateName, appPath);
+
+          const refTemplateData = this.pathResolver.loadTemplate(
+            refTemplateName,
+            appPath,
+          );
           let refDescription = "";
           if (refTemplateData) {
             refDescription = refTemplateData.description || "";
@@ -142,17 +169,23 @@ export class ApplicationDocumentGenerator {
               refDescription = refDescription.substring(0, 67) + "...";
             }
           }
-          
-          const refTemplateDocName = this.pathResolver.getTemplateDocName(refTemplateName);
+
+          const refTemplateDocName =
+            this.pathResolver.getTemplateDocName(refTemplateName);
           const refTemplateDocPath = refIsShared
             ? `json/shared/templates/${refTemplateDocName}`
             : `json/applications/${applicationName}/templates/${refTemplateDocName}`;
-          
+
           // Check if referenced template is fully skipped or conditionally executed
           const refIsFullySkipped = skippedTemplates.has(refTemplateName);
-          const refIsConditionallyExecuted = refTemplateData ? this.templateAnalyzer.isConditionallyExecuted(refTemplateData) : false;
-          const refStatus = this.formatTemplateStatus(refIsFullySkipped, refIsConditionallyExecuted);
-          
+          const refIsConditionallyExecuted = refTemplateData
+            ? this.templateAnalyzer.isConditionallyExecuted(refTemplateData)
+            : false;
+          const refStatus = this.formatTemplateStatus(
+            refIsFullySkipped,
+            refIsConditionallyExecuted,
+          );
+
           lines.push(
             `| └─ [${refTemplateName}](${refTemplateDocPath}) | ${refDescription} | ${refStatus} |`,
           );
@@ -171,7 +204,11 @@ export class ApplicationDocumentGenerator {
     lines.push("");
 
     // Get parameters from set-parameters.json if it exists
-    const setParamsPath = path.join(appPath, "templates", "set-parameters.json");
+    const setParamsPath = path.join(
+      appPath,
+      "templates",
+      "set-parameters.json",
+    );
     if (fs.existsSync(setParamsPath)) {
       const setParamsData: ITemplate = JSON.parse(
         fs.readFileSync(setParamsPath, "utf-8"),
@@ -200,12 +237,12 @@ export class ApplicationDocumentGenerator {
       let commandIndex = 1;
       for (const cmd of commands) {
         if (!cmd) continue;
-        
+
         const isSkipped = cmd.name?.includes("(skipped)") || false;
         const commandName = cmd.name || "Unnamed command";
         const description = cmd.description || "-";
         const status = isSkipped ? "⏭️ Skipped" : "✓ Executed";
-        
+
         lines.push(
           `| ${commandIndex} | \`${commandName}\` | ${description} | ${status} |`,
         );
@@ -223,22 +260,25 @@ export class ApplicationDocumentGenerator {
       "This application provides the following features (documented in individual template files):",
     );
     lines.push("");
-    
+
     // List features from templates
-    if (appData.installation) {
-      for (const templateRef of appData.installation) {
-        const templateName = typeof templateRef === "string"
+    for (const templateRef of installationTemplates) {
+      const templateName =
+        typeof templateRef === "string"
           ? templateRef
           : (templateRef as ITemplateReference).name;
-        
-        const resolved = this.pathResolver.resolveTemplatePath(templateName, appPath);
-        if (resolved) {
-          const templateDocName = this.pathResolver.getTemplateDocName(templateName);
-          const templateDocPath = resolved.isShared
-            ? `json/shared/templates/${templateDocName}`
-            : `json/applications/${applicationName}/templates/${templateDocName}`;
-          lines.push(`- See [${templateName}](${templateDocPath}) for details`);
-        }
+
+      const resolved = this.pathResolver.resolveTemplatePath(
+        templateName,
+        appPath,
+      );
+      if (resolved) {
+        const templateDocName =
+          this.pathResolver.getTemplateDocName(templateName);
+        const templateDocPath = resolved.isShared
+          ? `json/shared/templates/${templateDocName}`
+          : `json/applications/${applicationName}/templates/${templateDocName}`;
+        lines.push(`- See [${templateName}](${templateDocPath}) for details`);
       }
     }
     lines.push("");
@@ -257,9 +297,8 @@ export class ApplicationDocumentGenerator {
     for (const param of parameters) {
       const type = param.type || "string";
       const required = param.required ? "Yes" : "No";
-      const defaultVal = param.default !== undefined
-        ? String(param.default)
-        : "-";
+      const defaultVal =
+        param.default !== undefined ? String(param.default) : "-";
       const description = param.description || "";
 
       // Add flags
@@ -278,24 +317,48 @@ export class ApplicationDocumentGenerator {
   }
 
   /**
+   * Extracts a flat list of templates from the installation object.
+   * Installation format: { image: [...], pre_start: [...], start: [...], post_start: [...] }
+   */
+  private getInstallationTemplates(appData: IApplication): (string | ITemplateReference)[] {
+    const installation = (appData as any).installation;
+    if (!installation || typeof installation !== "object") {
+      return [];
+    }
+
+    const templates: (string | ITemplateReference)[] = [];
+    const categories = ["image", "pre_start", "start", "post_start"];
+
+    for (const category of categories) {
+      const list = installation[category];
+      if (Array.isArray(list)) {
+        templates.push(...list);
+      }
+    }
+
+    return templates;
+  }
+
+  /**
    * Formats template status for markdown table.
    */
-  private formatTemplateStatus(isFullySkipped: boolean, isConditionallyExecuted: boolean): string {
+  private formatTemplateStatus(
+    isFullySkipped: boolean,
+    isConditionallyExecuted: boolean,
+  ): string {
     if (isFullySkipped) {
       return '<span style="color: #ff6b6b; font-weight: bold;">⏭️ All Commands Skipped</span>';
     } else if (isConditionallyExecuted) {
       return '<span style="color: #ffa500; font-weight: bold;">⚙️ Conditional (requires parameters)</span>';
     } else {
-      return '✓ Executed';
+      return "✓ Executed";
     }
   }
 
   /**
    * Gets parent application data.
    */
-  async getParentApplication(
-    parentName: string,
-  ): Promise<IApplication | null> {
+  async getParentApplication(parentName: string): Promise<IApplication | null> {
     try {
       const pm = PersistenceManager.getInstance();
       const persistence = new FileSystemPersistence(
@@ -327,4 +390,3 @@ export class ApplicationDocumentGenerator {
     }
   }
 }
-

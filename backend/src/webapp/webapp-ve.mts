@@ -5,15 +5,17 @@ import {
   IVeExecuteMessagesResponse,
   IPostVeConfigurationBody,
   IPostVeCopyUpgradeBody,
+  IVeLogsResponse,
   TaskType,
 } from "../types.mjs";
+import { IVEContext } from "../backend-types.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
 import { WebAppVeExecutionSetup } from "./webapp-ve-execution-setup.mjs";
 import { WebAppVeRouteHandlers } from "./webapp-ve-route-handlers.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
-import { VMInstallContext } from "../context-manager.mjs";
+import { VeLogsService } from "../ve-execution/ve-logs-service.mjs";
 
 export class WebAppVE {
   private messageManager: WebAppVeMessageManager;
@@ -70,57 +72,53 @@ export class WebAppVE {
   init(): void {
     // POST /api/ve-configuration/:application/:task/:veContext
     this.post<
-      { application: string; task: string; veContext: string },
+      { application: string; task: TaskType; veContext: string },
       IPostVeConfigurationBody
     >(ApiUri.VeConfiguration, async (req, res) => {
-      const { application, veContext: veContextKey } = req.params;
-      const task: TaskType = "installation";
-      
-      // Set vmInstallContext in ContextManager if changedParams are provided
-      // Update existing context with new changedParams if context exists
+      const { application, task, veContext: veContextKey } = req.params;
+
+      // Set vmInstallContext in ContextManager for restart support
+      // Use changedParams if provided, otherwise fall back to params
       let vmInstallKey: string | undefined;
-      // Access changedParams from body (may be undefined if not provided)
       const changedParams = req.body?.changedParams;
-      if (changedParams && Array.isArray(changedParams) && changedParams.length > 0) {
-        const storageContext = PersistenceManager.getInstance().getContextManager();
+      const params = req.body?.params;
+
+      // Use changedParams if available and non-empty, otherwise use params
+      const paramsToStore =
+        changedParams &&
+        Array.isArray(changedParams) &&
+        changedParams.length > 0
+          ? changedParams
+          : params && Array.isArray(params)
+            ? params
+            : [];
+
+      if (paramsToStore.length > 0) {
+        const storageContext =
+          PersistenceManager.getInstance().getContextManager();
         const veContext = storageContext.getVEContextByKey(veContextKey);
         if (veContext) {
-          const hostname = typeof veContext.host === "string" 
-            ? veContext.host 
-            : (veContext.host as any)?.host || "unknown";
-          // Check if context already exists
-          const tempContext = new VMInstallContext({
+          const hostname =
+            typeof veContext.host === "string"
+              ? veContext.host
+              : (veContext.host as any)?.host || "unknown";
+
+          // Map params from request
+          const mappedParams = paramsToStore.map((p: any) => ({
+            name: p.name,
+            value: p.value,
+          }));
+
+          // Create or update VMInstallContext
+          vmInstallKey = storageContext.setVMInstallContext({
             hostname,
             application,
             task: task as TaskType,
-            changedParams: [],
+            changedParams: mappedParams,
           });
-          const existingKey = tempContext.getKey();
-          const existingContext = storageContext.get(existingKey);
-          
-          // Map changedParams from request
-          const mappedChangedParams = changedParams.map((p: any) => ({ name: p.name, value: p.value }));
-          
-          if (existingContext instanceof VMInstallContext) {
-            // Context exists - update it with new changedParams
-            vmInstallKey = storageContext.setVMInstallContext({
-              hostname,
-              application,
-              task: task as TaskType,
-              changedParams: mappedChangedParams,
-            });
-          } else {
-            // Context doesn't exist - create new one
-            vmInstallKey = storageContext.setVMInstallContext({
-              hostname,
-              application,
-              task: task as TaskType,
-              changedParams: mappedChangedParams,
-            });
-          }
         }
       }
-      
+
       const result = await this.routeHandlers.handleVeConfiguration(
         application,
         task,
@@ -130,10 +128,14 @@ export class WebAppVE {
       if (result.success && result.restartKey) {
         // Set vmInstallKey in message group if it exists
         if (vmInstallKey) {
-          this.messageManager.setVmInstallKeyForGroup(application, task, vmInstallKey);
+          this.messageManager.setVmInstallKeyForGroup(
+            application,
+            task,
+            vmInstallKey,
+          );
         }
-        const response: IVeConfigurationResponse = { 
-          success: true, 
+        const response: IVeConfigurationResponse = {
+          success: true,
           restartKey: result.restartKey,
           ...(vmInstallKey && { vmInstallKey }),
         };
@@ -156,10 +158,13 @@ export class WebAppVE {
       IPostVeConfigurationBody
     >(ApiUri.VeRestartInstallation, async (req, res) => {
       const { vmInstallKey, veContext: veContextKey } = req.params;
-      const result = await this.routeHandlers.handleVeRestartInstallation(vmInstallKey, veContextKey);
+      const result = await this.routeHandlers.handleVeRestartInstallation(
+        vmInstallKey,
+        veContextKey,
+      );
       if (result.success && result.restartKey) {
-        const response: IVeConfigurationResponse = { 
-          success: true, 
+        const response: IVeConfigurationResponse = {
+          success: true,
           restartKey: result.restartKey,
           ...(result.vmInstallKey && { vmInstallKey: result.vmInstallKey }),
         };
@@ -178,13 +183,14 @@ export class WebAppVE {
 
     // GET /api/ve/execute/:veContext
     this.app.get<{ veContext: string }>(ApiUri.VeExecute, (req, res) => {
-      const storageContext = PersistenceManager.getInstance().getContextManager();
-       const veContext = storageContext.getVEContextByKey(req.params.veContext);
-       if (!veContext) {
+      const storageContext =
+        PersistenceManager.getInstance().getContextManager();
+      const veContext = storageContext.getVEContextByKey(req.params.veContext);
+      if (!veContext) {
         res.status(404).json({ error: "VE context not found" });
         return;
-       }
-       
+      }
+
       const messages = this.routeHandlers.handleGetMessages(veContext);
       this.returnResponse<IVeExecuteMessagesResponse>(res, messages);
     });
@@ -192,10 +198,13 @@ export class WebAppVE {
     // POST /api/ve/restart/:restartKey/:veContext
     this.app.post(ApiUri.VeRestart, express.json(), async (req, res) => {
       const { restartKey, veContext: veContextKey } = req.params;
-      const result = await this.routeHandlers.handleVeRestart(restartKey, veContextKey);
+      const result = await this.routeHandlers.handleVeRestart(
+        restartKey,
+        veContextKey,
+      );
       if (result.success && result.restartKey) {
-        const response: IVeConfigurationResponse = { 
-          success: true, 
+        const response: IVeConfigurationResponse = {
+          success: true,
           restartKey: result.restartKey,
           ...(result.vmInstallKey && { vmInstallKey: result.vmInstallKey }),
         };
@@ -230,7 +239,11 @@ export class WebAppVE {
         res.status(400).json({ success: false, error: "Missing oci_image" });
         return;
       }
-      if (body.source_vm_id === undefined || body.source_vm_id === null || typeof body.source_vm_id !== "number") {
+      if (
+        body.source_vm_id === undefined ||
+        body.source_vm_id === null ||
+        typeof body.source_vm_id !== "number"
+      ) {
         res.status(400).json({ success: false, error: "Missing source_vm_id" });
         return;
       }
@@ -280,6 +293,177 @@ export class WebAppVE {
         }
         res.status(result.statusCode || 500).json(errorResponse);
       }
+    });
+
+    // GET /api/ve/logs/:vmId/:veContext/hostname - Get container hostname
+    // IMPORTANT: Must be registered BEFORE VeLogs to avoid :veContext matching "hostname"
+    this.app.get<{ vmId: string; veContext: string }>(
+      ApiUri.VeLogsHostname,
+      async (req, res) => {
+        const { vmId: vmIdStr, veContext: veContextKey } = req.params;
+
+        const vmId = parseInt(vmIdStr, 10);
+        if (isNaN(vmId) || vmId <= 0) {
+          res.status(400).json({ hostname: null, error: "Invalid VM ID" });
+          return;
+        }
+
+        // Try to get VE context from storage, or derive from key (ve_hostname -> hostname)
+        const storageContext =
+          PersistenceManager.getInstance().getContextManager();
+        const storedContext = storageContext.getVEContextByKey(veContextKey);
+        let veContext: IVEContext;
+        if (storedContext) {
+          veContext = storedContext;
+        } else if (veContextKey.startsWith("ve_")) {
+          // Extract host from key format: ve_hostname -> hostname
+          const host = veContextKey.substring(3);
+          veContext = { host, port: 22 } as IVEContext;
+        } else {
+          res
+            .status(404)
+            .json({ hostname: null, error: "Invalid VE context key format" });
+          return;
+        }
+
+        try {
+          const logsService = new VeLogsService(veContext);
+          const hostname = await logsService.getHostnameForVm(vmId);
+          res.json({ hostname: hostname || null });
+        } catch {
+          res.json({ hostname: null });
+        }
+      },
+    );
+
+    // GET /api/ve/logs/:vmId/:veContext - LXC Console Logs
+    this.app.get<
+      { vmId: string; veContext: string },
+      unknown,
+      unknown,
+      { lines?: string }
+    >(ApiUri.VeLogs, async (req, res) => {
+      const { vmId: vmIdStr, veContext: veContextKey } = req.params;
+      const linesStr = req.query.lines;
+
+      // Validate vmId
+      const vmId = parseInt(vmIdStr, 10);
+      if (isNaN(vmId) || vmId <= 0) {
+        res.status(400).json({
+          success: false,
+          error: "Invalid VM ID",
+        });
+        return;
+      }
+
+      // Get VE context
+      const storageContext =
+        PersistenceManager.getInstance().getContextManager();
+      const veContext = storageContext.getVEContextByKey(veContextKey);
+      if (!veContext) {
+        res.status(404).json({
+          success: false,
+          error: "VE context not found",
+        });
+        return;
+      }
+
+      // Create log service and fetch logs
+      const logsService = new VeLogsService(veContext);
+      const logOptions: { vmId: number; lines?: number } = { vmId };
+      if (linesStr) {
+        logOptions.lines = parseInt(linesStr, 10);
+      }
+      const result = await logsService.getConsoleLogs(logOptions);
+
+      // Content negotiation: return HTML for browsers, JSON for API clients
+      const acceptHeader = req.headers.accept || "";
+      if (acceptHeader.includes("text/html")) {
+        const logContent =
+          result.success && result.content
+            ? result.content
+            : result.error || "No logs available";
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Logs - CT ${vmId}</title>
+  <style>
+    body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }
+    h1 { color: #569cd6; margin-bottom: 10px; }
+    .meta { color: #808080; margin-bottom: 20px; }
+    pre { white-space: pre-wrap; word-wrap: break-word; background: #252526; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    .error { color: #f44747; }
+  </style>
+</head>
+<body>
+  <h1>Logs - CT ${vmId}</h1>
+  <div class="meta">VE: ${veContextKey} | Lines: ${result.lines || "N/A"}</div>
+  <pre${result.success ? "" : ' class="error"'}>${logContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
+</body>
+</html>`;
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(result.success ? 200 : 400).send(html);
+        return;
+      }
+
+      this.returnResponse<IVeLogsResponse>(
+        res,
+        result,
+        result.success ? 200 : 400,
+      );
+    });
+
+    // GET /api/ve/logs/:vmId/docker/:veContext - Docker Logs
+    this.app.get<
+      { vmId: string; veContext: string },
+      unknown,
+      unknown,
+      { lines?: string; service?: string }
+    >(ApiUri.VeDockerLogs, async (req, res) => {
+      const { vmId: vmIdStr, veContext: veContextKey } = req.params;
+      const { lines: linesStr, service } = req.query;
+
+      // Validate vmId
+      const vmId = parseInt(vmIdStr, 10);
+      if (isNaN(vmId) || vmId <= 0) {
+        res.status(400).json({
+          success: false,
+          error: "Invalid VM ID",
+        });
+        return;
+      }
+
+      // Get VE context
+      const storageContext =
+        PersistenceManager.getInstance().getContextManager();
+      const veContext = storageContext.getVEContextByKey(veContextKey);
+      if (!veContext) {
+        res.status(404).json({
+          success: false,
+          error: "VE context not found",
+        });
+        return;
+      }
+
+      // Create log service and fetch logs
+      const logsService = new VeLogsService(veContext);
+      const logOptions: { vmId: number; lines?: number; service?: string } = {
+        vmId,
+      };
+      if (linesStr) {
+        logOptions.lines = parseInt(linesStr, 10);
+      }
+      if (service) {
+        logOptions.service = service;
+      }
+      const result = await logsService.getDockerLogs(logOptions);
+
+      this.returnResponse<IVeLogsResponse>(
+        res,
+        result,
+        result.success ? 200 : 400,
+      );
     });
   }
 }

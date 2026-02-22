@@ -9,6 +9,17 @@
 	</div>
 </div>
 
+@if (taskKey === 'addon-reconfigure' && existingMountPoints.length > 0) {
+	<div class="existing-mounts-info">
+		<h4>Existing Volumes</h4>
+		<ul>
+			@for (mp of existingMountPoints; track mp.target) {
+				<li><code>{{ mp.target }}</code></li>
+			}
+		</ul>
+	</div>
+}
+
 <form [formGroup]="form" (ngSubmit)="save()">
 	@if (!loading()) {
 		@if (showMissingRequiredHint) {
@@ -25,12 +36,42 @@
 			</div>
 		}
 		<div class="group-container">
+			<app-addon-section
+				[availableAddons]="availableAddons"
+				[selectedAddons]="selectedAddons()"
+				[expandedAddons]="expandedAddons()"
+				[form]="form"
+				[showAdvanced]="showAdvanced()"
+				[availableStacks]="availableStacks()"
+				[isLoading]="addonsLoading()"
+				(addonToggled)="toggleAddon($event.addonId, $event.checked)"
+				(addonExpandedChanged)="toggleAddonExpandedById($event)"
+				(stackSelected)="onStackSelected($event)"
+				(createStackRequested)="onCreateStackRequested()"
+			></app-addon-section>
+			@if (data.app.stacktype && filteredStacks().length > 0) {
+				<div class="secrets-selector">
+					<app-stack-selector
+						[availableStacks]="filteredStacks()"
+						[selectedStack]="selectedStack"
+						[label]="'Secrets'"
+						[showCreateButton]="false"
+						[showManageLink]="true"
+						[showEntryCount]="false"
+						[showDefaultHint]="true"
+						(stackSelected)="onStackSelected($event)"
+					></app-stack-selector>
+				</div>
+			}
 			@for (groupName of groupNames; track groupName) {
 				<app-parameter-group
 					[groupName]="groupName"
 					[groupedParameters]="groupedParameters"
 					[form]="form"
 					[showAdvanced]="showAdvanced()"
+					[availableStacks]="availableStacks()"
+					(stackSelected)="onStackSelected($event)"
+					(createStackRequested)="onCreateStackRequested()"
 				/>
 			}
 		</div>
@@ -52,7 +93,7 @@
 				} @else {
 					<div class="dialog-actions">
 						<button mat-stroked-button color="primary" type="button" (click)="close()">Cancel</button>
-						<button mat-flat-button color="accent" type="submit" [disabled]="form.invalid || loading()">Install</button>
+						<button mat-flat-button color="accent" type="submit" data-testid="confirm-install-btn" [disabled]="form.invalid || loading()">Install</button>
 					</div>
 				}
 			}

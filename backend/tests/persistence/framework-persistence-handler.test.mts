@@ -4,8 +4,14 @@ import path from "path";
 import { FrameworkPersistenceHandler } from "@src/persistence/framework-persistence-handler.mjs";
 import { JsonValidator } from "@src/jsonvalidator.mjs";
 import { VEConfigurationError } from "@src/backend-types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FrameworkPersistenceHandler", () => {
   let env: TestEnvironment;
@@ -33,6 +39,7 @@ describe("FrameworkPersistenceHandler", () => {
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
       "templatelist.schema.json",
+      "base-deployable.schema.json",
     ]);
 
     // FrameworkPersistenceHandler initialisieren
@@ -46,7 +53,6 @@ describe("FrameworkPersistenceHandler", () => {
     env?.cleanup();
   });
 
-
   describe("getAllFrameworkNames()", () => {
     it("should return empty map when no frameworks exist", () => {
       const result = handler.getAllFrameworkNames();
@@ -57,12 +63,16 @@ describe("FrameworkPersistenceHandler", () => {
       // Setup: Framework erstellen
       const frameworksDir = persistenceHelper.resolve(Volume.JsonFrameworks);
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "testframework.json", {
-        id: "testframework",
-        name: "Test Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonFrameworks,
+        "testframework.json",
+        {
+          id: "testframework",
+          name: "Test Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       const result = handler.getAllFrameworkNames();
       expect(result.size).toBe(1);
@@ -71,14 +81,21 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should find frameworks in local directory", () => {
       // Setup: Framework erstellen
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/localframework.json", {
-        id: "localframework",
-        name: "Local Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/localframework.json",
+        {
+          id: "localframework",
+          name: "Local Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       const result = handler.getAllFrameworkNames();
       expect(result.size).toBe(1);
@@ -87,7 +104,10 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should prefer local over json when same name exists", () => {
       // Setup: Framework in beiden Verzeichnissen
-      const jsonFrameworkFile = persistenceHelper.resolve(Volume.JsonFrameworks, "duplicate.json");
+      const jsonFrameworkFile = persistenceHelper.resolve(
+        Volume.JsonFrameworks,
+        "duplicate.json",
+      );
       const localFrameworkFile = persistenceHelper.resolve(
         Volume.LocalRoot,
         "frameworks/duplicate.json",
@@ -100,12 +120,16 @@ describe("FrameworkPersistenceHandler", () => {
         extends: "base",
         properties: [],
       });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/duplicate.json", {
-        id: "duplicate",
-        name: "Local Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/duplicate.json",
+        {
+          id: "duplicate",
+          name: "Local Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       const result = handler.getAllFrameworkNames();
       expect(result.size).toBe(1);
@@ -119,12 +143,16 @@ describe("FrameworkPersistenceHandler", () => {
       // Framework hinzufügen NACH erstem Aufruf
       const frameworksDir = path.join(jsonPath, "frameworks");
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "newframework.json", {
-        id: "newframework",
-        name: "New Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonFrameworks,
+        "newframework.json",
+        {
+          id: "newframework",
+          name: "New Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       // Zweiter Aufruf sollte noch alte Daten haben (Cache)
       const result2 = handler.getAllFrameworkNames();
@@ -138,12 +166,16 @@ describe("FrameworkPersistenceHandler", () => {
       // Setup: Framework erstellen (minimal valid framework)
       const frameworksDir = persistenceHelper.resolve(Volume.JsonFrameworks);
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonFrameworks, "testframework.json", {
-        id: "testframework",
-        name: "Test Framework",
-        extends: "base",
-        properties: [] as any[],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonFrameworks,
+        "testframework.json",
+        {
+          id: "testframework",
+          name: "Test Framework",
+          extends: "base",
+          properties: [] as any[],
+        },
+      );
 
       const opts = {
         error: new VEConfigurationError("", "testframework"),
@@ -163,14 +195,21 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should read framework from local directory", () => {
       // Setup: Framework erstellen
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/localframework.json", {
-        id: "localframework",
-        name: "Local Framework",
-        extends: "base",
-        properties: [] as any[],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/localframework.json",
+        {
+          id: "localframework",
+          name: "Local Framework",
+          extends: "base",
+          properties: [] as any[],
+        },
+      );
 
       const opts = {
         error: new VEConfigurationError("", "localframework"),
@@ -187,14 +226,21 @@ describe("FrameworkPersistenceHandler", () => {
 
     it("should cache local frameworks", () => {
       // Setup: Framework in local erstellen
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/cachedframework.json", {
-        id: "cachedframework",
-        name: "Cached Framework",
-        extends: "base",
-        properties: [] as any[],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/cachedframework.json",
+        {
+          id: "cachedframework",
+          name: "Cached Framework",
+          extends: "base",
+          properties: [] as any[],
+        },
+      );
 
       const opts = {
         error: new VEConfigurationError("", "cachedframework"),
@@ -234,21 +280,31 @@ describe("FrameworkPersistenceHandler", () => {
       expect(existsSync(frameworkFile)).toBe(true);
 
       // Verify content
-      const content = persistenceHelper.readJsonSync(Volume.LocalRoot, "frameworks/newframework.json") as any;
+      const content = persistenceHelper.readJsonSync(
+        Volume.LocalRoot,
+        "frameworks/newframework.json",
+      ) as any;
       expect(content.name).toBe("New Framework");
     });
 
     it("should delete framework from local directory", () => {
       // Setup: Framework erstellen
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
       const frameworkFile = path.join(frameworksDir, "deleteframework.json");
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/deleteframework.json", {
-        id: "deleteframework",
-        name: "Delete Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/deleteframework.json",
+        {
+          id: "deleteframework",
+          name: "Delete Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       handler.deleteFramework("deleteframework");
 
@@ -260,14 +316,21 @@ describe("FrameworkPersistenceHandler", () => {
   describe("invalidateFrameworkCache()", () => {
     it("should invalidate framework cache", () => {
       // Setup: Framework in local erstellen
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
-        id: "testframework",
-        name: "Test Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/testframework.json",
+        {
+          id: "testframework",
+          name: "Test Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       // Populate cache
       handler.getAllFrameworkNames();
@@ -285,4 +348,3 @@ describe("FrameworkPersistenceHandler", () => {
     });
   });
 });
-

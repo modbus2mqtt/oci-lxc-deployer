@@ -1,11 +1,11 @@
 # Runtime image built from the npm pack tarball
-FROM node:20-alpine
+ARG NODE_MAJOR=24
+FROM node:${NODE_MAJOR}-alpine
 
 # Install tools needed for SSH key generation (ssh-keygen)
 RUN apk add --no-cache openssh-client
 
 # Build metadata
-ARG NPM_TARBALL="docker/oci-lxc-deployer.tgz"
 ARG BUILD_DATE
 ARG BUILD_DESCRIPTION="Deploys and manages LXC containers on Proxmox from OCI images via a web UI and API, and lets you easily define custom container services"
 ARG BUILD_REF="main"
@@ -16,12 +16,12 @@ ARG IMAGE_NAME="oci-lxc-deployer"
 ENV NODE_ENV=production
 
 # Copy the pre-built tarball into the image
-COPY ${NPM_TARBALL} /tmp/app.tgz
+COPY docker/oci-lxc-deployer.tgz /tmp/app.tgz
 
 # Install the application globally from the tarball and create a non-root user
 # Use fixed UID/GID 1000:1000 for easier volume permission management
 RUN set -eux; \
-    npm install -g /tmp/app.tgz --omit=dev; \
+    npm install -g /tmp/app.tgz --omit=dev --ignore-scripts; \
     rm /tmp/app.tgz; \
     addgroup -S -g 1001 lxc && adduser -S -u 1001 -G lxc lxc; \
     mkdir -p /home/lxc && chown -R lxc:lxc /home/lxc; \
@@ -49,23 +49,28 @@ RUN cat > /usr/local/bin/entrypoint-wrapper.sh <<'EOF'
 # Wrapper to ensure oci-lxc-deployer runs as lxc user, even when started as root
 # Also ensure the SSH key symlink exists so keys persist in /secure/.ssh
 ensure_ssh_setup() {
-  # Create target dir if missing; on unprivileged LXC with 0700, do it as lxc
+  # Create target dir if missing
   if [ ! -d /secure/.ssh ]; then
-    su -s /bin/sh lxc -c 'mkdir -p /secure/.ssh && chmod 700 /secure/.ssh' 2>/dev/null || true
+    mkdir -p /secure/.ssh 2>/dev/null || true
+    chmod 700 /secure/.ssh 2>/dev/null || true
+    chown lxc:lxc /secure/.ssh 2>/dev/null || true
   fi
   # Ensure symlink points to target
-  if ! [  -L /home/lxc/.ssh ]; then
+  if ! [ -L /home/lxc/.ssh ]; then
     rm -rf /home/lxc/.ssh 2>/dev/null || true
     ln -s /secure/.ssh /home/lxc/.ssh 2>/dev/null || true
     chown -h lxc:lxc /home/lxc/.ssh 2>/dev/null || true
   fi
 }
 
-ensure_ssh_setup
 if [ "$(id -u)" = "0" ]; then
+  # Fix volume ownership (Proxmox mounts may be root-owned)
+  chown lxc:lxc /config /secure 2>/dev/null || true
+  ensure_ssh_setup
   # Running as root, switch to lxc user
   exec su -s /bin/sh lxc -c "cd /home/lxc && exec $*"
 else
+  ensure_ssh_setup
   # Already running as non-root, execute directly
   exec "$@"
 fi

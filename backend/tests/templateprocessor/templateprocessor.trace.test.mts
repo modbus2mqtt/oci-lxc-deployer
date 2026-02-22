@@ -20,7 +20,7 @@ describe("TemplateProcessor trace output", () => {
       JSON.stringify(
         {
           name: "Trace App",
-          installation: ["set-params.json", "needs-params.json"],
+          installation: { post_start: ["set-params.json", "needs-params.json"] },
         },
         null,
         2,
@@ -37,9 +37,7 @@ describe("TemplateProcessor trace output", () => {
           commands: [
             {
               name: "set-properties",
-              properties: [
-                { id: "oci_image", value: "ghcr.io/example/app" },
-              ],
+              properties: [{ id: "oci_image", value: "ghcr.io/example/app" }],
             },
           ],
         },
@@ -71,9 +69,7 @@ describe("TemplateProcessor trace output", () => {
               description: "Missing by design",
             },
           ],
-          commands: [
-            { name: "echo", command: "echo ok" },
-          ],
+          commands: [{ name: "echo", command: "echo ok" }],
         },
         null,
         2,
@@ -101,7 +97,9 @@ describe("TemplateProcessor trace output", () => {
     expect(templatePaths.some((p) => p.startsWith("local/"))).toBe(true);
 
     const ociImage = result.parameterTrace!.find((p) => p.id === "oci_image");
-    const missingRequired = result.parameterTrace!.find((p) => p.id === "missing_required");
+    const missingRequired = result.parameterTrace!.find(
+      (p) => p.id === "missing_required",
+    );
 
     expect(ociImage?.source).toBe("template_properties");
     expect(ociImage?.sourceTemplate).toBe("set-params.json");

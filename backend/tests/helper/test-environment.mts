@@ -42,6 +42,13 @@ export interface CreateTestEnvironmentOptions {
   jsonIncludePatterns?: string[];
 
   /**
+   * Regex patterns (as strings) matched against paths under `backend/tests/fixtures/`.
+   * Files are copied into the json directory as if they were in `json/`.
+   * Example: ["^applications/test-enum/.*"]
+   */
+  fixturesIncludePatterns?: string[];
+
+  /**
    * Regex patterns (as strings) matched against schema filenames under `schemas/`.
    * If empty/undefined, nothing is copied from `schemas/`.
    */
@@ -92,7 +99,10 @@ function toPosixPath(p: string): string {
   return p.split(path.sep).join("/");
 }
 
-function compileRegexes(patterns: string[] | undefined, label: string): RegExp[] {
+function compileRegexes(
+  patterns: string[] | undefined,
+  label: string,
+): RegExp[] {
   if (!patterns || patterns.length === 0) return [];
   return patterns.map((p) => {
     try {
@@ -141,7 +151,9 @@ export function createTestEnvironment(
   opts: CreateTestEnvironmentOptions = {},
 ): TestEnvironment {
   const repoRoot = repoRootFromTestFile(testFileUrl);
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "oci-lxc-deployer-test-"));
+  const rootDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "oci-lxc-deployer-test-"),
+  );
 
   const localDir = path.join(rootDir, "local");
   const jsonDir = path.join(rootDir, "json");
@@ -154,8 +166,10 @@ export function createTestEnvironment(
   // Always create minimal files expected by Context/Persistence
   const storageContextFilePath = path.join(localDir, "storagecontext.json");
   const secretFilePath = path.join(localDir, "secret.txt");
-  if (!fs.existsSync(storageContextFilePath)) fs.writeFileSync(storageContextFilePath, "{}", "utf-8");
-  if (!fs.existsSync(secretFilePath)) fs.writeFileSync(secretFilePath, "", "utf-8");
+  if (!fs.existsSync(storageContextFilePath))
+    fs.writeFileSync(storageContextFilePath, "{}", "utf-8");
+  if (!fs.existsSync(secretFilePath))
+    fs.writeFileSync(secretFilePath, "", "utf-8");
 
   const repoJsonDir = path.join(repoRoot, "json");
   const repoSchemasDir = path.join(repoRoot, "schemas");
@@ -166,7 +180,9 @@ export function createTestEnvironment(
   const schemaIncludePatterns =
     opts.schemaIncludePatterns ??
     (opts.schemaFiles && opts.schemaFiles.length > 0
-      ? opts.schemaFiles.map((f) => `^${f.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}$`)
+      ? opts.schemaFiles.map(
+          (f) => `^${f.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}$`,
+        )
       : opts.copySchemas
         ? [".*"]
         : []);
@@ -180,6 +196,21 @@ export function createTestEnvironment(
     destRoot: jsonDir,
     patterns: compileRegexes(jsonIncludePatterns, "jsonIncludePatterns"),
   });
+
+  // fixtures/: copy test fixtures into json directory
+  const fixturesDir = path.join(repoRoot, "backend", "tests", "fixtures");
+  if (opts.fixturesIncludePatterns && opts.fixturesIncludePatterns.length > 0) {
+    if (fs.existsSync(fixturesDir)) {
+      copyMatchingFiles({
+        sourceRoot: fixturesDir,
+        destRoot: jsonDir,
+        patterns: compileRegexes(
+          opts.fixturesIncludePatterns,
+          "fixturesIncludePatterns",
+        ),
+      });
+    }
+  }
 
   // schemas/: by default use repo directly (schemas are stable and shared)
   if (!fs.existsSync(repoSchemasDir)) {

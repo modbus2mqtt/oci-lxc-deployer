@@ -4,7 +4,10 @@ import { VEWebApp } from "@src/webapp/webapp.mjs";
 import express from "express";
 import path from "node:path";
 import { ApiUri } from "@src/types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
 import {
   createTempDir,
   ensureDirs,
@@ -23,8 +26,11 @@ describe("WebApp Installations API", () => {
     process.env.LXC_MANAGER_TEST_MODE = "true";
 
     env = createTestEnvironment(import.meta.url, {
-      // Provide required script for /api/installations via json/ (no manual copying)
-      jsonIncludePatterns: [".*list-managed-oci-containers.*"],
+      // Provide required scripts for /api/installations via json/ (no manual copying)
+      jsonIncludePatterns: [
+        ".*list/list-managed-oci-containers.*",
+        ".*library/lxc_config_parser_lib.*",
+      ],
       // Schemas are read from repo directly by default (no copying)
     });
     tmpPve = createTempDir("lxc-pve-");

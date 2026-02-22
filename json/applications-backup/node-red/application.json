@@ -1,0 +1,17 @@
+{
+  "name": "Node-RED",
+  "description": "Node-RED is a flow-based programming tool for wiring together hardware devices, APIs and online services",
+  "icon": "icon.svg",
+  "tags": ["iot", "api"],
+  "installation": [
+    "set-parameters.json",
+    "010-host-get-latest-os-template.json",
+    "100-conf-create-configure-lxc.json",
+    "200-start-lxc.json",
+    "210-wait-for-container-ready.json",
+    "305-post-set-pkg-mirror.json",
+    "330-post-install-packages.json",
+    "340-post-install-node-application.json",
+    "350-svc-create-enable-service.json"
+  ]
+}

@@ -44,7 +44,8 @@ export async function exec(
   try {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const projectRoot = path.resolve(__dirname, "..");
+    // From backend/dist, go up to backend, then up to project root
+    const projectRoot = path.resolve(__dirname, "..", "..");
     const schemaPath = path.join(projectRoot, "schemas");
     const jsonPath = path.join(projectRoot, "json");
     const resolvedLocalPath = localPath || path.join(projectRoot, "local/json");
@@ -66,7 +67,9 @@ export async function exec(
       resolvedSecretFilePath,
     );
     // Get all apps (name -> path)
-    const allApps = PersistenceManager.getInstance().getApplicationService().getAllAppNames();
+    const allApps = PersistenceManager.getInstance()
+      .getApplicationService()
+      .getAllAppNames();
     const appPath = allApps.get(application);
     if (!appPath) {
       console.error(
@@ -77,14 +80,20 @@ export async function exec(
 
     const pm = PersistenceManager.getInstance();
     const cm = pm.getContextManager();
-    const templateProcessor = new TemplateProcessor({
-      schemaPath,
-      jsonPath,
-      localPath: resolvedLocalPath,
-    }, cm, pm.getPersistence());
+    const templateProcessor = new TemplateProcessor(
+      {
+        schemaPath,
+        jsonPath,
+        localPath: resolvedLocalPath,
+      },
+      cm,
+      pm.getPersistence(),
+    );
 
     if (!paramsFile) {
-      const veContext = PersistenceManager.getInstance().getContextManager().getCurrentVEContext();
+      const veContext = PersistenceManager.getInstance()
+        .getContextManager()
+        .getCurrentVEContext();
       if (!veContext) {
         console.error(
           "VE context not set. Please configure SSH host/port first.",
@@ -141,26 +150,42 @@ export async function exec(
     const defaults = new Map();
     loaded.parameters.forEach((param) => {
       if (param.default !== undefined) {
-        defaults.set(param.name, param.default);
+        // Use param.id (not param.name) since templates reference variables by id
+        defaults.set(param.id, param.default);
       }
     });
+
+    // Convert params from {name, value} to {id, value} format expected by VeExecution
+    const inputs = params.map(
+      (p: { name: string; value: string | number | boolean }) => ({
+        id: p.name,
+        value: p.value,
+      }),
+    );
     const execInstance = new VeExecution(
       loaded.commands,
-      params,
+      inputs,
       cm.getCurrentVEContext(),
       defaults,
     );
     execInstance.on("message", (msg: IVeExecuteMessage) => {
       console.error(`[${msg.command}] ${msg.stderr}`);
       if (msg.exitCode !== 0) {
-        console.log("=================== ERROR ==================");
-        console.log("=================== Command: ==================");
+        console.error("=================== ERROR ==================");
+        console.error("=================== Command: ==================");
         console.error(`[${msg.commandtext}] ${msg.stderr}`);
       }
     });
     const rcRestartInfo = await execInstance.run(restartInfo);
     if (rcRestartInfo) saveRestartInfo(rcRestartInfo, restartInfoFile);
-    console.log("All tasks completed successfully.");
+
+    // Output final results as JSON to stdout for scripting
+    const results: Record<string, string | number | boolean> = {};
+    for (const [key, value] of execInstance.outputs) {
+      results[key] = value;
+    }
+    console.log(JSON.stringify(results, null, 2));
+    console.error("All tasks completed successfully.");
   } catch (err) {
     if (err instanceof JsonError) {
       console.error("Error:", err.message);
@@ -193,7 +218,11 @@ function printDetails(details: any[], level = 1) {
         const line = detail.line !== undefined ? ` (line: ${detail.line})` : "";
         console.error(`${indent}- ${detail.error.message}${line}`);
       }
-      if ("details" in detail.error && Array.isArray(detail.error.details)) {
+      if (
+        detail.error &&
+        "details" in detail.error &&
+        Array.isArray(detail.error.details)
+      ) {
         printDetails(detail.error.details, level + 1);
       }
       // If the object has other properties that are not error/details:

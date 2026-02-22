@@ -15,7 +15,10 @@ import {
   determineExecutionMode,
 } from "./ve-execution-constants.mjs";
 import { VeExecutionMessageEmitter } from "./ve-execution-message-emitter.mjs";
-import { VeExecutionSshExecutor, SshExecutorDependencies } from "./ve-execution-ssh-executor.mjs";
+import {
+  VeExecutionSshExecutor,
+  SshExecutorDependencies,
+} from "./ve-execution-ssh-executor.mjs";
 import { VeExecutionHostDiscovery } from "./ve-execution-host-discovery.mjs";
 import { VeExecutionCommandProcessor } from "./ve-execution-command-processor.mjs";
 import { VeExecutionStateManager } from "./ve-execution-state-manager.mjs";
@@ -28,7 +31,6 @@ export type { IOutput, IProxmoxRunResult, IRestartInfo };
  * ProxmoxExecution: Executes a list of ICommand objects with variable substitution and remote/container execution.
  */
 export class VeExecution extends EventEmitter {
-
   private commands!: ICommand[];
   private inputs!: Record<string, string | number | boolean>;
   public outputs: Map<string, string | number | boolean> = new Map();
@@ -41,7 +43,7 @@ export class VeExecution extends EventEmitter {
   protected hostDiscovery: VeExecutionHostDiscovery;
   private commandProcessor!: VeExecutionCommandProcessor;
   private stateManager: VeExecutionStateManager;
-  
+
   private executionMode: ExecutionMode;
 
   constructor(
@@ -58,23 +60,25 @@ export class VeExecution extends EventEmitter {
     for (const inp of inputs) {
       this.inputs[inp.id] = inp.value;
     }
-    
+
     // Determine execution mode: prefer explicit executionMode, fallback to sshCommand, then auto-detect
     if (executionMode !== undefined) {
       this.executionMode = executionMode;
     } else if (sshCommand !== undefined) {
       // Backward compatibility: derive from sshCommand
-      this.executionMode = sshCommand === "ssh" ? ExecutionMode.PRODUCTION : ExecutionMode.TEST;
+      this.executionMode =
+        sshCommand === "ssh" ? ExecutionMode.PRODUCTION : ExecutionMode.TEST;
     } else {
       // Auto-detect from environment
       this.executionMode = determineExecutionMode();
     }
-    
+
     // Derive sshCommand for backward compatibility
     if (!this.sshCommand) {
-      this.sshCommand = this.executionMode === ExecutionMode.TEST ? "sh" : "ssh";
+      this.sshCommand =
+        this.executionMode === ExecutionMode.TEST ? "sh" : "ssh";
     }
-    
+
     // Get timeout from environment variable, default to 2 minutes
     const envTimeout = process.env.LXC_MANAGER_SCRIPT_TIMEOUT;
     if (envTimeout) {
@@ -129,8 +133,10 @@ export class VeExecution extends EventEmitter {
       sshExecutor: this.sshExecutor,
       outputs: this.outputs,
       variableResolver: this.variableResolver,
-      runOnLxc: (vm_id, command, tmplCommand, timeoutMs?) => this.runOnLxc(vm_id, command, tmplCommand, timeoutMs),
-      getContextManager: () => (this.veContext ? (this.veContext.getStorageContext() as any) : null),
+      runOnLxc: (vm_id, command, tmplCommand, timeoutMs?) =>
+        this.runOnLxc(vm_id, command, tmplCommand, timeoutMs),
+      getContextManager: () =>
+        this.veContext ? (this.veContext.getStorageContext() as any) : null,
       getRepositories: () => this.resolveRepositories(),
     });
   }
@@ -178,8 +184,10 @@ export class VeExecution extends EventEmitter {
       sshExecutor: this.sshExecutor,
       outputs: this.outputs,
       variableResolver: this.variableResolver,
-      runOnLxc: (vm_id, cmd, tmplCmd, timeoutMs?) => this.runOnLxc(vm_id, cmd, tmplCmd, timeoutMs),
-      getContextManager: () => (this.veContext ? (this.veContext.getStorageContext() as any) : null),
+      runOnLxc: (vm_id, cmd, tmplCmd, timeoutMs?) =>
+        this.runOnLxc(vm_id, cmd, tmplCmd, timeoutMs),
+      getContextManager: () =>
+        this.veContext ? (this.veContext.getStorageContext() as any) : null,
       getRepositories: () => this.resolveRepositories(),
     });
     this.commandProcessor = new VeExecutionCommandProcessor({
@@ -187,13 +195,17 @@ export class VeExecution extends EventEmitter {
       inputs: this.inputs,
       variableResolver: this.variableResolver,
       messageEmitter: this.messageEmitter,
-      runOnLxc: (vm_id, cmd, tmplCmd, timeoutMs?) => this.runOnLxc(vm_id, cmd, tmplCmd, timeoutMs),
-      runOnVeHost: (input, cmd, timeout) => this.runOnVeHost(input, cmd, timeout),
-      executeOnHost: (hostname, cmd, tmplCmd) => this.executeOnHost(hostname, cmd, tmplCmd),
+      runOnLxc: (vm_id, cmd, tmplCmd, timeoutMs?) =>
+        this.runOnLxc(vm_id, cmd, tmplCmd, timeoutMs),
+      runOnVeHost: (input, cmd, timeout) =>
+        this.runOnVeHost(input, cmd, timeout),
+      executeOnHost: (hostname, cmd, tmplCmd) =>
+        this.executeOnHost(hostname, cmd, tmplCmd),
       outputsRaw: this.outputsRaw,
       setOutputsRaw: (raw) => {
         this.outputsRaw = raw;
       },
+      resolveApplicationToVmId: (appId) => this.resolveApplicationToVmId(appId),
     });
     this.stateManager = new VeExecutionStateManager({
       outputs: this.outputs,
@@ -203,6 +215,83 @@ export class VeExecution extends EventEmitter {
       veContext: this.veContext,
       initializeVariableResolver: () => this.initializeVariableResolver(),
     });
+  }
+
+  /**
+   * Resolves an application_id to a vm_id by finding running containers with that app-id.
+   * Uses find-containers-by-app-id.py which only checks status for matching containers.
+   * @throws Error if 0 or 2+ running containers match the application_id
+   */
+  private async resolveApplicationToVmId(appId: string): Promise<number> {
+    const repositories = this.resolveRepositories();
+    if (!repositories) {
+      throw new Error(
+        "Cannot resolve application to vm_id: repositories not available",
+      );
+    }
+
+    const scriptContent = repositories.getScript({
+      name: "find-containers-by-app-id.py",
+      scope: "shared",
+    });
+    if (!scriptContent) {
+      throw new Error("find-containers-by-app-id.py not found");
+    }
+
+    const libraryContent = repositories.getScript({
+      name: "lxc_config_parser_lib.py",
+      scope: "shared",
+    });
+    if (!libraryContent) {
+      throw new Error("lxc_config_parser_lib.py not found");
+    }
+
+    // Replace template variable in script
+    const scriptWithAppId = scriptContent.replace(
+      /\{\{\s*application_id\s*\}\}/g,
+      appId,
+    );
+
+    const cmd: ICommand = {
+      name: "Find Containers by App ID",
+      execute_on: "ve",
+      script: "find-containers-by-app-id.py",
+      scriptContent: scriptWithAppId,
+      libraryContent,
+      outputs: ["containers"],
+    };
+
+    // Execute the script to get running containers with this app_id
+    const ve = new VeExecution(
+      [cmd],
+      [],
+      this.veContext,
+      new Map(),
+      undefined,
+      this.executionMode,
+    );
+    await ve.run(null);
+
+    const containersRaw = ve.outputs.get("containers");
+    const containers: Array<{ vm_id: number; application_id?: string }> =
+      typeof containersRaw === "string" && containersRaw.trim().length > 0
+        ? JSON.parse(containersRaw)
+        : [];
+
+    // Script already filters by application_id and returns only running containers
+    if (containers.length === 0) {
+      throw new Error(
+        `No running container found with application_id '${appId}'. Expected exactly 1 running container, found 0.`,
+      );
+    }
+    if (containers.length > 1) {
+      const vmIds = containers.map((c) => c.vm_id).join(", ");
+      throw new Error(
+        `Multiple running containers found with application_id '${appId}'. Expected exactly 1 running container, found ${containers.length} (vm_ids: ${vmIds}).`,
+      );
+    }
+
+    return containers[0]!.vm_id;
   }
 
   /**
@@ -244,15 +333,16 @@ export class VeExecution extends EventEmitter {
   ): Promise<IVeExecuteMessage> {
     const startedAt = process.hrtime.bigint();
     // Use provided timeout or fall back to scriptTimeoutMs
-    const actualTimeout = timeoutMs !== undefined ? timeoutMs : this.scriptTimeoutMs;
-    
+    const actualTimeout =
+      timeoutMs !== undefined ? timeoutMs : this.scriptTimeoutMs;
+
     // Update sshExecutor for helper methods
     this.updateHelperModules();
     const uniqueMarker = this.sshExecutor.createUniqueMarker();
-    
+
     // Extract interpreter from command if available (set by loadCommandContent from shebang)
     const interpreter = (tmplCommand as any)._interpreter;
-    
+
     try {
       const { stdout, stderr, exitCode } = await this.executeSshCommand(
         input,
@@ -262,15 +352,31 @@ export class VeExecution extends EventEmitter {
         interpreter,
       );
 
-      const msg = this.sshExecutor.createMessageFromResult(input, tmplCommand, stdout, stderr, exitCode);
+      const msg = this.sshExecutor.createMessageFromResult(
+        input,
+        tmplCommand,
+        stdout,
+        stderr,
+        exitCode,
+      );
 
       try {
         if (stdout.trim().length === 0) {
-          const result = this.sshExecutor.handleEmptyOutput(msg, tmplCommand, exitCode, stderr, this);
+          const result = this.sshExecutor.handleEmptyOutput(
+            msg,
+            tmplCommand,
+            exitCode,
+            stderr,
+            this,
+          );
           if (result) return result;
         } else {
           // Parse and update outputs
-          this.outputProcessor.parseAndUpdateOutputs(stdout, tmplCommand, uniqueMarker);
+          this.outputProcessor.parseAndUpdateOutputs(
+            stdout,
+            tmplCommand,
+            uniqueMarker,
+          );
           // Check if outputsRaw was updated
           const outputsRawResult = this.outputProcessor.getOutputsRawResult();
           if (outputsRawResult) {
@@ -300,9 +406,12 @@ export class VeExecution extends EventEmitter {
       return msg;
     } finally {
       if (process.env.CACHE_TRACE === "1") {
-        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        const durationMs =
+          Number(process.hrtime.bigint() - startedAt) / 1_000_000;
         const templateName = String(tmplCommand?.name ?? "unknown");
-        console.info(`[runOnVeHost] ${durationMs.toFixed(1)}ms template=${templateName}`);
+        console.info(
+          `[runOnVeHost] ${durationMs.toFixed(1)}ms template=${templateName}`,
+        );
       }
     }
   }
@@ -325,20 +434,21 @@ export class VeExecution extends EventEmitter {
       // Execute command locally (simulating LXC execution)
       return await this.runOnVeHost(command, tmplCommand, timeoutMs);
     }
-    
+
     // Production: use lxc-attach
     const lxcCmd = ["lxc-attach", "-n", String(vm_id), "--"];
-    
+
     // In production mode, we need to execute via SSH with lxc-attach
     // But interpreter from shebang should still be respected
     const interpreter = (tmplCommand as any)._interpreter;
-    
+
     // Build SSH command with lxc-attach and optional interpreter
-    const actualTimeout = timeoutMs !== undefined ? timeoutMs : this.scriptTimeoutMs;
+    const actualTimeout =
+      timeoutMs !== undefined ? timeoutMs : this.scriptTimeoutMs;
     this.updateHelperModules();
     const uniqueMarker = this.sshExecutor.createUniqueMarker();
     const inputWithMarker = `echo "${uniqueMarker}"\n${command}`;
-    
+
     // For LXC execution in production, we need: ssh host lxc-attach -n vm_id -- interpreter < script
     // But since we're using stdin, we need to handle this differently
     // The lxcCmd already contains the "--" terminator; append interpreter after it.
@@ -348,26 +458,43 @@ export class VeExecution extends EventEmitter {
     } else {
       finalLxcCmd.push("sh"); // Default to sh if no interpreter
     }
-    
+
     const executionArgs = this.sshExecutor.buildExecutionArgs(finalLxcCmd);
-    const { stdout, stderr, exitCode } = await this.sshExecutor.executeWithRetry(
-      executionArgs,
-      inputWithMarker,
-      actualTimeout,
-      tmplCommand,
+    const { stdout, stderr, exitCode } =
+      await this.sshExecutor.executeWithRetry(
+        executionArgs,
+        inputWithMarker,
+        actualTimeout,
+        tmplCommand,
+        command,
+        interpreter,
+      );
+
+    const msg = this.sshExecutor.createMessageFromResult(
       command,
-      interpreter,
+      tmplCommand,
+      stdout,
+      stderr,
+      exitCode,
     );
-    
-    const msg = this.sshExecutor.createMessageFromResult(command, tmplCommand, stdout, stderr, exitCode);
-    
+
     try {
       if (stdout.trim().length === 0) {
-        const result = this.sshExecutor.handleEmptyOutput(msg, tmplCommand, exitCode, stderr, this);
+        const result = this.sshExecutor.handleEmptyOutput(
+          msg,
+          tmplCommand,
+          exitCode,
+          stderr,
+          this,
+        );
         if (result) return result;
       } else {
         // Parse and update outputs
-        this.outputProcessor.parseAndUpdateOutputs(stdout, tmplCommand, uniqueMarker);
+        this.outputProcessor.parseAndUpdateOutputs(
+          stdout,
+          tmplCommand,
+          uniqueMarker,
+        );
         const outputsRawResult = this.outputProcessor.getOutputsRawResult();
         if (outputsRawResult) {
           this.outputsRaw = outputsRawResult;
@@ -406,12 +533,13 @@ export class VeExecution extends EventEmitter {
   ): Promise<void> {
     // Update helper modules in case state changed
     this.updateHelperModules();
-    return await this.hostDiscovery.executeOnHost(hostname, command, tmplCommand, this);
+    return await this.hostDiscovery.executeOnHost(
+      hostname,
+      command,
+      tmplCommand,
+      this,
+    );
   }
-
-
-
-
 
   /**
    * Runs all commands, replacing variables from inputs/outputs, and executes them on the correct target.
@@ -422,7 +550,7 @@ export class VeExecution extends EventEmitter {
   ): Promise<IRestartInfo | undefined> {
     // Update all helper modules with current state
     this.updateHelperModules();
-    
+
     let rcRestartInfo: IRestartInfo | undefined = undefined;
     const startIdx = this.stateManager.restoreStateFromRestartInfo(restartInfo);
     // Initialize msgIndex based on startIdx: each command (including skipped and properties) produces one message
@@ -440,7 +568,7 @@ export class VeExecution extends EventEmitter {
     outerloop: for (let i = startIdx; i < this.commands.length; ++i) {
       const cmd = this.commands[i];
       if (!cmd || typeof cmd !== "object") continue;
-      
+
       // Update helper modules in case state changed during execution
       this.updateHelperModules();
 
@@ -448,9 +576,13 @@ export class VeExecution extends EventEmitter {
       // If so, group all commands with the same hostname and execute them as a separate VeExecution instance
       // This check must happen BEFORE handling skipped commands, so we can group all template commands together
       const executeOn = cmd.execute_on;
-      if (executeOn && typeof executeOn === "string" && /^host:.*/.test(executeOn)) {
+      if (
+        executeOn &&
+        typeof executeOn === "string" &&
+        /^host:.*/.test(executeOn)
+      ) {
         const hostname = executeOn.split(":")[1] ?? "";
-        
+
         // Collect all consecutive commands with the same execute_on: "host:hostname"
         // This includes skipped commands, as they are part of the template
         const templateCommands: ICommand[] = [];
@@ -465,7 +597,7 @@ export class VeExecution extends EventEmitter {
             break;
           }
         }
-        
+
         // Execute the template as a separate VeExecution instance
         try {
           await this.hostDiscovery.executeTemplateOnHost(
@@ -475,17 +607,22 @@ export class VeExecution extends EventEmitter {
             this.veContext,
             this.sshCommand,
           );
-          
+
           // Update message index and restart info
           msgIndex += templateCommands.length;
           rcRestartInfo = this.stateManager.buildRestartInfo(j - 1);
-          
+
           // Skip past all commands that were executed
           i = j - 1; // Will be incremented by the for loop
           continue;
         } catch (err: any) {
           // Handle execution errors
-          this.messageEmitter.emitErrorMessage(cmd, err, getNextMessageIndex(), hostname);
+          this.messageEmitter.emitErrorMessage(
+            cmd,
+            err,
+            getNextMessageIndex(),
+            hostname,
+          );
           // Only set restartInfo if we've executed at least one command successfully
           if (i > startIdx) {
             rcRestartInfo = this.stateManager.buildRestartInfo(i - 1);
@@ -493,41 +630,68 @@ export class VeExecution extends EventEmitter {
           break outerloop;
         }
       }
-      
+
       // Check if this is a skipped command (has "(skipped)" in name)
       // This is now AFTER the template check, so skipped commands within templates are handled by executeTemplateOnHost
       if (cmd.name && cmd.name.includes("(skipped)")) {
         msgIndex = this.commandProcessor.handleSkippedCommand(cmd, msgIndex);
+        // Update restart info for skipped commands too
+        // This ensures allSuccessful check passes when the last command is skipped
+        rcRestartInfo = this.stateManager.buildRestartInfo(i);
         continue;
       }
-      
+
       try {
         if (cmd.properties !== undefined) {
           // Handle properties: replace variables in values, set as outputs
-          msgIndex = this.commandProcessor.handlePropertiesCommand(cmd, msgIndex);
+          msgIndex = this.commandProcessor.handlePropertiesCommand(
+            cmd,
+            msgIndex,
+          );
           // Build restart info for successful properties command
           // This ensures that if properties is the last command, allSuccessful check passes
           rcRestartInfo = this.stateManager.buildRestartInfo(i);
           continue; // Skip execution, only set properties
         }
-        
+
         // Load command content
         const rawStr = this.commandProcessor.loadCommandContent(cmd);
         if (!rawStr) {
+          // Update restart info even when skipping unknown command type
+          rcRestartInfo = this.stateManager.buildRestartInfo(i);
           continue; // Skip unknown command type
         }
-        
+
+        // Resolve {{ }} markers inside base64-encoded inputs and outputs (e.g., compose_file)
+        this.variableResolver.resolveBase64Inputs(this.inputs, this.outputs);
+
         // Execute command based on target
         let lastMsg: IVeExecuteMessage | undefined;
         try {
-          lastMsg = await this.commandProcessor.executeCommandByTarget(cmd, rawStr);
+          lastMsg = await this.commandProcessor.executeCommandByTarget(
+            cmd,
+            rawStr,
+          );
         } catch (err: any) {
           // Handle execution errors
-          if (cmd.execute_on && typeof cmd.execute_on === "string" && /^host:.*/.test(cmd.execute_on)) {
+          if (
+            cmd.execute_on &&
+            typeof cmd.execute_on === "string" &&
+            /^host:.*/.test(cmd.execute_on)
+          ) {
             const hostname = cmd.execute_on.split(":")[1] ?? "";
-            this.messageEmitter.emitErrorMessage(cmd, err, getNextMessageIndex(), hostname);
+            this.messageEmitter.emitErrorMessage(
+              cmd,
+              err,
+              getNextMessageIndex(),
+              hostname,
+            );
           } else {
-            this.messageEmitter.emitErrorMessage(cmd, err, getNextMessageIndex());
+            this.messageEmitter.emitErrorMessage(
+              cmd,
+              err,
+              getNextMessageIndex(),
+            );
           }
           // Only set restartInfo if we've executed at least one command successfully
           if (i > startIdx) {
@@ -557,16 +721,22 @@ export class VeExecution extends EventEmitter {
       rcRestartInfo.lastSuccessfull === this.commands.length - 1;
 
     if (allSuccessful) {
-      // Send a final success message
+      // Send a final success message with VMID if available
+      const vmId = rcRestartInfo?.vm_id;
+      const resultText = vmId
+        ? `All commands completed successfully. Created container: ${vmId}`
+        : "All commands completed successfully";
+
       this.emit("message", {
         command: "Completed",
         execute_on: "ve",
         exitCode: 0,
-        result: "All commands completed successfully",
+        result: resultText,
         stderr: "",
         finished: true,
         index: getNextMessageIndex(),
         partial: false,
+        vmId: vmId, // Include VMID in message for E2E tests
       } as IVeExecuteMessage);
 
       if (restartInfo == undefined) {

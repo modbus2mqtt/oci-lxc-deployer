@@ -1,6 +1,6 @@
 {
   "$id": "template",
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "template",
   "type": "object",
   "properties": {
@@ -45,6 +45,7 @@
           "validatePattern": { "type": "string", "default": false },
           "secure": { "type": "boolean", "default": false },
           "advanced": { "type": "boolean", "default": false },
+          "internal": { "type": "boolean", "default": false, "description": "Internal parameter: not shown in application UI, only settable via addon properties." },
           "default": { "type": ["string", "number", "boolean"] }
         },
         "required": ["name", "id", "type"],
@@ -96,7 +97,7 @@
           "description": "Expected outputs from this command/script. If outputs are defined here, they will be validated after execution. If outputs are missing, an error will be raised."
         },
         "properties": {
-          "description": "Sets parameter values (outputs). If a template has only one command with properties (and no script, command, or template), it is considered a properties-only template and will be displayed as a properties table in documentation. This is the normal case for parameter-setting templates.",
+          "description": "Sets parameter values (outputs). Use 'value' to set a resolved value (not editable), or 'default' to set a default value (editable by user). If a template has only one command with properties (and no script, command, or template), it is considered a properties-only template.",
           "oneOf": [
             {
               "type": "object",
@@ -132,9 +133,17 @@
                       }
                     }
                   ]
+                },
+                "default": {
+                  "type": ["string", "boolean", "number"],
+                  "description": "Default value for the parameter. Unlike 'value', this will show the parameter as editable in the UI."
                 }
               },
-              "required": ["id", "value"],
+              "required": ["id"],
+              "anyOf": [
+                { "required": ["value"] },
+                { "required": ["default"] }
+              ],
               "additionalProperties": false
             },
             {
@@ -173,9 +182,17 @@
                         }
                       }
                     ]
+                  },
+                  "default": {
+                    "type": ["string", "boolean", "number"],
+                    "description": "Default value for the parameter. Unlike 'value', this will show the parameter as editable in the UI."
                   }
                 },
-                "required": ["id", "value"],
+                "required": ["id"],
+                "anyOf": [
+                  { "required": ["value"] },
+                  { "required": ["default"] }
+                ],
                 "additionalProperties": false
               }
             }

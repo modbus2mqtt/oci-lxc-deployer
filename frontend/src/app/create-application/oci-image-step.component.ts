@@ -8,7 +8,6 @@ import { CommonModule } from '@angular/common';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { IPostFrameworkFromImageResponse } from '../../shared/types';
 import { Subject } from 'rxjs';
-import { takeUntil, debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 @Component({
   selector: 'app-oci-image-step',

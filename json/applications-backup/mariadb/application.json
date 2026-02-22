@@ -1,0 +1,19 @@
+{
+  "name": "MariaDB",
+  "description": "MariaDB database server",
+  "icon": "icon.svg",
+  "tags": ["database"],
+  "installation": [
+    "set-parameters.json",
+    "010-host-get-latest-os-template.json",
+    "100-conf-create-configure-lxc.json",
+    "200-start-lxc.json",
+    "210-wait-for-container-ready.json",
+    "330-post-install-packages.json",
+    "400-initialize-mariadb.json",
+    "430-configure-mariadb.json",
+    "410-start-mariadb.json",
+    "420-secure-mariadb.json",
+    "440-enable-mariadb.json"
+  ]
+}

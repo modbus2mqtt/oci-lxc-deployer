@@ -1,14 +1,27 @@
-
-import { TaskType, IPostVeConfigurationBody, IVeExecuteMessagesResponse, IJsonError } from "@src/types.mjs";
+import os from "os";
+import {
+  TaskType,
+  IPostVeConfigurationBody,
+  IVeExecuteMessagesResponse,
+  IJsonError,
+  ICommand,
+  ITemplate,
+} from "@src/types.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
 import { WebAppVeExecutionSetup } from "./webapp-ve-execution-setup.mjs";
-import { VEConfigurationError, IVEContext, IVMInstallContext } from "@src/backend-types.mjs";
-import { JsonError } from "@src/jsonvalidator.mjs";
+import {
+  IVEContext,
+  IVMInstallContext,
+} from "@src/backend-types.mjs";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
+import { getErrorStatusCode, serializeError } from "./webapp-error-utils.mjs";
 import { VMInstallContext } from "@src/context-manager.mjs";
-import { determineExecutionMode, ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";
+import {
+  determineExecutionMode,
+  ExecutionMode,
+} from "@src/ve-execution/ve-execution-constants.mjs";
 
 /**
  * Route handler logic for VE configuration endpoints.
@@ -23,132 +36,58 @@ export class WebAppVeRouteHandlers {
   ) {}
 
   /**
-   * Determines the appropriate HTTP status code for an error.
-   * Returns 422 (Unprocessable Entity) for validation/configuration errors,
-   * 500 (Internal Server Error) for unexpected server errors.
+   * Builds a standardized error result object for handler methods.
    */
-  private getErrorStatusCode(err: unknown): number {
-    // Check if error is a validation/configuration error
-    if (err instanceof JsonError || err instanceof VEConfigurationError) {
-      return 422; // Unprocessable Entity - validation/configuration error
+  private buildErrorResult(err: unknown): {
+    success: false;
+    error: string;
+    errorDetails?: IJsonError;
+    statusCode: number;
+  } {
+    const serialized = serializeError(err);
+    const result: {
+      success: false;
+      error: string;
+      errorDetails?: IJsonError;
+      statusCode: number;
+    } = {
+      success: false,
+      error:
+        typeof serialized === "string"
+          ? serialized
+          : serialized.message || "Unknown error",
+      statusCode: getErrorStatusCode(err),
+    };
+    if (typeof serialized === "object") {
+      result.errorDetails = serialized;
     }
-    // Check if error has a name property indicating it's a validation error
-    if (err && typeof err === 'object' && 'name' in err) {
-      const errorName = (err as { name?: string }).name;
-      if (errorName === 'JsonError' || errorName === 'VEConfigurationError' || errorName === 'ValidateJsonError') {
-        return 422;
-      }
-    }
-    // Default to 500 for unexpected errors
-    return 500;
-  }
-
-  /**
-   * Recursively serializes an array of details, handling both JsonError instances and plain objects.
-   */
-  private serializeDetailsArray(details: IJsonError[] | undefined): IJsonError[] | undefined {
-    if (!details || !Array.isArray(details)) {
-      return undefined;
-    }
-    
-    return details.map((d) => {
-      // If it's a JsonError instance with toJSON, use it
-      if (d && typeof d === 'object' && typeof (d as any).toJSON === "function") {
-        return (d as any).toJSON();
-      }
-      
-      // If it's already a plain object with the expected structure, ensure details are serialized
-      if (d && typeof d === 'object') {
-        const result: any = {
-          name: (d as any).name,
-          message: (d as any).message,
-          line: (d as any).line,
-        };
-        
-        // Recursively serialize nested details if they exist
-        if ((d as any).details && Array.isArray((d as any).details)) {
-          result.details = this.serializeDetailsArray((d as any).details);
-        }
-        
-        if ((d as any).filename !== undefined) result.filename = (d as any).filename;
-        
-        return result as IJsonError;
-      }
-      
-      // Fallback: convert to string or return as-is
-      return {
-        name: 'Error',
-        message: String(d),
-        details: undefined
-      } as IJsonError;
-    });
-  }
-
-  /**
-   * Serializes an error to a JSON-serializable object.
-   * Uses toJSON() if available, otherwise extracts error properties.
-   */
-  private serializeError(err: unknown): IJsonError | string {
-    if (!err) {
-      return "Unknown error";
-    }
-
-    // If error has a toJSON method, use it
-    if (err && typeof err === 'object' && 'toJSON' in err && typeof (err as any).toJSON === 'function') {
-      return (err as any).toJSON();
-    }
-
-    // If it's an Error instance, extract properties
-    if (err instanceof Error) {
-      const errorObj: any = {
-        name: err.name,
-        message: err.message,
-      };
-      
-      // If it's a JsonError or VEConfigurationError, try to get details
-      if (err instanceof JsonError || err instanceof VEConfigurationError) {
-        // Use toJSON() if available to ensure proper recursive serialization
-        if (typeof (err as any).toJSON === 'function') {
-          return (err as any).toJSON();
-        }
-        
-        // Fallback: manually extract details and serialize them
-        if ((err as any).details) {
-          errorObj.details = this.serializeDetailsArray((err as any).details);
-        }
-        if ((err as any).filename) {
-          errorObj.filename = (err as any).filename;
-        }
-      }
-
-      return errorObj;
-    }
-
-    // For other types, try to convert to string or return as-is
-    if (typeof err === 'string') {
-      return err;
-    }
-
-    // Last resort: try to serialize the object
-    try {
-      return JSON.parse(JSON.stringify(err)) as IJsonError;
-    } catch {
-      return String(err);
-    }
+    return result;
   }
 
   /**
    * Validates request body for VeConfiguration endpoint.
    */
-  validateVeConfigurationBody(body: IPostVeConfigurationBody): { valid: boolean; error?: string } {
+  validateVeConfigurationBody(body: IPostVeConfigurationBody): {
+    valid: boolean;
+    error?: string;
+  } {
     if (!Array.isArray(body.params)) {
       return { valid: false, error: "Invalid parameters" };
     }
     if (body.outputs !== undefined && !Array.isArray(body.outputs)) {
       return { valid: false, error: "Invalid outputs" };
     }
-    if (body.changedParams !== undefined && !Array.isArray(body.changedParams)) {
+    if (
+      body.changedParams !== undefined &&
+      !Array.isArray(body.changedParams)
+    ) {
       return { valid: false, error: "Invalid changedParams" };
+    }
+    if (
+      body.selectedAddons !== undefined &&
+      !Array.isArray(body.selectedAddons)
+    ) {
+      return { valid: false, error: "Invalid selectedAddons" };
     }
     return { valid: true };
   }
@@ -161,42 +100,59 @@ export class WebAppVeRouteHandlers {
     task: string,
     veContextKey: string,
     body: IPostVeConfigurationBody,
-  ): Promise<{ success: boolean; restartKey?: string; vmInstallKey?: string; error?: string; errorDetails?: IJsonError; statusCode?: number }> {
+  ): Promise<{
+    success: boolean;
+    restartKey?: string;
+    vmInstallKey?: string;
+    error?: string;
+    errorDetails?: IJsonError;
+    statusCode?: number;
+  }> {
     // Validate request body
     const validation = this.validateVeConfigurationBody(body);
     if (!validation.valid) {
-      return { 
-        success: false, 
-        ...(validation.error && { error: validation.error }), 
-        statusCode: 400 
+      return {
+        success: false,
+        ...(validation.error && { error: validation.error }),
+        statusCode: 400,
       };
     }
 
     try {
       // Load application (provides commands)
-      const storageContext = PersistenceManager.getInstance().getContextManager();
-      const ctx: IVEContext | null = storageContext.getVEContextByKey(veContextKey);
+      const storageContext =
+        PersistenceManager.getInstance().getContextManager();
+      const ctx: IVEContext | null =
+        storageContext.getVEContextByKey(veContextKey);
       if (!ctx) {
-        return { success: false, error: "VE context not found", statusCode: 404 };
+        return {
+          success: false,
+          error: "VE context not found",
+          statusCode: 404,
+        };
       }
       const veCtxToUse: IVEContext = ctx as IVEContext;
-      const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
+      const templateProcessor = veCtxToUse
+        .getStorageContext()
+        .getTemplateProcessor();
 
       // Determine execution mode: TEST executes locally, PRODUCTION executes via SSH to VE host.
       const executionMode = determineExecutionMode();
       const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
-      
+
       // Use changedParams if provided (even if empty), otherwise fall back to params
       // This allows restarting installation with only changed parameters
       // For normal installation, changedParams should contain all changed parameters
-      const paramsToUse = body.changedParams !== undefined
-        ? body.changedParams
-        : body.params;
+      const paramsToUse =
+        body.changedParams !== undefined ? body.changedParams : body.params;
 
       // Prepare initialInputs for loadApplication (for skip_if_all_missing checks)
-      // Convert params to initialInputs format (only non-empty values)
-      const initialInputs = paramsToUse
-        .filter((p) => p.value !== null && p.value !== undefined && p.value !== '')
+      // Must use body.params (all parameters), not paramsToUse (changedParams only),
+      // because skip_if_all_missing needs to see all provided parameters, not just changed ones.
+      const initialInputs = body.params
+        .filter(
+          (p) => p.value !== null && p.value !== undefined && p.value !== "",
+        )
         .map((p) => ({
           id: p.name,
           value: p.value,
@@ -209,7 +165,7 @@ export class WebAppVeRouteHandlers {
         executionMode,
         initialInputs, // Pass initialInputs so skip_if_all_missing can check user inputs
       );
-      const commands = loaded.commands;
+      let commands = loaded.commands;
       if (!commands || commands.length === 0) {
         return {
           success: false,
@@ -217,7 +173,38 @@ export class WebAppVeRouteHandlers {
           statusCode: 422,
         };
       }
+
+      // Insert addon templates at correct positions for each phase
+      const selectedAddons = body.selectedAddons ?? [];
+      console.log(
+        `[AddonDebug] handleVeConfiguration: task=${task}, selectedAddons=${JSON.stringify(selectedAddons)}`,
+      );
+      if (selectedAddons.length > 0) {
+        console.log(
+          `[AddonDebug] Before insertAddonCommands: ${commands.length} commands`,
+        );
+        commands = await this.insertAddonCommands(
+          commands,
+          selectedAddons,
+          task as TaskType,
+        );
+        console.log(
+          `[AddonDebug] After insertAddonCommands: ${commands.length} commands`,
+        );
+      }
+
       const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);
+
+      // Load stack entries if stackId is provided
+      const stackId = body.stackId;
+      if (stackId) {
+        const stack = storageContext.getStack(stackId);
+        if (stack && stack.entries) {
+          for (const entry of stack.entries) {
+            defaults.set(entry.name, entry.value);
+          }
+        }
+      }
 
       // Built-in context variables (available to scripts as {{ application_id }}, etc.)
       // Do not require any template parameters.
@@ -225,14 +212,41 @@ export class WebAppVeRouteHandlers {
       defaults.set("application_id", application);
       defaults.set(
         "application_name",
-        (loaded.application && typeof (loaded.application as any).name === "string")
+        loaded.application &&
+          typeof (loaded.application as any).name === "string"
           ? String((loaded.application as any).name)
           : application,
       );
       defaults.set("task", task);
       defaults.set("task_type", task);
 
-      const contextManager = PersistenceManager.getInstance().getContextManager();
+      // Log viewer URL parameters for Notes links
+      // Priority: OCI_LXC_DEPLOYER_URL env var > auto-generated from hostname + port
+      const deployerPort = process.env.PORT || "3000";
+      const deployerUrl =
+        process.env.OCI_LXC_DEPLOYER_URL ||
+        `http://${os.hostname()}:${deployerPort}`;
+      defaults.set("deployer_base_url", deployerUrl);
+      defaults.set("ve_context_key", veContextKey);
+
+      // Icon data for embedding in notes (Data URL avoids mixed content issues)
+      // Always use readApplicationIcon() which normalizes SVG size for notes display
+      const iconData =
+        PersistenceManager.getInstance()
+          .getApplicationService()
+          .readApplicationIcon(application);
+      if (iconData) {
+        defaults.set("icon_base64", iconData.iconContent);
+        defaults.set("icon_mime_type", iconData.iconType);
+      }
+
+      // Store selected addon IDs for notes update (comma-separated for shell script)
+      if (selectedAddons.length > 0) {
+        defaults.set("selected_addons", selectedAddons.join(","));
+      }
+
+      const contextManager =
+        PersistenceManager.getInstance().getContextManager();
       // Process parameters: for upload parameters with "local:" prefix, read file and base64 encode
       const processedParams = await this.parameterProcessor.processParameters(
         paramsToUse,
@@ -259,7 +273,9 @@ export class WebAppVeRouteHandlers {
       );
 
       // Respond immediately with restartKey, run execution in background
-      const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(body.params);
+      const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(
+        body.params,
+      );
       this.executionSetup.setupExecutionResultHandlers(
         exec,
         restartKey,
@@ -267,22 +283,12 @@ export class WebAppVeRouteHandlers {
         fallbackRestartInfo,
       );
 
-      return { 
-        success: true, 
+      return {
+        success: true,
         restartKey,
       };
     } catch (err: any) {
-      const serializedError = this.serializeError(err);
-      const statusCode = this.getErrorStatusCode(err);
-      const result: { success: false; error: string; errorDetails?: IJsonError; statusCode: number } = { 
-        success: false, 
-        error: typeof serializedError === 'string' ? serializedError : serializedError.message || "Unknown error",
-        statusCode,
-      };
-      if (typeof serializedError === 'object') {
-        result.errorDetails = serializedError;
-      }
-      return result;
+      return this.buildErrorResult(err);
     }
   }
 
@@ -297,19 +303,20 @@ export class WebAppVeRouteHandlers {
         return group;
       }
       // Try to find vmInstallContext by looking up VE contexts
-      const contextManager = PersistenceManager.getInstance().getContextManager();
-      
-          const vmInstallContext = contextManager.getVMInstallContextByHostnameAndApplication(
-            veContext.host,
-            group.application,
-          );
-          if (vmInstallContext) {
-            const vmInstallKey = `vminstall_${veContext.host}_${group.application}`;
-            // Update the group with vmInstallKey
-            group.vmInstallKey = vmInstallKey;
-          }
+      const contextManager =
+        PersistenceManager.getInstance().getContextManager();
 
-      
+      const vmInstallContext =
+        contextManager.getVMInstallContextByHostnameAndApplication(
+          veContext.host,
+          group.application,
+        );
+      if (vmInstallContext) {
+        const vmInstallKey = `vminstall_${veContext.host}_${group.application}`;
+        // Update the group with vmInstallKey
+        group.vmInstallKey = vmInstallKey;
+      }
+
       return group;
     });
     return messages;
@@ -321,10 +328,21 @@ export class WebAppVeRouteHandlers {
   async handleVeRestart(
     restartKey: string,
     veContextKey: string,
-  ): Promise<{ success: boolean; restartKey?: string; vmInstallKey?: string; error?: string; errorDetails?: IJsonError; statusCode?: number }> {
+  ): Promise<{
+    success: boolean;
+    restartKey?: string;
+    vmInstallKey?: string;
+    error?: string;
+    errorDetails?: IJsonError;
+    statusCode?: number;
+  }> {
     const restartInfo = this.restartManager.getRestartInfo(restartKey);
     if (!restartInfo) {
-      return { success: false, error: "Restart info not found", statusCode: 404 };
+      return {
+        success: false,
+        error: "Restart info not found",
+        statusCode: 404,
+      };
     }
 
     const contextManager = PersistenceManager.getInstance().getContextManager();
@@ -334,9 +352,14 @@ export class WebAppVeRouteHandlers {
     }
 
     // Get application/task from the message group that has this restartKey
-    const messageGroup = this.messageManager.findMessageGroupByRestartKey(restartKey);
+    const messageGroup =
+      this.messageManager.findMessageGroupByRestartKey(restartKey);
     if (!messageGroup) {
-      return { success: false, error: "No message group found for this restart key", statusCode: 404 };
+      return {
+        success: false,
+        error: "No message group found for this restart key",
+        statusCode: 404,
+      };
     }
 
     const { application, task } = messageGroup;
@@ -344,14 +367,18 @@ export class WebAppVeRouteHandlers {
 
     const executionMode = determineExecutionMode();
     const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
-    
+
     // Reload application to get commands
-    const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
+    const templateProcessor = veCtxToUse
+      .getStorageContext()
+      .getTemplateProcessor();
     let loaded;
     try {
       // Use parameters from restartInfo.inputs for skip_if_all_missing checks
       const initialInputs = restartInfo.inputs
-        .filter((p) => p.value !== null && p.value !== undefined && p.value !== '')
+        .filter(
+          (p) => p.value !== null && p.value !== undefined && p.value !== "",
+        )
         .map((p) => ({
           id: p.name,
           value: p.value,
@@ -365,17 +392,7 @@ export class WebAppVeRouteHandlers {
         initialInputs,
       );
     } catch (err: any) {
-      const serializedError = this.serializeError(err);
-      const statusCode = this.getErrorStatusCode(err);
-      const result: { success: false; error: string; errorDetails?: IJsonError; statusCode: number } = { 
-        success: false, 
-        error: typeof serializedError === 'string' ? serializedError : serializedError.message || "Unknown error",
-        statusCode,
-      };
-      if (typeof serializedError === 'object') {
-        result.errorDetails = serializedError;
-      }
-      return result;
+      return this.buildErrorResult(err);
     }
     const commands = loaded.commands;
     const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);
@@ -385,7 +402,7 @@ export class WebAppVeRouteHandlers {
       name: p.name,
       value: p.value,
     }));
-    
+
     const processedParams = await this.parameterProcessor.processParameters(
       paramsFromRestartInfo,
       loaded.parameters,
@@ -398,17 +415,18 @@ export class WebAppVeRouteHandlers {
     }));
 
     // Create execution with reloaded commands but use restartInfo for state
-    const { exec, restartKey: newRestartKey } = this.executionSetup.setupExecution(
-      commands,
-      inputs,
-      defaults,
-      veCtxToUse,
-      this.messageManager,
-      this.restartManager,
-      application,
-      task,
-      sshCommand,
-    );
+    const { exec, restartKey: newRestartKey } =
+      this.executionSetup.setupExecution(
+        commands,
+        inputs,
+        defaults,
+        veCtxToUse,
+        this.messageManager,
+        this.restartManager,
+        application,
+        task,
+        sshCommand,
+      );
 
     this.executionSetup.setupRestartExecutionResultHandlers(
       exec,
@@ -418,17 +436,21 @@ export class WebAppVeRouteHandlers {
     );
 
     // Try to find vmInstallContext for this installation to return vmInstallKey
-    const hostname = typeof veCtxToUse.host === "string" 
-      ? veCtxToUse.host 
-      : (veCtxToUse.host as any)?.host || "unknown";
-    const vmInstallContext = contextManager.getVMInstallContextByHostnameAndApplication(
-      hostname,
-      application,
-    );
-    const vmInstallKey = vmInstallContext ? `vminstall_${hostname}_${application}` : undefined;
+    const hostname =
+      typeof veCtxToUse.host === "string"
+        ? veCtxToUse.host
+        : (veCtxToUse.host as any)?.host || "unknown";
+    const vmInstallContext =
+      contextManager.getVMInstallContextByHostnameAndApplication(
+        hostname,
+        application,
+      );
+    const vmInstallKey = vmInstallContext
+      ? `vminstall_${hostname}_${application}`
+      : undefined;
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       restartKey: newRestartKey,
       ...(vmInstallKey && { vmInstallKey }),
     };
@@ -441,7 +463,14 @@ export class WebAppVeRouteHandlers {
   async handleVeRestartInstallation(
     vmInstallKey: string,
     veContextKey: string,
-  ): Promise<{ success: boolean; restartKey?: string; vmInstallKey?: string; error?: string; errorDetails?: IJsonError; statusCode?: number }> {
+  ): Promise<{
+    success: boolean;
+    restartKey?: string;
+    vmInstallKey?: string;
+    error?: string;
+    errorDetails?: IJsonError;
+    statusCode?: number;
+  }> {
     const contextManager = PersistenceManager.getInstance().getContextManager();
     const ctx = contextManager.getVEContextByKey(veContextKey);
     if (!ctx) {
@@ -449,21 +478,33 @@ export class WebAppVeRouteHandlers {
     }
 
     // Get vmInstallContext
-    const vmInstallContextValue = contextManager.getVMInstallContextByVmInstallKey(vmInstallKey);
-    if (!vmInstallContextValue || !(vmInstallContextValue instanceof VMInstallContext)) {
-      return { success: false, error: "VM install context not found", statusCode: 404 };
+    const vmInstallContextValue =
+      contextManager.getVMInstallContextByVmInstallKey(vmInstallKey);
+    if (
+      !vmInstallContextValue ||
+      !(vmInstallContextValue instanceof VMInstallContext)
+    ) {
+      return {
+        success: false,
+        error: "VM install context not found",
+        statusCode: 404,
+      };
     }
 
     const installCtx = vmInstallContextValue as IVMInstallContext;
     const veCtxToUse = ctx as IVEContext;
-    const templateProcessor = veCtxToUse.getStorageContext().getTemplateProcessor();
+    const templateProcessor = veCtxToUse
+      .getStorageContext()
+      .getTemplateProcessor();
 
     const executionMode = determineExecutionMode();
     const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
-    
+
     // Prepare initialInputs for loadApplication (for skip_if_all_missing checks)
     const initialInputs = installCtx.changedParams
-      .filter((p) => p.value !== null && p.value !== undefined && p.value !== '')
+      .filter(
+        (p) => p.value !== null && p.value !== undefined && p.value !== "",
+      )
       .map((p) => ({
         id: p.name,
         value: p.value,
@@ -480,17 +521,7 @@ export class WebAppVeRouteHandlers {
         initialInputs, // Pass initialInputs so skip_if_all_missing can check user inputs
       );
     } catch (err: any) {
-      const serializedError = this.serializeError(err);
-      const statusCode = this.getErrorStatusCode(err);
-      const result: { success: false; error: string; errorDetails?: IJsonError; statusCode: number } = { 
-        success: false, 
-        error: typeof serializedError === 'string' ? serializedError : serializedError.message || "Unknown error",
-        statusCode,
-      };
-      if (typeof serializedError === 'object') {
-        result.errorDetails = serializedError;
-      }
-      return result;
+      return this.buildErrorResult(err);
     }
     const commands = loaded.commands;
     const defaults = this.parameterProcessor.buildDefaults(loaded.parameters);
@@ -520,7 +551,9 @@ export class WebAppVeRouteHandlers {
     );
 
     // Respond immediately with restartKey, run execution in background
-    const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(installCtx.changedParams);
+    const fallbackRestartInfo = this.restartManager.createFallbackRestartInfo(
+      installCtx.changedParams,
+    );
     this.executionSetup.setupExecutionResultHandlers(
       exec,
       restartKey,
@@ -530,14 +563,296 @@ export class WebAppVeRouteHandlers {
 
     // Set vmInstallKey in message group if it exists
     if (vmInstallKey) {
-      this.messageManager.setVmInstallKeyForGroup(installCtx.application, installCtx.task, vmInstallKey);
+      this.messageManager.setVmInstallKeyForGroup(
+        installCtx.application,
+        installCtx.task,
+        vmInstallKey,
+      );
     }
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       restartKey,
       ...(vmInstallKey && { vmInstallKey }),
     };
   }
-}
 
+  /**
+   * Maps task types to addon configuration keys.
+   */
+  private getAddonKeyForTask(
+    task: TaskType,
+  ): "installation" | "reconfigure" | "upgrade" | null {
+    switch (task) {
+      case "installation":
+        return "installation";
+      case "addon-reconfigure":
+        return "reconfigure";
+      case "copy-upgrade":
+        return "upgrade";
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Loads addon commands for a specific phase (pre_start or post_start).
+   * Returns an array of ICommand objects ready for execution.
+   */
+  private async loadAddonCommandsForPhase(
+    addonIds: string[],
+    task: TaskType,
+    phase: "pre_start" | "post_start",
+  ): Promise<ICommand[]> {
+    const addonKey = this.getAddonKeyForTask(task);
+    if (!addonKey) {
+      return [];
+    }
+
+    const pm = PersistenceManager.getInstance();
+    const addonService = pm.getAddonService();
+    const repositories = pm.getRepositories();
+    const commands: ICommand[] = [];
+
+    for (const addonId of addonIds) {
+      let addon;
+      try {
+        addon = addonService.getAddon(addonId);
+      } catch {
+        console.warn(`Addon not found: ${addonId}, skipping`);
+        continue;
+      }
+
+      // Get templates for the phase from the appropriate addon key
+      let templateRefs;
+      if (addonKey === "upgrade") {
+        // upgrade is flat (only has one phase)
+        templateRefs = phase === "post_start" ? addon.upgrade : undefined;
+      } else {
+        // installation and reconfigure have nested structure
+        const addonConfig = addon[addonKey];
+        console.log(
+          `[AddonDebug] addon=${addonId}, addonKey=${addonKey}, addonConfig=${JSON.stringify(addonConfig)}, phase=${phase}`,
+        );
+        templateRefs = addonConfig?.[phase];
+      }
+
+      console.log(
+        `[AddonDebug] templateRefs for ${addonId}/${phase}: ${JSON.stringify(templateRefs)}`,
+      );
+
+      if (!templateRefs || templateRefs.length === 0) {
+        console.log(`[AddonDebug] No templates for ${addonId}/${phase}, skipping`);
+        continue;
+      }
+
+      // Add addon properties as commands first (only for pre_start to avoid duplicates)
+      if (phase === "pre_start" && addon.properties && addon.properties.length > 0) {
+        const propertiesCommand: ICommand = {
+          name: `${addon.name} Properties`,
+          properties: addon.properties.map((prop) => ({
+            id: prop.id,
+            value: prop.value as string | number | boolean,
+          })),
+        };
+        commands.push(propertiesCommand);
+      }
+
+      // Load templates and build commands
+      // Map phase to template category directory
+      const categoryMap: Record<string, string> = {
+        pre_start: "pre_start",
+        post_start: "post_start",
+      };
+      const category = categoryMap[phase];
+
+      for (const templateRef of templateRefs) {
+        const templateName =
+          typeof templateRef === "string" ? templateRef : templateRef.name;
+
+        try {
+          console.log(
+            `[AddonDebug] Loading template: ${templateName}, category: ${category}`,
+          );
+          const template = repositories.getTemplate({
+            name: templateName,
+            scope: "shared",
+            ...(category && { category }),
+          }) as ITemplate | null;
+
+          console.log(
+            `[AddonDebug] Template ${templateName} found: ${!!template}, commands: ${template?.commands?.length ?? 0}`,
+          );
+
+          if (template && template.commands) {
+            for (const cmd of template.commands) {
+              const command: ICommand = { ...cmd };
+
+              // Set command name from template name if missing (same logic as TemplateProcessor)
+              if (!command.name || command.name.trim() === "") {
+                command.name = template.name || templateName;
+              }
+
+              // Set execute_on from template if not on command
+              if (!command.execute_on && template.execute_on) {
+                command.execute_on = template.execute_on;
+              }
+
+              // Resolve script content (scripts are in same category subdirectory as templates)
+              if (cmd.script && !cmd.scriptContent) {
+                const scriptContent = repositories.getScript({
+                  name: cmd.script,
+                  scope: "shared",
+                  ...(category && { category }),
+                });
+                if (scriptContent) {
+                  command.scriptContent = scriptContent;
+                }
+              }
+
+              // Resolve library content (libraries are in library/ subdirectory)
+              if (cmd.library && !cmd.libraryContent) {
+                const libraryContent = repositories.getScript({
+                  name: cmd.library,
+                  scope: "shared",
+                  category: "library",
+                });
+                if (libraryContent) {
+                  command.libraryContent = libraryContent;
+                }
+              }
+
+              commands.push(command);
+            }
+          }
+        } catch (e) {
+          console.error(`Failed to load addon template ${templateName}:`, e);
+        }
+      }
+    }
+
+    return commands;
+  }
+
+  /**
+   * Adds notes update commands for all selected addons.
+   */
+  private addAddonNotesCommands(
+    commands: ICommand[],
+    addonIds: string[],
+  ): void {
+    const pm = PersistenceManager.getInstance();
+    const addonService = pm.getAddonService();
+    const repositories = pm.getRepositories();
+
+    const notesUpdateScript = repositories.getScript({
+      name: "host-update-lxc-notes-addon.py",
+      scope: "shared",
+    });
+    const notesUpdateLibrary = repositories.getScript({
+      name: "lxc_config_parser_lib.py",
+      scope: "shared",
+    });
+
+    if (notesUpdateScript && notesUpdateLibrary) {
+      for (const addonId of addonIds) {
+        let addon;
+        try {
+          addon = addonService.getAddon(addonId);
+        } catch {
+          continue;
+        }
+        commands.push({
+          name: `Update LXC Notes with Addon: ${addon.name}`,
+          execute_on: "ve",
+          script: "host-update-lxc-notes-addon.py",
+          scriptContent: notesUpdateScript,
+          libraryContent: notesUpdateLibrary,
+          properties: [{ id: "addon_id", value: addonId }],
+          outputs: ["success"],
+        });
+      }
+    }
+  }
+
+  /**
+   * Finds the insertion index for addon commands based on phase.
+   * pre_start commands go BEFORE "Start LXC Container" (the start phase).
+   * post_start commands go AFTER the last post_start command (at the end before completion).
+   */
+  private findAddonInsertionIndex(
+    commands: ICommand[],
+    phase: "pre_start" | "post_start",
+  ): number {
+    if (phase === "pre_start") {
+      // Insert BEFORE "Start LXC Container" - this marks the start phase
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i];
+        if (!cmd) continue;
+        const name = cmd.name || "";
+
+        // Look for the start phase marker
+        if (
+          name.includes("Start LXC Container") ||
+          name.includes("Start LXC") ||
+          name === "Start LXC Container"
+        ) {
+          return i;
+        }
+      }
+    }
+
+    // For post_start, or if no start marker found: append at the end
+    return commands.length;
+  }
+
+  /**
+   * Inserts addon commands at the correct position for the given phase.
+   */
+  async insertAddonCommands(
+    commands: ICommand[],
+    addonIds: string[],
+    task: TaskType,
+  ): Promise<ICommand[]> {
+    if (addonIds.length === 0) {
+      return commands;
+    }
+
+    const result = [...commands];
+
+    // Load and insert pre_start commands
+    console.log(`[AddonDebug] insertAddonCommands: loading pre_start for task=${task}`);
+    const preStartCommands = await this.loadAddonCommandsForPhase(
+      addonIds,
+      task,
+      "pre_start",
+    );
+    console.log(`[AddonDebug] pre_start commands loaded: ${preStartCommands.length}`);
+    if (preStartCommands.length > 0) {
+      const preStartIndex = this.findAddonInsertionIndex(result, "pre_start");
+      console.log(`[AddonDebug] Inserting ${preStartCommands.length} pre_start commands at index ${preStartIndex}`);
+      result.splice(preStartIndex, 0, ...preStartCommands);
+    }
+
+    // Load and insert post_start commands
+    console.log(`[AddonDebug] insertAddonCommands: loading post_start for task=${task}`);
+    const postStartCommands = await this.loadAddonCommandsForPhase(
+      addonIds,
+      task,
+      "post_start",
+    );
+    console.log(`[AddonDebug] post_start commands loaded: ${postStartCommands.length}`);
+    if (postStartCommands.length > 0) {
+      const postStartIndex = this.findAddonInsertionIndex(result, "post_start");
+      console.log(`[AddonDebug] Inserting ${postStartCommands.length} post_start commands at index ${postStartIndex}`);
+      result.splice(postStartIndex, 0, ...postStartCommands);
+    }
+
+    // Add notes update commands at the very end
+    if (preStartCommands.length > 0 || postStartCommands.length > 0) {
+      this.addAddonNotesCommands(result, addonIds);
+    }
+
+    return result;
+  }
+}

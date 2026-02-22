@@ -102,64 +102,128 @@ export class ApplicationPersistenceHandler {
 
   /**
    * Baut Application-Liste auf (ohne Templates zu laden!)
+   * Jede Application bekommt einen Eintrag, auch wenn fehlerhaft.
+   * Fehler werden in der errors Property gesammelt.
    */
   private buildApplicationList(): IApplicationWeb[] {
     const applications: IApplicationWeb[] = [];
     const allApps = this.getAllAppNames();
+    const localApps = this.getLocalAppNames();
 
     // Für jede Application: application.json laden (OHNE Templates!)
     for (const [applicationName] of allApps) {
-      const readOpts: IReadApplicationOptions = {
+      const readOpts: IReadApplicationOptions & {
+        extendsChain?: string[];
+        appSource?: "local" | "json";
+      } = {
         applicationHierarchy: [],
         error: new VEConfigurationError("", applicationName),
         taskTemplates: [], // Wird nur für Validierung verwendet, nicht geladen
+        extendsChain: [],
       };
+
+      // Determine source: local or json
+      const source: "local" | "json" = localApps.has(applicationName)
+        ? "local"
+        : "json";
+      readOpts.appSource = source;
+
+      let appWeb: IApplicationWeb;
 
       try {
         // Use lightweight version that doesn't process templates
         const app = this.readApplicationLightweight(applicationName, readOpts);
-        const appWeb: IApplicationWeb = {
+
+        // Determine framework from extends chain
+        const framework = this.determineFramework(readOpts.extendsChain || []);
+
+        appWeb = {
           id: app.id,
           name: app.name,
           description: app.description || "No description available",
           icon: app.icon,
           iconContent: app.iconContent,
           iconType: app.iconType,
-          ...(app.errors && app.errors.length > 0 && {
-            errors: app.errors.map(e => ({ message: e, name: "Error", details: undefined }))
-          }),
+          tags: app.tags,
+          source,
+          framework,
+          extends: app.extends,
+          stacktype: app.stacktype,
+          ...(app.errors &&
+            app.errors.length > 0 && {
+              errors: app.errors.map((e) => ({
+                message: e,
+                name: "Error",
+                details: undefined,
+              })),
+            }),
         };
-        applications.push(appWeb);
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e: Error | any) {
-        // Errors werden unten behandelt
+        // Loading failed - create minimal entry with error
+        appWeb = {
+          id: applicationName,
+          name: applicationName,
+          description: "Failed to load application",
+          source,
+          errors: [
+            {
+              name: e?.name || "Error",
+              message: e?.message || String(e),
+              details: e?.details,
+            },
+          ],
+        };
       }
 
-      if (
-        readOpts.error.details &&
-        readOpts.error.details.length > 0 &&
-        applications.length > 0
-      ) {
-        applications[applications.length - 1]!.errors = readOpts.error.details;
+      // Attach any accumulated errors from readOpts
+      if (readOpts.error.details && readOpts.error.details.length > 0) {
+        const convertedErrors = readOpts.error.details.map((e) => ({
+          name: e?.name || "Error",
+          message: e?.message || String(e),
+          details: e?.details,
+        }));
+
+        if (appWeb.errors) {
+          // Merge with existing errors (avoid duplicates)
+          appWeb.errors = [...appWeb.errors, ...convertedErrors];
+        } else {
+          appWeb.errors = convertedErrors;
+        }
       }
+
+      applications.push(appWeb);
     }
 
     return applications;
   }
 
   /**
-   * Lightweight version of readApplication that only loads metadata (id, name, description, icon)
-   * without processing templates. Used for building the application list for the frontend.
+   * Determines the framework from the extends chain.
+   * Known frameworks: oci-image, docker-compose, npm-nodejs
+   * Returns undefined if no known framework is in the chain (native app)
    */
-  private readApplicationLightweight(
+  private determineFramework(extendsChain: string[]): string | undefined {
+    const knownFrameworks = ["oci-image", "docker-compose", "npm-nodejs"];
+    for (const appId of extendsChain) {
+      if (knownFrameworks.includes(appId)) {
+        return appId;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolves application path and file from application name.
+   * Handles "json:" prefix and local/json directory lookup.
+   */
+  private resolveApplicationPath(
     applicationName: string,
     opts: IReadApplicationOptions,
-  ): IApplication {
-    let appPath: string | undefined;
-    let appFile: string | undefined;
+  ): { appName: string; appPath: string; appFile: string } {
     let appName = applicationName;
+    let appPath: string;
+    let appFile: string;
 
-    // Handle json: prefix
     if (applicationName.startsWith("json:")) {
       appName = applicationName.replace(/^json:/, "");
       appPath = path.join(this.pathes.jsonPath, "applications", appName);
@@ -168,7 +232,6 @@ export class ApplicationPersistenceHandler {
         throw new Error(`application.json not found for ${applicationName}`);
       }
     } else {
-      // First check local, then json
       const localPath = path.join(
         this.pathes.localPath,
         "applications",
@@ -199,37 +262,117 @@ export class ApplicationPersistenceHandler {
       );
     }
 
-    // Read and validate file
+    return { appName, appPath, appFile };
+  }
+
+  /**
+   * Deserializes application.json and initializes hierarchy tracking.
+   */
+  private deserializeAndInitApp(
+    appFile: string,
+    appName: string,
+    appPath: string,
+    applicationName: string,
+    opts: IReadApplicationOptions,
+  ): IApplication {
     let appData: IApplication;
     try {
-      try {
-        appData = this.jsonValidator.serializeJsonFileWithSchema<IApplication>(
-          appFile,
-          "application",
-        );
-      } catch (e: Error | any) {
-        appData = {
-          id: applicationName,
-          name: applicationName,
-        } as IApplication;
-        this.addErrorToOptions(opts, e);
-      }
+      appData = this.jsonValidator.serializeJsonFileWithSchema<IApplication>(
+        appFile,
+        "application",
+      );
+    } catch (e: Error | any) {
+      appData = {
+        id: applicationName,
+        name: applicationName,
+      } as IApplication;
+      this.addErrorToOptions(opts, e);
+    }
 
-      appData.id = appName;
+    appData.id = appName;
 
-      // Save the first application in the hierarchy
-      if (!opts.application) {
-        opts.application = appData;
-        opts.appPath = appPath;
-      }
-      // First application is first in hierarchy
-      opts.applicationHierarchy.push(appPath);
+    if (!opts.application) {
+      opts.application = appData;
+      opts.appPath = appPath;
+    }
+    opts.applicationHierarchy.push(appPath);
+
+    return appData;
+  }
+
+  /**
+   * Resolves icon for an application: checks local icon file, then inherited icon.
+   */
+  private resolveAppIcon(
+    appData: IApplication,
+    appPath: string,
+    opts: IReadApplicationOptions,
+  ): void {
+    const iconFile = appPath
+      ? this.findIconFile(appPath, appData?.icon)
+      : null;
+    if (iconFile) {
+      appData.icon = iconFile;
+      appData.iconContent = fs.readFileSync(path.join(appPath, iconFile), {
+        encoding: "base64",
+      });
+      const ext = path.extname(iconFile).toLowerCase();
+      appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
+      (opts as any).inheritedIcon = iconFile;
+      (opts as any).inheritedIconContent = appData.iconContent;
+      (opts as any).inheritedIconType = appData.iconType;
+    } else if ((opts as any).inheritedIconContent) {
+      appData.icon = (opts as any).inheritedIcon || "icon.png";
+      appData.iconContent = (opts as any).inheritedIconContent;
+      appData.iconType = (opts as any).inheritedIconType;
+    }
+  }
+
+  /**
+   * Checks if a template already exists in a task's template list.
+   * Reports error if duplicate found.
+   * @returns true if duplicate was found (caller should skip adding)
+   */
+  private isTemplateDuplicate(
+    taskEntry: { templates: (string | ITemplateReference)[] },
+    name: string,
+    taskName: string,
+    opts: IReadApplicationOptions,
+  ): boolean {
+    const existingTemplates = taskEntry.templates.map((t) =>
+      typeof t === "string" ? t : (t as ITemplateReference).name,
+    );
+    if (existingTemplates.includes(name)) {
+      const error = new JsonError(
+        `Template '${name}' appears multiple times in ${taskName} task. Each template can only appear once per task.`,
+      );
+      this.addErrorToOptions(opts, error);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Lightweight version of readApplication that only loads metadata (id, name, description, icon)
+   * without processing templates. Used for building the application list for the frontend.
+   */
+  private readApplicationLightweight(
+    applicationName: string,
+    opts: IReadApplicationOptions,
+  ): IApplication {
+    const { appName, appPath, appFile } = this.resolveApplicationPath(applicationName, opts);
+
+    try {
+      const appData = this.deserializeAndInitApp(appFile, appName, appPath, applicationName, opts);
 
       // Recursive inheritance - load parent first to get icon data
       if (appData.extends) {
+        const extendsOpts = opts as typeof opts & { extendsChain?: string[] };
+        if (extendsOpts.extendsChain) {
+          extendsOpts.extendsChain.push(appData.extends);
+        }
         try {
           const parent = this.readApplicationLightweight(appData.extends, opts);
-          // Inherit icon if not found
           if (!appData.icon && parent.icon) {
             appData.icon = parent.icon;
             appData.iconContent = parent.iconContent;
@@ -240,37 +383,9 @@ export class ApplicationPersistenceHandler {
         }
       }
 
-      // Check for icon in the application directory (supports .png and .svg)
-      let icon = appData?.icon ? appData.icon : "icon.png";
-      let iconFound = false;
-      if (appPath) {
-        const iconPath = path.join(appPath, icon);
-        if (fs.existsSync(iconPath)) {
-          appData.icon = icon;
-          appData.iconContent = fs.readFileSync(iconPath, {
-            encoding: "base64",
-          });
-          // Determine MIME type based on file extension
-          const ext = path.extname(icon).toLowerCase();
-          appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
-          iconFound = true;
-          // Store icon data for inheritance
-          (opts as any).inheritedIcon = icon;
-          (opts as any).inheritedIconContent = appData.iconContent;
-          (opts as any).inheritedIconType = appData.iconType;
-        }
-      }
-
-      // If no icon found and we have inherited icon data from parent, use it
-      if (!iconFound && (opts as any).inheritedIconContent) {
-        appData.icon = (opts as any).inheritedIcon || "icon.png";
-        appData.iconContent = (opts as any).inheritedIconContent;
-        appData.iconType = (opts as any).inheritedIconType;
-      }
+      this.resolveAppIcon(appData, appPath, opts);
 
       // NOTE: We intentionally skip processTemplates() here for performance
-      // Templates are only needed when actually installing/configuring an application
-
       return appData;
     } catch (e: Error | any) {
       this.addErrorToOptions(opts, e);
@@ -282,49 +397,7 @@ export class ApplicationPersistenceHandler {
     applicationName: string,
     opts: IReadApplicationOptions,
   ): IApplication {
-    let appPath: string | undefined;
-    let appFile: string | undefined;
-    let appName = applicationName;
-
-    // Handle json: prefix
-    if (applicationName.startsWith("json:")) {
-      appName = applicationName.replace(/^json:/, "");
-      appPath = path.join(this.pathes.jsonPath, "applications", appName);
-      appFile = path.join(appPath, "application.json");
-      if (!fs.existsSync(appFile)) {
-        throw new Error(`application.json not found for ${applicationName}`);
-      }
-    } else {
-      // First check local, then json
-      const localPath = path.join(
-        this.pathes.localPath,
-        "applications",
-        applicationName,
-        "application.json",
-      );
-      const jsonPath = path.join(
-        this.pathes.jsonPath,
-        "applications",
-        applicationName,
-        "application.json",
-      );
-      if (fs.existsSync(localPath)) {
-        appFile = localPath;
-        appPath = path.dirname(localPath);
-      } else if (fs.existsSync(this.pathes.jsonPath)) {
-        appFile = jsonPath;
-        appPath = path.dirname(jsonPath);
-      } else {
-        throw new Error(`application.json not found for ${applicationName}`);
-      }
-    }
-
-    // Check for cyclic inheritance
-    if (opts.applicationHierarchy.includes(appPath)) {
-      throw new Error(
-        `Cyclic inheritance detected for application: ${appName}`,
-      );
-    }
+    const { appName, appPath, appFile } = this.resolveApplicationPath(applicationName, opts);
 
     // Check cache first (only for local apps)
     const isLocal = appPath.startsWith(this.pathes.localPath);
@@ -339,37 +412,13 @@ export class ApplicationPersistenceHandler {
       }
     }
 
-    // Read and validate file
-    let appData: IApplication;
     try {
-      try {
-        appData = this.jsonValidator.serializeJsonFileWithSchema<IApplication>(
-          appFile,
-          "application",
-        );
-      } catch (e: Error | any) {
-        appData = {
-          id: applicationName,
-          name: applicationName,
-        } as IApplication;
-        this.addErrorToOptions(opts, e);
-      }
-
-      appData.id = appName;
-
-      // Save the first application in the hierarchy
-      if (!opts.application) {
-        opts.application = appData;
-        opts.appPath = appPath;
-      }
-      // First application is first in hierarchy
-      opts.applicationHierarchy.push(appPath);
+      const appData = this.deserializeAndInitApp(appFile, appName, appPath, applicationName, opts);
 
       // Recursive inheritance - load parent first to get icon data
       if (appData.extends) {
         try {
           const parent = this.readApplication(appData.extends, opts);
-          // Inherit icon if not found
           if (!appData.icon && parent.icon) {
             appData.icon = parent.icon;
             appData.iconContent = parent.iconContent;
@@ -380,33 +429,7 @@ export class ApplicationPersistenceHandler {
         }
       }
 
-      // Check for icon in the application directory (supports .png and .svg)
-      let icon = appData?.icon ? appData.icon : "icon.png";
-      let iconFound = false;
-      if (appPath) {
-        const iconPath = path.join(appPath, icon);
-        if (fs.existsSync(iconPath)) {
-          appData.icon = icon;
-          appData.iconContent = fs.readFileSync(iconPath, {
-            encoding: "base64",
-          });
-          // Determine MIME type based on file extension
-          const ext = path.extname(icon).toLowerCase();
-          appData.iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
-          iconFound = true;
-          // Store icon data for inheritance
-          (opts as any).inheritedIcon = icon;
-          (opts as any).inheritedIconContent = appData.iconContent;
-          (opts as any).inheritedIconType = appData.iconType;
-        }
-      }
-
-      // If no icon found and we have inherited icon data from parent, use it
-      if (!iconFound && (opts as any).inheritedIconContent) {
-        appData.icon = (opts as any).inheritedIcon || "icon.png";
-        appData.iconContent = (opts as any).inheritedIconContent;
-        appData.iconType = (opts as any).inheritedIconType;
-      }
+      this.resolveAppIcon(appData, appPath, opts);
 
       // Process templates (adds template references to opts.taskTemplates)
       this.processTemplates(appData, opts);
@@ -424,6 +447,40 @@ export class ApplicationPersistenceHandler {
     throw opts.error;
   }
 
+  /**
+   * Find icon file in a directory with priority:
+   * 1. iconHint (custom name from application.json "icon" property)
+   * 2. Standard names: icon.png, icon.svg
+   * 3. Any .svg or .png file in the directory
+   * Returns the filename (not full path) or null if not found.
+   */
+  private findIconFile(dir: string, iconHint?: string): string | null {
+    const candidates: string[] = [];
+
+    if (iconHint) candidates.push(iconHint);
+    candidates.push("icon.png", "icon.svg");
+
+    // Any .svg or .png file in the directory
+    try {
+      const files = fs.readdirSync(dir);
+      const svgFile = files.find(
+        (f) => f.endsWith(".svg") && !candidates.includes(f),
+      );
+      if (svgFile) candidates.push(svgFile);
+      const pngFile = files.find(
+        (f) => f.endsWith(".png") && !candidates.includes(f),
+      );
+      if (pngFile) candidates.push(pngFile);
+    } catch {
+      // ignore readdir errors
+    }
+
+    for (const name of candidates) {
+      if (fs.existsSync(path.join(dir, name))) return name;
+    }
+    return null;
+  }
+
   readApplicationIcon(applicationName: string): {
     iconContent: string;
     iconType: string;
@@ -433,14 +490,36 @@ export class ApplicationPersistenceHandler {
       return null;
     }
 
-    // Try to find icon
-    const iconNames = ["icon.png", "icon.svg"];
-    for (const iconName of iconNames) {
+    // Read icon hint from application.json
+    let iconHint: string | undefined;
+    const appJsonPath = path.join(appPath, "application.json");
+    if (fs.existsSync(appJsonPath)) {
+      try {
+        const appData = JSON.parse(
+          fs.readFileSync(appJsonPath, { encoding: "utf-8" }),
+        );
+        iconHint = appData.icon;
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    const iconName = this.findIconFile(appPath, iconHint);
+    if (iconName) {
       const iconPath = path.join(appPath, iconName);
-      if (fs.existsSync(iconPath)) {
+      const ext = path.extname(iconName).toLowerCase();
+      const iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
+
+      if (ext === ".svg") {
+        // For SVG: normalize size to 16x16 before base64 encoding
+        const svgContent = fs.readFileSync(iconPath, { encoding: "utf-8" });
+        const normalizedSvg = this.normalizeSvgSize(svgContent, 64);
+        const iconContent = Buffer.from(normalizedSvg, "utf-8").toString(
+          "base64",
+        );
+        return { iconContent, iconType };
+      } else {
         const iconContent = fs.readFileSync(iconPath, { encoding: "base64" });
-        const ext = path.extname(iconName).toLowerCase();
-        const iconType = ext === ".svg" ? "image/svg+xml" : "image/png";
         return { iconContent, iconType };
       }
     }
@@ -461,7 +540,7 @@ export class ApplicationPersistenceHandler {
     const hue2 = (hue + 45) % 360;
     const bg = `hsl(${hue}, 65%, 45%)`;
     const fg = `hsl(${hue2}, 70%, 75%)`;
-    const size = 96;
+    const size = 16;
     const pad = 12;
     const cx = size / 2;
     const cy = size / 2;
@@ -473,6 +552,41 @@ export class ApplicationPersistenceHandler {
       `<rect x="${pad}" y="${pad}" width="${size - pad * 2}" height="${size - pad * 2}" rx="14" ry="14" fill="none" stroke="${fg}" stroke-width="6"/>`,
       `</svg>`,
     ].join("");
+  }
+
+  /**
+   * Normalizes SVG size by setting width/height attributes to a fixed size.
+   * Handles multiline <svg> tags and SVGs with only viewBox (no width/height).
+   * Preserves viewBox for proper scaling.
+   */
+  private normalizeSvgSize(svgContent: string, size: number): string {
+    // Extract the <svg ...> opening tag (may span multiple lines)
+    const svgTagMatch = svgContent.match(/<svg\b[^>]*>/is);
+    if (!svgTagMatch) return svgContent;
+
+    let svgTag = svgTagMatch[0];
+
+    // Replace or add width attribute
+    if (/\swidth\s*=\s*["'][^"']*["']/i.test(svgTag)) {
+      svgTag = svgTag.replace(
+        /\swidth\s*=\s*["'][^"']*["']/i,
+        ` width="${size}"`,
+      );
+    } else {
+      svgTag = svgTag.replace(/<svg\b/i, `<svg width="${size}"`);
+    }
+
+    // Replace or add height attribute
+    if (/\sheight\s*=\s*["'][^"']*["']/i.test(svgTag)) {
+      svgTag = svgTag.replace(
+        /\sheight\s*=\s*["'][^"']*["']/i,
+        ` height="${size}"`,
+      );
+    } else {
+      svgTag = svgTag.replace(/<svg\b/i, `<svg height="${size}"`);
+    }
+
+    return svgContent.replace(svgTagMatch[0], svgTag);
   }
 
   writeApplication(applicationName: string, application: IApplication): void {
@@ -559,8 +673,43 @@ export class ApplicationPersistenceHandler {
     appData: IApplication,
     opts: IReadApplicationOptions,
   ): void {
-    const taskKeys = [
-      "installation",
+    // Installation uses category-based format: { image, pre_start, start, post_start }
+    const installationCategories = ["image", "pre_start", "start", "post_start"];
+    const installation = (appData as any).installation;
+    if (installation && typeof installation === "object") {
+      let taskEntry = opts.taskTemplates.find((t) => t.task === "installation");
+      if (!taskEntry) {
+        taskEntry = { task: "installation", templates: [] };
+        opts.taskTemplates.push(taskEntry);
+      }
+
+      for (const category of installationCategories) {
+        const list = installation[category];
+        if (Array.isArray(list)) {
+          this.processTemplateList(list, taskEntry, "installation", opts, category);
+        }
+      }
+    }
+
+    // addon-reconfigure uses category-based format: { image, pre_start, start, post_start }
+    const addonReconfigure = (appData as any)["addon-reconfigure"];
+    if (addonReconfigure && typeof addonReconfigure === "object" && !Array.isArray(addonReconfigure)) {
+      let taskEntry = opts.taskTemplates.find((t) => t.task === "addon-reconfigure");
+      if (!taskEntry) {
+        taskEntry = { task: "addon-reconfigure", templates: [] };
+        opts.taskTemplates.push(taskEntry);
+      }
+
+      for (const category of installationCategories) {
+        const list = addonReconfigure[category];
+        if (Array.isArray(list)) {
+          this.processTemplateList(list, taskEntry, "addon-reconfigure", opts, category);
+        }
+      }
+    }
+
+    // Other tasks use simple array format
+    const otherTaskKeys = [
       "backup",
       "restore",
       "uninstall",
@@ -568,99 +717,121 @@ export class ApplicationPersistenceHandler {
       "upgrade",
       "copy-upgrade",
       "copy-rollback",
+      "addon",
       "webui",
     ];
 
-    for (const key of taskKeys) {
+    for (const key of otherTaskKeys) {
       const list = (appData as any)[key];
-      let taskEntry = opts.taskTemplates.find((t) => t.task === key);
-      if (!taskEntry) {
-        taskEntry = { task: key, templates: [] };
-        opts.taskTemplates.push(taskEntry);
-      }
       if (Array.isArray(list)) {
-        for (const entry of list) {
-          if (typeof entry === "string") {
-            this.addTemplateToTask(entry, taskEntry, key, opts);
-          } else if (typeof entry === "object" && entry !== null) {
-            const name = (entry as ITemplateReference).name;
-            if (!name) continue;
-            // Handle before: support both string and array
-            const beforeValue = (entry as ITemplateReference).before;
-            if (beforeValue) {
-              const beforeName = Array.isArray(beforeValue) && beforeValue.length > 0
-                ? beforeValue[0]
-                : (typeof beforeValue === "string" ? beforeValue : null);
-              
-              if (beforeName) {
-                const existingTemplates = taskEntry.templates.map((t) =>
-                  typeof t === "string" ? t : (t as ITemplateReference).name,
-                );
-                // Check for duplicates before inserting
-                if (existingTemplates.includes(name)) {
-                  const error = new JsonError(
-                    `Template '${name}' appears multiple times in ${key} task. Each template can only appear once per task.`,
-                  );
-                  this.addErrorToOptions(opts, error);
-                  return; // Don't add duplicate
-                }
-                const idx = existingTemplates.indexOf(beforeName);
-                if (idx !== -1) {
-                  taskEntry.templates.splice(idx, 0, name);
-                } else {
-                  this.addTemplateToTask(name, taskEntry, key, opts);
-                }
-                continue; // Template added, skip to next entry
-              }
+        let taskEntry = opts.taskTemplates.find((t) => t.task === key);
+        if (!taskEntry) {
+          taskEntry = { task: key, templates: [] };
+          opts.taskTemplates.push(taskEntry);
+        }
+        this.processTemplateList(list, taskEntry, key, opts);
+      }
+    }
+  }
+
+  /**
+   * Processes a list of template entries and adds them to the task entry
+   * @param category Optional category for shared template resolution (e.g., "image", "pre_start")
+   */
+  private processTemplateList(
+    list: any[],
+    taskEntry: { task: string; templates: (ITemplateReference | string)[] },
+    taskName: string,
+    opts: IReadApplicationOptions,
+    category?: string,
+  ): void {
+    for (const entry of list) {
+      if (typeof entry === "string") {
+        // Convert string to ITemplateReference with category
+        if (category) {
+          this.addTemplateToTask({ name: entry, category }, taskEntry, taskName, opts);
+        } else {
+          this.addTemplateToTask(entry, taskEntry, taskName, opts);
+        }
+      } else if (typeof entry === "object" && entry !== null) {
+        const templateRef = entry as ITemplateReference;
+        const name = templateRef.name;
+        if (!name) continue;
+        // Attach category if not already specified
+        if (category && !templateRef.category) {
+          templateRef.category = category;
+        }
+        // Handle before: support both string and array
+        const beforeValue = templateRef.before;
+        if (beforeValue) {
+          const beforeName =
+            Array.isArray(beforeValue) && beforeValue.length > 0
+              ? beforeValue[0]
+              : typeof beforeValue === "string"
+                ? beforeValue
+                : null;
+
+          if (beforeName) {
+            if (this.isTemplateDuplicate(taskEntry, name, taskName, opts)) {
+              return;
             }
-            // Handle after: support both string and array
-            const afterValue = (entry as ITemplateReference).after;
-            if (afterValue) {
-              const afterName = Array.isArray(afterValue) && afterValue.length > 0
-                ? afterValue[0]
-                : (typeof afterValue === "string" ? afterValue : null);
-              
-              if (afterName) {
-                const existingTemplates = taskEntry.templates.map((t) =>
-                  typeof t === "string" ? t : (t as ITemplateReference).name,
-                );
-                // Check for duplicates before inserting
-                if (existingTemplates.includes(name)) {
-                  const error = new JsonError(
-                    `Template '${name}' appears multiple times in ${key} task. Each template can only appear once per task.`,
-                  );
-                  this.addErrorToOptions(opts, error);
-                  return; // Don't add duplicate
-                }
-                const idx = existingTemplates.indexOf(afterName);
-                if (idx !== -1) {
-                  taskEntry.templates.splice(idx + 1, 0, name);
-                } else {
-                  this.addTemplateToTask(name, taskEntry, key, opts);
-                }
-                continue; // Template added, skip to next entry
-              }
+            const existingTemplates = taskEntry.templates.map((t) =>
+              typeof t === "string" ? t : (t as ITemplateReference).name,
+            );
+            const idx = existingTemplates.indexOf(beforeName);
+            if (idx !== -1) {
+              taskEntry.templates.splice(idx, 0, templateRef);
+            } else {
+              this.addTemplateToTask(templateRef, taskEntry, taskName, opts);
             }
-            // No before/after specified, add at end
-            this.addTemplateToTask(name, taskEntry, key, opts);
+            continue; // Template added, skip to next entry
           }
         }
+        // Handle after: support both string and array
+        const afterValue = templateRef.after;
+        if (afterValue) {
+          const afterName =
+            Array.isArray(afterValue) && afterValue.length > 0
+              ? afterValue[0]
+              : typeof afterValue === "string"
+                ? afterValue
+                : null;
+
+          if (afterName) {
+            if (this.isTemplateDuplicate(taskEntry, name, taskName, opts)) {
+              return;
+            }
+            const existingTemplates = taskEntry.templates.map((t) =>
+              typeof t === "string" ? t : (t as ITemplateReference).name,
+            );
+            const idx = existingTemplates.indexOf(afterName);
+            if (idx !== -1) {
+              taskEntry.templates.splice(idx + 1, 0, templateRef);
+            } else {
+              this.addTemplateToTask(templateRef, taskEntry, taskName, opts);
+            }
+            continue; // Template added, skip to next entry
+          }
+        }
+        // No before/after specified, add at end
+        this.addTemplateToTask(templateRef, taskEntry, taskName, opts);
       }
     }
   }
 
   /**
    * Adds a template to the task entry. Duplicates are not allowed and will cause an error.
+   * Templates are inserted at the correct position based on their category order.
    */
   private addTemplateToTask(
-    templateName: string,
+    template: ITemplateReference | string,
     taskEntry: { task: string; templates: (ITemplateReference | string)[] },
     taskName: string,
     opts: IReadApplicationOptions,
   ): void {
     // Check for duplicates - duplicates are not allowed
     const templateNameStr =
-      typeof templateName === "string" ? templateName : templateName;
+      typeof template === "string" ? template : template.name;
     const existingTemplates = taskEntry.templates.map((t) =>
       typeof t === "string" ? t : (t as ITemplateReference).name,
     );
@@ -671,7 +842,68 @@ export class ApplicationPersistenceHandler {
       this.addErrorToOptions(opts, error);
       return; // Don't add duplicate
     }
-    taskEntry.templates.push(templateName);
+
+    // Get category of the new template
+    const newCategory =
+      typeof template === "string" ? undefined : template.category;
+
+    // Insert at correct position based on category order
+    const insertIndex = this.findCategoryInsertIndex(
+      taskEntry.templates,
+      newCategory,
+    );
+    taskEntry.templates.splice(insertIndex, 0, template);
+  }
+
+  /**
+   * Category order for installation tasks.
+   * Templates are grouped by category in this order.
+   */
+  private static readonly CATEGORY_ORDER = [
+    "image",
+    "pre_start",
+    "start",
+    "post_start",
+  ];
+
+  /**
+   * Finds the correct insert index for a template based on its category.
+   * Templates of the same category are appended at the end of that category group.
+   * Templates without category go to the end.
+   */
+  private findCategoryInsertIndex(
+    templates: (ITemplateReference | string)[],
+    category: string | undefined,
+  ): number {
+    if (!category) {
+      // No category: append at end
+      return templates.length;
+    }
+
+    const categoryIndex =
+      ApplicationPersistenceHandler.CATEGORY_ORDER.indexOf(category);
+    if (categoryIndex === -1) {
+      // Unknown category: append at end
+      return templates.length;
+    }
+
+    // Find the first template that belongs to a later category
+    for (let i = 0; i < templates.length; i++) {
+      const t = templates[i];
+      const existingCategory =
+        typeof t === "string" ? undefined : (t as ITemplateReference).category;
+
+      if (existingCategory) {
+        const existingCategoryIndex =
+          ApplicationPersistenceHandler.CATEGORY_ORDER.indexOf(existingCategory);
+        if (existingCategoryIndex > categoryIndex) {
+          // Found a template from a later category - insert before it
+          return i;
+        }
+      }
+    }
+
+    // No later category found, append at end
+    return templates.length;
   }
 }
-

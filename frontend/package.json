@@ -4,14 +4,19 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
+    "start:e2e": "ng serve --configuration=e2e",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:trace": "playwright show-trace",
     "lint": "ng lint",
-    "lint:all": "eslint \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\" \"cypress/**/*.{ts,tsx,js}\"",
-    "lint:fix": "eslint \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\" \"cypress/**/*.{ts,tsx,js}\" --fix",
+    "lint:all": "eslint \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\" \"cypress/**/*.{ts,tsx,js}\" \"e2e/**/*.{ts,tsx,js}\"",
+    "lint:fix": "eslint \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\" \"cypress/**/*.{ts,tsx,js}\" \"e2e/**/*.{ts,tsx,js}\" --fix",
     "prettier": "prettier --write ."
   },
   "prettier": {
@@ -44,6 +49,7 @@
   },
   "devDependencies": {
     "@analogjs/vite-plugin-angular": "^2.1.2",
+    "@playwright/test": "^1.50.0",
     "@angular-devkit/core": "^20.3.13",
     "@angular/build": "^21.0.2",
     "@angular/cdk": "^20.2.13",
@@ -51,6 +57,7 @@
     "@angular/compiler-cli": "^21.0.3",
     "@angular/material": "^20.2.13",
     "@cypress/angular": "^4.1.0",
+    "@eslint/js": "^9.39.2",
     "@types/cypress": "^0.1.6",
     "@vitest/ui": "^4.0.17",
     "angular-eslint": "21.0.1",

@@ -3,12 +3,15 @@
   "description": "Deploys and manages LXC containers on Proxmox from OCI images via a web UI and API, and lets you easily define custom container services",
   "extends": "oci-image",
   "icon": "favicon.svg",
-  "installation": [
-    {
-      "name": "oci-lxc-deployer-parameters.json",
-      "before": "011-get-oci-image.json"
-    }
-  ],
+  "tags": ["infrastructure"],
+  "installation": {
+    "image": [
+      {
+        "name": "oci-lxc-deployer-parameters.json",
+        "before": "011-host-get-oci-image.json"
+      }
+    ]
+  },
   "url": "https://github.com/modbus2mqtt/oci-lxc-deployer",
   "documentation": "https://github.com/modbus2mqtt/oci-lxc-deployer/blob/main/README.md",
   "source": "https://github.com/modbus2mqtt/oci-lxc-deployer",

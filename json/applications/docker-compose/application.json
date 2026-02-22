@@ -1,17 +1,69 @@
 {
   "name": "docker-compose",
   "description": "Base application for Docker Compose based services",
-  "installation": [
-    "010-get-latest-os-template.json",
-    "095-check-kernel-modules.json",
-    "096-load-kernel-modules.json",
-    "100-create-configure-lxc.json",
-    "101-configure-lxc-for-docker.json",
-    "200-start-lxc.json",
-    "300-install-docker-rootless.json",
-    "310-extract-volumes-from-compose.json",
-    "160-bind-multiple-volumes-to-lxc.json",
-    "320-upload-docker-compose-files.json",
-    "330-start-docker-compose.json"
-  ]
+  "parameters": [
+    {
+      "id": "compose_file",
+      "name": "Docker Compose File",
+      "type": "string",
+      "upload": true,
+      "required": true,
+      "description": "Docker Compose YAML file (upload). Upload this file first to extract service information."
+    },
+    {
+      "id": "env_file",
+      "name": "Environment File (.env)",
+      "type": "string",
+      "upload": true,
+      "required": false,
+      "description": "Environment variables file (.env) template (upload, optional). If it contains {{ markers }}, users must upload a real .env at deployment time."
+    },
+    {
+      "id": "hostname",
+      "name": "Hostname",
+      "type": "string",
+      "required": false,
+      "description": "Hostname for the Docker Compose container. Required when creating an application from the docker-compose framework."
+    },
+    {
+      "id": "compose_project",
+      "name": "Compose Project Name",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Project name for Docker Compose (used for named volumes and directory). Defaults to hostname if not provided."
+    },
+    {
+      "id": "ostype",
+      "name": "OS Type",
+      "type": "enum",
+      "default": "alpine",
+      "enumValues": ["alpine", "debian", "ubuntu"],
+      "description": "Operating system type for the container",
+      "advanced": true
+    }
+  ],
+  "installation": {
+    "image": [
+      "010-host-get-latest-os-template.json",
+      "095-host-check-kernel-modules.json",
+      "096-host-load-kernel-modules.json"
+    ],
+    "pre_start": [
+      "100-conf-create-configure-lxc.json",
+      "101-conf-configure-lxc-for-docker.json"
+    ],
+    "start": [
+      "200-start-lxc.json"
+    ],
+    "post_start": [
+      "305-post-set-pkg-mirror.json",
+      "307-post-install-docker-rootless.json",
+      "310-post-extract-volumes-from-compose.json",
+      { "name": "121-conf-mount-zfs-pool-on-host.json", "category": "pre_start" },
+      { "name": "160-conf-bind-multiple-volumes-to-lxc.json", "category": "pre_start" },
+      "320-post-upload-docker-compose-files.json",
+      "330-svc-start-docker-compose.json"
+    ]
+  }
 }

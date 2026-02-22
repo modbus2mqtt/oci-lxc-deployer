@@ -5,10 +5,17 @@ import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { ContextManager } from "@src/context-manager.mjs";
 import { TemplateProcessor } from "@src/templates/templateprocessor.mjs";
 
+export interface IInstallationCategories {
+  image?: string[];
+  pre_start?: string[];
+  start?: string[];
+  post_start?: string[];
+}
+
 export interface IApplication {
   name: string;
   description: string;
-  installation?: string[];
+  installation?: IInstallationCategories;
   backup?: string[];
   restore?: string[];
   uninstall?: string[];
@@ -172,6 +179,26 @@ export class VeTestHelper {
     );
     fs.ensureDirSync(appScriptDir);
     fs.writeFileSync(path.join(appScriptDir, scriptName), content, "utf-8");
+  }
+
+  writeAddon(addonId: string, data: Record<string, unknown>): void {
+    const addonsDir = path.join(this.jsonDir, "addons");
+    fs.ensureDirSync(addonsDir);
+    const addonPath = path.join(addonsDir, `${addonId}.json`);
+    fs.writeFileSync(addonPath, JSON.stringify(data, null, 2), "utf-8");
+  }
+
+  writeSharedTemplate(tmplName: string, data: ITemplate): void {
+    const sharedTmplDir = path.join(this.jsonDir, "shared", "templates");
+    const tmplPath = path.join(sharedTmplDir, tmplName);
+    fs.ensureDirSync(path.dirname(tmplPath));
+    fs.writeFileSync(tmplPath, JSON.stringify(data, null, 2), "utf-8");
+  }
+
+  writeSharedScript(scriptName: string, content: string): void {
+    const sharedScriptDir = path.join(this.jsonDir, "shared", "scripts");
+    fs.ensureDirSync(sharedScriptDir);
+    fs.writeFileSync(path.join(sharedScriptDir, scriptName), content, "utf-8");
   }
 
   createStorageContext(): ContextManager {

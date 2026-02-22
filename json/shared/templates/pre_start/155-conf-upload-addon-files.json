@@ -1,0 +1,70 @@
+{
+  "execute_on": "ve",
+  "name": "Upload Addon Config Files",
+  "description": "Uploads addon configuration files to volume directories before container start. Uses the addon_path property to determine destination.",
+  "skip_if_all_missing": ["addon_content"],
+  "parameters": [
+    {
+      "id": "addon_content",
+      "name": "Addon Configuration File",
+      "type": "string",
+      "upload": true,
+      "description": "Base64 encoded content of the addon configuration file"
+    },
+    {
+      "id": "addon_path",
+      "name": "Addon File Path",
+      "type": "string",
+      "description": "Target path in format {volume_key}:{filename}. Example: samba_config:smb.conf"
+    },
+    {
+      "id": "shared_volpath",
+      "name": "Shared Volume Path",
+      "type": "string",
+      "required": true,
+      "description": "Base path for shared volumes on the host"
+    },
+    {
+      "id": "hostname",
+      "name": "Container Hostname",
+      "type": "string",
+      "required": true,
+      "description": "Container hostname (used for volume path)"
+    },
+    {
+      "id": "uid",
+      "name": "User ID",
+      "type": "string",
+      "default": "0",
+      "description": "User ID for file ownership inside container"
+    },
+    {
+      "id": "gid",
+      "name": "Group ID",
+      "type": "string",
+      "default": "0",
+      "description": "Group ID for file ownership inside container"
+    },
+    {
+      "id": "mapped_uid",
+      "name": "Mapped User ID",
+      "type": "string",
+      "advanced": true,
+      "description": "Mapped UID on host (for unprivileged containers)"
+    },
+    {
+      "id": "mapped_gid",
+      "name": "Mapped Group ID",
+      "type": "string",
+      "advanced": true,
+      "description": "Mapped GID on host (for unprivileged containers)"
+    }
+  ],
+  "commands": [
+    {
+      "script": "conf-upload-addon-files.sh",
+      "library": "upload-file-common.sh",
+      "description": "Upload addon configuration file to volume directory"
+    }
+  ]
+}

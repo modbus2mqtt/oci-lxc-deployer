@@ -1,10 +1,14 @@
 import { IVEContext } from "@src/backend-types.mjs";
 import { ContextManager } from "@src/context-manager.mjs";
 import { StorageContext } from "@src/storagecontext.mjs";
-import { IPostVeConfigurationBody, IParameter, IParameterValue, TaskType } from "@src/types.mjs";
+import {
+  IPostVeConfigurationBody,
+  IParameter,
+  IParameterValue,
+  TaskType,
+} from "@src/types.mjs";
 import fs from "fs";
 import path from "path";
-
 
 /**
  * Processes parameters for VE configuration, including file uploads and vmInstallContext.
@@ -20,9 +24,7 @@ export class WebAppVeParameterProcessor {
   ): Promise<Array<{ id: string; value: string | number | boolean }>> {
     return await Promise.all(
       params.map(async (p) => {
-        const paramDef = loadedParameters.find(
-          (param) => param.id === p.name,
-        );
+        const paramDef = loadedParameters.find((param) => param.id === p.name);
         if (
           paramDef?.upload &&
           typeof p.value === "string" &&
@@ -36,22 +38,22 @@ export class WebAppVeParameterProcessor {
             const base64Content = fileContent.toString("base64");
             return { id: p.name, value: base64Content };
           } catch (err: any) {
-            throw new Error(
-              `Failed to read file ${fullPath}: ${err.message}`,
-            );
+            throw new Error(`Failed to read file ${fullPath}: ${err.message}`);
           }
         }
-        
+
         // Extract base64 content if value has file metadata format: file:filename:content:base64content
         // This handles cases where the frontend sends the format (shouldn't happen, but for robustness)
         let processedValue: IParameterValue = p.value;
         if (typeof p.value === "string" && paramDef?.upload) {
-          const fileMetadataMatch = p.value.match(/^file:([^:]+):content:(.+)$/);
+          const fileMetadataMatch = p.value.match(
+            /^file:([^:]+):content:(.+)$/,
+          );
           if (fileMetadataMatch && fileMetadataMatch[2]) {
             processedValue = fileMetadataMatch[2]; // Extract only the base64 content
           }
         }
-        
+
         return { id: p.name, value: processedValue };
       }),
     );
@@ -60,7 +62,9 @@ export class WebAppVeParameterProcessor {
   /**
    * Builds a defaults map from loaded parameters.
    */
-  buildDefaults(loadedParameters: IParameter[]): Map<string, string | number | boolean> {
+  buildDefaults(
+    loadedParameters: IParameter[],
+  ): Map<string, string | number | boolean> {
     const defaults = new Map<string, string | number | boolean>();
     loadedParameters.forEach((param) => {
       const p = defaults.get(param.name);
@@ -84,17 +88,20 @@ export class WebAppVeParameterProcessor {
     storageContext: StorageContext,
   ): string | undefined {
     if (changedParams && changedParams.length > 0) {
-      const hostname = typeof veContext.host === "string" 
-        ? veContext.host 
-        : (veContext.host as any)?.host || "unknown";
+      const hostname =
+        typeof veContext.host === "string"
+          ? veContext.host
+          : (veContext.host as any)?.host || "unknown";
       return storageContext.setVMInstallContext({
         hostname,
         application,
         task,
-        changedParams: changedParams.map(p => ({ name: p.name, value: p.value })),
+        changedParams: changedParams.map((p) => ({
+          name: p.name,
+          value: p.value,
+        })),
       });
     }
     return undefined;
   }
 }
-

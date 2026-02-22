@@ -7,8 +7,12 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSelectModule } from '@angular/material/select';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { marked } from 'marked';
 import { ComposeService, DockerComposeService, ParsedComposeData } from '../shared/services/docker-compose.service';
+import { IComposeWarning } from '../../shared/types-frontend';
 
 @Component({
   selector: 'app-docker-compose-step',
@@ -23,13 +27,14 @@ import { ComposeService, DockerComposeService, ParsedComposeData } from '../shar
     MatIconModule,
     MatCardModule,
     MatTooltipModule,
-    MatSelectModule
+    MatSelectModule,
+    MatExpansionModule
   ],
   template: `
     <div class="docker-compose-step" [formGroup]="parameterForm">
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Docker Compose File</mat-label>
-        <input type="file" #composeFileInput [id]="'compose-file-input'" (change)="onComposeFileSelected($event)" style="display: none;" accept=".yml,.yaml" />
+        <input type="file" #composeFileInput id="compose-file-input" (change)="onComposeFileSelected($event)" style="display: none;" accept=".yml,.yaml" />
         <input matInput [formControlName]="'compose_file'" [required]="true" readonly />
         <button mat-icon-button matSuffix type="button" (click)="composeFileInput.click()" matTooltip="Select docker-compose.yml file" matTooltipPosition="above">
           <mat-icon>attach_file</mat-icon>
@@ -54,7 +59,7 @@ import { ComposeService, DockerComposeService, ParsedComposeData } from '../shar
       
       <mat-form-field appearance="outline" class="full-width" [class.error-field]="envFileError() || hasMissingEnvVars()">
         <mat-label>Environment File (.env)</mat-label>
-        <input type="file" #envFileInput [id]="'env-file-input'" (change)="onEnvFileSelected($event)" style="display: none;" />
+        <input type="file" #envFileInput id="env-file-input" (change)="onEnvFileSelected($event)" style="display: none;" />
         <input matInput [formControlName]="'env_file'" [required]="requiredEnvVars().length > 0 && !hasEnvFile()" readonly />
         <button mat-icon-button matSuffix type="button" (click)="envFileInput.click()" [matTooltip]="getEnvFileTooltip()" matTooltipPosition="above">
           <mat-icon>attach_file</mat-icon>
@@ -136,6 +141,40 @@ import { ComposeService, DockerComposeService, ParsedComposeData } from '../shar
                 </div>
               </div>
             }
+          </mat-card-content>
+        </mat-card>
+      }
+
+      @if (composeWarnings().length > 0) {
+        <mat-card class="compose-warnings-card">
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon class="warning-icon">info_outline</mat-icon>
+              LXC Migration Notes ({{ composeWarnings().length }})
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <p class="warnings-intro">The following docker-compose features require manual configuration or work differently in LXC:</p>
+            <mat-accordion>
+              @for (warning of composeWarnings(); track warning.id) {
+                <mat-expansion-panel>
+                  <mat-expansion-panel-header>
+                    <mat-panel-title>
+                      <mat-icon [class]="'warning-severity-' + warning.severity">
+                        {{ warning.severity === 'warning' ? 'warning' : 'info' }}
+                      </mat-icon>
+                      <span class="warning-feature">{{ warning.title }}</span>
+                    </mat-panel-title>
+                    @if (warning.affectedServices && warning.affectedServices.length > 0) {
+                      <mat-panel-description>
+                        Services: {{ warning.affectedServices.join(', ') }}
+                      </mat-panel-description>
+                    }
+                  </mat-expansion-panel-header>
+                  <div class="warning-content" [innerHTML]="renderMarkdown(warning.description)"></div>
+                </mat-expansion-panel>
+              }
+            </mat-accordion>
           </mat-card-content>
         </mat-card>
       }
@@ -254,6 +293,106 @@ import { ComposeService, DockerComposeService, ParsedComposeData } from '../shar
     .error-text {
       color: #f44336;
     }
+
+    .compose-warnings-card {
+      width: 100%;
+      margin-top: 1rem;
+      background: #fff8e1;
+      border-left: 4px solid #ffa726;
+    }
+
+    .compose-warnings-card mat-card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #e65100;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .warning-icon {
+      color: #ffa726;
+    }
+
+    .warnings-intro {
+      font-size: 0.875rem;
+      color: #666;
+      margin-bottom: 1rem;
+    }
+
+    .warning-severity-warning {
+      color: #f57c00;
+      margin-right: 0.5rem;
+    }
+
+    .warning-severity-info {
+      color: #1976d2;
+      margin-right: 0.5rem;
+    }
+
+    .warning-feature {
+      font-weight: 500;
+    }
+
+    .warning-content {
+      padding: 0.5rem 0;
+      font-size: 0.875rem;
+      line-height: 1.6;
+    }
+
+    .warning-content p {
+      margin: 0.5rem 0;
+    }
+
+    .warning-content strong {
+      color: #333;
+    }
+
+    .warning-content code {
+      background: #f5f5f5;
+      padding: 0.125rem 0.375rem;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.8rem;
+    }
+
+    .warning-content pre {
+      background: #263238;
+      color: #aed581;
+      padding: 0.75rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 0.8rem;
+      margin: 0.5rem 0;
+    }
+
+    .warning-content pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    .warning-content ul {
+      margin: 0.5rem 0;
+      padding-left: 1.5rem;
+    }
+
+    .warning-content li {
+      margin: 0.25rem 0;
+    }
+
+    ::ng-deep .mat-expansion-panel {
+      margin-bottom: 0.5rem !important;
+    }
+
+    ::ng-deep .mat-expansion-panel-header {
+      padding: 0 16px !important;
+    }
+
+    ::ng-deep .mat-expansion-panel-header-title {
+      display: flex;
+      align-items: center;
+    }
   `]
 })
 export class DockerComposeStepComponent implements OnInit {
@@ -261,8 +400,12 @@ export class DockerComposeStepComponent implements OnInit {
   @Output() envVarsRequired = new EventEmitter<boolean>();
   @Output() composeDataChanged = new EventEmitter<ParsedComposeData>();
   @Output() serviceSelected = new EventEmitter<string>();
-  
+
   private composeService = inject(DockerComposeService);
+  private sanitizer = inject(DomSanitizer);
+
+  // Warnings for unsupported docker-compose features
+  composeWarnings = signal<IComposeWarning[]>([]);
   
   ngOnInit(): void {
     // Check if compose_file is already set when component initializes
@@ -382,8 +525,13 @@ export class DockerComposeStepComponent implements OnInit {
       this.services.set([]);
       this.selectedServiceName.set('');
       this.requiredEnvVars.set([]);
+      this.composeWarnings.set([]);
       return;
     }
+
+    // Detect warnings for unsupported/partial features
+    const warnings = this.composeService.detectComposeWarnings(this.parsedComposeData);
+    this.composeWarnings.set(warnings);
 
     // Set services
     this.services.set(this.parsedComposeData.services);
@@ -567,5 +715,10 @@ export class DockerComposeStepComponent implements OnInit {
   
   getSelectedServiceName(): string {
     return this.selectedServiceName();
+  }
+
+  renderMarkdown(markdown: string): SafeHtml {
+    const html = marked.parse(markdown, { async: false }) as string;
+    return this.sanitizer.bypassSecurityTrustHtml(html);
   }
 }

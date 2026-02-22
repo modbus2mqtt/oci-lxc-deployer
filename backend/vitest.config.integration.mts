@@ -11,4 +11,3 @@ export default mergeConfig(baseConfig, {
     include: ["tests/integration/**/*.test.mts"],
   },
 });
-

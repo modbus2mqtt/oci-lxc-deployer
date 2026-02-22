@@ -1,7 +1,8 @@
+    @if (parameterForm) {
     <div class="compose-env-selector" [formGroup]="parameterForm">
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Docker Compose File</mat-label>
-        <input type="file" #composeFileInput [id]="'compose-file-input'" (change)="onComposeFileSelected($event)" style="display: none;" accept=".yml,.yaml" />
+        <input type="file" #composeFileInput id="compose-file-input" data-testid="docker-compose-upload" (change)="onComposeFileSelected($event)" style="display: none;" accept=".yml,.yaml" />
 
         <!-- show only filename to user -->
         <input matInput [value]="composeFileName() || ''" [required]="true" readonly />
@@ -13,8 +14,11 @@
           <mat-icon>attach_file</mat-icon>
         </button>
 
-        <!-- prevent duplicate "start" hints -->
-        <mat-hint align="end">Upload your docker-compose.yml file</mat-hint>
+        @if (services().length > 0) {
+          <mat-hint>Services: {{ getServiceNames() }}</mat-hint>
+        } @else {
+          <mat-hint align="end">Upload your docker-compose.yml file</mat-hint>
+        }
 
         @if (composeFileError()) {
           <mat-error>{{ composeFileError() }}</mat-error>
@@ -35,7 +39,7 @@
 
       <mat-form-field appearance="outline" class="full-width" [class.error-field]="envFileError() || hasMissingEnvVars()">
         <mat-label>Environment File (.env)</mat-label>
-        <input type="file" #envFileInput [id]="'env-file-input'" (change)="onEnvFileSelected($event)" style="display: none;" />
+        <input type="file" #envFileInput id="env-file-input" data-testid="env-file-upload" (change)="onEnvFileSelected($event)" style="display: none;" />
 
         <!-- show only filename to user -->
         <input matInput [value]="envFileName() || ''" readonly />
@@ -75,3 +79,4 @@
         </mat-card>
           }
     </div>
+    }

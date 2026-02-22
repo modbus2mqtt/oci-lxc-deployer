@@ -12,6 +12,11 @@ OWNER="${OWNER:-modbus2mqtt}"
 REPO="oci-lxc-deployer"
 BRANCH="main"
 OCI_IMAGE="ghcr.io/${OCI_OWNER}/oci-lxc-deployer:latest"
+
+# Local script path - when set, scripts are loaded from local filesystem instead of GitHub
+# Expected structure: LOCAL_SCRIPT_PATH/json/shared/scripts/...
+LOCAL_SCRIPT_PATH="${LOCAL_SCRIPT_PATH:-}"
+
 # Helper functions
 execute_script_from_github() {
   if [ "$#" -lt 2 ]; then
@@ -20,7 +25,6 @@ execute_script_from_github() {
   fi
   path="$1"; output_id="$2"; shift 2
 
-  raw_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/${path}"
   sed_args=""
   for kv in "$@"; do
     key="${kv%%=*}"
@@ -36,19 +40,30 @@ execute_script_from_github() {
     *) interpreter="sh" ;;
   esac
 
-  script_content=$(curl -fsSL "$raw_url" 2>/dev/null || true)
-  if [ -z "$script_content" ]; then
-    echo "Error: Failed to download script from ${raw_url}" >&2
-    return 3
+  # Load script content from local path or GitHub
+  if [ -n "$LOCAL_SCRIPT_PATH" ] && [ -f "${LOCAL_SCRIPT_PATH}/${path}" ]; then
+    echo "Loading script from local: ${LOCAL_SCRIPT_PATH}/${path}" >&2
+    script_content=$(cat "${LOCAL_SCRIPT_PATH}/${path}")
+  else
+    raw_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${path}"
+    script_content=$(curl -fsSL "$raw_url" 2>/dev/null || true)
+    if [ -z "$script_content" ]; then
+      echo "Error: Failed to download script from ${raw_url}" >&2
+      return 3
+    fi
   fi
   script_content=$(printf '%s' "$script_content" | sed $sed_args)
 
   # Some Python scripts depend on shared helpers but are still executed via stdin.
   # Prepend the helper library explicitly when needed.
   case "$path" in
-    json/shared/scripts/setup-lxc-uid-mapping.py|json/shared/scripts/setup-lxc-gid-mapping.py)
-      lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/json/shared/scripts/setup_lxc_idmap_common.py"
-      lib_content=$(curl -fsSL "$lib_url")
+    json/shared/scripts/pre_start/conf-setup-lxc-uid-mapping.py|json/shared/scripts/pre_start/conf-setup-lxc-gid-mapping.py)
+      if [ -n "$LOCAL_SCRIPT_PATH" ] && [ -f "${LOCAL_SCRIPT_PATH}/json/shared/scripts/library/setup_lxc_idmap_common.py" ]; then
+        lib_content=$(cat "${LOCAL_SCRIPT_PATH}/json/shared/scripts/library/setup_lxc_idmap_common.py")
+      else
+        lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/shared/scripts/library/setup_lxc_idmap_common.py"
+        lib_content=$(curl -fsSL "$lib_url")
+      fi
       script_content=$(printf '%s\n\n%s' "$lib_content" "$script_content")
       ;;
   esac
@@ -127,6 +142,13 @@ storage="local"
 LXC_UID=1001
 LXC_GID=1001
 
+# Static IP configuration (optional)
+static_ip=""
+static_gw=""
+
+# External URL for deployer (optional, for NAT/port-forwarding scenarios)
+deployer_url=""
+
 # Parse CLI flags
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -138,6 +160,9 @@ while [ "$#" -gt 0 ]; do
     --config-volume) config_volume_path="$2"; shift 2 ;;
     --secure-volume) secure_volume_path="$2"; shift 2 ;;
     --storage) storage="$2"; shift 2 ;;
+    --static-ip) static_ip="$2"; shift 2 ;;
+    --gateway) static_gw="$2"; shift 2 ;;
+    --deployer-url) deployer_url="$2"; shift 2 ;;
     --help|-h)
       cat >&2 <<USAGE
 Usage: $0 [options]
@@ -153,11 +178,14 @@ Options:
   --config-volume <path> Host path for /config volume (default: /mnt/volumes/\$hostname/config)
   --secure-volume <path> Host path for /secure volume (default: /mnt/volumes/\$hostname/secure)
   --storage <name>      Proxmox storage for OCI image. Default: local
+  --static-ip <IP/CIDR> Static IP address (e.g., 10.0.0.100/24). Default: DHCP
+  --gateway <IP>        Gateway IP address (required if --static-ip is used)
+  --deployer-url <URL>  External URL for deployer (e.g., http://pve1:3000 for NAT setups)
 
 Notes:
   - OCI image: ${OCI_IMAGE}
   - Container UID/GID: ${LXC_UID}/${LXC_GID}
-  - Network configuration (IP, gateway, etc.) should be done directly in Proxmox after installation
+  - If --static-ip is not provided, the container uses DHCP
   - The script creates a storagecontext.json file for repeatable installations
 USAGE
       exit 0 ;;
@@ -321,7 +349,7 @@ fi
 # 1) Download OCI image
 echo "Step 1: Downloading OCI image..." >&2
 template_path=$(execute_script_from_github \
-  "json/shared/scripts/get-oci-image.py" \
+  "json/shared/scripts/image/host-get-oci-image.py" \
   "template_path" \
   "oci_image=${OCI_IMAGE}" \
   "storage=${storage}" \
@@ -335,20 +363,23 @@ if [ -z "$template_path" ]; then
 fi
 
 oci_outputs=$(execute_script_from_github \
-  "json/shared/scripts/get-oci-image.py" \
-  "ostype,application_id,application_name,oci_image,oci_image_tag" \
+  "json/shared/scripts/image/host-get-oci-image.py" \
+  "ostype,arch,application_id,application_name,oci_image,oci_image_tag" \
   "oci_image=${OCI_IMAGE}" \
   "storage=${storage}" \
   "registry_username=" \
   "registry_password=" \
   "platform=linux/amd64")
 
-IFS=',' read -r ostype application_id application_name resolved_oci_image oci_image_tag <<EOF
+IFS=',' read -r ostype arch application_id application_name resolved_oci_image oci_image_tag <<EOF
 $oci_outputs
 EOF
 
 if [ -z "$application_id" ]; then
   application_id="oci-lxc-deployer"
+fi
+if [ -z "$arch" ]; then
+  arch="amd64"
 fi
 if [ -z "$resolved_oci_image" ]; then
   resolved_oci_image="${OCI_IMAGE}"
@@ -363,7 +394,7 @@ echo "  OCI image ready: ${template_path}" >&2
 # 2) Create LXC container from OCI image
 echo "Step 2: Creating LXC container..." >&2
 vm_id=$(execute_script_from_github \
-  "json/shared/scripts/create-lxc-container.sh" \
+  "json/shared/scripts/pre_start/conf-create-lxc-container.sh" \
   "vm_id" \
   "rootfs_storage=" \
   "template_path=${template_path}" \
@@ -376,7 +407,8 @@ vm_id=$(execute_script_from_github \
   "application_name=${application_name}" \
   "oci_image=${resolved_oci_image}" \
   "oci_image_tag=${oci_image_tag}" \
-  "ostype=${ostype}")
+  "ostype=${ostype}" \
+  "arch=${arch}")
 
 if [ -z "$vm_id" ]; then
   echo "Error: Failed to create LXC container" >&2
@@ -384,16 +416,33 @@ if [ -z "$vm_id" ]; then
 fi
 
 echo "  Container created: ${vm_id}" >&2
+
+# 2b) Configure static IP if provided
+if [ -n "$static_ip" ]; then
+  echo "Step 2b: Configuring static IP..." >&2
+  execute_script_from_github \
+    "json/shared/scripts/pre_start/conf-lxc-static-ip.sh" \
+    "-" \
+    "vm_id=${vm_id}" \
+    "hostname=${hostname}" \
+    "static_ip=${static_ip}" \
+    "static_gw=${static_gw}" \
+    "static_ip6=" \
+    "static_gw6=" \
+    "bridge=${bridge}" >/dev/null
+  echo "  Static IP configured: ${static_ip} (gateway: ${static_gw})" >&2
+fi
+
 # 3) Configure UID/GID mapping (subuid/subgid only, container config after creation)
 echo "Step 3: Configuring UID/GID mapping..." >&2
 # Run mapping script and capture mapped UID/GID for later steps (idempotent to call twice)
 mapped_uid=$(execute_script_from_github \
-  "json/shared/scripts/setup-lxc-uid-mapping.py" \
+  "json/shared/scripts/pre_start/conf-setup-lxc-uid-mapping.py" \
   "mapped_uid" \
   "uid=${LXC_UID}" \
   "vm_id=${vm_id}" || echo "")
 mapped_gid=$(execute_script_from_github \
-  "json/shared/scripts/setup-lxc-gid-mapping.py" \
+  "json/shared/scripts/pre_start/conf-setup-lxc-gid-mapping.py" \
   "mapped_gid" \
   "gid=${LXC_GID}" \
   "vm_id=${vm_id}" || echo "")
@@ -420,9 +469,10 @@ echo "  Using UID/GID: ${LXC_UID}/${LXC_GID} (mapped: ${mapped_uid}/${mapped_gid
 export VOLUMES="config=/config
 secure=/secure,0700"
 
-if ! execute_script_from_github \
-  "json/shared/scripts/create-storage-volumes-for-lxc.sh" \
-  "-" \
+# Execute storage volumes script and capture the shared_volpath from JSON output
+shared_volpath=$(execute_script_from_github \
+  "json/shared/scripts/pre_start/conf-create-storage-volumes-for-lxc.sh" \
+  "shared_volpath" \
   "vm_id=${vm_id}" \
   "hostname=${hostname}" \
   "volumes=\$VOLUMES" \
@@ -433,22 +483,11 @@ if ! execute_script_from_github \
   "uid=${LXC_UID}" \
   "gid=${LXC_GID}" \
   "mapped_uid=${mapped_uid}" \
-  "mapped_gid=${mapped_gid}"; then
-  echo "Error: Failed to create/attach storage volumes" >&2
-  exit 1
-fi
+  "mapped_gid=${mapped_gid}" \
+  "addon_volumes=")
 
-shared_owner_vmid=999999
-shared_name_key="oci-lxc-deployer-volumes"
-if [ "$storage_type" = "zfspool" ]; then
-  shared_volname="subvol-${shared_owner_vmid}-${shared_name_key}"
-else
-  shared_volname="vol-${shared_name_key}"
-fi
-shared_volid="${rootfs_storage}:${shared_volname}"
-shared_volpath=$(resolve_shared_volume_path "$rootfs_storage" "$storage_type" "$shared_volid" "$shared_volname" || true)
 if [ -z "$shared_volpath" ]; then
-  echo "Error: Failed to resolve shared volume path (${shared_volid})" >&2
+  echo "Error: Failed to create/attach storage volumes or get shared volume path" >&2
   exit 1
 fi
 
@@ -490,7 +529,44 @@ cat > "${storagecontext_file}" <<JSON
   }
 }
 JSON
-echo "  storagecontext.json written at: ${storagecontext_file}" >&2
+# Set ownership to mapped UID/GID so container process can write to it
+chown "${mapped_uid}:${mapped_gid}" "${storagecontext_file}"
+echo "  storagecontext.json written at: ${storagecontext_file} (owner: ${mapped_uid}:${mapped_gid})" >&2
+
+# 5.2) Write LXC notes/description
+echo "Step 5.2: Writing LXC notes..." >&2
+# For self-install, deployer_base_url points to this container
+# ve_context_key must match the key in storagecontext.json (ve_${proxmox_hostname})
+# Use --deployer-url if provided (for NAT/port-forwarding), otherwise use container hostname
+if [ -n "$deployer_url" ]; then
+  deployer_base_url="$deployer_url"
+  echo "  Using external deployer URL: ${deployer_base_url}" >&2
+else
+  deployer_base_url="http://${hostname}:3000"
+fi
+
+# Download and Base64-encode the application icon for embedding in notes
+icon_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/applications/oci-lxc-deployer/icon.svg"
+icon_base64=$(curl -fsSL "$icon_url" 2>/dev/null | base64 | tr -d '\n' || echo "")
+icon_mime_type="image/svg+xml"
+
+execute_script_from_github \
+  "json/shared/scripts/pre_start/host-write-lxc-notes.py" \
+  "notes_written" \
+  "vm_id=${vm_id}" \
+  "hostname=${hostname}" \
+  "template_path=${template_path}" \
+  "oci_image=${resolved_oci_image}" \
+  "oci_image_tag=${oci_image_tag}" \
+  "application_id=${application_id}" \
+  "application_name=${application_name}" \
+  "deployer_base_url=${deployer_base_url}" \
+  "ve_context_key=ve_${proxmox_hostname}" \
+  "icon_base64=${icon_base64}" \
+  "icon_mime_type=${icon_mime_type}" || {
+  echo "Error: Failed to write LXC notes" >&2
+  exit 1
+}
 
 # 6) Ensure container is running
 echo "Step 6: Ensuring container is running..." >&2

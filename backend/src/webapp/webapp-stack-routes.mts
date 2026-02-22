@@ -1,0 +1,85 @@
+import express from "express";
+import { ApiUri, IStack } from "../types.mjs";
+import { ContextManager } from "../context-manager.mjs";
+import { PersistenceManager } from "../persistence/persistence-manager.mjs";
+import { generateSecret } from "../services/secrets-generator.service.mjs";
+
+export class WebAppStack {
+  constructor(
+    private app: express.Application,
+    private contextManager: ContextManager,
+  ) {}
+
+  init(): void {
+    // GET /api/stacktypes - List all stacktypes
+    this.app.get(ApiUri.Stacktypes, (_req, res) => {
+      const pm = PersistenceManager.getInstance();
+      const stacktypes = pm.getStacktypes();
+      res.json({ stacktypes });
+    });
+
+    // GET /api/stacks?stacktype=xxx - List all stacks (optionally filtered by stacktype)
+    this.app.get(ApiUri.Stacks, (req, res) => {
+      const stacktype = req.query.stacktype as string | undefined;
+      const stacks = this.contextManager.listStacks(stacktype);
+      res.json({ stacks });
+    });
+
+    // GET /api/stack/:id - Get single stack
+    this.app.get(ApiUri.Stack, (req, res) => {
+      const stack = this.contextManager.getStack(req.params.id);
+      if (!stack) {
+        res.status(404).json({ error: "Stack not found" });
+        return;
+      }
+      res.json({ stack });
+    });
+
+    // POST /api/stacks - Create stack
+    this.app.post(ApiUri.Stacks, express.json(), (req, res) => {
+      const body = req.body as IStack;
+      if (!body.name || !body.stacktype) {
+        res
+          .status(400)
+          .json({ error: "Missing required fields: name, stacktype" });
+        return;
+      }
+      // Auto-generate id from name if not provided
+      if (!body.id) {
+        body.id = body.name;
+      }
+
+      // Auto-generate secrets for variables without 'external' flag
+      const pm = PersistenceManager.getInstance();
+      const stacktypes = pm.getStacktypes();
+      const stacktypeDef = stacktypes.find((st) => st.name === body.stacktype);
+
+      if (stacktypeDef) {
+        for (const variable of stacktypeDef.entries) {
+          if (!variable.external) {
+            // Check if value already provided by user
+            const existing = body.entries.find((e) => e.name === variable.name);
+            if (!existing || !existing.value) {
+              // Generate secret
+              const generated = generateSecret(variable.length ?? 32);
+              if (existing) {
+                existing.value = generated;
+              } else {
+                body.entries.push({ name: variable.name, value: generated });
+              }
+            }
+          }
+        }
+      }
+
+      const key = this.contextManager.addStack(body);
+      res.json({ success: true, key });
+    });
+
+    // DELETE /api/stack/:id - Delete stack
+    this.app.delete(ApiUri.Stack, (req, res) => {
+      const deleted = this.contextManager.deleteStack(req.params.id);
+      res.json({ success: deleted, deleted });
+    });
+  }
+}

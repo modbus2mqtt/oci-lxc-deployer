@@ -1,0 +1,55 @@
+{
+  "$id": "appconf",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "E2E test application configuration. Optional - only needed when defaults are overridden.",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Application name (default: directory name)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Application description"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tags for categorization. Must match tags defined in json/tags.json"
+    },
+    "tasktype": {
+      "type": "string",
+      "enum": ["default", "postgres"],
+      "description": "Task type for special handling (e.g. postgres setup)"
+    },
+    "uploadfiles": {
+      "type": "array",
+      "description": "Files to upload to container",
+      "items": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*:.*$",
+            "description": "Destination path with volume prefix (e.g., 'config:mosquitto.conf', 'data:certs/server.crt')"
+          },
+          "label": {
+            "type": "string",
+            "description": "Optional display label (default: basename of destination)"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this file is required for the application to function"
+          },
+          "advanced": {
+            "type": "boolean",
+            "description": "Whether this file is an advanced option (hidden by default)"
+          }
+        },
+        "required": ["destination"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

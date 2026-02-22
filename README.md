@@ -4,7 +4,7 @@
 
 # OCI LXC Deployer
 
-Install and manage common LXC applications on Proxmox (e.g., Home Assistant, Node-RED), with support for custom templates and extended application configurations.
+Deploy containerized applications to Proxmox LXC containers. Supports Docker/OCI images, npm packages, and custom configurations with a simple Web UI.
 </div>
 
 ## Quick Install
@@ -60,22 +60,60 @@ curl -fsSL https://raw.githubusercontent.com/volkmarnissen/oci-lxc-deployer/main
 - Open `http://oci-lxc-deployer:3000` from your network (or replace `oci-lxc-deployer` with the container's IP/hostname you configured).
 - If Proxmox VE is behind a firewall, ensure port `3000/tcp` is reachable from the browser.
 
-## Command Line Usage
+## Key Concepts
 
-For command line usage, task execution, and application development, see [Application Development Guide](docs/application-development.md).
+### Applications
+An **Application** in OCI LXC Deployer is similar to a `docker-compose.yml` - it defines how to deploy a containerized service. Applications can be:
+- **OCI Images**: Any Docker/OCI image (e.g., `docker.io/nodered/node-red:latest`)
+- **npm packages**: Node.js applications installed via npm
+- **Custom configurations**: Your own templates and scripts
+
+### Stacks (Secrets Management)
+**Stacks** store environment-specific secrets (database passwords, API keys) that are injected into applications during deployment. This keeps sensitive data separate from application definitions.
+
+- Create stacks in the Web UI under "Stacks"
+- A stack named "default" keeps the original hostname during deployment
+- Stacks without external entries are auto-generated
+
+### Addons
+**Addons** extend applications with optional features:
+- USB device passthrough
+- Serial port mapping
+- Additional volumes
+- Custom scripts
 
 ## Documentation
-See [docs/INSTALL.md](docs/INSTALL.md) for installation details and [docs/application-development.md](docs/application-development.md) for creating custom applications.
 
+| Document | Description |
+|----------|-------------|
+| [Deployment Flow](docs/deployment-flow.md) | End-to-end guide: from application selection to running container |
+| [Application Development](docs/application-development.md) | Creating custom applications, templates, and scripts |
+| [Installation Details](docs/INSTALL.md) | Advanced installation options |
 
-## Templates & Features
-- Network helpers (e.g., static IP generation).
-- Disk sharing and USB serial mapping templates.
-- Parameterized tasks via JSON; validated against schemas in `backend/schemas/`.
+## File Locations
 
+```
+json/
+├── applications/          # Application definitions
+│   └── <app-name>/
+│       ├── application.json
+│       ├── templates/
+│       └── scripts/
+├── shared/
+│   ├── templates/         # Reusable templates
+│   └── scripts/           # Reusable scripts
+├── frameworks/            # Application frameworks
+├── addons/                # Optional addons
+└── stacktypes.json        # Stack type definitions
+```
 
 ## Why OCI LXC Deployer?
-- Simple Web UI to install common apps (e.g., Home Assistant, Node-RED)
-- Reusable JSON templates for repeatable provisioning
-- Extend with your own templates and app configurations
+
+- **Deploy docker-compose.yml to LXC** - Use familiar Docker images without running Docker
+- **Data persistence outside container** - Volumes on host make updates and migrations easy
+- **Automatic permission management** - User mapping for volumes and devices handled automatically
+- **Persistent log files** - Logs survive container restarts and updates
+- **Shared secrets across containers** - Stacks let multiple containers use the same passwords (e.g., Postgres + PostgREST)
+- **Flexible inheritance** - Extend existing applications with custom templates
+- **Simple Web UI** - Deploy without command-line knowledge
 

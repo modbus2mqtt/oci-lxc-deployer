@@ -1,0 +1,24 @@
+{
+  "$id": "stack",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "stacktype": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "value": { "type": ["string", "number", "boolean"] }
+        },
+        "required": ["name", "value"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["id", "name", "stacktype", "entries"],
+  "additionalProperties": false
+}

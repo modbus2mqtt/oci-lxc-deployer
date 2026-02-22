@@ -14,6 +14,10 @@ export class TemplateResolver {
     return typeof template === "string" ? template : template.name;
   }
 
+  extractTemplateCategory(template: ITemplateReference | string): string | undefined {
+    return typeof template === "string" ? undefined : template.category;
+  }
+
   normalizeTemplateName(templateName: string): string {
     return templateName.replace(/\.json$/i, "");
   }
@@ -23,7 +27,8 @@ export class TemplateResolver {
     const filename = `${normalized}.json`;
     if (ref.scope === "shared") {
       const origin = ref.origin ?? "json";
-      return `${origin}/shared/templates/${filename}`;
+      const categoryPath = ref.category ? `${ref.category}/` : "";
+      return `${origin}/shared/templates/${categoryPath}${filename}`;
     }
     const origin = ref.origin ?? "json";
     const appId = ref.applicationId ?? "unknown-app";
@@ -33,8 +38,13 @@ export class TemplateResolver {
   resolveTemplate(
     applicationId: string,
     templateName: string,
+    category: string,
   ): { template: ITemplate; ref: TemplateRef } | null {
-    const ref = this.repositories.resolveTemplateRef(applicationId, templateName);
+    const ref = this.repositories.resolveTemplateRef(
+      applicationId,
+      templateName,
+      category,
+    );
     if (!ref) return null;
     const template = this.repositories.getTemplate(ref);
     if (!template) return null;
@@ -44,13 +54,32 @@ export class TemplateResolver {
   resolveScriptContent(
     applicationId: string,
     scriptName: string,
+    category?: string,
   ): { content: string | null; ref: ScriptRef | null } {
-    const appRef: ScriptRef = { name: scriptName, scope: "application", applicationId };
+    // First try app-specific
+    const appRef: ScriptRef = {
+      name: scriptName,
+      scope: "application",
+      applicationId,
+    };
     const appContent = this.repositories.getScript(appRef);
     if (appContent !== null) return { content: appContent, ref: appRef };
-    const sharedRef: ScriptRef = { name: scriptName, scope: "shared" };
-    const sharedContent = this.repositories.getScript(sharedRef);
-    return { content: sharedContent, ref: sharedContent !== null ? sharedRef : null };
+
+    // Then try shared with category (if specified)
+    if (category) {
+      const sharedCategoryRef: ScriptRef = {
+        name: scriptName,
+        scope: "shared",
+        category,
+      };
+      const sharedCategoryContent =
+        this.repositories.getScript(sharedCategoryRef);
+      if (sharedCategoryContent !== null) {
+        return { content: sharedCategoryContent, ref: sharedCategoryRef };
+      }
+    }
+
+    return { content: null, ref: null };
   }
 
   resolveScriptPath(ref: ScriptRef | null): string | null {
@@ -62,12 +91,26 @@ export class TemplateResolver {
     applicationId: string,
     libraryName: string,
   ): { content: string | null; ref: ScriptRef | null } {
-    const appRef: ScriptRef = { name: libraryName, scope: "application", applicationId };
+    // First try app-specific
+    const appRef: ScriptRef = {
+      name: libraryName,
+      scope: "application",
+      applicationId,
+    };
     const appContent = this.repositories.getScript(appRef);
     if (appContent !== null) return { content: appContent, ref: appRef };
-    const sharedRef: ScriptRef = { name: libraryName, scope: "shared" };
-    const sharedContent = this.repositories.getScript(sharedRef);
-    return { content: sharedContent, ref: sharedContent !== null ? sharedRef : null };
+
+    // Then try shared with "library" category
+    const sharedLibRef: ScriptRef = {
+      name: libraryName,
+      scope: "shared",
+      category: "library",
+    };
+    const sharedLibContent = this.repositories.getScript(sharedLibRef);
+    if (sharedLibContent !== null)
+      return { content: sharedLibContent, ref: sharedLibRef };
+
+    return { content: null, ref: null };
   }
 
   resolveLibraryPath(ref: ScriptRef | null): string | null {
@@ -82,7 +125,9 @@ export class TemplateResolver {
     const markdownRef: MarkdownRef = {
       templateName: this.normalizeTemplateName(ref.name),
       scope: ref.scope,
-      ...(ref.applicationId !== undefined ? { applicationId: ref.applicationId } : {}),
+      ...(ref.applicationId !== undefined
+        ? { applicationId: ref.applicationId }
+        : {}),
     };
     return this.repositories.getMarkdownSection(markdownRef, sectionName);
   }

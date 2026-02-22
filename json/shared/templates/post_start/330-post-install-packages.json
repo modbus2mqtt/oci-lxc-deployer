@@ -1,0 +1,28 @@
+{
+  "execute_on": "lxc",
+  "name": "Install Packages",
+  "description": "Install packages inside the LXC container. Supports both Alpine Linux (apk) and Debian/Ubuntu (apt) package managers. Includes automatic network readiness check with retry logic.",
+  "parameters": [
+    {
+      "id": "packages",
+      "name": "Packages",
+      "type": "string",
+      "required": true,
+      "description": "Space-separated list of packages to install. For Alpine Linux, use APK package names. For Debian/Ubuntu, use apt package names."
+    },
+    {
+      "id": "addon_packages",
+      "name": "Addon Packages",
+      "type": "string",
+      "description": "Additional packages from addons (merged with base packages).",
+      "advanced": true
+    }
+  ],
+  "commands": [
+    {
+      "script": "post-install-apk-package.sh",
+      "library": "pkg-common.sh",
+      "description": "Install packages using the appropriate package manager (apk for Alpine, apt for Debian/Ubuntu)"
+    }
+  ]
+}

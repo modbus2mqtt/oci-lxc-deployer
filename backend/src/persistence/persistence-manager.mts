@@ -4,23 +4,29 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { JsonValidator } from "../jsonvalidator.mjs";
 import { IConfiguredPathes } from "../backend-types.mjs";
+import { ITagsConfig, IStacktypeEntry } from "../types.mjs";
 import { FileSystemPersistence } from "./filesystem-persistence.mjs";
 import {
   IApplicationPersistence,
   ITemplatePersistence,
   IFrameworkPersistence,
+  IAddonPersistence,
 } from "./interfaces.mjs";
 import { ApplicationService } from "../services/application-service.mjs";
 import { FrameworkService } from "../services/framework-service.mjs";
+import { AddonService } from "../services/addon-service.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { FileSystemRepositories, type IRepositories } from "./repositories.mjs";
 
-const baseSchemas: string[] = ["templatelist.schema.json"];
+const baseSchemas: string[] = [
+  "templatelist.schema.json",
+  "base-deployable.schema.json",
+];
 
 /**
  * Central singleton manager for Persistence, Services and ContextManager
  * Replaces StorageContext singleton for entity access (Applications, Templates, Frameworks)
- * 
+ *
  * Architecture:
  * - PersistenceManager: Central singleton, manages all persistence and services
  * - ContextManager: Manages execution contexts (VE, VM, VMInstall), no longer a singleton
@@ -35,9 +41,11 @@ export class PersistenceManager {
   private jsonValidator: JsonValidator;
   private persistence: IApplicationPersistence &
     IFrameworkPersistence &
-    ITemplatePersistence;
+    ITemplatePersistence &
+    IAddonPersistence;
   private applicationService: ApplicationService;
   private frameworkService: FrameworkService;
+  private addonService: AddonService;
   private contextManager: ContextManager;
   private repositories: IRepositories;
 
@@ -76,6 +84,7 @@ export class PersistenceManager {
     // Initialize Services
     this.applicationService = new ApplicationService(this.persistence);
     this.frameworkService = new FrameworkService(this.persistence);
+    this.addonService = new AddonService(this.persistence, this.persistence);
 
     // Initialize ContextManager (no longer a singleton itself)
     // Pass pathes, validator and persistence to avoid duplication
@@ -88,7 +97,9 @@ export class PersistenceManager {
       this.persistence,
     );
 
-    this.repositories = repositories ?? new FileSystemRepositories(this.pathes, this.persistence, enableCache);
+    this.repositories =
+      repositories ??
+      new FileSystemRepositories(this.pathes, this.persistence, enableCache);
     const reposWithPreload = this.repositories as IRepositories & {
       preloadJsonResources?: () => void;
     };
@@ -97,9 +108,12 @@ export class PersistenceManager {
 
   private assertBasePathsExist(pathes: IConfiguredPathes): void {
     const missing: string[] = [];
-    if (!fs.existsSync(pathes.localPath)) missing.push(`localPath: ${pathes.localPath}`);
-    if (!fs.existsSync(pathes.jsonPath)) missing.push(`jsonPath: ${pathes.jsonPath}`);
-    if (!fs.existsSync(pathes.schemaPath)) missing.push(`schemaPath: ${pathes.schemaPath}`);
+    if (!fs.existsSync(pathes.localPath))
+      missing.push(`localPath: ${pathes.localPath}`);
+    if (!fs.existsSync(pathes.jsonPath))
+      missing.push(`jsonPath: ${pathes.jsonPath}`);
+    if (!fs.existsSync(pathes.schemaPath))
+      missing.push(`schemaPath: ${pathes.schemaPath}`);
     if (missing.length > 0) {
       throw new Error(
         `PersistenceManager initialization failed: missing base paths -> ${missing.join(", ")}`,
@@ -110,7 +124,7 @@ export class PersistenceManager {
   /**
    * Initializes the PersistenceManager singleton
    * This replaces StorageContext.setInstance()
-   * 
+   *
    * If already initialized, closes the existing instance first (useful for tests)
    */
   static initialize(
@@ -165,6 +179,10 @@ export class PersistenceManager {
     return this.frameworkService;
   }
 
+  getAddonService(): AddonService {
+    return this.addonService;
+  }
+
   getPathes(): IConfiguredPathes {
     return this.pathes;
   }
@@ -179,6 +197,40 @@ export class PersistenceManager {
 
   getRepositories(): IRepositories {
     return this.repositories;
+  }
+
+  /**
+   * Returns the tags configuration from json/tags.json
+   * Used for application categorization in the frontend
+   */
+  getTagsConfig(): ITagsConfig {
+    const tagsFilePath = path.join(this.pathes.jsonPath, "tags.json");
+    if (!fs.existsSync(tagsFilePath)) {
+      // Return empty config if file doesn't exist
+      return { groups: [], internal: [] };
+    }
+    const content = fs.readFileSync(tagsFilePath, "utf-8");
+    return JSON.parse(content) as ITagsConfig;
+  }
+
+  /**
+   * Returns the stacktypes configuration from json/stacktypes/ directory.
+   * Each .json file in the directory represents a stacktype (filename = name).
+   */
+  getStacktypes(): IStacktypeEntry[] {
+    const stacktypesDir = path.join(this.pathes.jsonPath, "stacktypes");
+    if (!fs.existsSync(stacktypesDir)) {
+      return [];
+    }
+    const files = fs
+      .readdirSync(stacktypesDir)
+      .filter((f) => f.endsWith(".json"));
+    return files.map((file) => {
+      const name = path.basename(file, ".json");
+      const content = fs.readFileSync(path.join(stacktypesDir, file), "utf-8");
+      const entries = JSON.parse(content) as { name: string }[];
+      return { name, entries };
+    });
   }
 
   // Alias für Rückwärtskompatibilität (kann später entfernt werden)
@@ -196,4 +248,3 @@ export class PersistenceManager {
     PersistenceManager.instance = undefined;
   }
 }
-

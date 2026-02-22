@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "child_process";
-import { createTestEnvironment, TestEnvironment } from "@tests/helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  TestEnvironment,
+} from "@tests/helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("setup-lxc-uid-mapping.py", () => {
   let env: TestEnvironment;
@@ -13,9 +19,9 @@ describe("setup-lxc-uid-mapping.py", () => {
   beforeEach(async () => {
     env = createTestEnvironment(import.meta.url, {
       jsonIncludePatterns: [
-        "^shared/scripts/setup-lxc-uid-mapping\\.py$",
-        "^shared/scripts/setup-lxc-gid-mapping\\.py$",
-        "^shared/scripts/setup_lxc_idmap_common\\.py$",
+        "^shared/scripts/pre_start/conf-setup-lxc-uid-mapping\\.py$",
+        "^shared/scripts/pre_start/conf-setup-lxc-gid-mapping\\.py$",
+        "^shared/scripts/library/setup_lxc_idmap_common\\.py$",
       ],
     });
     env.initPersistence({ enableCache: false });
@@ -35,10 +41,13 @@ describe("setup-lxc-uid-mapping.py", () => {
     env.cleanup();
   });
 
-  function runUidScript(uid: string, vmId?: string): { stdout: string; stderr: string; exitCode: number } {
+  function runUidScript(
+    uid: string,
+    vmId?: string,
+  ): { stdout: string; stderr: string; exitCode: number } {
     let scriptContent = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup-lxc-uid-mapping.py",
+      "pre_start/conf-setup-lxc-uid-mapping.py",
     );
     scriptContent = scriptContent
       .replace(/\{\{\s*uid\s*\}\}/g, uid)
@@ -48,7 +57,7 @@ describe("setup-lxc-uid-mapping.py", () => {
 
     const commonModule = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup_lxc_idmap_common.py",
+      "library/setup_lxc_idmap_common.py",
     );
     const combined = `${commonModule}\n\n${scriptContent}`;
 
@@ -73,10 +82,13 @@ describe("setup-lxc-uid-mapping.py", () => {
     };
   }
 
-  function runGidScript(gid: string, vmId?: string): { stdout: string; stderr: string; exitCode: number } {
+  function runGidScript(
+    gid: string,
+    vmId?: string,
+  ): { stdout: string; stderr: string; exitCode: number } {
     let scriptContent = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup-lxc-gid-mapping.py",
+      "pre_start/conf-setup-lxc-gid-mapping.py",
     );
     scriptContent = scriptContent
       .replace(/\{\{\s*gid\s*\}\}/g, gid)
@@ -85,7 +97,7 @@ describe("setup-lxc-uid-mapping.py", () => {
 
     const commonModule = persistenceHelper.readTextSync(
       Volume.JsonSharedScripts,
-      "setup_lxc_idmap_common.py",
+      "library/setup_lxc_idmap_common.py",
     );
     const combined = `${commonModule}\n\n${scriptContent}`;
 
@@ -117,15 +129,13 @@ describe("setup-lxc-uid-mapping.py", () => {
     expect(resultUid.exitCode).toBe(0);
     expect(resultGid.exitCode).toBe(0);
 
-    // Check /etc/subuid
+    // Check /etc/subuid - now simplified: only standard range + passthrough
     const subuidContent = persistenceHelper.readTextSync(
       Volume.LocalRoot,
       "subuid",
     );
     expect(subuidContent).toContain("root:100000:65536"); // Standard range
-    expect(subuidContent).toContain("root:6719136:1000"); // Specific range for UID 1000
-    expect(subuidContent).toContain("root:1000:1"); // 1:1 mapping
-    expect(subuidContent).toContain("root:6720137:64535"); // Rest range
+    expect(subuidContent).toContain("root:1000:1"); // 1:1 passthrough
 
     // Check /etc/subgid
     const subgidContent = persistenceHelper.readTextSync(
@@ -133,21 +143,19 @@ describe("setup-lxc-uid-mapping.py", () => {
       "subgid",
     );
     expect(subgidContent).toContain("root:100000:65536");
-    expect(subgidContent).toContain("root:6719136:1000");
     expect(subgidContent).toContain("root:1000:1");
-    expect(subgidContent).toContain("root:6720137:64535");
 
-    // Check container config
+    // Check container config - all shifted ranges stay within 100000-165535
     const configContent = persistenceHelper.readTextSync(
       Volume.LocalRoot,
       "lxc/100.conf",
     );
-    expect(configContent).toContain("lxc.idmap: u 0 100000 1000");
+    expect(configContent).toContain("lxc.idmap: u 0 100000 1000"); // Container 0-999 → Host 100000-100999
+    expect(configContent).toContain("lxc.idmap: u 1000 1000 1"); // Container 1000 → Host 1000 (passthrough)
+    expect(configContent).toContain("lxc.idmap: u 1001 101000 64535"); // Container 1001-65535 → Host 101000+
     expect(configContent).toContain("lxc.idmap: g 0 100000 1000");
-    expect(configContent).toContain("lxc.idmap: u 1000 1000 1");
     expect(configContent).toContain("lxc.idmap: g 1000 1000 1");
-    expect(configContent).toContain("lxc.idmap: u 1001 6720137 64535");
-    expect(configContent).toContain("lxc.idmap: g 1001 6720137 64535");
+    expect(configContent).toContain("lxc.idmap: g 1001 101000 64535");
   });
 
   it("should add second UID without duplicating existing entries", () => {
@@ -168,31 +176,39 @@ describe("setup-lxc-uid-mapping.py", () => {
       Volume.LocalRoot,
       "subuid",
     );
-    const subuidLines = subuidContent.split("\n").filter(l => l.trim());
-    
+    const subuidLines = subuidContent.split("\n").filter((l) => l.trim());
+
     // Count occurrences of standard range - should appear only once
-    const standardRangeCount = subuidLines.filter(l => l === "root:100000:65536").length;
+    const standardRangeCount = subuidLines.filter(
+      (l) => l === "root:100000:65536",
+    ).length;
     expect(standardRangeCount).toBe(1);
 
-    // Should have new specific range for max UID (2000)
-    // Formula: 100000 + 65536 + ((2000/10) * 65536) = 100000 + 65536 + 13107200 = 13272736
-    expect(subuidContent).toContain("root:13272736:2000"); // Specific range for UID 2000
+    // Simplified subuid: only standard range + passthrough entries
     expect(subuidContent).toContain("root:1000:1");
     expect(subuidContent).toContain("root:2000:1");
-    expect(subuidContent).toContain("root:13274737:63535"); // Rest range
 
-    // Check container config - should have mappings for both UIDs
+    // Check container config - all shifted ranges within standard range
+    // For UIDs 1000,2000:
+    // - Container 0-999 → Host 100000-100999
+    // - Container 1000 → Host 1000 (passthrough)
+    // - Container 1001-1999 → Host 101000-101999
+    // - Container 2000 → Host 2000 (passthrough)
+    // - Container 2001-65535 → Host 102000+
     const configContent = persistenceHelper.readTextSync(
       Volume.LocalRoot,
       "lxc/100.conf",
     );
     expect(configContent).toContain("lxc.idmap: u 0 100000 1000");
     expect(configContent).toContain("lxc.idmap: u 1000 1000 1");
+    expect(configContent).toContain("lxc.idmap: u 1001 101000 999"); // Gap between 1000 and 2000
     expect(configContent).toContain("lxc.idmap: u 2000 2000 1");
-    expect(configContent).toContain("lxc.idmap: u 2001 13274737 63535");
+    expect(configContent).toContain("lxc.idmap: u 2001 101999 63535"); // Rest after 2000
 
     // No duplicate idmap entries
-    const idmapLines = configContent.split("\n").filter(l => l.includes("lxc.idmap:"));
+    const idmapLines = configContent
+      .split("\n")
+      .filter((l) => l.includes("lxc.idmap:"));
     const uniqueIdmapLines = new Set(idmapLines);
     expect(idmapLines.length).toBe(uniqueIdmapLines.size);
   });
@@ -228,7 +244,9 @@ describe("setup-lxc-uid-mapping.py", () => {
     expect(persistenceHelper.existsSync(Volume.LocalRoot, "subgid")).toBe(true);
 
     // No config file should be created
-    expect(persistenceHelper.existsSync(Volume.LocalRoot, "lxc/100.conf")).toBe(false);
+    expect(persistenceHelper.existsSync(Volume.LocalRoot, "lxc/100.conf")).toBe(
+      false,
+    );
   });
 
   it("should preserve existing non-idmap entries in container config", () => {
@@ -255,12 +273,12 @@ rootfs: local-lvm:vm-102-disk-0,size=8G
       Volume.LocalRoot,
       "lxc/102.conf",
     );
-    
+
     // Existing entries should be preserved
     expect(configContent).toContain("arch: amd64");
     expect(configContent).toContain("hostname: test");
     expect(configContent).toContain("memory: 512");
-    
+
     // New idmap entries should be added
     expect(configContent).toContain("lxc.idmap: u 1000 1000 1");
   });

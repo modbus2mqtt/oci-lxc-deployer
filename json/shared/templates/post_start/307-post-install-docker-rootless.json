@@ -1,0 +1,15 @@
+{
+  "execute_on": "lxc",
+  "name": "Install Docker",
+  "description": "Install Docker in LXC container. Supports both Alpine Linux (apk) and Debian/Ubuntu (apt). Docker runs as root in the container. Includes automatic network readiness check with retry logic.",
+  "commands": [
+    {
+      "script": "post-install-docker-rootless.sh",
+      "library": "pkg-common.sh",
+      "description": "Install Docker using the appropriate package manager (apk for Alpine, apt for Debian/Ubuntu)",
+      "outputs": [
+        "docker_installed"
+      ]
+    }
+  ]
+}

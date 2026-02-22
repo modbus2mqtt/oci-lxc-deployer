@@ -8,15 +8,18 @@ import {
   storageKey as storageContextKey,
 } from "./backend-types.mjs";
 import { TemplateProcessor } from "./templates/templateprocessor.mjs";
-import { ISsh, TaskType } from "./types.mjs";
+import { ISsh, TaskType, IStack, IStackEntry } from "./types.mjs";
 import { Context } from "./context.mjs";
 import { Ssh } from "./ssh.mjs";
-import { IApplicationPersistence, ITemplatePersistence } from "./persistence/interfaces.mjs";
+import {
+  IApplicationPersistence,
+  ITemplatePersistence,
+} from "./persistence/interfaces.mjs";
 
 export class VMContext implements IVMContext {
   vmid: number;
   vekey: string;
-  outputs: Record<string, string| number| boolean>;
+  outputs: Record<string, string | number | boolean>;
   constructor(data: IVMContext) {
     this.vmid = data.vmid;
     this.vekey = data.vekey;
@@ -24,7 +27,7 @@ export class VMContext implements IVMContext {
   }
   getKey(): string {
     return `vm_${this.vmid}`;
-  } 
+  }
 }
 
 export class VMInstallContext implements IVMInstallContext {
@@ -37,9 +40,30 @@ export class VMInstallContext implements IVMInstallContext {
   public hostname: string;
   public application: string;
   public task: TaskType;
-  public changedParams: Array<{ name: string; value: string | number | boolean }>;
+  public changedParams: Array<{
+    name: string;
+    value: string | number | boolean;
+  }>;
   getKey(): string {
     return `vminstall_${this.hostname}_${this.application}`;
+  }
+}
+
+export class StackContext implements IStack {
+  id: string;
+  name: string;
+  stacktype: string;
+  entries: IStackEntry[];
+
+  constructor(data: IStack) {
+    this.id = data.id;
+    this.name = data.name;
+    this.stacktype = data.stacktype;
+    this.entries = data.entries || [];
+  }
+
+  getKey(): string {
+    return `stack_${this.name}`;
   }
 }
 
@@ -60,6 +84,13 @@ class VEContext implements IVEContext {
   getKey(): string {
     return `ve_${this.host}`;
   }
+  toJSON(): object {
+    return {
+      host: this.host,
+      port: this.port,
+      current: this.current,
+    };
+  }
 }
 
 /**
@@ -67,10 +98,10 @@ class VEContext implements IVEContext {
  * - VEContext: Virtual Environment (Proxmox host) connections
  * - VMContext: Virtual Machine information
  * - VMInstallContext: VM installation state
- * 
+ *
  * Renamed from StorageContext to better reflect its purpose:
  * It manages execution contexts, not storage/entities.
- * 
+ *
  * No longer a singleton - managed by PersistenceManager
  */
 export class ContextManager extends Context implements IContext {
@@ -104,6 +135,7 @@ export class ContextManager extends Context implements IContext {
       }
     }
     this.loadContexts("vminstall", VMInstallContext);
+    this.loadContexts("stack", StackContext);
   }
   getLocalPath(): string {
     return this.pathes.localPath;
@@ -146,7 +178,7 @@ export class ContextManager extends Context implements IContext {
         `VE context not found for key: ${vmContext.vekey}. Please set the VE context using setVEContext() before setting the VM context.`,
       );
     }
-    
+
     const key = `vm_${vmContext.vmid}`;
     this.set(key, new VMContext(vmContext));
     return key;
@@ -198,12 +230,51 @@ export class ContextManager extends Context implements IContext {
   }
 
   /** Find a VMInstallContext by vmInstallKey (format: vminstall_${hostname}_${application}) */
-  getVMInstallContextByVmInstallKey(vmInstallKey: string): IVMInstallContext | null {
+  getVMInstallContextByVmInstallKey(
+    vmInstallKey: string,
+  ): IVMInstallContext | null {
     const value = this.get(vmInstallKey);
     if (value instanceof VMInstallContext) {
       return value as IVMInstallContext;
     }
     return null;
+  }
+
+  // Stack methods
+  addStack(stack: IStack): string {
+    const ctx = new StackContext(stack);
+    this.set(ctx.getKey(), ctx);
+    return ctx.getKey();
+  }
+
+  getStack(id: string): IStack | null {
+    // id is "stack_<name>" or just the name
+    const key = id.startsWith("stack_") ? id : `stack_${id}`;
+    const value = this.get(key);
+    if (value instanceof StackContext) return value;
+    return null;
+  }
+
+  listStacks(stacktype?: string): IStack[] {
+    const stacks: IStack[] = [];
+    for (const key of this.keys().filter((k) => k.startsWith("stack_"))) {
+      const value = this.get(key);
+      if (value instanceof StackContext) {
+        if (!stacktype || value.stacktype === stacktype) {
+          stacks.push(value);
+        }
+      }
+    }
+    return stacks;
+  }
+
+  deleteStack(id: string): boolean {
+    const key = id.startsWith("stack_") ? id : `stack_${id}`;
+    if (this.has(key)) {
+      this.remove(key);
+      return true;
+    }
+    return false;
   }
 
   /** Build ISsh descriptors for all VE contexts using current storage */
@@ -223,12 +294,12 @@ export class ContextManager extends Context implements IContext {
           item.permissionOk = perm.permissionOk;
           if (perm.stderr) (item as any).stderr = perm.stderr;
           const stderr = (perm.stderr || "").toLowerCase();
-          const portListening = perm.permissionOk || (
-            !stderr.includes("connection refused") &&
-            !stderr.includes("no route to host") &&
-            !stderr.includes("operation timed out") &&
-            !stderr.includes("timed out")
-          );
+          const portListening =
+            perm.permissionOk ||
+            (!stderr.includes("connection refused") &&
+              !stderr.includes("no route to host") &&
+              !stderr.includes("operation timed out") &&
+              !stderr.includes("timed out"));
           if (!portListening) {
             item.installSshServer = Ssh.getInstallSshServerCommand();
           }

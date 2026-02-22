@@ -4,9 +4,14 @@ import { FrameworkLoader } from "@src/frameworkloader.mjs";
 import { ContextManager } from "@src/context-manager.mjs";
 import { IPostFrameworkCreateApplicationBody } from "@src/types.mjs";
 import { IApplication } from "@src/backend-types.mjs";
-import { ITemplate } from "@src/types.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FrameworkLoader.createApplicationFromFramework", () => {
   let env: TestEnvironment;
@@ -92,38 +97,48 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
     ) as any;
     // Verify that 'id' is not in the file
     expect(appDataRaw).not.toHaveProperty("id");
-    const appData = validator.serializeJsonFileWithSchema(appJsonPath, "application.schema.json") as IApplication;
+    const appData = validator.serializeJsonFileWithSchema(
+      appJsonPath,
+      "application.schema.json",
+    ) as IApplication;
     expect(appData.name).toBe("Test Application");
-    expect(appData.description).toBe("A test application created from framework");
+    expect(appData.description).toBe(
+      "A test application created from framework",
+    );
     expect(appData.extends).toBe("npm-nodejs");
-    expect(Array.isArray(appData.installation)).toBe(true);
-    // The first template should be derived from application-id
-    // It may be a string or an object with {name, before}
-    const firstTemplate = appData.installation?.[0];
-    if (typeof firstTemplate === "string") {
-      expect(firstTemplate).toBe("test-app-parameters.json");
-    } else if (firstTemplate && typeof firstTemplate === "object") {
-      expect((firstTemplate as any).name).toBe("test-app-parameters.json");
-    } else {
-      throw new Error(`Expected first template to be string or object, got ${typeof firstTemplate}`);
+    // New category format: installation is empty object (all templates come from extended application)
+    expect(typeof appData.installation).toBe("object");
+    expect(appData.installation).not.toBeNull();
+    // Empty object means all categories are inherited
+    const categories = ["image", "pre_start", "start", "post_start"];
+    for (const cat of categories) {
+      expect((appData.installation as any)[cat]).toBeUndefined();
     }
 
-    // Verify parameters template exists and is valid
-    const setParamsPath = persistenceHelper.resolve(
-      Volume.LocalRoot,
-      "applications/test-app/templates/test-app-parameters.json",
+    // New 1-file format: properties are directly in application.json
+    // Note: For npm-nodejs framework, properties don't have "default: true",
+    // so they all go to properties (fixed outputs), not parameters (user-editable)
+    expect(appData.properties).toBeDefined();
+    expect(Array.isArray(appData.properties)).toBe(true);
+    expect(appData.properties!.length).toBeGreaterThan(0);
+    // Check that ostype property is present
+    const ostypeProperty = appData.properties!.find((p) => p.id === "ostype");
+    expect(ostypeProperty).toBeDefined();
+    expect(ostypeProperty!.value).toBe("alpine");
+    // Check that hostname property is present
+    const hostnameProperty = appData.properties!.find(
+      (p) => p.id === "hostname",
     );
+    expect(hostnameProperty).toBeDefined();
+    expect(hostnameProperty!.value).toBe("test-app");
+
+    // New 1-file format: no separate template file is created
     expect(() =>
       persistenceHelper.readTextSync(
         Volume.LocalRoot,
         "applications/test-app/templates/test-app-parameters.json",
       ),
-    ).not.toThrow();
-
-    const templateData = validator.serializeJsonFileWithSchema(setParamsPath, "template.schema.json") as ITemplate;
-    expect(templateData.name).toBe("Set Parameters");
-    expect(Array.isArray(templateData.commands)).toBe(true);
-    expect(templateData.commands.length).toBeGreaterThan(0);
+    ).toThrow(); // File should NOT exist
   });
 
   it("throws error if application already exists in localPath", async () => {
@@ -142,9 +157,9 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
       parameterValues: [],
     };
 
-    await expect(loader.createApplicationFromFramework(request)).rejects.toThrow(
-      "already exists at",
-    );
+    await expect(
+      loader.createApplicationFromFramework(request),
+    ).rejects.toThrow("already exists at");
   });
 
   it("allows creating application even if it exists in jsonPath (only localPath is checked)", async () => {
@@ -180,7 +195,7 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
     // Should succeed because jsonPath is not checked, only localPath
     const applicationId = await loader.createApplicationFromFramework(request);
     expect(applicationId).toBe("existing-json-app");
-    
+
     // Verify it was created in localPath
     expect(() =>
       persistenceHelper.readTextSync(
@@ -199,7 +214,8 @@ describe("FrameworkLoader.createApplicationFromFramework", () => {
       parameterValues: [],
     };
 
-    await expect(loader.createApplicationFromFramework(request)).rejects.toThrow();
+    await expect(
+      loader.createApplicationFromFramework(request),
+    ).rejects.toThrow();
   });
 });
-

@@ -3,7 +3,7 @@ import {
   IReadApplicationOptions,
   VEConfigurationError,
 } from "../backend-types.mjs";
-import { IFramework, ITemplate, IApplicationWeb } from "../types.mjs";
+import { IFramework, ITemplate, IApplicationWeb, IAddon } from "../types.mjs";
 
 /**
  * Base interface for all persistence implementations
@@ -85,11 +85,13 @@ export interface ITemplatePersistence extends IPersistence {
    * Resolves template path (checks local first, then json)
    * @param templateName Name of the template (without .json)
    * @param isShared Whether template is in shared/templates directory
+   * @param category Optional category subdirectory (e.g., "list")
    * @returns Full path to template file or null if not found
    */
   resolveTemplatePath(
     templateName: string,
     isShared: boolean,
+    category?: string,
   ): string | null;
 
   /**
@@ -106,19 +108,44 @@ export interface ITemplatePersistence extends IPersistence {
    * @param template Template data to write
    * @param isShared If true, writes to shared/templates, otherwise to application-specific templates
    * @param appPath Optional: Application path (required if isShared is false)
+   * @param category Optional category subdirectory (e.g., "list")
    */
   writeTemplate(
     templateName: string,
     template: ITemplate,
     isShared: boolean,
     appPath?: string,
+    category?: string,
   ): void;
 
   /**
    * Deletes template from local path
    * Invalidates cache automatically
+   * @param templateName Name of the template
+   * @param isShared Whether template is in shared/templates directory
+   * @param category Optional category subdirectory (e.g., "list")
    */
-  deleteTemplate(templateName: string, isShared: boolean): void;
+  deleteTemplate(
+    templateName: string,
+    isShared: boolean,
+    category?: string,
+  ): void;
+
+  /**
+   * Writes script to local path
+   * @param scriptName Name of the script (with extension, e.g., "upload-smb-conf.sh")
+   * @param content Script content as string
+   * @param isShared If true, writes to shared/scripts, otherwise to application-specific scripts
+   * @param appPath Optional: Application path (required if isShared is false)
+   * @param category Optional category subdirectory (e.g., "pre_start")
+   */
+  writeScript(
+    scriptName: string,
+    content: string,
+    isShared: boolean,
+    appPath?: string,
+    category?: string,
+  ): void;
 }
 
 /**
@@ -158,3 +185,24 @@ export interface IFrameworkPersistence extends IPersistence {
   deleteFramework(frameworkId: string): void;
 }
 
+/**
+ * Interface for addon persistence operations
+ */
+export interface IAddonPersistence extends IPersistence {
+  /**
+   * Returns all addon IDs (filenames without .json)
+   */
+  getAddonIds(): string[];
+
+  /**
+   * Loads an addon by ID
+   * @param addonId ID of the addon (filename without .json)
+   * @returns Addon data with id populated
+   */
+  loadAddon(addonId: string): IAddon;
+
+  /**
+   * Returns all addons
+   */
+  getAllAddons(): IAddon[];
+}

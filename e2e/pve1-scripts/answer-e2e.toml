@@ -1,0 +1,44 @@
+# Proxmox VE E2E Test - Automated Installation Answer File
+# This creates a nested Proxmox VM for E2E testing
+#
+# Reference: https://pve.proxmox.com/wiki/Automated_Installation
+
+[global]
+keyboard = "de"
+country = "de"
+fqdn = "pve-e2e-nested.local"
+mailto = "test@localhost"
+timezone = "Europe/Berlin"
+root-password = "e2e-test-2024"
+reboot-on-error = false
+
+# SSH keys for passwordless access
+# These will be added to /root/.ssh/authorized_keys
+# Keys are replaced by create-iso.sh with actual keys from:
+# - pve1.cluster (for nested VM management)
+# - Development machine (for direct E2E test access)
+root-ssh-keys = [
+    "PLACEHOLDER_PVE1_SSH_KEY",
+    "PLACEHOLDER_DEV_SSH_KEY"
+]
+
+[network]
+# Use DHCP during installation, then first-boot.sh sets static IP
+source = "from-dhcp"
+
+[disk-setup]
+# Use ZFS filesystem - better for VM storage and nested virtualization
+filesystem = "zfs"
+disk-list = ["sda"]
+
+# ZFS options
+[disk-setup.zfs]
+# RAID level (single disk = raid0)
+raid = "raid0"
+# Use full disk (hdsize omitted = use all available space)
+
+[first-boot]
+# Run a script on first boot to configure apt repositories for latest packages
+source = "from-iso"
+# Run after network is up but before all services
+ordering = "network-online"

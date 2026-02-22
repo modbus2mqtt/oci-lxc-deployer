@@ -1,4 +1,0 @@
-#!/bin/sh
-adduser -S -D -u 1000 -h /var/lib/@PKGNAME@ -s /sbin/nologin -G dialout -g @PKGNAME@ @PKGNAME@ 2>/dev/null
-mkdir -p /var/lib/@PKGNAME@/.config/git
-exit 0

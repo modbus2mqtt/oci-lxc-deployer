@@ -1,0 +1,12 @@
+{
+  "name": "Set OS Type",
+  "description": "Sets the OS type for the Alpine build environment",
+  "commands": [
+    {
+      "properties": {
+        "id": "ostype",
+        "value": "alpine"
+      }
+    }
+  ]
+}

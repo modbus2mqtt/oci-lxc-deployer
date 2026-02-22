@@ -6,10 +6,17 @@ import {
   IParameter,
   IJsonError,
   IParameterValue,
+  ITemplateTraceEntry,
+  IParameterTraceEntry,
+  ITemplateTraceInfo,
+  ITemplateProcessorLoadResult as ITemplateProcessorLoadResultBase,
 } from "@src/types.mjs";
 import { IVEContext } from "@src/backend-types.mjs";
 import { ITemplateReference } from "../backend-types.mjs";
 import { type TemplateRef } from "../persistence/repositories.mjs";
+
+// Re-export trace interfaces from shared types for convenience
+export type { ITemplateTraceEntry, IParameterTraceEntry, ITemplateTraceInfo };
 
 export interface IProcessTemplateOpts {
   application: string;
@@ -24,6 +31,7 @@ export interface IProcessTemplateOpts {
   parentTemplate?: string | undefined;
   webuiTemplates: string[];
   templateRef?: TemplateRef;
+  templateCategory?: string; // Category of the current template (e.g., "list") - used for script resolution
   veContext?: IVEContext;
   executionMode?: import("../ve-execution/ve-execution-constants.mjs").ExecutionMode; // Execution mode for VeExecution
   enumValueInputs?: { id: string; value: IParameterValue }[];
@@ -31,7 +39,10 @@ export interface IProcessTemplateOpts {
   enumValuesRefresh?: boolean;
   processedTemplates?: Map<string, IProcessedTemplate>; // Collects template information
   templateReferences?: Map<string, Set<string>>; // Template references (template -> referenced templates)
-  outputSources?: Map<string, { template: string; kind: "outputs" | "properties" }>; // Output provenance
+  outputSources?: Map<
+    string,
+    { template: string; kind: "outputs" | "properties" }
+  >; // Output provenance
 }
 
 export interface IParameterWithTemplate extends IParameter {
@@ -44,6 +55,7 @@ export interface IProcessedTemplate {
   isShared: boolean; // true = shared template, false = app-specific
   skipped: boolean; // true = all commands skipped
   conditional: boolean; // true = skip_if_all_missing or skip_if_property_set
+  category?: string; // Category subdirectory (e.g., "pre_start", "list")
   referencedBy?: string[]; // Templates that reference this template
   references?: string[]; // Templates referenced by this template
   templateData?: ITemplate; // Full template data (validated)
@@ -52,54 +64,12 @@ export interface IProcessedTemplate {
   usedByApplications?: string[]; // Applications that use this template
 }
 
-export interface ITemplateTraceEntry {
-  name: string;
-  path: string;
-  origin:
-    | "application-local"
-    | "application-json"
-    | "shared-local"
-    | "shared-json"
-    | "unknown";
-  isShared: boolean;
-  skipped: boolean;
-  conditional: boolean;
-}
-
-export interface IParameterTraceEntry {
-  id: string;
-  name: string;
-  required?: boolean;
-  default?: string | number | boolean;
-  template?: string;
-  templatename?: string;
-  source:
-    | "user_input"
-    | "template_output"
-    | "template_properties"
-    | "default"
-    | "missing";
-  sourceTemplate?: string;
-  sourceKind?: "outputs" | "properties";
-}
-
-export interface ITemplateTraceInfo {
-  application: string;
-  task: TaskType;
-  localDir: string;
-  jsonDir: string;
-  appLocalDir?: string;
-  appJsonDir?: string;
-}
-
-export interface ITemplateProcessorLoadResult {
+// Full load result extending the shared base with backend-specific fields
+export interface ITemplateProcessorLoadResult extends ITemplateProcessorLoadResultBase {
   commands: ICommand[];
   parameters: IParameterWithTemplate[];
   resolvedParams: IResolvedParam[];
   webuiTemplates: string[];
   application?: IApplication; // Full application data (incl. parent)
   processedTemplates?: IProcessedTemplate[]; // List of all processed templates
-  templateTrace?: ITemplateTraceEntry[];
-  parameterTrace?: IParameterTraceEntry[];
-  traceInfo?: ITemplateTraceInfo;
 }

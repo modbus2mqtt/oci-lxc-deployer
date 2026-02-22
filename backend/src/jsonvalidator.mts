@@ -1,6 +1,6 @@
 import { parse as parseWithSourceMap } from "json-source-map";
 
-import { Ajv, ErrorObject } from "ajv";
+import { Ajv2020, ErrorObject } from "ajv/dist/2020.js";
 import ajvErrors from "ajv-errors";
 import fs from "fs";
 import path, { resolve, extname, join } from "path";
@@ -53,33 +53,35 @@ export class JsonError extends Error implements IJsonError {
    */
   private serializeDetail(d: IJsonError | any): IJsonError {
     // If it's a JsonError instance with toJSON, use it
-    if (d && typeof d === 'object' && typeof (d as any).toJSON === "function") {
+    if (d && typeof d === "object" && typeof (d as any).toJSON === "function") {
       return (d as any).toJSON();
     }
-    
+
     // If it's already a plain object with the expected structure, ensure details are serialized
-    if (d && typeof d === 'object') {
+    if (d && typeof d === "object") {
       const result: any = {
         name: d.name,
         message: d.message,
         line: d.line,
       };
-      
+
       // Recursively serialize nested details if they exist
       if (d.details && Array.isArray(d.details)) {
-        result.details = d.details.map((nested: any) => this.serializeDetail(nested));
+        result.details = d.details.map((nested: any) =>
+          this.serializeDetail(nested),
+        );
       }
-      
+
       if (d.filename !== undefined) result.filename = d.filename;
-      
+
       return result as IJsonError;
     }
-    
+
     // Fallback: convert to string or return as-is
     return {
-      name: 'Error',
+      name: "Error",
       message: String(d),
-      details: undefined
+      details: undefined,
     } as IJsonError;
   }
 }
@@ -98,12 +100,15 @@ export class ValidateJsonError extends JsonError implements IJsonError {
   }
 }
 export class JsonValidator {
-  private ajv: Ajv;
+  private ajv: Ajv2020;
   constructor(
     schemasDir: string = resolve("schemas"),
-    baseSchemas: string[] = ["templatelist.schema.json"],
+    baseSchemas: string[] = [
+      "templatelist.schema.json",
+      "base-deployable.schema.json",
+    ],
   ) {
-    this.ajv = new Ajv({
+    this.ajv = new Ajv2020({
       allErrors: true,
       strict: true,
       strictRequired: false,
@@ -242,6 +247,10 @@ export class JsonValidator {
     pointers = parsed.pointers;
     (data as any).__sourceMapText = fileText;
     (data as any).__sourceMap = { pointers };
-    return this.serializeJsonWithSchema<T>(data, schemaKey, filePath);
+    const result = this.serializeJsonWithSchema<T>(data, schemaKey, filePath);
+    // Strip internal source map metadata after validation (not needed downstream)
+    delete (result as Record<string, unknown>).__sourceMapText;
+    delete (result as Record<string, unknown>).__sourceMap;
+    return result;
   }
 }

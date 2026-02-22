@@ -1,0 +1,28 @@
+{
+  "execute_on": "ve",
+  "name": "Latest OS Template",
+  "description": "Download latest operating system template for Proxmox",
+  "parameters": [
+    {
+      "id": "ostype",
+      "name": "Operating System Type",
+      "type": "enum",
+      "default": "alpine",
+      "description": "One of alpine, debian, ubuntu. Base template to download",
+      "enumValues": [
+        "alpine",
+        "debian",
+        "ubuntu"
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "Latest OS Template",
+      "script": "host-get-latest-os-template.sh",
+      "outputs": [
+        "template_path"
+      ]
+    }
+  ]
+}

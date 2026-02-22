@@ -7,7 +7,11 @@ export interface StateManagerDependencies {
   outputsRaw: { name: string; value: string | number | boolean }[] | undefined;
   inputs: Record<string, string | number | boolean>;
   defaults: Map<string, string | number | boolean>;
-  veContext: { host: string | { host: string; port?: number }; port?: number; getKey?: () => string } | null;
+  veContext: {
+    host: string | { host: string; port?: number };
+    port?: number;
+    getKey?: () => string;
+  } | null;
   initializeVariableResolver: () => void;
 }
 
@@ -27,8 +31,11 @@ export class VeExecutionStateManager {
     this.deps.outputs.clear();
     this.deps.inputs = {};
     this.deps.defaults.clear();
-    const startIdx = restartInfo.lastSuccessfull !== undefined ? restartInfo.lastSuccessfull + 1 : 0;
-    
+    const startIdx =
+      restartInfo.lastSuccessfull !== undefined
+        ? restartInfo.lastSuccessfull + 1
+        : 0;
+
     for (const inp of restartInfo.inputs) {
       this.deps.inputs[inp.name] = inp.value;
     }
@@ -38,10 +45,10 @@ export class VeExecutionStateManager {
     for (const def of restartInfo.defaults) {
       this.deps.defaults.set(def.name, def.value);
     }
-    
+
     // Re-initialize variable resolver with updated state
     this.deps.initializeVariableResolver();
-    
+
     return startIdx;
   }
 
@@ -52,9 +59,7 @@ export class VeExecutionStateManager {
     const vm_id = this.deps.outputs.get("vm_id");
     return {
       vm_id:
-        vm_id !== undefined
-          ? Number.parseInt(vm_id as string, 10)
-          : undefined,
+        vm_id !== undefined ? Number.parseInt(vm_id as string, 10) : undefined,
       lastSuccessfull: lastSuccessIndex,
       inputs: Object.entries(this.deps.inputs).map(([name, value]) => ({
         name,
@@ -98,4 +103,3 @@ export class VeExecutionStateManager {
     return new VMContext(data);
   }
 }
-

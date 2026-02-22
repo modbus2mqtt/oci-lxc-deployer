@@ -1,0 +1,44 @@
+{
+  "execute_on": "lxc",
+  "name": "Upload Docker Compose Files",
+  "description": "Upload Docker Compose file and .env file to the LXC container. Files are stored in /opt/docker-compose/<project>/",
+  "parameters": [
+    {
+      "id": "vm_id",
+      "name": "LXC Container ID",
+      "type": "string",
+      "required": true,
+      "description": "LXC container ID (for logging)"
+    },
+    {
+      "id": "compose_file",
+      "name": "Docker Compose File",
+      "type": "string",
+      "upload": true,
+      "required": true,
+      "description": "Docker Compose YAML file (upload)"
+    },
+    {
+      "id": "env_file",
+      "name": "Environment File (.env)",
+      "type": "string",
+      "upload": true,
+      "required": true,
+      "if": "env_file_has_markers",
+      "description": "Upload .env with actual values (template contains {{ markers }} that must be replaced)"
+    },
+    {
+      "id": "compose_project",
+      "name": "Compose Project Name",
+      "type": "string",
+      "required": true,
+      "description": "Project name for Docker Compose (directory name)"
+    }
+  ],
+  "commands": [
+    {
+      "script": "post-upload-docker-compose-files.sh",
+      "description": "Decode and write compose file and .env file to container"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "Mosquitto",
+  "description": "Mosquitto MQTT broker - lightweight message broker for MQTT",
+  "icon": "icon.svg",
+  "tags": ["messaging", "iot"],
+  "installation": [
+    "set-parameters.json",
+    "010-host-get-latest-os-template.json",
+    "100-conf-create-configure-lxc.json",
+    "200-start-lxc.json",
+    "210-wait-for-container-ready.json",
+    "305-post-set-pkg-mirror.json",
+    "330-post-install-packages.json",
+    "configure-start-mosquitto.json"
+  ]
+}

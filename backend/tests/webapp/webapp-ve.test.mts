@@ -3,7 +3,10 @@ import request from "supertest";
 import { ContextManager } from "@src/context-manager.mjs";
 import { ApiUri, IPostVeConfigurationBody } from "@src/types.mjs";
 import { WebAppVE } from "@src/webapp/webapp-ve.mjs";
-import { createWebAppVETestSetup, type WebAppVETestSetup } from "../helper/webapp-test-helper.mjs";
+import {
+  createWebAppVETestSetup,
+  type WebAppVETestSetup,
+} from "../helper/webapp-test-helper.mjs";
 import { IRestartInfo } from "@src/ve-execution/ve-execution-constants.mjs";
 
 describe("WebAppVE API", () => {
@@ -40,7 +43,7 @@ describe("WebAppVE API", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -59,13 +62,12 @@ describe("WebAppVE API", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -95,8 +97,7 @@ describe("WebAppVE API", () => {
     });
 
     it("should return error when VE context not found", async () => {
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", "ve_nonexistent");
 
@@ -112,8 +113,7 @@ describe("WebAppVE API", () => {
     });
 
     it("should return error when request body is invalid", async () => {
-      const url = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const url = ApiUri.VeConfiguration.replace(":application", "testapp")
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -153,7 +153,7 @@ describe("WebAppVE API", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -172,14 +172,16 @@ describe("WebAppVE API", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
 
       // First, create a configuration to get a restartKey
-      const configUrl = ApiUri.VeConfiguration
-        .replace(":application", "testapp")
+      const configUrl = ApiUri.VeConfiguration.replace(
+        ":application",
+        "testapp",
+      )
         .replace(":task", "installation")
         .replace(":veContext", veContextKey);
 
@@ -210,17 +212,19 @@ describe("WebAppVE API", () => {
 
       // Also create a message group with this restartKey so handleVeRestart can find it
       const messageManager = (webAppVE as any).messageManager;
-      messageManager.findOrCreateMessageGroup("testapp", "installation", restartKey);
+      messageManager.findOrCreateMessageGroup(
+        "testapp",
+        "installation",
+        restartKey,
+      );
 
       // Now restart using the restartKey
-      const restartUrl = ApiUri.VeRestart
-        .replace(":restartKey", restartKey)
-        .replace(":veContext", veContextKey);
+      const restartUrl = ApiUri.VeRestart.replace(
+        ":restartKey",
+        restartKey,
+      ).replace(":veContext", veContextKey);
 
-      const response = await request(app)
-        .post(restartUrl)
-        .send({})
-        .expect(200);
+      const response = await request(app).post(restartUrl).send({}).expect(200);
 
       expect(response.body.success).toBe(true);
       expect(response.body.restartKey).toBeDefined();
@@ -229,28 +233,24 @@ describe("WebAppVE API", () => {
     });
 
     it("should return error when restart info not found", async () => {
-      const url = ApiUri.VeRestart
-        .replace(":restartKey", "nonexistent-restart-key")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeRestart.replace(
+        ":restartKey",
+        "nonexistent-restart-key",
+      ).replace(":veContext", veContextKey);
 
-      const response = await request(app)
-        .post(url)
-        .send({})
-        .expect(404);
+      const response = await request(app).post(url).send({}).expect(404);
 
       expect(response.body.success).toBe(false);
       expect(response.body.error).toContain("Restart info not found");
     });
 
     it("should return error when VE context not found", async () => {
-      const url = ApiUri.VeRestart
-        .replace(":restartKey", "test-restart-key")
-        .replace(":veContext", "ve_nonexistent");
+      const url = ApiUri.VeRestart.replace(
+        ":restartKey",
+        "test-restart-key",
+      ).replace(":veContext", "ve_nonexistent");
 
-      const response = await request(app)
-        .post(url)
-        .send({})
-        .expect(404);
+      const response = await request(app).post(url).send({}).expect(404);
 
       expect(response.body.success).toBe(false);
       // The error could be either "VE context not found" or "Restart info not found"
@@ -265,7 +265,7 @@ describe("WebAppVE API", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: ["set-parameters.json"],
+        installation: { post_start: ["set-parameters.json"] },
       });
 
       helper.writeTemplate("testapp", "set-parameters.json", {
@@ -284,7 +284,7 @@ describe("WebAppVE API", () => {
         commands: [
           {
             name: "Test Command",
-            command: "echo '[{\"id\": \"test\", \"value\": \"ok\"}]'",
+            command: 'echo \'[{"id": "test", "value": "ok"}]\'',
           },
         ],
       });
@@ -297,14 +297,12 @@ describe("WebAppVE API", () => {
         changedParams: [{ name: "hostname", value: "testhost" }],
       });
 
-      const url = ApiUri.VeRestartInstallation
-        .replace(":vmInstallKey", vmInstallKey)
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeRestartInstallation.replace(
+        ":vmInstallKey",
+        vmInstallKey,
+      ).replace(":veContext", veContextKey);
 
-      const response = await request(app)
-        .post(url)
-        .send({})
-        .expect(200);
+      const response = await request(app).post(url).send({}).expect(200);
 
       expect(response.body.success).toBe(true);
       expect(response.body.restartKey).toBeDefined();
@@ -314,14 +312,12 @@ describe("WebAppVE API", () => {
 
     it("should return error when VM install context not found", async () => {
       // Use a valid vmInstallKey format but non-existent key
-      const url = ApiUri.VeRestartInstallation
-        .replace(":vmInstallKey", "vminstall_testhost_nonexistentapp")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeRestartInstallation.replace(
+        ":vmInstallKey",
+        "vminstall_testhost_nonexistentapp",
+      ).replace(":veContext", veContextKey);
 
-      const response = await request(app)
-        .post(url)
-        .send({})
-        .expect(404);
+      const response = await request(app).post(url).send({}).expect(404);
 
       expect(response.body.success).toBe(false);
       // The route handler checks VE context first, then VM install context
@@ -333,14 +329,12 @@ describe("WebAppVE API", () => {
 
     it("should return error when VE context not found", async () => {
       const vmInstallKey = "vminstall_testhost_testapp";
-      const url = ApiUri.VeRestartInstallation
-        .replace(":vmInstallKey", vmInstallKey)
-        .replace(":veContext", "ve_nonexistent");
+      const url = ApiUri.VeRestartInstallation.replace(
+        ":vmInstallKey",
+        vmInstallKey,
+      ).replace(":veContext", "ve_nonexistent");
 
-      const response = await request(app)
-        .post(url)
-        .send({})
-        .expect(404);
+      const response = await request(app).post(url).send({}).expect(404);
 
       expect(response.body.success).toBe(false);
       expect(response.body.error).toContain("VE context not found");
@@ -352,7 +346,7 @@ describe("WebAppVE API", () => {
       helper.writeApplication("testapp", {
         name: "Test App",
         description: "Test application",
-        installation: [],
+        installation: {},
         "copy-upgrade": ["copy-upgrade.json"],
       } as any);
 
@@ -379,21 +373,20 @@ describe("WebAppVE API", () => {
         commands: [
           {
             name: "Emit vm_id",
-            command: "echo '[{\"id\":\"vm_id\",\"value\":123}]'",
+            command: 'echo \'[{"id":"vm_id","value":123}]\'',
           },
         ],
       });
 
-      const url = ApiUri.VeCopyUpgrade
-        .replace(":application", "testapp")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeCopyUpgrade.replace(
+        ":application",
+        "testapp",
+      ).replace(":veContext", veContextKey);
 
-      const response = await request(app)
-        .post(url)
-        .send({
-          oci_image: "docker://alpine:3.19",
-          source_vm_id: 101,
-        });
+      const response = await request(app).post(url).send({
+        oci_image: "docker://alpine:3.19",
+        source_vm_id: 101,
+      });
 
       if (response.status !== 200) {
         throw new Error(
@@ -407,9 +400,10 @@ describe("WebAppVE API", () => {
     });
 
     it("should reject missing fields", async () => {
-      const url = ApiUri.VeCopyUpgrade
-        .replace(":application", "testapp")
-        .replace(":veContext", veContextKey);
+      const url = ApiUri.VeCopyUpgrade.replace(
+        ":application",
+        "testapp",
+      ).replace(":veContext", veContextKey);
 
       const res1 = await request(app).post(url).send({});
       expect(res1.status).toBe(400);

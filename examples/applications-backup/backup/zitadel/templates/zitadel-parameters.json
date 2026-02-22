@@ -1,0 +1,41 @@
+{
+  "execute_on": "ve",
+  "name": "Set Parameters",
+  "description": "Set application-specific parameters for Zitadel",
+  "parameters": [],
+  "commands": [
+    {
+      "name": "set-properties",
+      "properties": [
+        {
+          "id": "hostname",
+          "value": "zitadel"
+        },
+        {
+          "id": "oci_image",
+          "value": "ghcr.io/zitadel/zitadel:latest"
+        },
+        {
+          "id": "uid",
+          "value": "0"
+        },
+        {
+          "id": "username",
+          "value": "root"
+        },
+        {
+          "id": "volumes",
+          "value": ".:/current-dir:delegated\n.:/current-dir:ro\npostgres-data:/var/lib/postgresql/data"
+        },
+        {
+          "id": "envs",
+          "value": "ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=postgres\nZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=postgres\nZITADEL_DATABASE_POSTGRES_DATABASE=zitadel\nZITADEL_DATABASE_POSTGRES_HOST=postgres\nZITADEL_DATABASE_POSTGRES_PORT=5432\nZITADEL_DATABASE_POSTGRES_USER_PASSWORD=zitadel\nZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable\nZITADEL_DATABASE_POSTGRES_USER_USERNAME=zitadel\nZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI=http://localhost:3000/ui/v2/login\nZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED=true\nZITADEL_EXTERNALDOMAIN=localhost\nZITADEL_EXTERNALSECURE=false\nZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH=/current-dir/login-client.pat\nZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED=false\nZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME=Automatically Initialized IAM_LOGIN_CLIENT\nZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME=login-client\nZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE=2029-01-01T00:00:00Z\nZITADEL_MASTERKEY=MasterkeyNeedsToHave32Characters\nZITADEL_OIDC_DEFAULTLOGINURLV2=http://localhost:3000/ui/v2/login/login?authRequest=\nZITADEL_OIDC_DEFAULTLOGOUTURLV2=http://localhost:3000/ui/v2/login/logout?post_logout_redirect=\nZITADEL_PORT=8080\nZITADEL_SAML_DEFAULTLOGINURLV2=http://localhost:3000/ui/v2/login/login?samlRequest=\nZITADEL_TLS_ENABLED=false"
+        },
+        {
+          "id": "initial_command",
+          "value": "start-from-init --masterkey \"${ZITADEL_MASTERKEY}\" --tlsMode external"
+        }
+      ]
+    }
+  ]
+}

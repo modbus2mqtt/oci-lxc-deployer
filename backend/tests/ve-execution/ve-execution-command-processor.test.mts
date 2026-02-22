@@ -4,8 +4,14 @@ import { ICommand } from "@src/types.mjs";
 import { VeExecutionMessageEmitter } from "@src/ve-execution/ve-execution-message-emitter.mjs";
 import { VariableResolver } from "@src/variable-resolver.mjs";
 import { EventEmitter } from "events";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 let env: TestEnvironment;
 let persistenceHelper: TestPersistenceHelper;
@@ -77,7 +83,11 @@ describe("VeExecutionCommandProcessor", () => {
       properties: [
         { id: "ostype", value: "debian" },
         { id: "volumes", value: "data=timemachine" },
-        { id: "envs", value: "USERNAME={{username}}\nPASSWORD={{password}}\nSHARE_NAME={{share_name}}" },
+        {
+          id: "envs",
+          value:
+            "USERNAME={{username}}\nPASSWORD={{password}}\nSHARE_NAME={{share_name}}",
+        },
       ],
       execute_on: "ve",
     };
@@ -323,11 +333,11 @@ describe("VeExecutionCommandProcessor", () => {
       execute_on: "ve",
     };
 
-      const content = processor.loadCommandContent(cmd);
-      expect(content).toBeTruthy();
-      if (!content) {
-        throw new Error("Expected script content");
-      }
+    const content = processor.loadCommandContent(cmd);
+    expect(content).toBeTruthy();
+    if (!content) {
+      throw new Error("Expected script content");
+    }
     expect(content).toBe("echo test command");
   });
 
@@ -476,7 +486,9 @@ describe("VeExecutionCommandProcessor", () => {
         execute_on: "ve",
       };
 
-      expect(() => processor.loadCommandContent(cmd)).toThrow(/Library content missing/);
+      expect(() => processor.loadCommandContent(cmd)).toThrow(
+        /Library content missing/,
+      );
     });
 
     it("should work without library when libraryPath is not specified", () => {
@@ -583,17 +595,483 @@ describe("VeExecutionCommandProcessor", () => {
         throw new Error("Expected script content");
       }
       // Library should be prepended
-      expect(content).toContain("my_library_function() { echo 'from library'; }");
+      expect(content).toContain(
+        "my_library_function() { echo 'from library'; }",
+      );
       // Script should be after library
       expect(content).toContain("my_library_function");
       expect(content).toContain("# --- Script starts here ---");
       // Library should come before script marker
       const libraryIndex = content.indexOf("my_library_function()");
       const markerIndex = content.indexOf("# --- Script starts here ---");
-      const scriptCallIndex = content.indexOf("my_library_function", libraryIndex + 1);
+      const scriptCallIndex = content.indexOf(
+        "my_library_function",
+        libraryIndex + 1,
+      );
       expect(libraryIndex).toBeLessThan(markerIndex);
       expect(markerIndex).toBeLessThan(scriptCallIndex);
     });
+
+    it("should use library shebang for interpreter detection instead of script shebang", () => {
+      // Create Python library with shebang
+      const pythonLibrary = `#!/usr/bin/env python3
+def my_python_function():
+    return "hello from library"
+`;
+      // Create script WITHOUT shebang (or with different shebang)
+      const scriptContent = `#!/bin/sh
+# This shebang should be ignored when library is present
+result = my_python_function()
+print(result)
+`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-python-with-library",
+        script: "test-script.py",
+        scriptContent,
+        libraryPath: "python-library.py",
+        libraryContent: pythonLibrary,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBeTruthy();
+
+      // Verify interpreter was set from library's shebang (python3), not script's (sh)
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+
+      // Verify library is prepended
+      expect(content).toContain("def my_python_function():");
+      expect(content).toContain("# --- Script starts here ---");
+    });
+
+    it("should prepend Python library to command and use library shebang", () => {
+      // Create Python library with shebang
+      const pythonLibrary = `#!/usr/bin/env python3
+import json
+
+def output_json(data):
+    """Output data as JSON to stdout."""
+    print(json.dumps(data))
+`;
+      // Command that calls the library function (no shebang in commands)
+      const command = `output_json([{"id": "result", "value": "success"}])`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-command-with-python-library",
+        command,
+        libraryPath: "python-output-lib.py",
+        libraryContent: pythonLibrary,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBeTruthy();
+      if (!content) {
+        throw new Error("Expected content");
+      }
+
+      // Verify interpreter was set from library's shebang
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+
+      // Verify library is prepended to command
+      expect(content).toContain("#!/usr/bin/env python3");
+      expect(content).toContain("import json");
+      expect(content).toContain("def output_json(data):");
+      expect(content).toContain("# --- Command starts here ---");
+      expect(content).toContain("output_json([");
+
+      // Verify order: library before command
+      const libraryIndex = content.indexOf("def output_json");
+      const markerIndex = content.indexOf("# --- Command starts here ---");
+      const commandIndex = content.indexOf("output_json([");
+      expect(libraryIndex).toBeLessThan(markerIndex);
+      expect(markerIndex).toBeLessThan(commandIndex);
+    });
+
+    it("should fall back to script shebang when no library is present", () => {
+      const scriptContent = `#!/usr/bin/env python3
+print("hello world")
+`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-script-no-library",
+        script: "test-script.py",
+        scriptContent,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBe(scriptContent);
+
+      // Verify interpreter was set from script's shebang
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+    });
+
+    it("should fall back to script shebang when library has no shebang", () => {
+      // Library without shebang (like lxc_config_parser_lib.py)
+      const pythonLibrary = `"""Python library without shebang.
+
+This is a docstring, not a shebang.
+"""
+
+def helper_function():
+    return "helper"
+`;
+      // Script with shebang
+      const scriptContent = `#!/usr/bin/env python3
+result = helper_function()
+print(result)
+`;
+
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      const mockExec = createMockExecutionFunctions();
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        ...mockExec,
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+      });
+
+      const cmd: ICommand = {
+        name: "test-library-no-shebang",
+        script: "test-script.py",
+        scriptContent,
+        libraryPath: "lib-no-shebang.py",
+        libraryContent: pythonLibrary,
+        execute_on: "ve",
+      };
+
+      const content = processor.loadCommandContent(cmd);
+      expect(content).toBeTruthy();
+
+      // Verify interpreter was set from script's shebang (fallback)
+      expect((cmd as any)._interpreter).toEqual(["python3"]);
+
+      // Verify library is still prepended
+      expect(content).toContain("def helper_function():");
+      expect(content).toContain("# --- Script starts here ---");
+    });
+  });
+
+  describe("execute_on: application:<app-id>", () => {
+    /**
+     * Test scenarios for execute_on: "application:<app-id>"
+     *
+     * The application: prefix allows executing commands on a running container
+     * that has a specific application_id in its notes/config.
+     *
+     * - 0 running containers with matching app-id → Error
+     * - 1 running container with matching app-id → Execute on that container
+     * - 2+ running containers with matching app-id → Error (ambiguous)
+     */
+
+    it("should throw error when no container matches the application_id", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let runOnLxcCalled = false;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async () => {
+          runOnLxcCalled = true;
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        // Mock: No running containers match the application_id
+        resolveApplicationToVmId: async () => {
+          throw new Error(
+            "No running container found with application_id 'my-app'. Expected exactly 1 running container, found 0.",
+          );
+        },
+      });
+
+      const cmd: ICommand = {
+        name: "test-app-command",
+        command: "echo 'test'",
+        execute_on: "application:my-app",
+      };
+
+      await expect(
+        processor.executeCommandByTarget(cmd, "echo 'test'"),
+      ).rejects.toThrow(
+        /No running container found with application_id 'my-app'/,
+      );
+      expect(runOnLxcCalled).toBe(false);
+    });
+
+    it("should execute command on the container when exactly one matches the application_id", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let runOnLxcVmId: string | number | undefined;
+      let runOnLxcCommand: string | undefined;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async (vm_id, command) => {
+          runOnLxcVmId = vm_id;
+          runOnLxcCommand = command;
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        // Mock: Exactly one running container matches the application_id
+        resolveApplicationToVmId: async (appId) => {
+          if (appId === "postgres-db") {
+            return 105; // vm_id of the matching running container
+          }
+          throw new Error(
+            `No running container found with application_id '${appId}'`,
+          );
+        },
+      });
+
+      const cmd: ICommand = {
+        name: "run-on-postgres",
+        command: "psql -c 'SELECT 1'",
+        execute_on: "application:postgres-db",
+      };
+
+      await processor.executeCommandByTarget(cmd, "psql -c 'SELECT 1'");
+
+      expect(runOnLxcVmId).toBe(105);
+      expect(runOnLxcCommand).toBe("psql -c 'SELECT 1'");
+    });
+
+    it("should throw error when multiple containers match the application_id", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {};
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let runOnLxcCalled = false;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async () => {
+          runOnLxcCalled = true;
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        // Mock: Multiple running containers match the application_id
+        resolveApplicationToVmId: async () => {
+          throw new Error(
+            "Multiple running containers found with application_id 'duplicated-app'. Expected exactly 1 running container, found 2 (vm_ids: 101, 102).",
+          );
+        },
+      });
+
+      const cmd: ICommand = {
+        name: "test-duplicated-app",
+        command: "echo 'test'",
+        execute_on: "application:duplicated-app",
+      };
+
+      await expect(
+        processor.executeCommandByTarget(cmd, "echo 'test'"),
+      ).rejects.toThrow(
+        /Multiple running containers found with application_id 'duplicated-app'/,
+      );
+      expect(runOnLxcCalled).toBe(false);
+    });
+
+    it("should replace variables in command before execution on application container", async () => {
+      const outputs = new Map<string, string | number | boolean>();
+      const inputs: Record<string, string | number | boolean> = {
+        db_name: "production",
+      };
+      const defaults = new Map<string, string | number | boolean>();
+      const variableResolver = new VariableResolver(
+        () => outputs,
+        () => inputs,
+        () => defaults,
+      );
+      const eventEmitter = new EventEmitter();
+      const messageEmitter = new VeExecutionMessageEmitter(eventEmitter);
+
+      let capturedCommand: string | undefined;
+      const processor = new VeExecutionCommandProcessor({
+        outputs,
+        inputs,
+        variableResolver,
+        messageEmitter,
+        runOnLxc: async (vm_id, command) => {
+          capturedCommand = command;
+          return {
+            command: "test",
+            execute_on: "lxc",
+            exitCode: 0,
+            result: "",
+            stderr: "",
+          };
+        },
+        runOnVeHost: async () => {
+          throw new Error("runOnVeHost should not be called");
+        },
+        executeOnHost: async () => {
+          throw new Error("executeOnHost should not be called");
+        },
+        outputsRaw: undefined,
+        setOutputsRaw: () => {},
+        resolveApplicationToVmId: async () => 200,
+      });
+
+      const cmd: ICommand = {
+        name: "backup-db",
+        command: "pg_dump {{ db_name }}",
+        execute_on: "application:postgres",
+      };
+
+      await processor.executeCommandByTarget(cmd, "pg_dump {{ db_name }}");
+
+      expect(capturedCommand).toBe("pg_dump production");
+    });
   });
 });
-

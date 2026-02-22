@@ -1,0 +1,49 @@
+{
+  "$id": "addon",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [{ "$ref": "base-deployable" }],
+  "type": "object",
+  "properties": {
+    "compatible_with": {
+      "description": "Application-IDs, 'tag:<tag-id>' or '*' for all applications",
+      "oneOf": [
+        { "const": "*" },
+        { "type": "array", "items": { "type": "string" } }
+      ],
+      "default": "*"
+    },
+    "volumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "mount_point"],
+        "properties": {
+          "id": { "type": "string" },
+          "mount_point": { "type": "string" },
+          "default_size": { "type": "string", "default": "1G" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "installation": {
+      "type": "object",
+      "properties": {
+        "pre_start": { "$ref": "templatelist" },
+        "post_start": { "$ref": "templatelist" }
+      },
+      "additionalProperties": false
+    },
+    "reconfigure": {
+      "type": "object",
+      "properties": {
+        "pre_start": { "$ref": "templatelist" },
+        "post_start": { "$ref": "templatelist" }
+      },
+      "additionalProperties": false
+    },
+    "upgrade": { "$ref": "templatelist" },
+    "notes_key": { "type": "string" }
+  },
+  "required": ["notes_key"],
+  "unevaluatedProperties": false
+}

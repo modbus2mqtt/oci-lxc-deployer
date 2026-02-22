@@ -20,8 +20,9 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.config.integration.mts",
     "test:all": "vitest run --config vitest.config.all.mts",
+    "test:templates": "vitest run --config vitest.config.template-tests.mts",
     "build": "tsc --project tsconfig.production.json && tsc-alias -p tsconfig.production.json",
-    "postbuild": "chmod +x ./dist/oci-lxc-deployer.mjs",
+    "postbuild": "chmod +x ./dist/oci-lxc-deployer.mjs && node -e \"const{execSync:e}=require('child_process');const h=e('git rev-parse --short HEAD').toString().trim();const d=e('git diff --stat HEAD').toString().trim();const j={gitHash:h,buildTime:new Date().toISOString(),dirty:d.length>0};require('fs').writeFileSync('dist/build-info.json',JSON.stringify(j,null,2))\"",
     "lint:all": "eslint \"src/**/*.{ts,mts,cts}\" \"tests/**/*.{ts,mts,cts}\"",
     "lint:fix": "eslint \"src/**/*.{ts,mts,cts}\" \"tests/**/*.{ts,mts,cts}\" --fix",
     "prettier": "prettier --write ."
@@ -36,8 +37,8 @@
     "@types/json-source-map": "^0.6.0",
     "@types/jsonschema": "^0.0.5",
     "@types/node": "^24.10.1",
-    "clinic": "^13.0.0",
     "@types/supertest": "^6.0.3",
+    "clinic": "^13.0.0",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
@@ -59,6 +60,7 @@
     "json-source-map": "^0.6.1",
     "jsonschema": "^1.5.0",
     "path": "^0.12.7",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "winston": "^3.19.0"
   }
 }

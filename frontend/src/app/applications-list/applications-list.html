@@ -1,53 +1,57 @@
-<div class="applications-list">
-	@if (loading) {
-		<div>Loading applications ...</div>
-	}
-	@if (error) {
-		<div class="error">{{ error }}</div>
-	}
-	<div class="card-grid">
-		@for (app of applications; track app) {
-			<div class="app-card" [class.has-errors]="app.errors" [style.opacity]="app.errors ? 0.75 : 1">
-				<div class="card-header">
-					@if (app.iconContent) {
-						<div class="icon-wrapper">
-							<img [src]="'data:' + (app.iconType || 'image/png') + ';base64,' + app.iconContent" [alt]="app.name + ' Icon'" />
-						</div>
-					}
-					<div class="header-info">
-						<h2>{{ app.name }}</h2>
-						@if (app.description) {
-							<p class="app-description">{{ app.description }}</p>
-						}
-						
-					</div>
+<app-card-grid
+  [items]="applications"
+  [loading]="loading"
+  [error]="error"
+  [enableFilters]="true"
+  [filterFn]="filterApp"
+  [getItemId]="getAppId"
+  [enableGrouping]="true"
+  [getItemTags]="getAppTags"
+  [trackByFn]="trackByApp"
+  theme="blue"
+  loadingText="Loading applications ...">
 
-				</div>
-								@if (app.errors) {
-									<button type="button" class="show-errors-btn" (click)="showErrors(app)">
-										<span class="error-x">&#10006;</span>
-										Show errors
-									</button>
-								}
+  <ng-template #cardTemplate let-app>
+    <div class="card-header">
+      @if (app.iconContent) {
+        <div class="icon-wrapper">
+          <img [src]="'data:' + (app.iconType || 'image/png') + ';base64,' + app.iconContent" [alt]="app.name + ' Icon'" />
+        </div>
+      }
+      <div class="header-info">
+        <h2>{{ app.name }}</h2>
+        @if (app.description) {
+          <p class="app-description">{{ app.description }}</p>
+        }
+      </div>
+      <span class="source-badge" [class.source-local]="app.source === 'local'" [attr.data-tooltip]="app.source === 'local' ? 'Local' : 'Repository'">
+        {{ app.source === 'local' ? '📁' : '📦' }}
+      </span>
+    </div>
 
-								<ng-template #recursiveError let-err>
-									<li>
-										{{ err.message }}
-										@if (err.details && err.details.length) {
-											<ul>
-												@for (childErr of err.details; track childErr) {
-													<ng-container *ngTemplateOutlet="recursiveError; context: { $implicit: childErr }"></ng-container>
-												}
-											</ul>
-										}
-									</li>
-								</ng-template>
-								<!-- Description now in header -->
-				<div class="card-actions">
-					<button type="button" (click)="openProxmoxConfigDialog(app)" [disabled]="(app.errors?.length ?? 0) > 0">Install</button>
-				</div>
-			</div>
-		}
-	</div>
+    @if (app.tags?.length || showFramework) {
+      <div class="tags-row">
+        @for (tag of app.tags; track tag) {
+          <span class="tag-badge">{{ tag }}</span>
+        }
+        @if (showFramework && app.framework) {
+          <span class="framework-badge">{{ app.framework }}</span>
+        }
+      </div>
+    }
 
+    @if (app.errors) {
+      <button type="button" class="show-errors-btn" (click)="showErrors(app)">
+        <span class="error-x">&#10006;</span>
+        Show errors
+      </button>
+    }
 
+    <div class="card-actions">
+      <button type="button" data-testid="install-app-btn" (click)="openProxmoxConfigDialog(app)" [disabled]="(app.errors?.length ?? 0) > 0">Install</button>
+      @if (app.framework && app.source === 'local') {
+        <button type="button" class="secondary" [routerLink]="['/create-application']" [queryParams]="{applicationId: app.id}">Edit in Framework</button>
+      }
+    </div>
+  </ng-template>
+</app-card-grid>

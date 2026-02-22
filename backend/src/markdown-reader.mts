@@ -30,12 +30,15 @@ export class MarkdownReader {
   /**
    * Reads a markdown file and extracts a specific section based on heading name.
    * Sections are defined by ## headings. Returns text from heading until next ## or EOF.
-   * 
+   *
    * @param mdFilePath Absolute path to the .md file
    * @param sectionName Name of the section (heading without ##)
    * @returns Section content as string, or null if section not found or file doesn't exist
    */
-  static extractSection(mdFilePath: string, sectionName: string): string | null {
+  static extractSection(
+    mdFilePath: string,
+    sectionName: string,
+  ): string | null {
     if (!fs.existsSync(mdFilePath)) {
       return null;
     }
@@ -43,20 +46,22 @@ export class MarkdownReader {
     try {
       const content = fs.readFileSync(mdFilePath, "utf-8");
       const lines = content.split(/\r?\n/);
-      
+
       // Normalize section name for comparison (trim, lowercase)
       const normalizedSectionName = this.normalizeHeadingName(sectionName);
-      
+
       let inSection = false;
       let sectionContent: string[] = [];
-      
+
       for (const line of lines) {
         // Check if this is a ## heading
         const headingMatch = line.match(/^##\s+(.+)$/);
-        
+
         if (headingMatch) {
-          const headingName = MarkdownReader.normalizeHeadingName(headingMatch[1]!);
-          
+          const headingName = MarkdownReader.normalizeHeadingName(
+            headingMatch[1]!,
+          );
+
           if (headingName === normalizedSectionName) {
             // Found our section
             inSection = true;
@@ -70,21 +75,24 @@ export class MarkdownReader {
           sectionContent.push(line);
         }
       }
-      
+
       if (sectionContent.length === 0) {
         return null;
       }
-      
+
       // Trim leading and trailing empty lines
       while (sectionContent.length > 0 && sectionContent[0]!.trim() === "") {
         sectionContent.shift();
       }
-      while (sectionContent.length > 0 && sectionContent[sectionContent.length - 1]!.trim() === "") {
+      while (
+        sectionContent.length > 0 &&
+        sectionContent[sectionContent.length - 1]!.trim() === ""
+      ) {
         sectionContent.pop();
       }
-      
+
       return sectionContent.join("\n");
-    } catch  {
+    } catch {
       // File read error
       return null;
     }
@@ -93,7 +101,7 @@ export class MarkdownReader {
   /**
    * Gets the path to the markdown file for a given template.
    * Assumes .md file has same name as template file, in same directory.
-   * 
+   *
    * @param templateFilePath Absolute path to template JSON file
    * @returns Path to corresponding .md file (may not exist)
    */
@@ -105,7 +113,7 @@ export class MarkdownReader {
 
   /**
    * Checks if a markdown file exists for a given template.
-   * 
+   *
    * @param templateFilePath Absolute path to template JSON file
    * @returns true if .md file exists, false otherwise
    */
@@ -117,7 +125,7 @@ export class MarkdownReader {
   /**
    * Lists all section headings (## level) in a markdown file.
    * Useful for debugging or validation.
-   * 
+   *
    * @param mdFilePath Absolute path to the .md file
    * @returns Array of heading names, or empty array if file doesn't exist
    */
@@ -130,14 +138,14 @@ export class MarkdownReader {
       const content = fs.readFileSync(mdFilePath, "utf-8");
       const lines = content.split(/\r?\n/);
       const sections: string[] = [];
-      
+
       for (const line of lines) {
         const headingMatch = line.match(/^##\s+(.+)$/);
         if (headingMatch) {
           sections.push(MarkdownReader.cleanHeadingDisplay(headingMatch[1]!));
         }
       }
-      
+
       return sections;
     } catch {
       return [];

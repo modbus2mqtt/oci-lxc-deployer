@@ -9,6 +9,9 @@ frontend/dist/
 # Test coverage
 coverage/
 
+# jscpd report output
+report/
+
 # Cypress/Playwright outputs
 cypress/
 playwright-report/
@@ -30,7 +33,16 @@ test-results/
 **/secret.txt
 **/storagecontext.json
 docker/oci-lxc-deployer.tgz
+
+# Environment files with credentials (keep .env.template)
+**/.env
+!**/.env.template
 **/__pycache__/*
 
 
 **/.unused
+
+# npm lock files (we use pnpm)
+package-lock.json
+**/package-lock.json
+backend/tests/e2e/.nested-vm-ip

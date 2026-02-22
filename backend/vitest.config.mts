@@ -14,5 +14,6 @@ export default mergeConfig(baseConfig, {
       "**/node_modules/**",
       "**/.git/**",
     ],
+    globalSetup: ["tests/template-tests/helper/global-setup.mts"],
   },
 });

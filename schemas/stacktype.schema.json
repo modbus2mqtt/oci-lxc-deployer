@@ -1,0 +1,16 @@
+{
+  "$id": "stacktype",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Schema for stacktype files in json/stacktypes/*.json. Each file defines the variables for a stacktype.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "name": { "type": "string", "description": "Variable name" },
+      "external": { "type": "boolean", "description": "true = manual input required, false/missing = auto-generate" },
+      "length": { "type": "number", "minimum": 16, "default": 32, "description": "Length of generated secret" }
+    },
+    "required": ["name"],
+    "additionalProperties": false
+  }
+}

@@ -51,7 +51,8 @@ export class App implements OnInit {
         }
       }
     });
-  }
+
+    }
   
   loadSshConfigs(): void {
     this.cfg.getSshConfigs().subscribe({

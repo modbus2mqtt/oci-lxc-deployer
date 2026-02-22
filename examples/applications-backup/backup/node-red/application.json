@@ -1,0 +1,13 @@
+{
+  "name": "Node Red",
+  "description": "Low-code programming for event-driven applications\nThe easiest way to collect, transform and visualize real-time data.",
+  "extends": "oci-image",
+  "icon": "icon.svg",
+  "installation": [
+    {
+      "name": "node-red-parameters.json",
+      "before": "011-host-get-oci-image.json"
+    }
+  ],
+  "source": "https://github.com/node-red/node-red-docker"
+}

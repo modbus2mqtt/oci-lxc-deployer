@@ -2,17 +2,36 @@
   "name": "oci-image",
   "description": "Base application for OCI image based services",
   "icon": "icon.png",
-  "installation": [
-    "011-get-oci-image.json",
-    "100-create-configure-lxc.json",
-    "200-start-lxc.json",
-    "210-wait-for-container-ready.json",
-    "305-set-pkg-mirror.json"
-  ],
+  "installation": {
+    "image": [
+      "011-host-get-oci-image.json"
+    ],
+    "pre_start": [
+      "100-conf-create-configure-lxc.json",
+      "107-conf-oci-lxc-configuration.json"
+    ],
+    "start": [
+      "200-start-lxc.json",
+      "210-wait-for-container-ready.json"
+    ],
+    "post_start": [
+      "305-post-set-pkg-mirror.json"
+    ]
+  },
   "copy-upgrade": [
     "220-copy-upgrade-oci-lxc.json"
-  ]
-
+  ],
+  "addon-reconfigure": {
+    "image": [
+      "050-stop-lxc.json"
+    ],
+    "pre_start": [
+      "set-addon-reconfigure-defaults.json",
+      "100-conf-create-configure-lxc.json"
+    ],
+    "start": [
+      "200-start-lxc.json",
+      "210-wait-for-container-ready.json"
+    ]
+  }
 }
-
-

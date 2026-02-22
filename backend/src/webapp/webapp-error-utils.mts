@@ -1,6 +1,37 @@
+import express from "express";
 import { IJsonError } from "@src/types.mjs";
 import { JsonError } from "../jsonvalidator.mjs";
 import { VEConfigurationError } from "../backend-types.mjs";
+
+/**
+ * Sends a standardized error response.
+ * Uses getErrorStatusCode() for status and serializeError() for the body.
+ */
+export function sendErrorResponse(
+  res: express.Response,
+  err: unknown,
+  extraFields?: Record<string, unknown>,
+): void {
+  const statusCode = getErrorStatusCode(err);
+  const serializedError = serializeError(err);
+  res.status(statusCode).json({
+    ...extraFields,
+    error: err instanceof Error ? err.message : String(err),
+    serializedError,
+  });
+}
+
+/**
+ * Wraps an async route handler with standardized error handling.
+ * Eliminates try-catch boilerplate for simple route handlers.
+ */
+export function asyncHandler(
+  fn: (req: express.Request, res: express.Response) => Promise<unknown>,
+): (req: express.Request, res: express.Response) => void {
+  return (req, res) => {
+    fn(req, res).catch((err: unknown) => sendErrorResponse(res, err));
+  };
+}
 
 /**
  * Determines the appropriate HTTP status code for an error.
@@ -50,7 +81,8 @@ export function serializeDetailsArray(
         result.details = serializeDetailsArray((d as any).details);
       }
 
-      if ((d as any).filename !== undefined) result.filename = (d as any).filename;
+      if ((d as any).filename !== undefined)
+        result.filename = (d as any).filename;
 
       return result as IJsonError;
     }

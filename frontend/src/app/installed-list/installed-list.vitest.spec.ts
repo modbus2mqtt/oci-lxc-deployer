@@ -56,11 +56,11 @@ describe('InstalledList component (vitest)', () => {
     expect(svc.getInstallations).toHaveBeenCalledTimes(1);
 
     const el: HTMLElement = fixture.nativeElement as HTMLElement;
-    // Suche Buttons
+    // Suche Buttons - 2 Karten mit je 2 Buttons (Copy-Upgrade + Reconfigure) = 4
     const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>('.card-actions button'));
-    expect(buttons.length).toBe(2);
+    expect(buttons.length).toBe(4);
 
-    // Optional: Navigation zum Monitor wurde angestoßen
+    // Klick auf ersten Copy-Upgrade Button (Index 0)
     buttons[0].click();
     fixture.detectChanges();
     expect(svc.postVeCopyUpgrade).toHaveBeenCalledTimes(1);

@@ -1,0 +1,27 @@
+{
+  "groups": [
+    {
+      "id": "function",
+      "name": "Function",
+      "tags": [
+        { "id": "database", "name": "Database" },
+        { "id": "authentication", "name": "Authentication & Identity" },
+        { "id": "iot", "name": "IoT & Automation" },
+        { "id": "messaging", "name": "Messaging & Queues" },
+        { "id": "backup", "name": "Backup & Storage" },
+        { "id": "monitoring", "name": "Monitoring & Logging" },
+        { "id": "media", "name": "Media & Streaming" },
+        { "id": "infrastructure", "name": "Infrastructure" },
+        { "id": "development", "name": "Development" },
+        { "id": "api", "name": "API & Integration" }
+      ]
+    }
+  ],
+  "internal": [
+    "oci-image",
+    "docker-compose",
+    "npm-nodejs",
+    "alpine-packages",
+    "test-enum"
+  ]
+}

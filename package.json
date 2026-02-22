@@ -1,6 +1,6 @@
 {
   "name": "oci-lxc-deployer",
-  "version": "0.1.18",
+  "version": "0.1.22",
   "description": "Packaged web UI and backend for OCI LXC Deployer",
   "type": "module",
   "draft": true,
@@ -9,19 +9,19 @@
     "name": "Volkmar Nissen"
   },
   "scripts": {
-    "build": "npm run build:backend --silent && npm run build:frontend --silent",
-    "build:backend": "cd backend && npm run build",
-    "build:frontend": "cd frontend && npm run build",
+    "build": "pnpm build:backend && pnpm build:frontend",
+    "build:backend": "cd backend && pnpm build",
+    "build:frontend": "cd frontend && pnpm build",
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "e2e:debug": "PWDEBUG=1 playwright test --headed",
     "install-hooks": "sh scripts/install-git-hooks.sh",
     "lint:lang": "node scripts/check-language.js",
-    "postinstall": "npm run install-hooks",
-    "prettier": "npm run prettier --prefix backend && npm run prettier --prefix frontend",
+    "postinstall": "pnpm install-hooks",
+    "prettier": "cd backend && pnpm prettier && cd ../frontend && pnpm prettier",
     "sync-dependencies": "node scripts/sync-dependencies.mjs",
-    "sync-dependencies:lock": "node scripts/sync-dependencies.mjs --update-lock",
-    "prepack": "npm run sync-dependencies"
+    "dupcheck": "npx jscpd --config .jscpd.json backend/src frontend/src",
+    "prepack": "pnpm sync-dependencies"
   },
   "bin": {
     "oci-lxc-deployer": "backend/dist/oci-lxc-deployer.mjs"
@@ -46,10 +46,12 @@
     "json-source-map": "^0.6.1",
     "jsonschema": "^1.5.0",
     "path": "^0.12.7",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.2",
     "vitest": "^4.0.12"
-  }
+  },
+  "packageManager": "pnpm@10.28.2"
 }

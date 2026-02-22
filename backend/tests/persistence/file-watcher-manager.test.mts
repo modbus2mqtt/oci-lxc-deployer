@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { FileWatcherManager } from "@src/persistence/file-watcher-manager.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("FileWatcherManager", () => {
   let testDir: string;
@@ -60,7 +63,6 @@ describe("FileWatcherManager", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-
   /**
    * Helper to manually trigger watch callbacks by simulating fs.watch events
    * This tests the callback logic deterministically without relying on actual fs.watch
@@ -68,7 +70,10 @@ describe("FileWatcherManager", () => {
   function triggerApplicationWatch(filename: string): void {
     // Access private method isApplicationChange via reflection
     const watcherAny = watcher as any;
-    if (watcherAny.isApplicationChange && watcherAny.isApplicationChange(filename)) {
+    if (
+      watcherAny.isApplicationChange &&
+      watcherAny.isApplicationChange(filename)
+    ) {
       // Call debouncedInvalidate directly
       const onApplicationChange = () => {
         applicationInvalidated = true;
@@ -93,7 +98,13 @@ describe("FileWatcherManager", () => {
     it("should initialize watchers for existing directories", () => {
       // Directories should be created in beforeEach
       // Watcher should be initialized without errors
-      expect(() => watcher.initWatchers(() => {}, () => {}, () => {})).not.toThrow();
+      expect(() =>
+        watcher.initWatchers(
+          () => {},
+          () => {},
+          () => {},
+        ),
+      ).not.toThrow();
     });
 
     it("should handle missing directories gracefully", () => {
@@ -106,7 +117,11 @@ describe("FileWatcherManager", () => {
 
       // Should not throw when directories don't exist
       expect(() =>
-        newWatcher.initWatchers(() => {}, () => {}, () => {}),
+        newWatcher.initWatchers(
+          () => {},
+          () => {},
+          () => {},
+        ),
       ).not.toThrow();
 
       newWatcher.close();
@@ -116,12 +131,19 @@ describe("FileWatcherManager", () => {
   describe("Application file watching", () => {
     it("should detect application.json changes", async () => {
       // Setup: Application erstellen
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/testapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/testapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/testapp/application.json", {
-        name: "Test App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/testapp/application.json",
+        {
+          name: "Test App",
+          installation: {},
+        },
+      );
 
       // Manually trigger watch event for application.json change
       triggerApplicationWatch("testapp/application.json", "change");
@@ -135,15 +157,26 @@ describe("FileWatcherManager", () => {
 
     it("should detect icon file changes", async () => {
       // Setup: Application mit Icon
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/iconapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/iconapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/iconapp/application.json", {
-        name: "Icon App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/iconapp/application.json",
+        {
+          name: "Icon App",
+          installation: {},
+        },
+      );
 
       // Create icon file
-      persistenceHelper.writeTextSync(Volume.LocalRoot, "applications/iconapp/icon.png", "icon data");
+      persistenceHelper.writeTextSync(
+        Volume.LocalRoot,
+        "applications/iconapp/icon.png",
+        "icon data",
+      );
 
       // Manually trigger watch event for icon file
       triggerApplicationWatch("iconapp/icon.png", "change");
@@ -157,12 +190,19 @@ describe("FileWatcherManager", () => {
 
     it("should detect new application directories", async () => {
       // Create new application
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/newapp");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/newapp",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/newapp/application.json", {
-        name: "New App",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/newapp/application.json",
+        {
+          name: "New App",
+          installation: {},
+        },
+      );
 
       // Manually trigger watch event for new directory (directory name without extension)
       triggerApplicationWatch("newapp", "rename");
@@ -178,14 +218,21 @@ describe("FileWatcherManager", () => {
   describe("Template file watching", () => {
     it("should detect template file changes", async () => {
       // Setup: Template-Verzeichnis erstellen
-      const templatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
+      const templatesDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "shared/templates",
+      );
       mkdirSync(templatesDir, { recursive: true });
 
       // Create template file
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/testtemplate.json", {
-        name: "Test Template",
-        commands: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "shared/templates/testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [],
+        },
+      );
 
       // Manually trigger watch event for template file
       triggerTemplateWatch("testtemplate.json");
@@ -202,16 +249,23 @@ describe("FileWatcherManager", () => {
   describe("Framework file watching", () => {
     it("should detect framework file changes", async () => {
       // Setup: Framework-Verzeichnis erstellen
-      const frameworksDir = persistenceHelper.resolve(Volume.LocalRoot, "frameworks");
+      const frameworksDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "frameworks",
+      );
       mkdirSync(frameworksDir, { recursive: true });
 
       // Create framework file
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "frameworks/testframework.json", {
-        id: "testframework",
-        name: "Test Framework",
-        extends: "base",
-        properties: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "frameworks/testframework.json",
+        {
+          id: "testframework",
+          name: "Test Framework",
+          extends: "base",
+          properties: [],
+        },
+      );
 
       // Manually trigger watch event for framework file
       triggerFrameworkWatch("testframework.json");
@@ -238,12 +292,19 @@ describe("FileWatcherManager", () => {
       watcher.close();
 
       // Create file after close
-      const appDir = persistenceHelper.resolve(Volume.LocalRoot, "applications/afterclose");
+      const appDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "applications/afterclose",
+      );
       mkdirSync(appDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "applications/afterclose/application.json", {
-        name: "After Close",
-        installation: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "applications/afterclose/application.json",
+        {
+          name: "After Close",
+          installation: {},
+        },
+      );
 
       // Wait
       await new Promise((resolve) => setTimeout(resolve, 500));

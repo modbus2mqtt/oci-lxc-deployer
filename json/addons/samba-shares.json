@@ -1,0 +1,87 @@
+{
+  "name": "Samba File Shares",
+  "description": "SMB/CIFS file sharing for the container. Upload a custom smb.conf to configure shares.",
+  "tags": ["storage", "network"],
+
+  "compatible_with": "*",
+
+  "parameters": [
+    {
+      "id": "addon_content",
+      "name": "Samba Configuration File",
+      "type": "string",
+      "upload": true,
+      "description": "Upload your smb.conf file"
+    },
+    {
+      "id": "smb_user",
+      "name": "Samba Username",
+      "type": "string",
+      "required": true,
+      "description": "Username for Samba authentication"
+    },
+    {
+      "id": "smb_password",
+      "name": "Samba Password",
+      "type": "string",
+      "required": true,
+      "secure": true,
+      "description": "Password for Samba authentication"
+    }
+  ],
+
+  "properties": [
+    { "id": "addon_packages", "value": "samba" },
+    { "id": "addon_volumes", "value": "samba_private=/var/lib/samba/private,0700,0:0\nsamba_config=/etc/samba,0700,0:0" },
+    { "id": "addon_path", "value": "samba_config:smb.conf" }
+  ],
+
+  "installation": {
+    "pre_start": [
+      {
+        "name": "150-conf-create-storage-volumes-for-lxc.json",
+        "after": "100-conf-create-configure-lxc.json"
+      },
+      {
+        "name": "155-conf-upload-addon-files.json",
+        "after": "150-conf-create-storage-volumes-for-lxc.json"
+      },
+      {
+        "name": "165-conf-register-hookscript.json",
+        "after": "100-conf-create-configure-lxc.json"
+      }
+    ],
+    "post_start": [
+      "332-post-install-on-start-dispatcher.json",
+      "337-post-install-samba-on-start.json"
+    ]
+  },
+
+  "reconfigure": {
+    "pre_start": [
+      {
+        "name": "150-conf-create-storage-volumes-for-lxc.json",
+        "after": "100-conf-create-configure-lxc.json"
+      },
+      {
+        "name": "155-conf-upload-addon-files.json",
+        "after": "150-conf-create-storage-volumes-for-lxc.json"
+      },
+      {
+        "name": "165-conf-register-hookscript.json",
+        "after": "100-conf-create-configure-lxc.json"
+      }
+    ],
+    "post_start": [
+      "332-post-install-on-start-dispatcher.json",
+      "337-post-install-samba-on-start.json"
+    ]
+  },
+
+  "upgrade": [
+    "332-post-install-on-start-dispatcher.json",
+    "337-post-install-samba-on-start.json"
+  ],
+
+  "notes_key": "samba-shares"
+}

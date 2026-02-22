@@ -1,0 +1,78 @@
+{
+  "execute_on": "ve",
+  "name": "Map Serial Device",
+  "description": "Map serial device to VM",
+  "skip_if_all_missing": [
+    "host_device_path"
+  ],
+  "parameters": [
+    {
+      "id": "host_device_path",
+      "name": "USB Serial Port",
+      "type": "enum",
+      "required": false,
+      "enumValuesTemplate": "list-host-usb-serial-ports.json",
+      "description": "USB serial port device path on the host"
+    },
+    {
+      "id": "install_replug_watcher",
+      "name": "Live Replug (Host Installation)",
+      "type": "boolean",
+      "default": true,
+      "advanced": true,
+      "description": "Install a watcher service on the host to handle device replug events"
+    },
+    {
+      "id": "vm_id",
+      "name": "ID of the VM",
+      "type": "string",
+      "required": true
+    },
+    {
+      "id": "uid",
+      "name": "UID",
+      "type": "string",
+      "default": "0",
+      "advanced": true
+    },
+    {
+      "id": "gid",
+      "name": "GID",
+      "type": "string",
+      "default": "20",
+      "advanced": true
+    },
+    {
+      "id": "mapped_uid",
+      "name": "Mapped UID (Host)",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "UID mapping on the host for the device"
+    },
+    {
+      "id": "mapped_gid",
+      "name": "Mapped GID (Host)",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "GID mapping on the host for the device"
+    },
+    {
+      "id": "container_device_path",
+      "name": "Container Device Path",
+      "type": "string",
+      "default": "/dev/ttyUSB0",
+      "required": false,
+      "advanced": true,
+      "description": "Device path inside the container"
+    }
+  ],
+  "commands": [
+    {
+      "name": "Map Serial Device",
+      "script": "conf-map-serial-device.py",
+      "library": "map_device_lib.py"
+    }
+  ]
+}

@@ -24,8 +24,15 @@ export class DocumentationPathResolver {
    * Resolves template path (checks local first, then shared).
    * @returns Object with fullPath and isShared flag, or null if not found
    */
-  resolveTemplatePath(templateName: string, appPath: string): { fullPath: string; isShared: boolean } | null {
-    return TemplatePathResolver.resolveTemplatePath(templateName, appPath, this.configuredPathes);
+  resolveTemplatePath(
+    templateName: string,
+    appPath: string,
+  ): { fullPath: string; isShared: boolean } | null {
+    return TemplatePathResolver.resolveTemplatePath(
+      templateName,
+      appPath,
+      this.configuredPathes,
+    );
   }
 
   /**
@@ -33,7 +40,11 @@ export class DocumentationPathResolver {
    * @returns Template data or null if not found/error
    */
   loadTemplate(templateName: string, appPath: string): ITemplate | null {
-    return TemplatePathResolver.loadTemplate(templateName, appPath, this.configuredPathes);
+    return TemplatePathResolver.loadTemplate(
+      templateName,
+      appPath,
+      this.configuredPathes,
+    );
   }
 
   /**
@@ -55,7 +66,10 @@ export class DocumentationPathResolver {
    * @returns Full path to script or null if not found
    */
   resolveScriptPath(scriptName: string, appPath: string): string | null {
-    return TemplatePathResolver.resolveScriptPath(scriptName, appPath, this.configuredPathes);
+    return TemplatePathResolver.resolveScriptPath(
+      scriptName,
+      appPath,
+      this.configuredPathes,
+    );
   }
 }
-

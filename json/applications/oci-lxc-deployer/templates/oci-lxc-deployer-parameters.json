@@ -2,7 +2,14 @@
   "execute_on": "ve",
   "name": "Set Parameters",
   "description": "Set application-specific parameters for OCI LXC Deployer",
-  "parameters": [],
+  "parameters": [{
+    "id": "volumes",
+    "name": "Volumes",
+    "type": "string",
+    "multiline": true,
+    "required": false,
+    "description": "Volume mappings for the container (one per line, format: name=path or name=path,mode)"
+  }],
   "commands": [
     {
       "name": "set-properties",
@@ -17,19 +24,23 @@
         },
         {
           "id": "uid",
-          "value": "0"
+          "value": "1001"
+        },
+        {
+          "id": "gid",
+          "value": "1001"
         },
         {
           "id": "username",
-          "value": "root"
-        },
-        {
-          "id": "volumes",
-          "value": "config=/config\nsecure/secure,700"
+          "value": "lxc"
         },
         {
           "id": "volume_backup",
           "value": "true"
+        },
+        {
+          "id": "volumes",
+          "default": "config=/config\nsecure=/secure,0700"
         }
       ]
     }

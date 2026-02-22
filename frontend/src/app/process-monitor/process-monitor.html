@@ -1,10 +1,9 @@
 <h2>Process Monitor</h2>
 
-@if (messages && messages.length > 1) {
-  <!-- Multiple groups: use accordion -->
-  <mat-accordion>
-    @for (group of messages; track group) {
-      <mat-expansion-panel [expanded]="true">
+@if (messages && messages.length > 0) {
+  <mat-accordion [multi]="true">
+    @for (group of messages; track group.application + group.task) {
+      <mat-expansion-panel [expanded]="shouldBeExpanded(group)">
         <mat-expansion-panel-header>
           <mat-panel-title>{{ group.application }} / {{ group.task }}</mat-panel-title>
         </mat-expansion-panel-header>
@@ -13,15 +12,7 @@
     }
   </mat-accordion>
 } @else {
-  <!-- Single group: no accordion needed -->
-  @for (group of messages; track group) {
-    <div class="process-group">
-      <h3>{{ group.application }} / {{ group.task }}</h3>
-      <ng-container *ngTemplateOutlet="groupContent; context: { group: group }"></ng-container>
-    </div>
-  } @empty {
-    <div>No process messages available.</div>
-  }
+  <div>No process messages available.</div>
 }
 
 <!-- Shared template for group content -->
@@ -42,22 +33,22 @@
       }
     }
   </ul>
-  
+
   <!-- Success message when all completed -->
   @for (msg of group.messages; track msg.index) {
     @if (msg.finished) {
-      <div class="success-block">
+      <div class="success-block" data-testid="installation-success">
         <span class="success-icon-large">✓</span>
         <strong>{{ msg.result }}</strong>
         <button class="back-btn" type="button" (click)="close()">Schließen</button>
       </div>
     }
   }
-  
+
   <!-- Error displayed prominently with restart button -->
   @for (msg of group.messages; track msg.index) {
     @if (msg.exitCode !== 0 && !msg.finished) {
-      <div class="error-block">
+      <div class="error-block" data-testid="installation-error">
         <div class="error-header">
           <span class="error-icon">✗</span>
           <strong>{{ msg.command }}</strong>

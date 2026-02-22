@@ -3,8 +3,14 @@ import { rmSync, mkdirSync, existsSync } from "fs";
 import path from "path";
 import { TemplatePersistenceHandler } from "@src/persistence/template-persistence-handler.mjs";
 import { JsonValidator } from "@src/jsonvalidator.mjs";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 describe("TemplatePersistenceHandler", () => {
   let env: TestEnvironment;
@@ -32,6 +38,7 @@ describe("TemplatePersistenceHandler", () => {
     // JsonValidator initialisieren (benötigt Schemas)
     jsonValidator = new JsonValidator(schemaPath, [
       "templatelist.schema.json",
+      "base-deployable.schema.json",
     ]);
 
     // TemplatePersistenceHandler initialisieren
@@ -45,16 +52,21 @@ describe("TemplatePersistenceHandler", () => {
     env?.cleanup();
   });
 
-
   describe("resolveTemplatePath()", () => {
     it("should resolve shared template path from json directory", () => {
       // Setup: Shared template erstellen
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "Test Template",
-        commands: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [],
+        },
+      );
 
       const result = handler.resolveTemplatePath("testtemplate", true);
       expect(result).not.toBeNull();
@@ -63,18 +75,31 @@ describe("TemplatePersistenceHandler", () => {
 
     it("should prefer local over json for shared templates", () => {
       // Setup: Template in beiden Verzeichnissen
-      const jsonTemplatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
-      const localTemplatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
+      const jsonTemplatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
+      const localTemplatesDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "shared/templates",
+      );
       mkdirSync(jsonTemplatesDir, { recursive: true });
       mkdirSync(localTemplatesDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "JSON Template",
-        commands: [],
-      });
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/testtemplate.json", {
-        name: "Local Template",
-        commands: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "JSON Template",
+          commands: [],
+        },
+      );
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "shared/templates/testtemplate.json",
+        {
+          name: "Local Template",
+          commands: [],
+        },
+      );
 
       const result = handler.resolveTemplatePath("testtemplate", true);
       expect(result).toBe(path.join(localTemplatesDir, "testtemplate.json"));
@@ -87,12 +112,18 @@ describe("TemplatePersistenceHandler", () => {
 
     it("should handle template name with or without .json extension", () => {
       // Setup: Template erstellen
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "Test Template",
-        commands: [],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [],
+        },
+      );
 
       const result1 = handler.resolveTemplatePath("testtemplate", true);
       const result2 = handler.resolveTemplatePath("testtemplate.json", true);
@@ -103,13 +134,19 @@ describe("TemplatePersistenceHandler", () => {
   describe("loadTemplate()", () => {
     it("should load template from file", () => {
       // Setup: Template erstellen
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "testtemplate.json");
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "Test Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       const result = handler.loadTemplate(templateFile);
       expect(result).not.toBeNull();
@@ -119,13 +156,19 @@ describe("TemplatePersistenceHandler", () => {
 
     it("should cache template", () => {
       // Setup: Template erstellen (minimal valid template)
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "testtemplate.json");
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "Test Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       const result1 = handler.loadTemplate(templateFile);
       expect(result1).not.toBeNull();
@@ -146,10 +189,16 @@ describe("TemplatePersistenceHandler", () => {
 
     it("should return null when template is invalid", () => {
       // Setup: Invalid template
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "invalid.json");
-      persistenceHelper.writeTextSync(Volume.JsonSharedTemplates, "invalid.json", "{ invalid json }");
+      persistenceHelper.writeTextSync(
+        Volume.JsonSharedTemplates,
+        "invalid.json",
+        "{ invalid json }",
+      );
 
       expect(() => handler.loadTemplate(templateFile)).toThrow();
     });
@@ -172,19 +221,29 @@ describe("TemplatePersistenceHandler", () => {
       expect(existsSync(templateFile)).toBe(true);
 
       // Verify content
-      const content = persistenceHelper.readJsonSync(Volume.LocalRoot, "shared/templates/newtemplate.json") as any;
+      const content = persistenceHelper.readJsonSync(
+        Volume.LocalRoot,
+        "shared/templates/newtemplate.json",
+      ) as any;
       expect(content.name).toBe("New Template");
     });
 
     it("should delete shared template from local directory", () => {
       // Setup: Template erstellen
-      const templatesDir = persistenceHelper.resolve(Volume.LocalRoot, "shared/templates");
+      const templatesDir = persistenceHelper.resolve(
+        Volume.LocalRoot,
+        "shared/templates",
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "deletetemplate.json");
-      persistenceHelper.writeJsonSync(Volume.LocalRoot, "shared/templates/deletetemplate.json", {
-        name: "Delete Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.LocalRoot,
+        "shared/templates/deletetemplate.json",
+        {
+          name: "Delete Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       handler.deleteTemplate("deletetemplate", true);
 
@@ -194,21 +253,31 @@ describe("TemplatePersistenceHandler", () => {
 
     it("should invalidate cache when writing template", () => {
       // Setup: Template erstellen und laden (populate cache)
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "cachedtemplate.json");
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "cachedtemplate.json", {
-        name: "Cached Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "cachedtemplate.json",
+        {
+          name: "Cached Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       handler.loadTemplate(templateFile);
 
       // Write new template (should invalidate cache)
-      handler.writeTemplate("newtemplate", {
-        name: "New Template",
-        commands: [],
-      } as any, true);
+      handler.writeTemplate(
+        "newtemplate",
+        {
+          name: "New Template",
+          commands: [],
+        } as any,
+        true,
+      );
 
       // Cache should be cleared: deleting the file should return null on load
       rmSync(templateFile, { force: true });
@@ -220,13 +289,19 @@ describe("TemplatePersistenceHandler", () => {
   describe("invalidateCache()", () => {
     it("should clear template cache", () => {
       // Setup: Template erstellen und laden
-      const templatesDir = persistenceHelper.resolve(Volume.JsonSharedTemplates);
+      const templatesDir = persistenceHelper.resolve(
+        Volume.JsonSharedTemplates,
+      );
       mkdirSync(templatesDir, { recursive: true });
       const templateFile = path.join(templatesDir, "testtemplate.json");
-      persistenceHelper.writeJsonSync(Volume.JsonSharedTemplates, "testtemplate.json", {
-        name: "Test Template",
-        commands: [{ name: "test", command: "echo test" }],
-      });
+      persistenceHelper.writeJsonSync(
+        Volume.JsonSharedTemplates,
+        "testtemplate.json",
+        {
+          name: "Test Template",
+          commands: [{ name: "test", command: "echo test" }],
+        },
+      );
 
       handler.loadTemplate(templateFile);
 
@@ -239,4 +314,3 @@ describe("TemplatePersistenceHandler", () => {
     });
   });
 });
-

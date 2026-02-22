@@ -1,18 +1,26 @@
 /**
  * @deprecated Use ContextManager and PersistenceManager instead
  * This file provides backward compatibility during migration
- * 
+ *
  * StorageContext is now split into:
  * - ContextManager: Manages execution contexts (VE, VM, VMInstall)
  * - PersistenceManager: Manages persistence and services (Applications, Templates, Frameworks)
- * 
+ *
  * For entity access (Applications, Templates, Frameworks), use PersistenceManager.
  * For context management (VE, VM, VMInstall), use ContextManager via PersistenceManager.
  */
 
-import { ContextManager, VMContext, VMInstallContext } from "./context-manager.mjs";
+import {
+  ContextManager,
+  VMContext,
+  VMInstallContext,
+} from "./context-manager.mjs";
 import { PersistenceManager } from "./persistence/persistence-manager.mjs";
-import { VEConfigurationError, storageKey as storageContextKey, IContext } from "./backend-types.mjs";
+import {
+  VEConfigurationError,
+  storageKey as storageContextKey,
+  IContext,
+} from "./backend-types.mjs";
 import { IApplicationWeb } from "./types.mjs";
 
 /**
@@ -77,8 +85,14 @@ class StorageContextProxy implements IContext {
     return this.contextManager.getVMContextByHostname(hostname);
   }
 
-  getVMInstallContextByHostnameAndApplication(hostname: string, application: string) {
-    return this.contextManager.getVMInstallContextByHostnameAndApplication(hostname, application);
+  getVMInstallContextByHostnameAndApplication(
+    hostname: string,
+    application: string,
+  ) {
+    return this.contextManager.getVMInstallContextByHostnameAndApplication(
+      hostname,
+      application,
+    );
   }
 
   listSshConfigs() {
@@ -142,7 +156,7 @@ function setStorageContextInstance(
     storageContextFilePath,
     secretFilePath,
   );
-  
+
   // Return a proxy that delegates to ContextManager
   return getStorageContextInstance();
 }

@@ -11,7 +11,7 @@ import {
   createTestEnvironment,
   type CreateTestEnvironmentOptions,
   type TestEnvironment,
-} from "./test-environment.mjs";  
+} from "./test-environment.mjs";
 export interface WebAppTestSetup {
   env: TestEnvironment;
   ctx: ContextManager;

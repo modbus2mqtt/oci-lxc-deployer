@@ -31,7 +31,7 @@ export interface IContext {
 export interface IVMContext {
   vmid: number;
   vekey: string;
-  outputs: Record<string, string| number| boolean>;
+  outputs: Record<string, string | number | boolean>;
   getKey(): string;
 }
 export interface IVMInstallContext {
@@ -54,6 +54,7 @@ export interface IApplication extends IApplicationSchema {
 }
 export interface ITemplateReference {
   name: string;
+  category?: string;
   before?: string[];
   after?: string[];
 }
@@ -89,6 +90,6 @@ export interface ITemplateSchema {}
 
 // Use any to avoid circular dependency - will be resolved when StorageContext is fully migrated
 export interface IVEContext extends ISsh {
-  getStorageContext():  StorageContext | ContextManager
+  getStorageContext(): StorageContext | ContextManager;
   getKey(): string;
 }

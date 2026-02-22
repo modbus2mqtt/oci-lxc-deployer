@@ -1,0 +1,17 @@
+{
+    "name": "zitadel",
+    "description": "ZITADEL is an open source identity management platform.",
+    "tags": ["identity", "auth"],
+    "tasktype": "postgres",
+    "framework": "docker-compose",
+    "dependsOn": ["postgres"],
+    "installParams": {
+        "bridge": "vmbr1",
+        "memory": "2048"
+    },
+    "validation": {
+        "ports": [
+            { "port": 8080, "protocol": "tcp", "service": "zitadel" }
+        ]
+    }
+}

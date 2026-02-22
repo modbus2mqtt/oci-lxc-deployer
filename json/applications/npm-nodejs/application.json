@@ -2,21 +2,22 @@
   "name": "npm-nodejs",
   "description": "Base application for Node.js/npm based services",
   "icon": "icon.png",
-  "installation": [
-    "010-get-latest-os-template.json",
-    "100-create-configure-lxc.json",
-    "200-start-lxc.json",
-    "210-wait-for-container-ready.json",
-    "305-set-pkg-mirror.json",
-    "330-install-packages.json",
-    "340-install-node-application.json",
-    "350-create-enable-service.json"
-  ]
+  "installation": {
+    "image": [
+      "010-host-get-latest-os-template.json"
+    ],
+    "pre_start": [
+      "100-conf-create-configure-lxc.json"
+    ],
+    "start": [
+      "200-start-lxc.json",
+      "210-wait-for-container-ready.json"
+    ],
+    "post_start": [
+      "305-post-set-pkg-mirror.json",
+      "330-post-install-packages.json",
+      "340-post-install-node-application.json",
+      "350-svc-create-enable-service.json"
+    ]
+  }
 }
-
-
-
-
-
-
-

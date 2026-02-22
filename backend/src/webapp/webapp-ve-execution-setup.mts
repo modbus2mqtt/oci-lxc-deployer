@@ -1,4 +1,3 @@
-
 import { IVEContext, IVMContext } from "@src/backend-types.mjs";
 import { ICommand, IVeExecuteMessage } from "@src/types.mjs";
 import { IRestartInfo } from "@src/ve-execution/ve-execution-constants.mjs";
@@ -31,7 +30,13 @@ export class WebAppVeExecutionSetup {
     task: string,
     sshCommand: string = "ssh",
   ): { exec: VeExecution; restartKey: string } {
-    const exec = new VeExecution(commands, inputs, veContext, defaults, sshCommand);
+    const exec = new VeExecution(
+      commands,
+      inputs,
+      veContext,
+      defaults,
+      sshCommand,
+    );
     const restartKey = this.generateRestartKey();
 
     // Clear old messages for this application/task before starting
@@ -96,4 +101,3 @@ export class WebAppVeExecutionSetup {
       });
   }
 }
-

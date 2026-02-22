@@ -1,0 +1,15 @@
+{
+  "/api": {
+    "target": "http://ubuntupve:3000",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "debug"
+  },
+  "/socket.io": {
+    "target": "http://ubuntupve:3000",
+    "ws": true,
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "debug"
+  }
+}

@@ -28,9 +28,6 @@
 						<mat-option [value]="getEnumOptionValue(option)">{{ getEnumOptionLabel(option) }}</mat-option>
 						}
 						</mat-select>
-						@if (param.default !== undefined) {
-						<mat-hint>Default: {{ param.default }}</mat-hint>
-						}
 						@if (hasExpandableHelp(param)) {
 							<button type="button" mat-icon-button matSuffix class="help-toggle-suffix" (click)="toggleHelp(param.id)" [matTooltip]="'Show/hide help'" matTooltipPosition="above">
 								<mat-icon>{{ isHelpExpanded(param.id) ? 'expand_less' : 'help_outline' }}</mat-icon>
@@ -55,9 +52,6 @@
 							<button type="button" mat-icon-button matSuffix class="help-toggle-suffix" (click)="toggleHelp(param.id)" [matTooltip]="'Show/hide help'" matTooltipPosition="above">
 								<mat-icon>{{ isHelpExpanded(param.id) ? 'expand_less' : 'help_outline' }}</mat-icon>
 							</button>
-						}
-						@if (param.default !== undefined) {
-						<mat-hint>Default: {{ param.default }}</mat-hint>
 						}
 						</mat-form-field>
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
@@ -94,17 +88,29 @@
 								</mat-card-content>
 							</mat-card>
 						}
+						<!-- Stack selector for env_file: appears when env_file contains {{ }} markers AND stacks are available -->
+						@if (param.id === 'env_file' && envFileHasMarkers() && hasStacksAvailable()) {
+							<div class="param-field stack-or-env-upload">
+								<app-stack-selector
+									[availableStacks]="availableStacks"
+									[selectedStack]="selectedStack"
+									[detectedMarkers]="getEnvFileMarkers()"
+									[label]="'Select Environment Stack'"
+									[showCreateButton]="true"
+									[showEntryCount]="true"
+									(stackSelected)="onStackSelect($event)"
+									(createStackRequested)="onCreateStack()"
+								></app-stack-selector>
+							</div>
+						}
 						</div>
 						} @else {
-						<mat-form-field appearance="outline" class="param-field">
+						<mat-form-field appearance="outline" class="param-field" [class.param-field-multiline]="param.multiline">
 						<mat-label>{{ param.name }}</mat-label>
 						@if (param.multiline) {
-						  <textarea matInput rows="3" [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above"></textarea>
+						  <textarea matInput rows="5" [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above"></textarea>
 						} @else {
 						  <input matInput [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" />
-						}
-						@if (param.default !== undefined) {
-						<mat-hint>Default: {{ param.default }}</mat-hint>
 						}
 						@if (hasExpandableHelp(param)) {
 							<button type="button" mat-icon-button matSuffix class="help-toggle-suffix" (click)="toggleHelp(param.id)" [matTooltip]="'Show/hide help'" matTooltipPosition="above">
@@ -115,15 +121,27 @@
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
 						}
+						<!-- Stack selector for envs: appears when envs contains {{ }} markers AND stacks are available -->
+						@if (param.id === 'envs' && envsHasMarkers() && hasStacksAvailable()) {
+							<div class="param-field stack-or-env-upload">
+								<app-stack-selector
+									[availableStacks]="availableStacks"
+									[selectedStack]="selectedStack"
+									[detectedMarkers]="getEnvMarkers()"
+									[label]="'Select Environment Stack'"
+									[showCreateButton]="true"
+									[showEntryCount]="true"
+									(stackSelected)="onStackSelect($event)"
+									(createStackRequested)="onCreateStack()"
+								></app-stack-selector>
+							</div>
+						}
 						}
 						}
 						@case ('number') {
 						<mat-form-field appearance="outline" class="param-field">
 						<mat-label>{{ param.name }}</mat-label>
 						<input matInput type="number" [formControlName]="param.id" [required]="!!param.required" [matTooltip]="getTooltip(param)" matTooltipPosition="above" />
-						@if (param.default !== undefined) {
-						<mat-hint>Default: {{ param.default }}</mat-hint>
-						}
 						@if (hasExpandableHelp(param)) {
 							<button type="button" mat-icon-button matSuffix class="help-toggle-suffix" (click)="toggleHelp(param.id)" [matTooltip]="'Show/hide help'" matTooltipPosition="above">
 								<mat-icon>{{ isHelpExpanded(param.id) ? 'expand_less' : 'help_outline' }}</mat-icon>

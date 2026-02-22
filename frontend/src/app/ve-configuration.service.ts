@@ -1,6 +1,7 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, IStacktypesResponse, IStacksResponse, IStackResponse, IStack, IFrameworkApplicationDataBody } from '../shared/types';
+import { ICreateStackResponse } from '../shared/types-frontend';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -38,7 +39,7 @@ export class VeConfigurationService {
     this.router.navigate(['/']);
     return throwError(() => err);
   }
-  // Track VE context key returned by backend so we can append it to future calls when required
+  // Stack VE context key returned by backend so we can append it to future calls when required
   private setVeContextKeyFrom(response: unknown) {
     if (response && typeof response === 'object') {
       const obj = response as Record<string, unknown>;
@@ -75,6 +76,11 @@ export class VeConfigurationService {
   getLocalApplicationIds(): Observable<string[]> {
     return this.http.get<string[]>(ApiUri.LocalApplicationIds);
   }
+
+  getTagsConfig(): Observable<ITagsConfigResponse> {
+    return this.http.get<ITagsConfigResponse>(ApiUri.ApplicationTags);
+  }
+
   getInstallations(): Observable<IInstallationsResponse> {
     return this.get<IInstallationsResponse>(ApiUri.Installations);
   }
@@ -124,13 +130,19 @@ export class VeConfigurationService {
     return this.get<ISshCheckResponse>(`${ApiUri.SshCheck}?${params.toString()}`);
   }
 
-  postVeConfiguration(application: string, task: string, params: VeConfigurationParam[], changedParams?: VeConfigurationParam[]): Observable<{ success: boolean; restartKey?: string; vmInstallKey?: string }> {
+  postVeConfiguration(application: string, task: string, params: VeConfigurationParam[], changedParams?: VeConfigurationParam[], selectedAddons?: string[], stackId?: string): Observable<{ success: boolean; restartKey?: string; vmInstallKey?: string }> {
     const url = ApiUri.VeConfiguration
       .replace(':application', encodeURIComponent(application))
       .replace(':task', encodeURIComponent(task));
     const body: IPostVeConfigurationBody = { params };
     if (changedParams && changedParams.length > 0) {
       body.changedParams = changedParams;
+    }
+    if (selectedAddons && selectedAddons.length > 0) {
+      body.selectedAddons = selectedAddons;
+    }
+    if (stackId) {
+      body.stackId = stackId;
     }
     return this.post<IPostVeConfigurationResponse,IPostVeConfigurationBody>(url, body).pipe(
       tap((res) => this.setVeContextKeyFrom(res))
@@ -140,6 +152,11 @@ export class VeConfigurationService {
   postVeCopyUpgrade(application: string, body: IPostVeCopyUpgradeBody): Observable<IVeConfigurationResponse> {
     const url = ApiUri.VeCopyUpgrade.replace(':application', encodeURIComponent(application));
     return this.post<IVeConfigurationResponse, IPostVeCopyUpgradeBody>(url, body);
+  }
+
+  postAddonInstall(addonId: string, body: IPostAddonInstallBody): Observable<IVeConfigurationResponse> {
+    const url = ApiUri.AddonInstall.replace(':addonId', encodeURIComponent(addonId));
+    return this.post<IVeConfigurationResponse, IPostAddonInstallBody>(url, body);
   }
 
   setSshConfig(ssh: ISsh): Observable<IPostSshConfigResponse> {
@@ -202,5 +219,55 @@ export class VeConfigurationService {
   getFrameworkFromImage(body: IPostFrameworkFromImageBody): Observable<IPostFrameworkFromImageResponse> {
     // Use postWithoutGlobalErrorHandler to allow caller to handle errors (e.g., for debounced input validation)
     return this.postWithoutGlobalErrorHandler<IPostFrameworkFromImageResponse, IPostFrameworkFromImageBody>(ApiUri.FrameworkFromImage, body);
+  }
+
+  getApplicationFrameworkData(applicationId: string): Observable<IApplicationFrameworkDataResponse> {
+    const url = ApiUri.ApplicationFrameworkData.replace(':applicationId', encodeURIComponent(applicationId));
+    return this.http.get<IApplicationFrameworkDataResponse>(url);
+  }
+
+  getPreviewUnresolvedParameters(body: IFrameworkApplicationDataBody): Observable<IUnresolvedParametersResponse> {
+    // Use postWithoutGlobalErrorHandler to allow caller to handle errors
+    return this.postWithoutGlobalErrorHandler<IUnresolvedParametersResponse, IFrameworkApplicationDataBody>(
+      ApiUri.PreviewUnresolvedParameters,
+      body
+    );
+  }
+
+  getCompatibleAddons(application: string): Observable<ICompatibleAddonsResponse> {
+    const url = ApiUri.CompatibleAddons
+      .replace(':application', encodeURIComponent(application));
+    return this.http.get<ICompatibleAddonsResponse>(url);
+  }
+
+  // Stack management methods
+  getStacktypes(): Observable<IStacktypesResponse> {
+    return this.http.get<IStacktypesResponse>(ApiUri.Stacktypes);
+  }
+
+  getStacks(stacktype?: string): Observable<IStacksResponse> {
+    let url: string = ApiUri.Stacks;
+    if (stacktype) {
+      url += `?stacktype=${encodeURIComponent(stacktype)}`;
+    }
+    return this.http.get<IStacksResponse>(url);
+  }
+
+  getStack(id: string): Observable<IStackResponse> {
+    const url = ApiUri.Stack.replace(':id', encodeURIComponent(id));
+    return this.http.get<IStackResponse>(url);
+  }
+
+  createStack(stack: Omit<IStack, 'id'>): Observable<ICreateStackResponse> {
+    return this.http.post<ICreateStackResponse>(ApiUri.Stacks, stack);
+  }
+
+  updateStack(stack: IStack): Observable<ICreateStackResponse> {
+    return this.http.post<ICreateStackResponse>(ApiUri.Stacks, stack);
+  }
+
+  deleteStack(id: string): Observable<{ success: boolean; deleted: boolean }> {
+    const url = ApiUri.Stack.replace(':id', encodeURIComponent(id));
+    return this.http.delete<{ success: boolean; deleted: boolean }>(url);
   }
 }

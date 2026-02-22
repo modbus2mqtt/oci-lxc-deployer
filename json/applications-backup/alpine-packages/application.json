@@ -1,0 +1,11 @@
+{
+  "name": "Alpine APK Build Environment",
+  "description": "Provision an Alpine-based LXC with full APK build toolchain (alpine-sdk) and git.",
+  "installation": [
+    "set-ostype.json",
+    "010-host-get-latest-os-template.json",
+    "100-conf-create-configure-lxc.json",
+    "200-start-lxc.json",
+    "300-install-alpine-build-tools.json"
+  ]
+}

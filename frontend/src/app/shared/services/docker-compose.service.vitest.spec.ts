@@ -58,6 +58,28 @@ services:
 
       expect(result).toBeNull();
     });
+
+    it('should strip leading ./ from volumes in parsed.volumes', () => {
+      const composeYaml = `
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ./data:/var/lib/postgresql/data
+      - ./config:/etc/postgresql
+      - named_vol:/var/log
+`;
+      const base64 = btoa(composeYaml);
+      const result = service.parseComposeFile(base64);
+
+      expect(result).not.toBeNull();
+      expect(result?.volumes).toContain('data:/var/lib/postgresql/data');
+      expect(result?.volumes).toContain('config:/etc/postgresql');
+      expect(result?.volumes).toContain('named_vol:/var/log');
+      // Should NOT contain ./ prefix
+      expect(result?.volumes?.some(v => v.startsWith('./'))).toBe(false);
+    });
   });
 
   describe('extractServiceEnvironmentVariables', () => {
@@ -289,6 +311,195 @@ services:
       const result = service.envFileToBase64WithMetadata(content);
 
       expect(result).toMatch(/^file:\.env:content:/);
+    });
+  });
+
+  describe('getEffectiveServiceEnvironment', () => {
+    it('should resolve variables with .env file taking priority over defaults', () => {
+      const composeYaml = `
+version: '3.8'
+services:
+  app:
+    image: myimage
+    environment:
+      - VAR1=\${VAR1:-default1}
+      - VAR2=hardcoded
+`;
+      const envFileContent = 'VAR1=from_env';
+      const parsedData = service.parseComposeFile(btoa(composeYaml));
+      const serviceConfig = parsedData!.services.find(s => s.name === 'app')?.config;
+
+      const effectiveEnvs = service.getEffectiveServiceEnvironment(
+        serviceConfig!,
+        parsedData!,
+        'app',
+        envFileContent
+      );
+
+      expect(effectiveEnvs.get('VAR1')).toBe('from_env');
+      expect(effectiveEnvs.get('VAR2')).toBe('hardcoded');
+    });
+
+    it('should use defaults when .env file is empty', () => {
+      const composeYaml = `
+version: '3.8'
+services:
+  app:
+    image: myimage
+    environment:
+      - VAR1=\${VAR1:-default1}
+      - VAR2=\${VAR2:-default2}
+`;
+      const parsedData = service.parseComposeFile(btoa(composeYaml));
+      const serviceConfig = parsedData!.services.find(s => s.name === 'app')?.config;
+
+      const effectiveEnvs = service.getEffectiveServiceEnvironment(
+        serviceConfig!,
+        parsedData!,
+        'app',
+        ''
+      );
+
+      expect(effectiveEnvs.get('VAR1')).toBe('default1');
+      expect(effectiveEnvs.get('VAR2')).toBe('default2');
+    });
+
+    it('should return empty string for undefined variables without defaults', () => {
+      const composeYaml = `
+version: '3.8'
+services:
+  app:
+    image: myimage
+    environment:
+      - UNDEFINED=\${UNDEFINED}
+`;
+      const parsedData = service.parseComposeFile(btoa(composeYaml));
+      const serviceConfig = parsedData!.services.find(s => s.name === 'app')?.config;
+
+      const effectiveEnvs = service.getEffectiveServiceEnvironment(
+        serviceConfig!,
+        parsedData!,
+        'app',
+        ''
+      );
+
+      expect(effectiveEnvs.get('UNDEFINED')).toBe('');
+    });
+
+    it('should handle variables referenced in command and other fields', () => {
+      const composeYaml = `
+version: '3.8'
+services:
+  app:
+    image: myimage
+    command: start --key \${KEY}
+    user: \${UID}
+`;
+      const envFileContent = 'KEY=value\nUID=1000';
+      const parsedData = service.parseComposeFile(btoa(composeYaml));
+      const serviceConfig = parsedData!.services.find(s => s.name === 'app')?.config;
+
+      const effectiveEnvs = service.getEffectiveServiceEnvironment(
+        serviceConfig!,
+        parsedData!,
+        'app',
+        envFileContent
+      );
+
+      expect(effectiveEnvs.get('KEY')).toBe('value');
+      expect(effectiveEnvs.get('UID')).toBe('1000');
+    });
+  });
+
+  describe('resolveVariables', () => {
+    it('should resolve ${VAR:-default} with .env value when present', () => {
+      const input = 'ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.10.1}';
+      const envValues = new Map([['ZITADEL_VERSION', 'v5.0.0']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v5.0.0');
+    });
+
+    it('should resolve ${VAR:-default} with default when .env value missing', () => {
+      const input = 'ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.10.1}';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v4.10.1');
+    });
+
+    it('should resolve ${VAR:-default} with default when .env value is empty', () => {
+      const input = 'ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.10.1}';
+      const envValues = new Map([['ZITADEL_VERSION', '']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v4.10.1');
+    });
+
+    it('should resolve ${VAR-default} (without colon) with .env value', () => {
+      const input = 'image:${TAG-latest}';
+      const envValues = new Map([['TAG', 'v1.0']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('image:v1.0');
+    });
+
+    it('should resolve ${VAR-default} with default when var unset', () => {
+      const input = 'image:${TAG-latest}';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('image:latest');
+    });
+
+    it('should resolve ${VAR} to empty string when not set', () => {
+      const input = 'prefix-${MISSING}-suffix';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('prefix--suffix');
+    });
+
+    it('should resolve $VAR simple syntax', () => {
+      const input = 'image:$TAG';
+      const envValues = new Map([['TAG', 'v2.0']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('image:v2.0');
+    });
+
+    it('should resolve multiple variables in one string', () => {
+      const input = '${REGISTRY}/zitadel:${VERSION:-latest}';
+      const envValues = new Map([['REGISTRY', 'ghcr.io']]);
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel:latest');
+    });
+
+    it('should return original string when no variables present', () => {
+      const input = 'ghcr.io/zitadel/zitadel:v4.10.1';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('ghcr.io/zitadel/zitadel:v4.10.1');
+    });
+
+    it('should strip quotes from default values', () => {
+      const input = '${VAR:-"quoted-default"}';
+      const envValues = new Map<string, string>();
+
+      const result = service.resolveVariables(input, envValues);
+
+      expect(result).toBe('quoted-default');
     });
   });
 });

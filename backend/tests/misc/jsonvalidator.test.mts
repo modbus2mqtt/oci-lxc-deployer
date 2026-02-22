@@ -1,7 +1,13 @@
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createTestEnvironment, type TestEnvironment } from "../helper/test-environment.mjs";
-import { TestPersistenceHelper, Volume } from "@tests/helper/test-persistence-helper.mjs";
+import {
+  createTestEnvironment,
+  type TestEnvironment,
+} from "../helper/test-environment.mjs";
+import {
+  TestPersistenceHelper,
+  Volume,
+} from "@tests/helper/test-persistence-helper.mjs";
 
 let env: TestEnvironment;
 let persistenceHelper: TestPersistenceHelper;
@@ -12,8 +18,8 @@ beforeAll(() => {
   env = createTestEnvironment(import.meta.url, {
     // Copy only required files into env.jsonDir
     jsonIncludePatterns: [
-      "^applications/modbus2mqtt/application\\.json$",
-      "^shared/templates/010-get-latest-os-template\\.json$",
+      "^applications/oci-image/application\\.json$",
+      "^shared/templates/image/011-host-get-oci-image\\.json$",
     ],
     // Schemas are stable and are read from repo directly (default)
   });
@@ -26,11 +32,11 @@ beforeAll(() => {
   });
   appFile = persistenceHelper.resolve(
     Volume.JsonApplications,
-    "modbus2mqtt/application.json",
+    "oci-image/application.json",
   );
   sharedTemplate = persistenceHelper.resolve(
     Volume.JsonSharedTemplates,
-    "010-get-latest-os-template.json",
+    "image/011-host-get-oci-image.json",
   );
 });
 
@@ -47,10 +53,12 @@ describe("JsonValidator", () => {
   const templateSchema = "template.schema.json";
 
   it("should construct and validate all schemas", () => {
-    expect(() => PersistenceManager.getInstance().getJsonValidator()).not.toThrow();
+    expect(() =>
+      PersistenceManager.getInstance().getJsonValidator(),
+    ).not.toThrow();
   });
 
-  it("should validate modbus2mqtt/application.json", () => {
+  it("should validate oci-image/application.json", () => {
     const validator = PersistenceManager.getInstance().getJsonValidator();
     expect(() =>
       validator.serializeJsonFileWithSchema(appFile, appSchema),
@@ -72,12 +80,13 @@ describe("JsonValidator", () => {
     );
     const original = persistenceHelper.readTextSync(
       Volume.JsonApplications,
-      "modbus2mqtt/application.json",
+      "oci-image/application.json",
     );
-    // Intentionally insert an error (e.g. object instead of array for installation)
+    // Intentionally insert an error (e.g. invalid value for a known property)
+    // Replace "name" with an invalid type (number instead of string)
     const broken = original.replace(
-      /"installation"\s*:\s*\[[^\]]*\]/,
-      '"installation": { "foo": 1 }',
+      /"name"\s*:\s*"[^"]*"/,
+      '"name": 12345',
     );
     persistenceHelper.writeTextSync(
       Volume.LocalRoot,

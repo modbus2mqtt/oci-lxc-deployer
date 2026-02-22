@@ -1,0 +1,8 @@
+{
+    "name": "GitHub Actions Runner",
+    "description": "Self-hosted GitHub Actions runner for CI/CD pipeline. Connects to ubuntupve for integration and e2e tests.",
+    "tags": ["ci", "devops"],
+    "installParams": {
+        "bridge": "vmbr1"
+    }
+}

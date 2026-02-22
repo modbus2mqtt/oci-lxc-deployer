@@ -5,7 +5,10 @@ import path from "node:path";
 import fs from "node:fs";
 import { ApiUri, IEnumValuesResponse } from "@src/types.mjs";
 import { PersistenceManager } from "@src/persistence/persistence-manager.mjs";
-import { createWebAppTestSetup, type WebAppTestSetup } from "../helper/webapp-test-helper.mjs";
+import {
+  createWebAppTestSetup,
+  type WebAppTestSetup,
+} from "../helper/webapp-test-helper.mjs";
 
 describe("WebApp Enum Values API", () => {
   let app: express.Application;
@@ -17,8 +20,10 @@ describe("WebApp Enum Values API", () => {
 
     setup = createWebAppTestSetup(import.meta.url, {
       jsonIncludePatterns: [
+        "^shared/templates/list/list-enum-values\\.json$",
+      ],
+      fixturesIncludePatterns: [
         "^applications/test-enum/.*",
-        "^shared/templates/list-enum-values.json$",
       ],
     });
 
@@ -37,8 +42,7 @@ describe("WebApp Enum Values API", () => {
   });
 
   it("returns enum values without params", async () => {
-    const url = ApiUri.EnumValues
-      .replace(":application", "test-enum")
+    const url = ApiUri.EnumValues.replace(":application", "test-enum")
       .replace(":task", "installation")
       .replace(":veContext", veContextKey);
 
@@ -66,7 +70,7 @@ describe("WebApp Enum Values API", () => {
         {
           name: "Enum Params App",
           description: "Test enum values with params",
-          installation: ["enum-param.json"],
+          installation: { post_start: ["enum-param.json"] },
         },
         null,
         2,
@@ -114,7 +118,7 @@ describe("WebApp Enum Values API", () => {
             {
               name: "emit",
               command:
-                "printf '[{\"name\":\"{{prefix}}-one\",\"value\":\"{{prefix}}-one\"}]'",
+                'printf \'[{"name":"{{prefix}}-one","value":"{{prefix}}-one"}]\'',
               outputs: ["enumValues"],
             },
           ],
@@ -127,8 +131,7 @@ describe("WebApp Enum Values API", () => {
 
     PersistenceManager.getInstance().getPersistence().invalidateCache();
 
-    const url = ApiUri.EnumValues
-      .replace(":application", appId)
+    const url = ApiUri.EnumValues.replace(":application", appId)
       .replace(":task", "installation")
       .replace(":veContext", veContextKey);
 

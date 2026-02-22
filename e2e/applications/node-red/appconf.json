@@ -1,0 +1,17 @@
+{
+    "name": "node-red",
+    "description": "Node-RED is a flow-based programming tool for wiring together hardware devices, APIs and online services.",
+    "tags": ["api", "iot"],
+    "installParams": {
+        "bridge": "vmbr1"
+    },
+    "validation": {
+        "commands": [
+            {
+                "command": "awk '$2 ~ /:0758$/ && $4 == \"0A\" {print $8}' /proc/net/tcp | head -1",
+                "expectedOutput": "1000",
+                "description": "Process on port 1880 should run as UID 1000"
+            }
+        ]
+    }
+}

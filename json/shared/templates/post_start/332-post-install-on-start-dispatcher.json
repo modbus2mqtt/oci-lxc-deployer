@@ -1,0 +1,11 @@
+{
+  "execute_on": "lxc",
+  "name": "Install On-Start Dispatcher",
+  "description": "Installs the on_start_container dispatcher and the on_start.d drop-in directory inside the container. The dispatcher is called by the Proxmox hookscript after each container restart.",
+  "commands": [
+    {
+      "script": "post-install-on-start-dispatcher.sh",
+      "description": "Create dispatcher script and drop-in directory"
+    }
+  ]
+}

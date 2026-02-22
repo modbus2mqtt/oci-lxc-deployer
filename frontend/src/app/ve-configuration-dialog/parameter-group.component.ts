@@ -1,4 +1,4 @@
-import { Component, Input, inject, signal, OnInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, inject, signal, OnInit } from '@angular/core';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -12,8 +12,10 @@ import { MatCardModule } from '@angular/material/card';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked } from 'marked';
 import * as yaml from 'js-yaml';
-import { IParameter, IJsonError } from '../../shared/types';
+import { IParameter, IJsonError, IStack } from '../../shared/types';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
+import { DockerComposeService } from '../shared/services/docker-compose.service';
+import { StackSelectorComponent } from '../shared/components/stack-selector/stack-selector.component';
 
 @Component({
   selector: 'app-parameter-group',
@@ -28,33 +30,11 @@ import { ErrorHandlerService } from '../shared/services/error-handler.service';
     MatIconModule,
     MatButtonModule,
     MatExpansionModule,
-    MatCardModule
+    MatCardModule,
+    StackSelectorComponent
   ],
   templateUrl: './parameter-group.component.html',
-  styleUrl: './parameter-group.component.scss',
-  styles: [`
-    .parameter-group {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      width: 100%;
-    }
-    
-    mat-form-field {
-      width: 100%;
-    }
-    
-    mat-form-field:has(textarea) {
-      width: 100% !important;
-      max-width: none !important;
-    }
-    
-    textarea {
-      min-height: 150px !important;
-      width: 100% !important;
-      resize: vertical;
-    }
-  `]
+  styleUrl: './parameter-group.component.scss'
 })
 export class ParameterGroupComponent implements OnInit {
   @Input({ required: true }) groupName!: string;
@@ -62,11 +42,17 @@ export class ParameterGroupComponent implements OnInit {
   @Input({ required: true }) form!: FormGroup;
   @Input({ required: true }) showAdvanced!: boolean;
 
+  // Stack selection inputs/outputs
+  @Input() availableStacks: IStack[] = [];
+  @Output() stackSelected = new EventEmitter<IStack>();
+  @Output() createStackRequested = new EventEmitter<void>();
+
   private errorHandler = inject(ErrorHandlerService);
   private sanitizer = inject(DomSanitizer);
+  private composeService = inject(DockerComposeService);
   expandedHelp: Record<string, boolean> = {};
   
-  // Track uploaded file names for display
+  // Stack uploaded file names for display
   uploadedFileNames: Record<string, string> = {};
   
   // Extracted compose properties
@@ -76,6 +62,114 @@ export class ParameterGroupComponent implements OnInit {
     images?: string;
     networks?: string;
   } | null>(null);
+
+  // Secret env file upload - stacks uploaded filename for display
+  secretEnvFileName = '';
+
+  // Stack selection state
+  selectedStack: IStack | null = null;
+
+  onStackSelect(stack: IStack): void {
+    this.selectedStack = stack;
+    this.stackSelected.emit(stack);
+  }
+
+  onCreateStack(): void {
+    this.createStackRequested.emit();
+  }
+
+  hasStacksAvailable(): boolean {
+    return this.availableStacks.length > 0;
+  }
+
+  // ==================== Marker Detection (delegates to service) ====================
+
+  /** Checks if envs control contains {{ }} markers */
+  envsHasMarkers(): boolean {
+    const value = this.form.get('envs')?.value;
+    return this.composeService.hasMarkers(value);
+  }
+
+  /** Checks if env_file control contains {{ }} markers (base64 encoded) */
+  envFileHasMarkers(): boolean {
+    const value = this.form.get('env_file')?.value;
+    return value ? this.composeService.hasMarkersInBase64(value) : false;
+  }
+
+  /** Extracts marker names from envs */
+  getEnvMarkers(): string[] {
+    const value = this.form.get('envs')?.value;
+    return this.composeService.extractMarkers(value);
+  }
+
+  /** Extracts marker names from env_file (base64 encoded) */
+  getEnvFileMarkers(): string[] {
+    const value = this.form.get('env_file')?.value;
+    return value ? this.composeService.extractMarkersFromBase64(value) : [];
+  }
+
+  // ==================== Secret Env File Upload ====================
+
+  /**
+   * Handles secret .env file upload for envs field - replaces markers in plain text
+   */
+  async onSecretEnvFileSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+
+    const file = input.files[0];
+    this.secretEnvFileName = file.name;
+
+    try {
+      const content = await this.readFileAsText(file);
+      const envVars = this.composeService.parseEnvFileText(content);
+
+      // Replace markers in envs (plain text)
+      const envsControl = this.form.get('envs');
+      if (envsControl && typeof envsControl.value === 'string') {
+        envsControl.setValue(this.composeService.replaceMarkers(envsControl.value, envVars));
+      }
+    } catch (error) {
+      this.errorHandler.handleError('Failed to read .env file', error);
+    }
+
+    input.value = '';
+  }
+
+  /**
+   * Handles secret .env file upload for env_file field - replaces markers in base64 content
+   */
+  async onSecretEnvFileSelectedForEnvFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+
+    const file = input.files[0];
+    this.secretEnvFileName = file.name;
+
+    try {
+      const content = await this.readFileAsText(file);
+      const envVars = this.composeService.parseEnvFileText(content);
+
+      // Replace markers in env_file (base64 encoded)
+      const envFileControl = this.form.get('env_file');
+      if (envFileControl && typeof envFileControl.value === 'string') {
+        envFileControl.setValue(this.composeService.replaceMarkersInBase64(envFileControl.value, envVars));
+      }
+    } catch (error) {
+      this.errorHandler.handleError('Failed to read .env file', error);
+    }
+
+    input.value = '';
+  }
+
+  private readFileAsText(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
+  }
 
   getTooltip(param: IParameter): string | undefined {
     // Only show tooltip if help is not expandable
@@ -120,8 +214,11 @@ export class ParameterGroupComponent implements OnInit {
   }
 
   isVisible(param: IParameter): boolean {
+    // Don't render if form control doesn't exist
+    if (!this.form.get(param.id)) return false;
     if (param.advanced && !this.showAdvanced) return false;
-    if (param.if && !this.form.get(param.if)?.value) return false;
+    // Check 'if' condition
+    if (param.if && !this.evaluateCondition(param.if)) return false;
     // For enum parameters with enumValuesTemplate, only hide if enumValues is an empty array
     // Show the field if enumValues is undefined (error case) or has values
     if (param.type === 'enum' && param.enumValues !== undefined) {
@@ -137,6 +234,19 @@ export class ParameterGroupComponent implements OnInit {
   isGroupVisible(): boolean {
     const params = this.groupedParameters[this.groupName];
     return params?.some(p => this.isVisible(p)) ?? false;
+  }
+
+  /**
+   * Evaluates a condition for param.if.
+   * Special conditions like 'env_file_has_markers' are computed from other controls.
+   */
+  private evaluateCondition(condition: string): boolean {
+    // Special: env_file_has_markers - check if envs or env_file contains {{ }} markers
+    if (condition === 'env_file_has_markers') {
+      return this.envsHasMarkers() || this.envFileHasMarkers();
+    }
+    // Default: check form control value
+    return !!this.form.get(condition)?.value;
   }
 
   get params(): IParameter[] {

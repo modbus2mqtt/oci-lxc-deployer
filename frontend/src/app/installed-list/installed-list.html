@@ -1,26 +1,47 @@
-<div class="installed-list">
-  @if (loading) {
-    <div>Lade installierte Container ...</div>
-  }
-  @if (error) {
-    <div class="error">{{ error }}</div>
-  }
-  <div class="card-grid">
-    @for (it of installations; track it) {
-      <div class="installed-card">
-        <div class="card-header">
-          <div class="header-info">
-            <h2>CT {{ it.vm_id }}</h2>
-            <p class="sub">
-              @if (it.hostname) { Host: <b>{{ it.hostname }}</b> • }
-              OCI: <b>{{ it.oci_image }}</b>
-            </p>
-          </div>
-        </div>
-        <div class="card-actions">
-          <button type="button" (click)="goToMonitor(it)">Copy-Upgrade</button>
-        </div>
+<app-card-grid
+  [items]="installations"
+  [loading]="loading"
+  [error]="error"
+  [trackByFn]="trackByInstallation"
+  theme="green"
+  loadingText="Lade installierte Container ...">
+
+  <ng-template #cardTemplate let-it>
+    <div class="card-header">
+      <div class="header-info">
+        <h2>{{ it.application_name || it.application_id || 'Unknown' }}</h2>
+        <p class="sub">
+          @if (it.application_id) {
+            <b>{{ it.application_id }}</b>@if (it.version) {<b>({{ it.version }})</b>}
+          }
+        </p>
       </div>
-    }
-  </div>
-</div>
+    </div>
+
+    <div class="card-body">
+      <p>
+        <span class="label">CT:</span>
+        <span class="value">{{ it.vm_id }}</span>
+        @if (it.hostname) {
+          <span class="label" style="margin-left: 1rem;">Host:</span>
+          <span class="value">{{ it.hostname }}</span>
+        }
+      </p>
+      <p>
+        <span class="label">OCI:</span>
+        <span class="value">{{ it.oci_image }}</span>
+      </p>
+      @if (it.addons?.length) {
+        <p>
+          <span class="label">Addons:</span>
+          <span class="value">{{ it.addons.join(', ') }}</span>
+        </p>
+      }
+    </div>
+
+    <div class="card-actions">
+      <button type="button" (click)="goToMonitor(it)">Copy-Upgrade</button>
+      <button type="button" class="secondary" (click)="editAddons(it)">Reconfigure</button>
+    </div>
+  </ng-template>
+</app-card-grid>

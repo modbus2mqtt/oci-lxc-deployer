@@ -2,9 +2,17 @@ import { ICommand, IVeExecuteMessage } from "../types.mjs";
 import { IVEContext } from "../backend-types.mjs";
 import { spawnAsync } from "../spawn-utils.mjs";
 import { JsonError } from "../jsonvalidator.mjs";
-import { VeExecutionConstants, getNextMessageIndex, ExecutionMode, determineExecutionMode } from "./ve-execution-constants.mjs";
+import {
+  VeExecutionConstants,
+  getNextMessageIndex,
+  ExecutionMode,
+  determineExecutionMode,
+} from "./ve-execution-constants.mjs";
 import { VeExecutionMessageEmitter } from "./ve-execution-message-emitter.mjs";
 import { OutputProcessor } from "../output-processor.mjs";
+import { createLogger } from "../logger/index.mjs";
+
+const logger = createLogger("execution");
 
 export interface SshExecutorDependencies {
   veContext: IVEContext | null;
@@ -14,7 +22,9 @@ export interface SshExecutorDependencies {
   messageEmitter: VeExecutionMessageEmitter;
   outputProcessor: OutputProcessor;
   outputsRaw: { name: string; value: string | number | boolean }[] | undefined;
-  setOutputsRaw: (raw: { name: string; value: string | number | boolean }[]) => void;
+  setOutputsRaw: (
+    raw: { name: string; value: string | number | boolean }[],
+  ) => void;
 }
 
 /**
@@ -30,7 +40,10 @@ export class VeExecutionSshExecutor {
       this.executionMode = deps.executionMode;
     } else if (deps.sshCommand !== undefined) {
       // Backward compatibility: derive from sshCommand
-      this.executionMode = deps.sshCommand === "ssh" ? ExecutionMode.PRODUCTION : ExecutionMode.TEST;
+      this.executionMode =
+        deps.sshCommand === "ssh"
+          ? ExecutionMode.PRODUCTION
+          : ExecutionMode.TEST;
     } else if (deps.veContext) {
       // If a VE context is present we almost certainly want to execute on the remote VE host.
       // This prevents running host-specific listing scripts (lsusb/lsblk/...) on the local dev machine.
@@ -49,11 +62,13 @@ export class VeExecutionSshExecutor {
    * In PRODUCTION mode: returns SSH arguments to connect to remote host.
    * In TEST mode: returns local interpreter command (or empty for stdin).
    * @param interpreter Optional interpreter command extracted from shebang (e.g., ["python3"])
+   * @param verbose If true, enables verbose SSH output for debugging (no -q, LogLevel=DEBUG)
    */
-  buildExecutionArgs(interpreter?: string[]): string[] {
+  buildExecutionArgs(interpreter?: string[], verbose?: boolean): string[] {
     if (this.executionMode === ExecutionMode.PRODUCTION) {
       // Production: SSH to remote host
-      if (!this.deps.veContext) throw new Error("VE context required for production mode");
+      if (!this.deps.veContext)
+        throw new Error("VE context required for production mode");
       let host = this.deps.veContext.host;
       // Ensure root user is used when no user is specified
       if (typeof host === "string" && !host.includes("@")) {
@@ -70,7 +85,7 @@ export class VeExecutionSshExecutor {
         "-o",
         "PreferredAuthentications=publickey", // try keys only
         "-o",
-        "LogLevel=ERROR", // suppress login banners and info
+        verbose ? "LogLevel=DEBUG" : "LogLevel=ERROR", // verbose mode shows SSH diagnostics
         "-o",
         "ConnectTimeout=5", // fail fast on unreachable hosts
         "-o",
@@ -84,11 +99,12 @@ export class VeExecutionSshExecutor {
         "-o",
         "ServerAliveCountMax=3", // fail after 3 missed keepalives
         "-T", // disable pseudo-tty to avoid MOTD banners
-        "-q", // Suppress SSH diagnostic output
-        "-p",
-        String(port),
-        `${host}`,
       ];
+      // Only suppress output in non-verbose mode
+      if (!verbose) {
+        sshArgs.push("-q");
+      }
+      sshArgs.push("-p", String(port), `${host}`);
       // Append interpreter if provided (e.g., ssh host python3)
       if (interpreter) {
         sshArgs.push(...interpreter);
@@ -141,6 +157,17 @@ export class VeExecutionSshExecutor {
     interpreter?: string[],
     uniqueMarker?: string,
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    logger.debug("Starting SSH execution", {
+      host: this.deps.veContext?.host,
+      command: tmplCommand.name,
+      timeoutMs,
+      executionMode: this.executionMode,
+      sshCommand:
+        this.executionMode === ExecutionMode.PRODUCTION
+          ? `ssh ${executionArgs.join(" ")}`
+          : undefined,
+    });
+
     // Build marker and determine command structure
     // Strategy: Use "echo 'MARKER' && interpreter" as shell command in TEST mode
     // The script content is passed via stdin, and interpreter will read it
@@ -159,7 +186,13 @@ export class VeExecutionSshExecutor {
       // Production: use ssh with executionArgs (which contains SSH args + optional interpreter)
       actualCommand = "ssh";
       // For production, prepend marker to script for shell scripts
-      if (!interpreter || interpreter.length === 0 || !interpreter[0] || interpreter[0] === "sh" || interpreter[0].endsWith("/sh")) {
+      if (
+        !interpreter ||
+        interpreter.length === 0 ||
+        !interpreter[0] ||
+        interpreter[0] === "sh" ||
+        interpreter[0].endsWith("/sh")
+      ) {
         actualArgs = executionArgs;
         actualInput = `export LC_ALL=C LANG=C\necho "${marker}"\n${input}`;
       } else {
@@ -176,7 +209,13 @@ export class VeExecutionSshExecutor {
       }
     } else {
       // Test mode: use sh -c with "echo 'MARKER' && interpreter" for non-shell interpreters
-      if (!interpreter || interpreter.length === 0 || !interpreter[0] || interpreter[0] === "sh" || interpreter[0].endsWith("/sh")) {
+      if (
+        !interpreter ||
+        interpreter.length === 0 ||
+        !interpreter[0] ||
+        interpreter[0] === "sh" ||
+        interpreter[0].endsWith("/sh")
+      ) {
         // Shell script: just prepend echo marker
         actualCommand = "sh";
         actualArgs = [];
@@ -199,11 +238,21 @@ export class VeExecutionSshExecutor {
         input: actualInput,
         onStdout: (chunk: string) => {
           // Emit partial message for real-time output (especially useful for hanging scripts)
-          this.deps.messageEmitter.emitPartialMessage(tmplCommand, originalInput, chunk, "");
+          this.deps.messageEmitter.emitPartialMessage(
+            tmplCommand,
+            originalInput,
+            chunk,
+            "",
+          );
         },
         onStderr: (chunk: string) => {
           // Emit partial message for real-time error output
-          this.deps.messageEmitter.emitPartialMessage(tmplCommand, originalInput, null, chunk);
+          this.deps.messageEmitter.emitPartialMessage(
+            tmplCommand,
+            originalInput,
+            null,
+            chunk,
+          );
         },
       });
 
@@ -215,14 +264,70 @@ export class VeExecutionSshExecutor {
       ) {
         retryCount++;
         if (retryCount < maxRetries) {
-          console.error(
-            `Connection failed with exit 255 (attempt ${retryCount}/${maxRetries}), retrying in ${VeExecutionConstants.RETRY_DELAY_MS / 1000}s...`,
+          // Log stderr from failed attempt if available
+          if (proc.stderr && proc.stderr.trim()) {
+            logger.warn("SSH connection failed - stderr output", {
+              stderr: proc.stderr,
+            });
+          }
+
+          logger.warn("SSH connection failed, retrying with verbose mode", {
+            attempt: retryCount,
+            maxRetries,
+            delayMs: VeExecutionConstants.RETRY_DELAY_MS,
+            host: this.deps.veContext?.host,
+            command: tmplCommand.name,
+          });
+
+          // Rebuild args with verbose=true for retry (removes -q, sets LogLevel=DEBUG)
+          const verboseArgs = this.buildExecutionArgs(interpreter, true);
+          if (
+            !interpreter ||
+            interpreter.length === 0 ||
+            !interpreter[0] ||
+            interpreter[0] === "sh" ||
+            interpreter[0].endsWith("/sh")
+          ) {
+            actualArgs = verboseArgs;
+          } else {
+            const interpreterCmd = interpreter.join(" ");
+            actualArgs = [
+              ...this.buildExecutionArgs(undefined, true),
+              "sh",
+              "-c",
+              `echo "${marker}" && export LC_ALL=C LANG=C; ${interpreterCmd}`,
+            ];
+          }
+
+          // Log the full SSH command for debugging
+          logger.debug("SSH retry command", {
+            command: `ssh ${actualArgs.join(" ")}`,
+          });
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, VeExecutionConstants.RETRY_DELAY_MS),
           );
-          await new Promise((resolve) => setTimeout(resolve, VeExecutionConstants.RETRY_DELAY_MS));
           continue;
         }
       }
       break;
+    }
+
+    logger.debug("SSH execution completed", {
+      command: tmplCommand.name,
+      exitCode: proc!.exitCode,
+      hasStdout: !!proc!.stdout,
+      stderrLength: proc!.stderr?.length || 0,
+    });
+
+    // Log error details if execution failed
+    if (proc!.exitCode !== 0) {
+      logger.warn("SSH command failed", {
+        command: tmplCommand.name,
+        exitCode: proc!.exitCode,
+        stderr: proc!.stderr?.slice(0, 500), // Truncate for logging
+        host: this.deps.veContext?.host,
+      });
     }
 
     return {
@@ -317,17 +422,34 @@ export class VeExecutionSshExecutor {
       uniqueMarker, // Pass marker to be added based on interpreter
     );
 
-    const msg = this.createMessageFromResult(input, tmplCommand, stdout, stderr, exitCode);
+    const msg = this.createMessageFromResult(
+      input,
+      tmplCommand,
+      stdout,
+      stderr,
+      exitCode,
+    );
 
     try {
       if (stdout.trim().length === 0) {
-        const result = this.handleEmptyOutput(msg, tmplCommand, exitCode, stderr, eventEmitter);
+        const result = this.handleEmptyOutput(
+          msg,
+          tmplCommand,
+          exitCode,
+          stderr,
+          eventEmitter,
+        );
         if (result) return result;
       } else {
         // Parse and update outputs
-        this.deps.outputProcessor.parseAndUpdateOutputs(stdout, tmplCommand, uniqueMarker);
+        this.deps.outputProcessor.parseAndUpdateOutputs(
+          stdout,
+          tmplCommand,
+          uniqueMarker,
+        );
         // Check if outputsRaw was updated
-        const outputsRawResult = this.deps.outputProcessor.getOutputsRawResult();
+        const outputsRawResult =
+          this.deps.outputProcessor.getOutputsRawResult();
         if (outputsRawResult) {
           this.deps.setOutputsRaw(outputsRawResult);
         }
@@ -355,4 +477,3 @@ export class VeExecutionSshExecutor {
     return msg;
   }
 }
-

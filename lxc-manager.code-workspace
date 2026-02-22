@@ -5,5 +5,7 @@
 
     { "path": "backend" }
   ],
-  "settings": {}
+  "settings": {
+    "claudeCode.allowDangerouslySkipPermissions": true
+  }
 }

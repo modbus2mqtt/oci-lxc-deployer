@@ -4,9 +4,7 @@ import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { VeExecution } from "../ve-execution/ve-execution.mjs";
 import { determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
-import { serializeError } from "./webapp-error-utils.mjs";
-
-
+import { sendErrorResponse } from "./webapp-error-utils.mjs";
 
 export function registerInstallationsRoutes(
   app: express.Application,
@@ -29,11 +27,25 @@ export function registerInstallationsRoutes(
       const scriptContent = repositories.getScript({
         name: "list-managed-oci-containers.py",
         scope: "shared",
+        category: "list", // list scripts are in list/ category
       });
       if (!scriptContent) {
         res.status(500).json({
           error:
-            "list-managed-oci-containers.py not found (expected in local/shared/scripts or json/shared/scripts)",
+            "list-managed-oci-containers.py not found (expected in local/shared/scripts/list or json/shared/scripts/list)",
+        });
+        return;
+      }
+
+      const libraryContent = repositories.getScript({
+        name: "lxc_config_parser_lib.py",
+        scope: "shared",
+        category: "library", // library scripts are in library/ category
+      });
+      if (!libraryContent) {
+        res.status(500).json({
+          error:
+            "lxc_config_parser_lib.py not found (expected in local/shared/scripts/library or json/shared/scripts/library)",
         });
         return;
       }
@@ -43,6 +55,7 @@ export function registerInstallationsRoutes(
         execute_on: "ve",
         script: "list-managed-oci-containers.py",
         scriptContent,
+        libraryContent,
         outputs: ["containers"],
       };
 
@@ -65,11 +78,7 @@ export function registerInstallationsRoutes(
         : [];
       res.status(200).json(payload);
     } catch (err: any) {
-      const serializedError = serializeError(err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-        serializedError: serializedError,
-      });
+      sendErrorResponse(res, err);
     }
   });
 }
