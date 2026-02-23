@@ -93,6 +93,7 @@ Required:
   --runner-host <host>       Proxmox host for GitHub runner (e.g., pve1)
   --worker-host <host>       Proxmox host for test-worker (e.g., ubuntupve)
   --github-token <token>     GitHub PAT with Actions read/write permission
+  --wol-mac <mac>            MAC address of worker-host for WOL
 
 Optional:
   --repo-url <url>           GitHub repo URL (default: modbus2mqtt/oci-lxc-deployer)
@@ -104,7 +105,6 @@ Optional:
   --bridge <name>            Network bridge (default: vmbr0)
   --runner-hostname <name>   Runner LXC hostname (default: gh-runner)
   --worker-hostname <name>   Worker LXC hostname (default: ci-test-worker)
-  --wol-mac <mac>            MAC address of worker-host for WOL
   --deployer-port <port>     Deployer API port on worker-host (default: 2080)
   --nested-ssh-port <port>   Nested VM SSH port on worker-host (default: 2022)
   --nested-vmid <id>         Nested VM ID (default: 9001)
@@ -118,6 +118,7 @@ done
 [ -z "$RUNNER_HOST" ] && fail "--runner-host is required"
 [ -z "$WORKER_HOST" ] && fail "--worker-host is required"
 [ -z "$GITHUB_TOKEN" ] && fail "--github-token is required"
+[ -z "$WOL_MAC" ] && fail "--wol-mac is required"
 [ -z "$RUNNER_NAME" ] && RUNNER_NAME="${RUNNER_HOST}-modbus2mqtt"
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10"
