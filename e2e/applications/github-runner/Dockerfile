@@ -1,8 +1,8 @@
 FROM ghcr.io/actions/actions-runner:latest
 
-# etherwake for WOL magic packets
+# etherwake for WOL magic packets, isc-dhcp-client for LXC DHCP
 RUN sudo apt-get update && \
-    sudo apt-get install -y --no-install-recommends etherwake && \
+    sudo apt-get install -y --no-install-recommends etherwake isc-dhcp-client && \
     sudo rm -rf /var/lib/apt/lists/*
 
 COPY pvetest /usr/local/bin/pvetest
