@@ -31,101 +31,18 @@ jobs:
               - 'backend/**'
               - 'frontend/**'
               - 'e2e/**'
+              - 'json/**'
               - 'scripts/**'
+              - 'install-oci-lxc-deployer.sh'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.nvmrc'
               - '.github/workflows/ci-tests.yml'
 
   # ============================================================
-  # Fast tests on GitHub-hosted runners (parallel, no Proxmox)
-  # ============================================================
-
-  code-quality:
-    needs: [check-changes]
-    if: needs.check-changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-
-      - name: Run jscpd duplicate check
-        run: npx jscpd --config .jscpd.json backend/src frontend/src
-
-  frontend-vitest:
-    needs: [check-changes]
-    if: needs.check-changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        working-directory: ./frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Run frontend tests
-        working-directory: ./frontend
-        run: pnpm test
-        env:
-          CI: true
-
-  backend-vitest:
-    needs: [check-changes]
-    if: needs.check-changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'pnpm'
-
-      - name: Install skopeo
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y skopeo
-
-      - name: Install dependencies
-        working-directory: ./backend
-        run: pnpm install --frozen-lockfile
-
-      - name: Run backend unit + integration tests
-        working-directory: ./backend
-        run: pnpm test:all
-        env:
-          CI: true
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage
-          path: backend/coverage/
-          retention-days: 7
-
-  # ============================================================
-  # Slow tests on self-hosted runner (sequential, needs Proxmox)
+  # Wake PVE host and ensure test-worker is reachable
+  # All infrastructure details live in the runner's environment,
+  # not in this workflow. See: pvetest --help
   # ============================================================
 
   wake-backend:
@@ -134,78 +51,96 @@ jobs:
     runs-on: [self-hosted, linux, pve1]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - name: Wake backend and wait for test-worker
+        run: pvetest wake
 
-      - name: Ensure backend is available
-        run: ./e2e/scripts/ensure-backend.sh
-        env:
-          E2E_INSTANCE: github-action
+  # ============================================================
+  # All tests run via pvetest on a remote test-worker.
+  # The runner on pve1 is just a relay.
+  # ============================================================
+
+  unit-tests:
+    needs: [wake-backend]
+    runs-on: [self-hosted, linux, pve1]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout on test-worker
+        run: pvetest checkout ${{ github.sha }} https://github.com/${{ github.repository }}.git
+
+      - name: Install dependencies
+        run: pvetest exec pnpm install --frozen-lockfile
+
+      - name: Code quality (jscpd)
+        run: pvetest exec npx jscpd --config .jscpd.json backend/src frontend/src
+
+      - name: Frontend tests
+        run: pvetest exec "cd frontend && CI=true pnpm test"
+
+      - name: Backend tests
+        run: pvetest exec "cd backend && CI=true pnpm test:all"
+
+      - name: Fetch coverage
+        if: always()
+        run: pvetest fetch backend/coverage/ /tmp/coverage/ || true
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: /tmp/coverage/
+          retention-days: 7
 
   template-tests:
-    runs-on: [self-hosted, linux, pve1]
     needs: [wake-backend]
+    runs-on: [self-hosted, linux, pve1]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'pnpm'
+      - name: Checkout on test-worker
+        run: pvetest checkout ${{ github.sha }} https://github.com/${{ github.repository }}.git
 
       - name: Install dependencies
-        working-directory: ./backend
-        run: pnpm install --frozen-lockfile
+        run: pvetest exec "cd backend && pnpm install --frozen-lockfile"
 
-      - name: Run template tests
-        working-directory: ./backend
-        run: pnpm test:templates
-        env:
-          CI: true
-          E2E_INSTANCE: github-action
+      - name: Template tests
+        run: pvetest exec "cd backend && CI=true E2E_INSTANCE=github-action pnpm test:templates"
+
+  install-test:
+    needs: [wake-backend]
+    runs-on: [self-hosted, linux, pve1]
+    timeout-minutes: 30
+    steps:
+      - name: Install test (snapshot rollback + install + verify)
+        run: pvetest install-test ${{ github.sha }} https://github.com/${{ github.repository }}.git
 
   e2e-tests:
-    runs-on: [self-hosted, linux, pve1]
     needs: [wake-backend]
+    runs-on: [self-hosted, linux, pve1]
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout on test-worker
+        run: pvetest checkout ${{ github.sha }} https://github.com/${{ github.repository }}.git
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium
-
-      - name: Build project
-        run: pnpm run build
+      - name: Install and build
+        run: |
+          pvetest exec pnpm install --frozen-lockfile
+          pvetest exec npx playwright install chromium
+          pvetest exec pnpm run build
 
       - name: Clean test containers
-        run: ./e2e/clean-test-containers.sh github-action || true
+        run: pvetest exec "./e2e/clean-test-containers.sh github-action" || true
 
-      - name: Run Playwright E2E tests
-        run: npx playwright test --project=nested-vm
-        env:
-          CI: true
-          E2E_INSTANCE: github-action
+      - name: Playwright E2E tests
+        run: pvetest exec "CI=true E2E_INSTANCE=github-action npx playwright test --project=nested-vm"
+
+      - name: Fetch Playwright report
+        if: always()
+        run: pvetest fetch e2e/test-results/ /tmp/playwright-report/ || true
 
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: e2e/test-results/
+          path: /tmp/playwright-report/
           retention-days: 7

@@ -43,6 +43,7 @@
   "ports": {
     "pveWeb": 1008,
     "pveSsh": 1022,
-    "deployer": 1080
+    "deployer": 1080,
+    "testWorkerSsh": 2222
   }
 }
