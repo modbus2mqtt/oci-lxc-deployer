@@ -10,6 +10,16 @@ set -e
 # LXC compatibility: runner expects to be in /home/runner (no Docker WORKDIR)
 cd /home/runner
 
+# Wait for network (LXC DHCP may not be ready when entrypoint starts as PID 1)
+echo "Waiting for network..."
+for i in $(seq 1 30); do
+    if curl -sf --max-time 2 https://api.github.com >/dev/null 2>&1; then
+        echo "Network ready"
+        break
+    fi
+    sleep 1
+done
+
 if [ -z "$REPO_URL" ] || [ -z "$ACCESS_TOKEN" ]; then
     echo "ERROR: REPO_URL and ACCESS_TOKEN must be set" >&2
     exit 1

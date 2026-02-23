@@ -33,7 +33,7 @@ RUNNER_VMID=""
 WORKER_VMID=""
 STORAGE=""
 BRIDGE="vmbr0"
-RUNNER_MEMORY=128
+RUNNER_MEMORY=512
 WORKER_MEMORY=2048
 RUNNER_DISK=4
 WORKER_DISK=4
@@ -57,13 +57,13 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-info()   { echo -e "${YELLOW}[INFO]${NC} $*"; }
-ok()     { echo -e "${GREEN}[OK]${NC} $*"; }
+info()   { echo -e "${YELLOW}[INFO]${NC} $*" >&2; }
+ok()     { echo -e "${GREEN}[OK]${NC} $*" >&2; }
 fail()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 header() {
-    echo -e "\n${BLUE}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}  $*${NC}"
-    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n"
+    echo -e "\n${BLUE}═══════════════════════════════════════════════════════${NC}" >&2
+    echo -e "${BLUE}  $*${NC}" >&2
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n" >&2
 }
 
 # --- Parse arguments ---
@@ -206,6 +206,7 @@ create_lxc() {
             --net0 name=eth0,bridge=$BRIDGE,ip=dhcp \
             --ostype $ostype \
             --unprivileged 1 \
+            --features nesting=1 \
             --arch amd64 >&2
 
         # Remove auto-created idmap (not needed for OCI containers)
@@ -224,7 +225,7 @@ configure_lxc() {
     shift 2
     # remaining args: KEY=VALUE pairs for lxc.environment
 
-    local config_lines="lxc.init_cmd: /entrypoint.sh"
+    local config_lines="lxc.init.cmd: /entrypoint.sh"
     for env in "$@"; do
         config_lines="${config_lines}
 lxc.environment: ${env}"
