@@ -1,6 +1,9 @@
 {
     "name": "GitHub Actions Runner",
     "description": "Self-hosted GitHub Actions runner for CI/CD pipeline. Connects to ubuntupve for integration and e2e tests.",
+    "uploadfiles": [
+        { "destination": "config:pvetest.env", "required": true, "file": "pvetest.env" }
+    ],
     "tags": ["ci", "devops"],
     "installParams": {
         "bridge": "vmbr1"
