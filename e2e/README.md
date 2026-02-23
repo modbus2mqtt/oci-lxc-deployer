@@ -31,6 +31,8 @@ open http://ubuntupve:13000
 | Create nested VM | `./step1-create-vm.sh` | ~2 min |
 | Install deployer | `./step2-install-deployer.sh` | ~92s |
 | Update code only | `./step2-install-deployer.sh --update-only` | ~24s |
+| Install CI infra | `./install-ci.sh --runner-host pve1 --worker-host ubuntupve --github-token <token>` | |
+| Init template tests | `./script2a-template-tests.sh` | |
 | Clean test containers | `./clean-test-containers.sh` | ~5s |
 | Fresh start | `./step1-create-vm.sh && ./step2-install-deployer.sh` | ~3.5 min |
 
@@ -43,15 +45,16 @@ e2e/
 ├── step0-create-iso.sh          # Create custom Proxmox ISO (one-time)
 ├── step1-create-vm.sh           # Create nested Proxmox VM
 ├── step2-install-deployer.sh    # Install/update oci-lxc-deployer
+├── install-ci.sh                # Install CI infrastructure (runner + test-worker)
+├── script2a-template-tests.sh   # Initialize nested VM for template tests
 ├── clean-test-containers.sh     # Remove test containers, keep deployer
+├── applications/                # Application definitions for deployment tests
+├── tests/                       # Playwright E2E test specs
+├── utils/                       # Test utility functions
+├── fixtures/                    # Playwright test fixtures
+├── global-setup.ts              # Playwright global setup (build verification)
 ├── pve1-scripts/                # Scripts for Proxmox ISO customization
-│   ├── answer-e2e.toml
-│   ├── create-iso.sh
-│   └── first-boot.sh
-└── scripts/                     # Helper scripts
-    ├── setup-port-forwarding-service.sh  # Persistent iptables rules
-    ├── snapshot-create.sh                # (disabled - not used)
-    └── snapshot-rollback.sh              # (disabled - not used)
+└── scripts/                     # Helper scripts (port forwarding, snapshots, cleanup)
 ```
 
 ## Configuration
@@ -142,6 +145,34 @@ Installs oci-lxc-deployer in the nested VM:
 
 Options:
 - `--update-only`: Skip container creation, just update code (~24s)
+
+### install-ci.sh
+
+Installs CI infrastructure on Proxmox hosts (runner + test-worker):
+- Creates a GitHub Actions runner LXC on the runner host (from OCI image)
+- Creates a CI test-worker LXC on the worker host (from OCI image)
+- Generates an SSH key pair for inter-container communication
+- Configures environment variables for `pvetest` integration
+
+Required arguments:
+- `--runner-host <host>`: Proxmox host for GitHub runner (e.g., `pve1.cluster`)
+- `--worker-host <host>`: Proxmox host for test-worker (e.g., `ubuntupve`)
+- `--github-token <token>`: GitHub PAT with repository Administration read/write permission
+
+Run `./install-ci.sh --help` for all options.
+Example:
+```
+install-ci.sh --runner-host pve1.cluster --worker-host  ubuntupve --github-token github_pat_1******
+```
+
+### script2a-template-tests.sh
+
+Initializes the nested VM for template tests:
+- Checks SSH connectivity to nested VM
+- Verifies Proxmox tools and storage
+- Downloads OS templates (Alpine + Debian)
+- Runs a smoke test (create, start, readiness-check, destroy)
+- Cleans up leftover test containers (VMID 9900-9999)
 
 ### clean-test-containers.sh
 
