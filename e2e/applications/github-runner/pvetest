@@ -34,6 +34,14 @@
 
 set -euo pipefail
 
+# Source environment file if present (deployed by oci-lxc-deployer)
+ENV_FILE="/etc/oci-lxc-deployer/pvetest.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    . "$ENV_FILE"
+    set +a
+fi
+
 HOST="${PVETEST_HOST:?PVETEST_HOST is required}"
 PORT="${PVETEST_WORKER_PORT:-22}"
 WORKER_HOST="${PVETEST_WORKER_HOST:-$HOST}"
