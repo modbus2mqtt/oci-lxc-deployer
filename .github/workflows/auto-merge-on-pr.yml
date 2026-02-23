@@ -12,11 +12,12 @@ jobs:
   auto-merge:
     name: Enable auto-merge (squash)
     runs-on: ubuntu-latest
-    # Only for trusted contributors (not bots, not external)
+    # Trusted contributors + release-please bot PRs
     if: >-
-      ${{ github.actor != 'github-actions[bot]'
-      && (github.event.pull_request.head.repo.full_name == github.repository
-      || github.actor == 'volkmarnissen') }}
+      ${{ (github.event.pull_request.head.repo.full_name == github.repository
+      || github.actor == 'volkmarnissen')
+      && (github.actor != 'github-actions[bot]'
+      || startsWith(github.head_ref, 'release-please--')) }}
     steps:
       - uses: actions/checkout@v5
       - run: gh pr merge ${{ github.event.pull_request.number }} --auto --rebase
