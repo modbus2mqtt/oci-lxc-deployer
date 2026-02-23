@@ -1,0 +1,9 @@
+services:
+  ci-test-worker:
+    image: ghcr.io/modbus2mqtt/ci-test-worker:latest
+    restart: unless-stopped
+    ports:
+      - "2222:22"
+    environment:
+      SSH_PUBLIC_KEY: "{{ CI_WORKER_SSH_PUBLIC_KEY }}"
+      SSH_PRIVATE_KEY: "{{ CI_WORKER_SSH_PRIVATE_KEY }}"
