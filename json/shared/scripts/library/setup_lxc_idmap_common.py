@@ -5,12 +5,18 @@ Designed to be *prepended* to other Python scripts and executed via stdin.
 Therefore it must not rely on package imports from the filesystem.
 """
 
+import json
 import os
+import sys
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
 STANDARD_START = 100000
 STANDARD_COUNT = 65536
+
+
+def eprint(*args: object) -> None:
+    print(*args, file=sys.stderr)
 
 
 def parse_ids(id_str: str) -> List[int]:
@@ -192,3 +198,72 @@ def compute_host_id_for_container_id(container_id: int, idmap_segments: List[Tup
     if unprivileged:
         return STANDARD_START + container_id
     return container_id
+
+
+def setup_idmap(
+    kind: str,
+    id_str: str,
+    vm_id: str,
+    sub_file_path: str,
+    config_dir: str,
+    log_prefix: str,
+) -> None:
+    """Orchestrate UID or GID mapping for an unprivileged LXC container.
+
+    1. Parses the ID string into a list of integer IDs
+    2. Updates /etc/subuid or /etc/subgid with required entries
+    3. Writes lxc.idmap entries to the container config
+    4. Computes and outputs the mapped host ID as JSON to stdout
+    """
+    if kind not in ("u", "g"):
+        raise ValueError("kind must be 'u' or 'g'")
+
+    id_label = "UID" if kind == "u" else "GID"
+    id_lower = "uid" if kind == "u" else "gid"
+    output_id = f"mapped_{id_lower}"
+
+    if not vm_id or vm_id == "NOT_DEFINED" or vm_id.strip() == "":
+        vm_id = ""
+
+    id_list = parse_ids(id_str)
+    if not id_list:
+        eprint(f"{log_prefix}: no {id_label} mapping requested ({id_lower} is empty/0) -> skipping /etc/sub{id_lower} and lxc.idmap updates")
+        return
+
+    eprint(f"{log_prefix}: requested {id_label}s for 1:1 mapping: {id_list}")
+
+    update_file(sub_file_path, calculate_subid_entries(id_list))
+    eprint(f"{log_prefix}: ensured /etc/sub{id_lower} entries for {len(id_list)} {id_label}(s)")
+
+    config_lines: List[str] = []
+    idmap_entries: List[str] = []
+    if vm_id and vm_id.isdigit():
+        config_path = Path(config_dir) / f"{vm_id}.conf"
+        idmap_entries = calculate_idmap_entries(id_list, kind)
+        if idmap_entries:
+            update_lxc_config_kind(config_path, kind, idmap_entries)
+            eprint(f"{log_prefix}: updated {config_path} with {len(idmap_entries)} {id_label} idmap line(s)")
+        try:
+            config_lines = config_path.read_text(encoding="utf-8").splitlines(True)
+        except Exception:
+            config_lines = []
+    else:
+        if vm_id:
+            eprint(f"{log_prefix}: vm_id is not numeric; skipping lxc config updates")
+        else:
+            eprint(f"{log_prefix}: vm_id not provided; skipping lxc config updates")
+
+    unprivileged = detect_unprivileged_from_config(config_lines)
+
+    # Use computed idmap entries directly to avoid pmxcfs read-after-write sync issues.
+    # Reading /etc/pve/ (FUSE cluster filesystem) immediately after writing may return stale data.
+    if idmap_entries:
+        segments = parse_idmap_lines([e + "\n" for e in idmap_entries], kind)
+    else:
+        segments = parse_idmap_lines(config_lines, kind) if config_lines else []
+    if not segments and unprivileged:
+        segments = [(0, STANDARD_START, 65536)]
+
+    mapped_val = compute_host_id_for_container_id(id_list[0], segments, unprivileged)
+    eprint(f"{log_prefix}: {output_id} for container {id_lower} {id_list[0]} -> host {id_lower} {mapped_val}")
+    print(json.dumps([{"id": output_id, "value": str(mapped_val)}]))
