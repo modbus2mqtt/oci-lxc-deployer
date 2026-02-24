@@ -66,6 +66,15 @@ execute_script_from_github() {
       fi
       script_content=$(printf '%s\n\n%s' "$lib_content" "$script_content")
       ;;
+    json/shared/scripts/pre_start/host-write-lxc-notes.py|json/shared/scripts/pre_start/host-write-docker-compose-notes.py)
+      if [ -n "$LOCAL_SCRIPT_PATH" ] && [ -f "${LOCAL_SCRIPT_PATH}/json/shared/scripts/library/lxc-notes-common.py" ]; then
+        lib_content=$(cat "${LOCAL_SCRIPT_PATH}/json/shared/scripts/library/lxc-notes-common.py")
+      else
+        lib_url="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/json/shared/scripts/library/lxc-notes-common.py"
+        lib_content=$(curl -fsSL "$lib_url")
+      fi
+      script_content=$(printf '%s\n\n%s' "$lib_content" "$script_content")
+      ;;
   esac
 
   if [ "$output_id" = "-" ]; then
