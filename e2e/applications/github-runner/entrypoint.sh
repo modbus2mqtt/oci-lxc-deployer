@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 # Required environment variables:
 #   REPO_URL       - GitHub repository URL (e.g. https://github.com/owner/repo)
@@ -7,13 +6,15 @@ set -e
 #   RUNNER_NAME    - Display name for this runner
 #   LABELS         - Comma-separated labels (e.g. self-hosted,linux,x64,pve1)
 
-# LXC compatibility: runner expects to be in /home/runner (no Docker WORKDIR)
+# Runs as root (Dockerfile sets USER root) — needed for DHCP in LXC containers
+export RUNNER_ALLOW_RUNASROOT=1
+
 cd /home/runner
 
 # LXC with lxc.init.cmd bypasses the normal init system, so no DHCP client runs.
-# Find the first non-lo interface and request a DHCP lease.
-NET_IF=$(ls /sys/class/net/ | grep -v lo | head -1)
-if [ -n "$NET_IF" ] && ! ip addr show "$NET_IF" | grep -q 'inet '; then
+# Find the first real network interface (skip lo and bonding_masters).
+NET_IF=$(ip -o link show 2>/dev/null | awk -F': ' '!/lo|bonding/{print $2; exit}')
+if [ -n "$NET_IF" ] && ! ip addr show "$NET_IF" 2>/dev/null | grep -q 'inet '; then
     echo "Requesting DHCP lease for $NET_IF..."
     ip link set "$NET_IF" up 2>/dev/null || true
     dhclient -1 -4 "$NET_IF" 2>/dev/null || true
@@ -36,9 +37,9 @@ fi
 
 # Set up SSH private key for connecting to test-worker
 if [ -n "$SSH_PRIVATE_KEY" ]; then
-    mkdir -p ~/.ssh
-    echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-    chmod 600 ~/.ssh/id_ed25519
+    mkdir -p /home/runner/.ssh
+    echo "$SSH_PRIVATE_KEY" > /home/runner/.ssh/id_ed25519
+    chmod 600 /home/runner/.ssh/id_ed25519
     echo "SSH private key installed"
 fi
 
@@ -50,21 +51,12 @@ mkdir -p "$RUNNER_WORKDIR"
 
 # Get registration token from GitHub API
 echo "Requesting registration token for $REPO_URL..."
+API_URL=$(echo "$REPO_URL" | sed 's|https://github.com/|https://api.github.com/repos/|')
 REG_TOKEN=$(curl -s -X POST \
     -H "Authorization: token $ACCESS_TOKEN" \
     -H "Accept: application/vnd.github+json" \
-    "${REPO_URL}/actions/runners/registration-token" \
+    "$API_URL/actions/runners/registration-token" \
     | jq -r '.token')
-
-if [ -z "$REG_TOKEN" ] || [ "$REG_TOKEN" = "null" ]; then
-    # Try API URL format (REPO_URL might be https://github.com/owner/repo)
-    API_URL=$(echo "$REPO_URL" | sed 's|https://github.com/|https://api.github.com/repos/|')
-    REG_TOKEN=$(curl -s -X POST \
-        -H "Authorization: token $ACCESS_TOKEN" \
-        -H "Accept: application/vnd.github+json" \
-        "$API_URL/actions/runners/registration-token" \
-        | jq -r '.token')
-fi
 
 if [ -z "$REG_TOKEN" ] || [ "$REG_TOKEN" = "null" ]; then
     echo "ERROR: Failed to get registration token" >&2
