@@ -796,10 +796,11 @@ upload_output_result "${outputId}"
   }
 
   /**
-   * Sanitize filename for use in parameter IDs and template names
+   * Sanitize filename for use in parameter IDs and template names.
+   * Includes the file extension to avoid collisions (e.g., server.crt vs server.key).
    */
   private sanitizeFilename(filename: string): string {
-    const base = path.basename(filename, path.extname(filename));
+    const base = path.basename(filename);
     return base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
 

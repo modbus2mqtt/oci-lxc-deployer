@@ -7,10 +7,14 @@ services:
       PGADMIN_DEFAULT_PASSWORD: "{{ PGADMIN_DEFAULT_PASSWORD }}"
       PGADMIN_CONFIG_SERVER_MODE: "True"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_ENABLE_TLS: "True"
+      PGADMIN_SSL_CERT_FILE: "/certs/server.crt"
+      PGADMIN_SSL_KEY_FILE: "/certs/server.key"
     volumes:
       - ./pgadmin:/var/lib/pgadmin
+      - ./certs:/certs:ro
     ports:
-      - "${PGADMIN_PORT:-5050}:80"
+      - "${PGADMIN_PORT:-5050}:443"
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,3 +41,4 @@ services:
 volumes:
   data:
   pgadmin:
+  certs:

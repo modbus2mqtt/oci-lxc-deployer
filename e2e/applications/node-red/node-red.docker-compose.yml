@@ -7,13 +7,15 @@ services:
       TZ: ${TZ:-Europe/Berlin}
     volumes:
       - ./data:/data
+      - ./certs:/certs:ro
     ports:
       - "${NODERED_PORT:-1880}:1880"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:1880/"]
+      test: ["CMD", "curl", "-kf", "https://localhost:1880/"]
       interval: 30s
       timeout: 10s
       retries: 3
 
 volumes:
   data:
+  certs:

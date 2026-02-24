@@ -85,12 +85,12 @@ describe("FrameworkLoader certtype", () => {
     // Read the generated template
     const templateContent = persistenceHelper.readJsonSync(
       Volume.LocalRoot,
-      "applications/test-certtype-app/templates/0-upload-server.json",
+      "applications/test-certtype-app/templates/0-upload-server-crt.json",
     );
 
     // Find the content parameter (first parameter)
     const contentParam = templateContent.parameters?.find(
-      (p: any) => p.id === "upload_server_content",
+      (p: any) => p.id === "upload_server_crt_content",
     );
     expect(contentParam).toBeDefined();
     expect(contentParam.upload).toBe(true);
@@ -128,11 +128,11 @@ describe("FrameworkLoader certtype", () => {
 
     const templateContent = persistenceHelper.readJsonSync(
       Volume.LocalRoot,
-      "applications/test-no-certtype-app/templates/0-upload-app.json",
+      "applications/test-no-certtype-app/templates/0-upload-app-conf.json",
     );
 
     const contentParam = templateContent.parameters?.find(
-      (p: any) => p.id === "upload_app_content",
+      (p: any) => p.id === "upload_app_conf_content",
     );
     expect(contentParam).toBeDefined();
     expect(contentParam.upload).toBe(true);

@@ -175,7 +175,7 @@ describe("FrameworkLoader.getPreviewUnresolvedParameters", () => {
 
     // Should include upload parameter for config.json
     const uploadParam = unresolvedParams.find(
-      (p) => p.id === "upload_config_content",
+      (p) => p.id === "upload_config_json_content",
     );
     expect(uploadParam).toBeDefined();
     expect(uploadParam?.name).toBe("config.json");
@@ -210,7 +210,7 @@ describe("FrameworkLoader.getPreviewUnresolvedParameters", () => {
 
     // Should include the required upload parameter
     const uploadParam = unresolvedParams.find(
-      (p) => p.id === "upload_settings_content",
+      (p) => p.id === "upload_settings_conf_content",
     );
     expect(uploadParam).toBeDefined();
     expect(uploadParam?.name).toBe("settings.conf");

@@ -77,7 +77,20 @@ test.describe('Application Installation E2E Tests', () => {
 
       const helper = new ApplicationInstallHelper(page);
 
-      // Step 0: Cleanup existing application (if any)
+      // Step 0a: Destroy old containers with same hostname and their volume directories.
+      // This ensures a clean volume state (upload scripts skip existing files).
+      const preCleanupValidator = new SSHValidator({
+        sshHost: getPveHost(),
+        sshPort: SSH_PORT,
+      });
+      const preCleanup = preCleanupValidator.cleanupOldContainers(
+        app.applicationId,
+        '0', // destroy ALL matching containers (no keepVmId yet)
+        e2eConfig.defaults.deployerStaticIp,
+      );
+      console.log(`Pre-test container cleanup: ${preCleanup.message}`);
+
+      // Step 0b: Cleanup existing application files (if any)
       console.log(`Cleaning up existing application: ${app.applicationId}`);
       const cleanup = helper.cleanupApplication(app.applicationId);
       console.log(`Cleanup result: ${cleanup.message}`);

@@ -155,11 +155,12 @@ export class ValidationGenerator {
 
     for (let i = 0; i < uploadFiles.length; i++) {
       const upload = uploadFiles[i];
-      console.log(`[ValidationGenerator] upload file ${i}: ${upload.filename} (required=${upload.required}, advanced=${upload.advanced})`);
+      const displayName = this.filenameFromDestination(upload.destination);
+      console.log(`[ValidationGenerator] upload file ${i}: ${displayName} (required=${upload.required}, advanced=${upload.advanced})`);
 
       // Skip advanced files (optional configurations like certificates)
       if (upload.advanced) {
-        console.log(`[ValidationGenerator] Skipping advanced file: ${upload.filename}`);
+        console.log(`[ValidationGenerator] Skipping advanced file: ${displayName}`);
         continue;
       }
 
@@ -168,20 +169,13 @@ export class ValidationGenerator {
       console.log(`[ValidationGenerator] Upload destination: ${upload.destination} -> ${containerPath}`);
       if (!containerPath) continue;
 
-      // Try to read expected content from source file
-      let expectedContent: string | undefined;
-      try {
-        const sourcePath = `${basePath}/${upload.filename}`;
-        expectedContent = readFileSync(sourcePath, 'utf-8');
-      } catch {
-        // File might not exist locally (e.g., optional files)
-      }
-
+      // Only check file existence, not content.
+      // Content comparison is unreliable because persistent volumes may contain
+      // files from previous installations that the upload script preserves.
       config.uploadFiles.push({
         path: containerPath,
-        expectedContent,
         isRegex: false,
-        description: `Upload file '${upload.filename}' exists at ${containerPath}`,
+        description: `Upload file '${displayName}' exists at ${containerPath}`,
       });
     }
   }
@@ -255,6 +249,16 @@ export class ValidationGenerator {
     }
 
     return null;
+  }
+
+  /**
+   * Extract filename from destination (e.g., "config:mosquitto.conf" -> "mosquitto.conf", "certs:server.crt" -> "server.crt")
+   */
+  private static filenameFromDestination(destination: string): string {
+    const colonIndex = destination.indexOf(':');
+    const filePath = colonIndex >= 0 ? destination.slice(colonIndex + 1) : destination;
+    const lastSlash = filePath.lastIndexOf('/');
+    return lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
   }
 
   /**

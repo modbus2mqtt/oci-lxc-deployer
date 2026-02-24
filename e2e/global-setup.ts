@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { ensureTestCerts } from './utils/cert-generator';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,6 +19,8 @@ interface BuildInfo {
  * from the running server. Fails early if the backend needs a restart.
  */
 export default async function globalSetup() {
+  // Generate self-signed test certificates for HTTPS E2E tests (idempotent)
+  ensureTestCerts();
   // Read local build info
   const buildInfoPath = join(__dirname, '..', 'backend', 'dist', 'build-info.json');
   if (!existsSync(buildInfoPath)) {
