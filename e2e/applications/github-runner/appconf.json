@@ -6,6 +6,6 @@
     ],
     "tags": ["ci", "devops"],
     "installParams": {
-        "bridge": "vmbr1"
+        "bridge": "vmbr0"
     }
 }
