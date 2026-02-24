@@ -8,6 +8,13 @@ RUN sudo apt-get update && \
 COPY pvetest /usr/local/bin/pvetest
 RUN sudo chmod +x /usr/local/bin/pvetest
 
+COPY entrypoint.sh /entrypoint.sh
+RUN sudo chmod +x /entrypoint.sh
+
+USER root
+
+ENTRYPOINT ["/entrypoint.sh"]
+
 LABEL \
     org.opencontainers.image.title="oci-lxc-deployer-github-runner" \
     org.opencontainers.image.description="GitHub Actions self-hosted runner for oci-lxc-deployer CI/CD with etherwake and pvetest" \

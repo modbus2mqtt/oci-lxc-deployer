@@ -454,6 +454,7 @@ mapped_gid=$(execute_script_from_github \
   "json/shared/scripts/pre_start/conf-setup-lxc-gid-mapping.py" \
   "mapped_gid" \
   "gid=${LXC_GID}" \
+  "uid=${LXC_UID}" \
   "vm_id=${vm_id}" || echo "")
 
 # Fallback to defaults if mapper returned nothing
@@ -601,102 +602,83 @@ else
   echo "  Container is running" >&2
 fi
 
-  # Ensure SSH keys persist in /secure: symlink /home/lxc/.ssh -> /secure/.ssh
+  # Fix volume ownership from host side (Proxmox may UID-shift bind-mount
+  # content for unprivileged containers; chown from inside may fail with EPERM
+  # if the on-disk UID is outside the container's mapped range)
+  echo "  Fixing volume ownership (mapped_uid=${mapped_uid}, mapped_gid=${mapped_gid})..." >&2
+  chown "${mapped_uid}:${mapped_gid}" "${config_volume_path}" 2>/dev/null || true
+  chown "${mapped_uid}:${mapped_gid}" "${secure_volume_path}" 2>/dev/null || true
+  mkdir -p "${secure_volume_path}/.ssh"
+  chown "${mapped_uid}:${mapped_gid}" "${secure_volume_path}/.ssh"
+  chmod 700 "${secure_volume_path}/.ssh"
+
+  # Setup SSH key persistence: symlink /home/lxc/.ssh -> /secure/.ssh
   lxc-attach -n "${vm_id}" -- sh -c "\
-    mkdir -p /secure/.ssh && \
-    chown -R lxc:lxc /secure && \
-    chmod 700 /secure && \
-    chmod 700 /secure/.ssh && \
     rm -rf /home/lxc/.ssh && \
     ln -sfn /secure/.ssh /home/lxc/.ssh && \
     chown -h lxc:lxc /home/lxc/.ssh\
   " >/dev/null 2>&1 || true
 
-# 7) Get SSH public key from container and add to root authorized_keys
+# 7) Setup SSH access — all from host side via secure_volume_path
 echo "Step 7: Setting up SSH access..." >&2
-# Wait for container and application to be ready
-echo "  Waiting for container application to start..." >&2
-sleep 5
+ssh_dir="${secure_volume_path}/.ssh"
 
-# Try to get SSH public key from container
-# The key is generated when the application starts, so we need to wait for it
+# Check if key already exists (e.g. from a previous install with persistent /secure volume)
 container_pubkey=""
-max_attempts=10
-attempt=0
-
-while [ $attempt -lt $max_attempts ]; do
-  attempt=$((attempt + 1))
-  
-  # Try multiple locations where the key might be
-  # Based on ssh.mts: /home/lxc/.ssh/id_ed25519.pub (LXC_MANAGER_USER_HOME=/home/lxc)
-  # Also check /var/lib/oci-lxc-deployer and /home/oci-lxc-deployer
-  for key_path in \
-    "/home/lxc/.ssh/id_ed25519.pub" \
-    "/home/lxc/.ssh/id_rsa.pub" \
-    "/var/lib/oci-lxc-deployer/.ssh/id_ed25519.pub" \
-    "/var/lib/oci-lxc-deployer/.ssh/id_rsa.pub" \
-    "/home/oci-lxc-deployer/.ssh/id_ed25519.pub" \
-    "/home/oci-lxc-deployer/.ssh/id_rsa.pub"; do
-    container_pubkey=$(lxc-attach -n "${vm_id}" -- cat "$key_path" 2>/dev/null | grep -v "^$" || echo "")
-    if [ -n "$container_pubkey" ]; then
-      echo "  Found SSH public key at: $key_path" >&2
-      break 2
-    fi
-  done
-  
-  # Do not generate keys here; the application will generate them at startup
-  
-  if [ $attempt -lt $max_attempts ]; then
-    sleep 3
-  fi
-done
-
-if [ -n "$container_pubkey" ]; then
-  echo "  Found SSH public key in container" >&2
-  # Add to root authorized_keys if not already present
-  root_ssh_dir="/root/.ssh"
-  root_auth_keys="${root_ssh_dir}/authorized_keys"
-  
-  mkdir -p "${root_ssh_dir}"
-  chmod 700 "${root_ssh_dir}"
-  
-  # Resolve symlink to get actual file path
-  if [ -L "${root_auth_keys}" ]; then
-    actual_auth_keys=$(readlink -f "${root_auth_keys}")
-    echo "  authorized_keys is a symlink to: ${actual_auth_keys}" >&2
-  else
-    actual_auth_keys="${root_auth_keys}"
-  fi
-  
-  # Check if key already exists
-  if [ -f "${actual_auth_keys}" ] && grep -qF "${container_pubkey}" "${actual_auth_keys}" 2>/dev/null; then
-    echo "  SSH key already in root authorized_keys" >&2
-  else
-    echo "${container_pubkey}" >> "${actual_auth_keys}"
-    echo "  Added SSH key to root authorized_keys" >&2
-  fi
-  
-  # Check and fix permissions only if needed
-  current_owner=$(stat -c '%U:%G' "${actual_auth_keys}" 2>/dev/null || stat -f '%Su:%Sg' "${actual_auth_keys}" 2>/dev/null || echo "")
-  current_perms=$(stat -c '%a' "${actual_auth_keys}" 2>/dev/null || stat -f '%Lp' "${actual_auth_keys}" 2>/dev/null || echo "")
-  
-  if [ "$current_owner" != "root:root" ]; then
-    echo "  Fixing ownership of ${actual_auth_keys}" >&2
-    chown root:root "${actual_auth_keys}" 2>/dev/null || true
-  fi
-  
-  if [ "$current_perms" != "600" ]; then
-    echo "  Fixing permissions of ${actual_auth_keys}" >&2
-    chmod 600 "${actual_auth_keys}" 2>/dev/null || true
-  fi
-  
-  # SSH key installed; no SSH service restart required
-  echo "  SSH key installed and permissions hardened (no SSH restart)" >&2
-else
-  echo "  Warning: Could not retrieve SSH public key from container after ${max_attempts} attempts" >&2
-  echo "  The key will be generated when the application starts" >&2
-  echo "  You can add it later using the SSH config page in the web interface" >&2
+if [ -f "${ssh_dir}/id_ed25519.pub" ]; then
+  container_pubkey=$(cat "${ssh_dir}/id_ed25519.pub" 2>/dev/null | grep -v "^$" || echo "")
+  [ -n "$container_pubkey" ] && echo "  Found existing SSH public key" >&2
+elif [ -f "${ssh_dir}/id_rsa.pub" ]; then
+  container_pubkey=$(cat "${ssh_dir}/id_rsa.pub" 2>/dev/null | grep -v "^$" || echo "")
+  [ -n "$container_pubkey" ] && echo "  Found existing SSH public key (RSA)" >&2
 fi
+
+# Generate key if none exists (on host, write directly to secure volume)
+if [ -z "$container_pubkey" ]; then
+  echo "  Generating SSH keypair..." >&2
+  ssh-keygen -t ed25519 -f "${ssh_dir}/id_ed25519" -N "" -C "oci-lxc-deployer@auto-generated" \
+    >/dev/null 2>&1
+  chown "${mapped_uid}:${mapped_gid}" "${ssh_dir}/id_ed25519" "${ssh_dir}/id_ed25519.pub" 2>/dev/null || true
+  chmod 600 "${ssh_dir}/id_ed25519"
+  chmod 644 "${ssh_dir}/id_ed25519.pub"
+  container_pubkey=$(cat "${ssh_dir}/id_ed25519.pub" 2>/dev/null | grep -v "^$" || echo "")
+  [ -n "$container_pubkey" ] && echo "  SSH keypair generated" >&2
+fi
+
+if [ -z "$container_pubkey" ]; then
+  echo "Error: Failed to generate SSH keypair at ${ssh_dir}" >&2
+  exit 1
+fi
+
+# Add container public key to host authorized_keys
+root_auth_keys="/root/.ssh/authorized_keys"
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+if [ -L "${root_auth_keys}" ]; then
+  actual_auth_keys=$(readlink -f "${root_auth_keys}")
+else
+  actual_auth_keys="${root_auth_keys}"
+fi
+
+if [ -f "${actual_auth_keys}" ] && grep -qF "${container_pubkey}" "${actual_auth_keys}" 2>/dev/null; then
+  echo "  SSH key already in root authorized_keys" >&2
+else
+  echo "${container_pubkey}" >> "${actual_auth_keys}"
+  chmod 600 "${actual_auth_keys}"
+  chown root:root "${actual_auth_keys}" 2>/dev/null || true
+  echo "  Added SSH key to root authorized_keys" >&2
+fi
+
+# Pre-populate known_hosts with PVE host key
+host_pubkey=$(ssh-keyscan -t ed25519 "${proxmox_hostname}" 2>/dev/null || true)
+if [ -n "$host_pubkey" ]; then
+  echo "${host_pubkey}" >> "${ssh_dir}/known_hosts"
+  chown "${mapped_uid}:${mapped_gid}" "${ssh_dir}/known_hosts"
+  chmod 644 "${ssh_dir}/known_hosts"
+  echo "  PVE host key added to known_hosts" >&2
+fi
+
+echo "  SSH access configured" >&2
 
 # 8) Application startup note (no API configuration; app reads storagecontext.json)
 echo "Step 8: Application startup context ready (no API calls)" >&2
