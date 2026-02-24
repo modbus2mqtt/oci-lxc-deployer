@@ -14,5 +14,6 @@ LABEL \
     org.opencontainers.image.vendor="modbus2mqtt" \
     org.opencontainers.image.authors="Volkmar Nissen <volkmar.nissen@gmail.com>" \
     org.opencontainers.image.licenses="MIT" \
+    org.opencontainers.image.version="1.0.0" \
     org.opencontainers.image.source="https://github.com/modbus2mqtt/oci-lxc-deployer" \
     org.opencontainers.image.base.name="ghcr.io/actions/actions-runner:latest"
