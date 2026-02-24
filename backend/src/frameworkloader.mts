@@ -281,14 +281,9 @@ export class FrameworkLoader {
 
         templateParameters.push(param);
       } else if (paramValue !== undefined) {
-        // For docker-compose framework: skip certain properties
-        if (framework.id === "docker-compose") {
-          // volumes is output by 310-extract-volumes-from-compose.json template
-          if (propId === "volumes") {
-            continue;
-          }
-          // env_file is handled separately below (marker detection)
-        }
+        // For docker-compose framework: env_file is handled separately below (marker detection)
+        // Note: volumes is now marked as default:true in docker-compose.json,
+        // so it takes the shouldAddAsParameter path above and never reaches here.
 
         // Create property/output entry
         templateProperties.push({

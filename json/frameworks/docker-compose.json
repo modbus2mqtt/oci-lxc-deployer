@@ -6,7 +6,7 @@
     "compose_file",
     "env_file",
     "compose_project",
-    "volumes",
+    { "id": "volumes", "default": true },
     "ostype",
     "compose_services",
     "compose_ports",

@@ -1,12 +1,7 @@
 {
-  "folders": [
-    { "path": "." },
-    { "path": "frontend" },
-
-    { "path": "backend" }
-  ],
-  "settings": {
-    "workbench.colorTheme": "Red",
-    "claudeCode.allowDangerouslySkipPermissions": true
-  }
+    "folders": [
+        {
+            "path": "backend"
+        }
+    ]
 }

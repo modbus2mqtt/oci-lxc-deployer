@@ -8,8 +8,6 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: "True"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
       PGADMIN_ENABLE_TLS: "True"
-      PGADMIN_SSL_CERT_FILE: "/certs/server.crt"
-      PGADMIN_SSL_KEY_FILE: "/certs/server.key"
     volumes:
       - ./pgadmin:/var/lib/pgadmin
       - ./certs:/certs:ro

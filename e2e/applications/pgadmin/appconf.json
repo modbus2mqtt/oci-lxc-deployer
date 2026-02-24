@@ -4,7 +4,7 @@
     "tags": ["database"],
     "tasktype": "postgres",
     "uploadfiles": [
-        { "destination": "certs:server.crt", "required": true, "file": "../../certs/server.crt" },
+        { "destination": "certs:server.cert", "required": true, "file": "../../certs/server.crt" },
         { "destination": "certs:server.key", "required": true, "file": "../../certs/server.key" }
     ],
     "installParams": {

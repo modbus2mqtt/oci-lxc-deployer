@@ -409,6 +409,7 @@ export class TemplateProcessor extends EventEmitter {
     const skipDecision = this.validator.shouldSkipTemplate(
       tmplData,
       opts.resolvedParams,
+      opts.parameters,
     );
     const shouldSkip = skipDecision.shouldSkip;
     const skipReason = skipDecision.reason;

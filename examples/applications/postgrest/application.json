@@ -14,6 +14,16 @@
       "default": "postgrest"
     },
     {
+      "id": "volumes",
+      "name": "Volumes",
+      "type": "string",
+      "multiline": true,
+      "required": false,
+      "description": "One per line: key=/container/path",
+      "template": "150-conf-create-storage-volumes-for-lxc.json",
+      "templatename": "Create Storage Volumes for LXC"
+    },
+    {
       "id": "compose_file",
       "name": "Docker Compose File",
       "type": "string",
