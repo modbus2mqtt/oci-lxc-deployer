@@ -41,6 +41,11 @@
           "description": { "type": "string" },
           "multiline": { "type": "boolean", "default": false },
           "upload": { "type": "boolean", "default": false },
+          "certtype": {
+            "type": "string",
+            "enum": ["ca", "ca_pub", "server", "fullchain"],
+            "description": "Certificate type. Enables auto-generation when upload has no value."
+          },
           "required": { "type": "boolean", "default": false },
           "validatePattern": { "type": "string", "default": false },
           "secure": { "type": "boolean", "default": false },

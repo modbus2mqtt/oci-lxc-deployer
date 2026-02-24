@@ -3,7 +3,6 @@ import request from "supertest";
 import fs from "fs-extra";
 import path from "path";
 import { ApiUri, IPostVeConfigurationBody } from "@src/types.mjs";
-import { WebAppVE } from "@src/webapp/webapp-ve.mjs";
 import {
   createWebAppVETestSetup,
   type WebAppVETestSetup,
@@ -39,14 +38,12 @@ describe("WebAppVE Addon Integration", () => {
   let helper: WebAppVETestSetup["helper"];
   let storageContext: ContextManager;
   let veContextKey: string;
-  let webAppVE: WebAppVE;
   let setup: WebAppVETestSetup;
 
   beforeEach(async () => {
     setup = await createWebAppVETestSetup();
     helper = setup.helper;
     app = setup.app;
-    webAppVE = setup.webAppVE;
     storageContext = setup.ctx;
 
     // Create a test VE context

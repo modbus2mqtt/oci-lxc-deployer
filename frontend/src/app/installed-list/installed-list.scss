@@ -1,4 +1,9 @@
 // installed-list specific styles
 // Most styles are now in shared/components/card-grid/card-grid.scss
 
-// No additional styles needed for this component
+.installed-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+}

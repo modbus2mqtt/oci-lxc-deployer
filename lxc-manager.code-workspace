@@ -6,6 +6,7 @@
     { "path": "backend" }
   ],
   "settings": {
+    "workbench.colorTheme": "Red",
     "claudeCode.allowDangerouslySkipPermissions": true
   }
 }

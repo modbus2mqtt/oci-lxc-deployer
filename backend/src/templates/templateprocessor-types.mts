@@ -1,6 +1,5 @@
 import { IResolvedParam, IApplication } from "@src/backend-types.mjs";
 import {
-  TaskType,
   ITemplate,
   ICommand,
   IParameter,

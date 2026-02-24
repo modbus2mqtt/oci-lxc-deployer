@@ -44,6 +44,11 @@
           "advanced": {
             "type": "boolean",
             "description": "Whether this file is an advanced option (hidden by default)"
+          },
+          "certtype": {
+            "type": "string",
+            "enum": ["ca", "ca_pub", "server", "fullchain"],
+            "description": "Certificate type. Enables auto-generation when upload has no value."
           }
         },
         "required": ["destination"],

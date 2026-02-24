@@ -261,6 +261,16 @@
   }
 }
 
+// Certificate auto-generation hint
+.cert-auto-hint {
+  display: block;
+  font-size: 0.8rem;
+  color: #1976d2;
+  font-style: italic;
+  margin-top: -0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 // Old secret-env-upload still used for backwards compat
 .secret-env-upload {
   width: 100%;

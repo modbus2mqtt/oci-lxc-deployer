@@ -489,6 +489,7 @@ export class FrameworkLoader {
               name: fileLabel,
               type: "string",
               upload: true,
+              ...(uploadFile.certtype ? { certtype: uploadFile.certtype } : {}),
               required: uploadFile.required ?? false,
               advanced: uploadFile.advanced ?? false,
               description: `Configuration file: ${fileLabel}`,

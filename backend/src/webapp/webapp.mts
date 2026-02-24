@@ -13,6 +13,7 @@ import { registerVersionRoutes } from "./webapp-version-routes.mjs";
 import { setupStaticRoutes } from "./webapp-static.mjs";
 import { WebAppVE } from "./webapp-ve.mjs";
 import { WebAppStack } from "./webapp-stack-routes.mjs";
+import { registerCertificateRoutes } from "./webapp-certificate-routes.mjs";
 
 export class VEWebApp {
   app: express.Application;
@@ -46,6 +47,7 @@ export class VEWebApp {
       this.returnResponse.bind(this),
     );
     registerInstallationsRoutes(this.app, this.storageContext);
+    registerCertificateRoutes(this.app, this.storageContext);
     registerAddonRoutes(this.app, this.storageContext);
     registerFrameworkRoutes(
       this.app,

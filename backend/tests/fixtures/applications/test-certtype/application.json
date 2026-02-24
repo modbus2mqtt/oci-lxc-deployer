@@ -1,0 +1,10 @@
+{
+  "name": "Test Certtype",
+  "installation": {
+    "pre_start": []
+  },
+  "parameters": [
+    { "id": "server_cert", "name": "Server Cert", "type": "string", "upload": true, "certtype": "server" },
+    { "id": "ca_cert", "name": "CA Cert", "type": "string", "upload": true, "certtype": "ca_pub" }
+  ]
+}
