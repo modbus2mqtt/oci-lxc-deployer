@@ -11,7 +11,7 @@ Deploy containerized applications to Proxmox LXC containers. Supports Docker/OCI
 Run this on your Proxmox host:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/volkmarnissen/oci-lxc-deployer/main/install-oci-lxc-deployer.sh | sh
+curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/oci-lxc-deployer/main/install-oci-lxc-deployer.sh | sh
 ```
 
 This installs oci-lxc-deployer with DHCP networking. For static IP configuration, see options below.
@@ -32,7 +32,7 @@ This installs oci-lxc-deployer with DHCP networking. For static IP configuration
 
 **IPv4:**
 ```sh
-curl -fsSL https://raw.githubusercontent.com/volkmarnissen/oci-lxc-deployer/main/install-oci-lxc-deployer.sh \
+curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/oci-lxc-deployer/main/install-oci-lxc-deployer.sh \
   | sh -s -- --static-ip 192.168.4.100/24 --static-gw 192.168.4.1
 ```
 - `--static-ip <ip/prefix>`: IPv4 address in CIDR (e.g., `192.168.4.100/24`)
@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/volkmarnissen/oci-lxc-deployer/main
 
 **IPv6:**
 ```sh
-curl -fsSL https://raw.githubusercontent.com/volkmarnissen/oci-lxc-deployer/main/install-oci-lxc-deployer.sh \
+curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/oci-lxc-deployer/main/install-oci-lxc-deployer.sh \
   | sh -s -- --static-ip6 fd00::50/64 --static-gw6 fd00::1
 ```
 - `--static-ip6 <ip/prefix>`: IPv6 address in CIDR (e.g., `fd00::50/64`)
@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/volkmarnissen/oci-lxc-deployer/main
 
 **Dual Stack (IPv4 + IPv6):**
 ```sh
-curl -fsSL https://raw.githubusercontent.com/volkmarnissen/oci-lxc-deployer/main/install-oci-lxc-deployer.sh \
+curl -fsSL https://raw.githubusercontent.com/modbus2mqtt/oci-lxc-deployer/main/install-oci-lxc-deployer.sh \
   | sh -s -- \
     --static-ip 192.168.4.100/24 --static-gw 192.168.4.1 \
     --static-ip6 fd00::50/64 --static-gw6 fd00::1

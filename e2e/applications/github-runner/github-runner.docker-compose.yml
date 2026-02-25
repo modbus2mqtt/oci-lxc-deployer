@@ -7,5 +7,13 @@ services:
       ACCESS_TOKEN: "{{ GITHUB_RUNNER_TOKEN }}"
       RUNNER_NAME: "${RUNNER_NAME:-pve1-modbus2mqtt}"
       LABELS: "self-hosted,linux,x64,pve1"
+      PVETEST_HOST: "${PVETEST_HOST:-ubuntupve}"
+      PVETEST_WORKER_HOST: "${PVETEST_WORKER_HOST:-ci-test-worker}"
+      PVETEST_WORKER_PORT: "${PVETEST_WORKER_PORT:-22}"
+      PVETEST_WORKER_USER: "${PVETEST_WORKER_USER:-root}"
+      PVETEST_WOL_MAC: "{{PVETEST_WOL_MAC}}"
+      PVETEST_DEPLOYER_PORT: "${PVETEST_DEPLOYER_PORT:-2080}"
+      PVETEST_NESTED_SSH_PORT: "${PVETEST_NESTED_SSH_PORT:-2022}"
+      PVETEST_NESTED_VMID: "${PVETEST_NESTED_VMID:-9001}"
     volumes:
       - ./config:/etc/oci-lxc-deployer:ro
