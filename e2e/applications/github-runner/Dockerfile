@@ -12,8 +12,8 @@ COPY entrypoint.sh /entrypoint.sh
 RUN sudo chmod +x /entrypoint.sh
 
 USER root
-
-ENTRYPOINT ["/entrypoint.sh"]
+RUN chown -R runner:runner /home/runner
+ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
 
 LABEL \
     org.opencontainers.image.title="oci-lxc-deployer-github-runner" \
