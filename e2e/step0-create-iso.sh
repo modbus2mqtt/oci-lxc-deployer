@@ -5,7 +5,7 @@
 # 1. Connects to pve1.cluster via SSH
 # 2. Copies necessary files to /tmp/e2e-iso-build/
 # 3. Executes create-iso.sh on pve1 to build the ISO
-# 4. ISO is placed at /var/lib/vz/template/iso/proxmox-ve-e2e-autoinstall.iso
+# 4. ISO is placed at /var/lib/vz/template/iso/proxmox-ve-e2e-<instance>.iso
 #
 # Usage:
 #   ./step0-create-iso.sh [instance]   # Use specific instance from config.json
@@ -25,6 +25,7 @@ load_config "${1:-}"
 # Use config values
 NESTED_STATIC_IP="${SUBNET}.10"
 GATEWAY="${SUBNET}.1"
+ISO_NAME="proxmox-ve-e2e-${E2E_INSTANCE}.iso"
 
 # Colors
 RED='\033[0;31m'
@@ -53,6 +54,7 @@ echo "Target Host:    $PVE_HOST"
 echo "Work Directory: $WORK_DIR"
 echo "NAT Subnet:     ${SUBNET}.0/24"
 echo "Nested VM IP:   $NESTED_STATIC_IP"
+echo "Bridge:         $VM_BRIDGE"
 echo "Filesystem:     $FILESYSTEM"
 echo ""
 
@@ -74,96 +76,107 @@ if [[ "$PVE_VERSION" == "not-proxmox" ]]; then
 fi
 success "Proxmox VE detected: $PVE_VERSION"
 
-# Step 3: Setup NAT network (vmbr1) for E2E test VMs
-info "Checking NAT network (vmbr1) on $PVE_HOST..."
-if pve_ssh "ip link show vmbr1" &>/dev/null; then
-    success "NAT network vmbr1 already exists"
+# Step 3: Setup NAT network bridge for E2E test VMs
+info "Setting up NAT network ($VM_BRIDGE) on $PVE_HOST..."
+
+# Get node name
+PVE_NODE=$(pve_ssh "hostname")
+
+# Create bridge in Proxmox config if not already configured
+if pve_ssh "pvesh get /nodes/$PVE_NODE/network/$VM_BRIDGE" &>/dev/null; then
+    success "$VM_BRIDGE already in Proxmox config"
 else
-    info "Creating NAT network vmbr1 (${SUBNET}.0/24)..."
-
-    # Get node name
-    PVE_NODE=$(pve_ssh "hostname")
-
-    # Create vmbr1 bridge via Proxmox API
+    info "Creating $VM_BRIDGE in Proxmox config..."
     pve_ssh "pvesh create /nodes/$PVE_NODE/network \
-        --iface vmbr1 \
+        --iface $VM_BRIDGE \
         --type bridge \
         --address $GATEWAY \
         --netmask 255.255.255.0 \
         --autostart 1 \
-        --comments 'NAT bridge for E2E test VMs'"
-
-    # Apply network config
+        --comments 'NAT bridge for E2E instance $E2E_INSTANCE'"
     pve_ssh "pvesh set /nodes/$PVE_NODE/network"
-    sleep 2
+    success "$VM_BRIDGE added to Proxmox config"
+fi
 
-    # Enable IP forwarding and NAT masquerading
-    pve_ssh "
-        echo 1 > /proc/sys/net/ipv4/ip_forward
-        echo 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-e2e-nat.conf
-        iptables -t nat -C POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE 2>/dev/null || \
-        iptables -t nat -A POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE
-    "
+# Ensure bridge is up in kernel (may not be after config-only creation or reboot)
+if pve_ssh "ip link show $VM_BRIDGE" &>/dev/null; then
+    pve_ssh "ifup $VM_BRIDGE 2>/dev/null || true"
+else
+    info "Bringing up $VM_BRIDGE..."
+    pve_ssh "ifup $VM_BRIDGE 2>/dev/null || true"
+fi
 
-    # Make NAT rules persistent
-    pve_ssh "cat > /etc/network/interfaces.d/e2e-nat << EOF
-# NAT rules for E2E test network (vmbr1)
+# Verify bridge is up with correct IP
+if pve_ssh "ip addr show $VM_BRIDGE | grep -q '$GATEWAY'" 2>/dev/null; then
+    success "$VM_BRIDGE is up ($GATEWAY)"
+else
+    info "$VM_BRIDGE missing IP, configuring manually..."
+    pve_ssh "ip link add name $VM_BRIDGE type bridge 2>/dev/null || true
+        ip addr add $GATEWAY/24 dev $VM_BRIDGE 2>/dev/null || true
+        ip link set $VM_BRIDGE up"
+    success "$VM_BRIDGE brought up manually ($GATEWAY)"
+fi
+
+# Enable IP forwarding and NAT masquerading
+pve_ssh "
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+    echo 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-e2e-nat.conf
+    iptables -t nat -C POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE
+"
+
+# Make NAT rules persistent (per-instance file)
+pve_ssh "cat > /etc/network/interfaces.d/e2e-nat-${E2E_INSTANCE} << EOF
+# NAT rules for E2E instance $E2E_INSTANCE ($VM_BRIDGE, ${SUBNET}.0/24)
 post-up iptables -t nat -A POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE
 post-down iptables -t nat -D POSTROUTING -s '${SUBNET}.0/24' -o vmbr0 -j MASQUERADE
 EOF"
 
-    success "NAT network vmbr1 created (${SUBNET}.0/24)"
-fi
-
 # Step 3c: Setup port forwarding to nested VM
 info "Setting up port forwarding to nested VM..."
-# Port 1022 -> nested VM SSH (22)
-# Port 1008 -> nested VM Proxmox Web UI (8006)
 pve_ssh "
     # Remove existing rules if present (ignore errors)
-    iptables -t nat -D PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22 2>/dev/null || true
-    iptables -t nat -D PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p tcp --dport $PORT_PVE_SSH -j DNAT --to-destination ${NESTED_STATIC_IP}:22 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p tcp --dport $PORT_PVE_WEB -j DNAT --to-destination ${NESTED_STATIC_IP}:8006 2>/dev/null || true
 
     # Add port forwarding rules
-    iptables -t nat -A PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22
-    iptables -t nat -A PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006
+    iptables -t nat -A PREROUTING -p tcp --dport $PORT_PVE_SSH -j DNAT --to-destination ${NESTED_STATIC_IP}:22
+    iptables -t nat -A PREROUTING -p tcp --dport $PORT_PVE_WEB -j DNAT --to-destination ${NESTED_STATIC_IP}:8006
 "
+success "Port forwarding configured: $PORT_PVE_SSH->SSH, $PORT_PVE_WEB->WebUI"
 
-# Make port forwarding persistent
-pve_ssh "cat >> /etc/network/interfaces.d/e2e-nat << EOF
-# Port forwarding to nested VM at ${NESTED_STATIC_IP}
-post-up iptables -t nat -A PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22
-post-up iptables -t nat -A PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006
-post-down iptables -t nat -D PREROUTING -p tcp --dport 1022 -j DNAT --to-destination ${NESTED_STATIC_IP}:22
-post-down iptables -t nat -D PREROUTING -p tcp --dport 1008 -j DNAT --to-destination ${NESTED_STATIC_IP}:8006
-EOF"
-success "Port forwarding configured: 1022->SSH, 1008->WebUI"
+# Step 3b: Setup DHCP server on bridge
+# Always update config to match current instance subnet
+info "Configuring DHCP server (dnsmasq) on $VM_BRIDGE for ${SUBNET}.0/24..."
+pve_ssh "
+    # Install dnsmasq if needed
+    which dnsmasq >/dev/null 2>&1 || apt-get install -y -qq dnsmasq
 
-# Step 3b: Setup DHCP server on vmbr1
-info "Checking DHCP server (dnsmasq) on vmbr1..."
-if pve_ssh "test -f /etc/dnsmasq.d/vmbr1-dhcp.conf" &>/dev/null; then
-    success "DHCP server already configured"
-else
-    info "Setting up DHCP server on vmbr1..."
-    pve_ssh "
-        # Install dnsmasq if needed
-        which dnsmasq >/dev/null 2>&1 || apt-get install -y -qq dnsmasq
+    # Remove old-style config file (from pre-bridge-per-instance code)
+    rm -f /etc/dnsmasq.d/vmbr1-dhcp.conf
 
-        # Configure DHCP for vmbr1
-        cat > /etc/dnsmasq.d/vmbr1-dhcp.conf << EOF
-# DHCP for E2E test VMs on vmbr1
-interface=vmbr1
+    # Configure DHCP for instance bridge (per-instance config file)
+    cat > /etc/dnsmasq.d/e2e-${E2E_INSTANCE}-dhcp.conf << EOF
+# DHCP for E2E instance $E2E_INSTANCE on $VM_BRIDGE
+interface=$VM_BRIDGE
 bind-interfaces
 dhcp-range=${SUBNET}.100,${SUBNET}.200,24h
 dhcp-option=option:router,$GATEWAY
 dhcp-option=option:dns-server,8.8.8.8,8.8.4.4
 EOF
 
-        # Restart dnsmasq
-        systemctl enable dnsmasq
-        systemctl restart dnsmasq
-    "
-    success "DHCP server configured on vmbr1 (${SUBNET}.100-200)"
+    # Restart dnsmasq
+    systemctl enable dnsmasq
+    systemctl restart dnsmasq
+"
+
+# Verify dnsmasq is running
+if pve_ssh "systemctl is-active dnsmasq" 2>/dev/null | grep -q "active"; then
+    success "DHCP configured on $VM_BRIDGE: ${SUBNET}.100-200 (instance: $E2E_INSTANCE)"
+else
+    info "dnsmasq failed to start - checking logs..."
+    pve_ssh "journalctl -u dnsmasq --no-pager -n 5" 2>/dev/null || true
+    error "dnsmasq failed to start on $VM_BRIDGE. Check logs above."
 fi
 
 # Step 4: Check local files exist
@@ -267,8 +280,8 @@ success "Permissions set"
 
 # Step 7: Remove old E2E ISO to ensure fresh build
 info "Checking for old E2E ISO..."
-if pve_ssh "test -f /var/lib/vz/template/iso/proxmox-ve-e2e-autoinstall.iso"; then
-    pve_ssh "rm -f /var/lib/vz/template/iso/proxmox-ve-e2e-autoinstall.iso"
+if pve_ssh "test -f /var/lib/vz/template/iso/$ISO_NAME"; then
+    pve_ssh "rm -f /var/lib/vz/template/iso/$ISO_NAME"
     success "Old ISO removed"
 else
     info "No old ISO found, skipping removal"
@@ -280,20 +293,20 @@ info "This may take a few minutes..."
 echo ""
 
 # Run the script and capture output
-if pve_ssh "cd $WORK_DIR && ./create-iso.sh $WORK_DIR"; then
+if pve_ssh "cd $WORK_DIR && ./create-iso.sh $WORK_DIR $E2E_INSTANCE"; then
     echo ""
     header "ISO Creation Complete"
     success "Custom Proxmox ISO created successfully!"
     echo ""
-    echo "ISO Location: $PVE_HOST:/var/lib/vz/template/iso/proxmox-ve-e2e-autoinstall.iso"
+    echo "ISO Location: $PVE_HOST:/var/lib/vz/template/iso/$ISO_NAME"
     echo ""
     echo "Next steps:"
     echo "  1. Run step1-create-vm.sh to create a test VM with this ISO"
     echo "  2. Or manually create a VM:"
     echo "     ssh root@$PVE_HOST"
     echo "     qm create 9000 --name pve-e2e-test --memory 4096 --cores 2 \\"
-    echo "       --cpu host --net0 virtio,bridge=vmbr0 --scsi0 local-lvm:32 \\"
-    echo "       --cdrom local:iso/proxmox-ve-e2e-autoinstall.iso --boot order=scsi0"
+    echo "       --cpu host --net0 virtio,bridge=$VM_BRIDGE --scsi0 local-lvm:32 \\"
+    echo "       --cdrom local:iso/$ISO_NAME --boot order=scsi0"
     echo ""
 else
     error "ISO creation failed. Check the output above for details."

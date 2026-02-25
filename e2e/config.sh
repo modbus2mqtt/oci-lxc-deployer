@@ -64,7 +64,7 @@ load_config() {
     export VM_CORES=$(jq -r '.defaults.vmCores' "$CONFIG_FILE")
     export VM_DISK_SIZE=$(jq -r '.defaults.vmDiskSize' "$CONFIG_FILE")
     export VM_STORAGE=$(jq -r '.defaults.vmStorage' "$CONFIG_FILE")
-    export VM_BRIDGE=$(jq -r '.defaults.vmBridge' "$CONFIG_FILE")
+    export VM_BRIDGE=$(jq -r ".instances[\"$instance\"].bridge" "$CONFIG_FILE")
     export SWAP_SIZE=$(jq -r '.defaults.swapSize' "$CONFIG_FILE")
     export NESTED_PASSWORD=$(jq -r '.defaults.nestedPassword' "$CONFIG_FILE")
 
@@ -109,6 +109,7 @@ show_config() {
     echo "  VM ID:           $TEST_VMID"
     echo "  VM Name:         $VM_NAME"
     echo "  Subnet:          $SUBNET.0/24"
+    echo "  Bridge:          $VM_BRIDGE"
     echo "  Nested VM IP:    $NESTED_STATIC_IP"
     echo ""
     echo "Port Forwarding (offset: $PORT_OFFSET):"

@@ -8,7 +8,13 @@ set -e
 
 WORK_DIR="${1:-/tmp/e2e-iso-build}"
 ISO_DIR="/var/lib/vz/template/iso"
-OUTPUT_ISO="proxmox-ve-e2e-autoinstall.iso"
+# Instance name is passed as second argument (from step0)
+E2E_INSTANCE="${2:-}"
+if [ -n "$E2E_INSTANCE" ]; then
+    OUTPUT_ISO="proxmox-ve-e2e-${E2E_INSTANCE}.iso"
+else
+    OUTPUT_ISO="proxmox-ve-e2e-autoinstall.iso"
+fi
 
 # Proxmox ISO version to use (update as needed)
 # Use version 9.1 to match pve1.cluster

@@ -20,6 +20,7 @@ echo "=== E2E Test: First Boot Configuration ===" >&2
 STATIC_IP="{{STATIC_IP}}"
 GATEWAY="{{GATEWAY}}"
 NETMASK="255.255.255.0"
+CIDR_PREFIX="24"
 
 echo "Configuring static IP: $STATIC_IP..." >&2
 
@@ -58,7 +59,7 @@ NETCFG
 # Apply network configuration
 echo "Applying static IP configuration..." >&2
 ip addr flush dev vmbr0 2>/dev/null || true
-ip addr add $STATIC_IP/$NETMASK dev vmbr0 2>/dev/null || true
+ip addr add $STATIC_IP/$CIDR_PREFIX dev vmbr0 2>/dev/null || true
 ip route add default via $GATEWAY dev vmbr0 2>/dev/null || true
 
 # Configure DNS
