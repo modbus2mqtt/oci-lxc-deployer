@@ -114,6 +114,16 @@ export class CertificateAuthorityService {
     return this.generateCA(veContextKey);
   }
 
+  getSslEnabled(veContextKey: string): boolean {
+    const stored = this.contextManager.get<{ ssl_enabled: boolean }>(`ssl_${veContextKey}`);
+    return stored?.ssl_enabled ?? false;
+  }
+
+  setSslEnabled(veContextKey: string, enabled: boolean): void {
+    this.contextManager.set(`ssl_${veContextKey}`, { ssl_enabled: enabled });
+    logger.info("SSL setting updated", { veContextKey, enabled });
+  }
+
   /**
    * Validate PEM format and check that key matches cert.
    */

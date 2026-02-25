@@ -24,6 +24,7 @@ export class ParameterFormManager {
   private readonly initialValues = new Map<string, IParameterValue>();
   private selectedAddons: string[] = [];
   private selectedStack: IStack | null = null;
+  private sslDisabled = false;
   private hostnameManuallyChanged = false;
 
   constructor(
@@ -73,6 +74,11 @@ export class ParameterFormManager {
   /** Gibt ausgewählte Addons zurück */
   getSelectedAddons(): string[] {
     return this.selectedAddons;
+  }
+
+  /** Sets per-app SSL disabled override */
+  setSslDisabled(disabled: boolean): void {
+    this.sslDisabled = disabled;
   }
 
   /**
@@ -189,7 +195,8 @@ export class ParameterFormManager {
       params,
       changedParams.length > 0 ? changedParams : undefined,
       this.selectedAddons.length > 0 ? this.selectedAddons : undefined,
-      stackId
+      stackId,
+      this.sslDisabled || undefined
     ).pipe(
       tap((res) => {
         const extras: NavigationExtras = {

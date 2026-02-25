@@ -202,6 +202,7 @@ export enum ApiUri {
   CertificateCaGenerate = "/api/ve/certificates/ca/generate/:veContext",
   CertificatePveStatus = "/api/ve/certificates/pve/:veContext",
   CertificatePveProvision = "/api/ve/certificates/pve/provision/:veContext",
+  CertificateSslToggle = "/api/ve/certificates/ssl/:veContext",
 
   // Logger endpoints
   LoggerConfig = "/api/logger/config",
@@ -269,6 +270,7 @@ export interface IPostVeConfigurationBody {
   changedParams?: { name: string; value: IParameterValue }[];
   selectedAddons?: string[];
   stackId?: string;
+  sslDisabled?: boolean;
 }
 export interface IPostEnumValuesBody {
   params?: { id: string; value: IParameterValue }[];
@@ -656,4 +658,9 @@ export interface ICaInfoResponse {
   subject?: string;
   expiry_date?: string;
   days_remaining?: number;
+  ssl_enabled?: boolean;
+}
+
+export interface IPostSslToggleBody {
+  ssl_enabled: boolean;
 }

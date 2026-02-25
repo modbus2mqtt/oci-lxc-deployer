@@ -7,6 +7,7 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTableModule } from '@angular/material/table';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
@@ -24,6 +25,7 @@ import { ICertificateStatus, ICaInfoResponse } from '../../shared/types';
     MatCheckboxModule,
     MatProgressSpinnerModule,
     MatTableModule,
+    MatSlideToggleModule,
     MatTooltipModule,
   ],
   template: `
@@ -42,6 +44,14 @@ import { ICertificateStatus, ICaInfoResponse } from '../../shared/types';
           </div>
         } @else {
           <p class="no-ca-hint">No CA configured</p>
+        }
+        @if (caInfo()?.exists) {
+          <div class="ssl-toggle">
+            <mat-slide-toggle [checked]="sslEnabled()" (change)="onSslToggle($event.checked)">
+              Enable SSL for new installations
+            </mat-slide-toggle>
+            <p class="ssl-hint">When enabled, certificates are auto-generated for apps that support SSL.</p>
+          </div>
         }
         <div class="ca-actions">
           <button mat-stroked-button (click)="importCa()" [disabled]="loadingCa()">
@@ -189,6 +199,16 @@ import { ICertificateStatus, ICaInfoResponse } from '../../shared/types';
       }
     }
 
+    .ssl-toggle {
+      margin: 0.75rem 0;
+
+      .ssl-hint {
+        margin: 0.25rem 0 0 0;
+        font-size: 0.8rem;
+        color: #666;
+      }
+    }
+
     .ca-actions, .pve-actions, .renewal-actions {
       display: flex;
       gap: 0.5rem;
@@ -239,6 +259,7 @@ export class CertificateManagementDialog implements OnInit {
   private errorHandler = inject(ErrorHandlerService);
 
   caInfo = signal<ICaInfoResponse | null>(null);
+  sslEnabled = signal(false);
   pveStatus = signal<ICertificateStatus | null>(null);
   certificates = signal<ICertificateStatus[]>([]);
   selectedCerts = signal<ICertificateStatus[]>([]);
@@ -258,8 +279,24 @@ export class CertificateManagementDialog implements OnInit {
   private loadCaInfo(): void {
     this.loadingCa.set(true);
     this.configService.getCaInfo().subscribe({
-      next: (info) => { this.caInfo.set(info); this.loadingCa.set(false); },
+      next: (info) => {
+        this.caInfo.set(info);
+        this.sslEnabled.set(info.ssl_enabled ?? false);
+        this.loadingCa.set(false);
+      },
       error: () => { this.loadingCa.set(false); }
+    });
+  }
+
+  onSslToggle(checked: boolean): void {
+    this.configService.postSslToggle({ ssl_enabled: checked }).subscribe({
+      next: (info) => {
+        this.sslEnabled.set(info.ssl_enabled ?? checked);
+      },
+      error: (err) => {
+        this.errorHandler.handleError('Failed to toggle SSL', err);
+        this.sslEnabled.set(!checked);
+      }
     });
   }
 
