@@ -1,0 +1,19 @@
+{
+  "folders": [
+    { "path": "." },
+    { "path": "frontend" },
+
+    { "path": "backend" }
+  ],
+  "settings": {
+    "claudeCode.allowDangerouslySkipPermissions": true,
+    "workbench.colorCustomizations": {
+    // Hintergrund des Editors
+    "activityBar.background": "#d7ed58",
+    "activityBar.foreground": "#130d03",},
+    "terminal.integrated.env.osx": {
+      "DEPLOYER_PORT": "3003",
+      "FRONTEND_PORT": "4203"
+    }
+  }
+}
