@@ -1,0 +1,17 @@
+const port = process.env.DEPLOYER_PORT || process.env.PORT || 3000;
+
+module.exports = {
+  "/api": {
+    target: `http://ubuntupve:${port}`,
+    secure: false,
+    changeOrigin: true,
+    logLevel: "debug",
+  },
+  "/socket.io": {
+    target: `http://ubuntupve:${port}`,
+    ws: true,
+    secure: false,
+    changeOrigin: true,
+    logLevel: "debug",
+  },
+};

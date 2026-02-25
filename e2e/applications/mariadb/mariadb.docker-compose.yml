@@ -10,6 +10,8 @@ services:
       MARIADB_PASSWORD: "{{ MARIADB_PASSWORD }}"
     volumes:
       - ./data:/var/lib/mysql
+      - ./certs:/certs:ro
+      - ./conf.d:/etc/mysql/conf.d:ro
     ports:
       - "${MARIADB_PORT:-3306}:3306"
     healthcheck:
@@ -20,3 +22,5 @@ services:
 
 volumes:
   data:
+  certs:
+  conf.d:

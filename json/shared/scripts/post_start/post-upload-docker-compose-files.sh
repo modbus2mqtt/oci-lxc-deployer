@@ -72,5 +72,30 @@ else
   echo "No specific user found in compose file, keeping root ownership" >&2
 fi
 
+# Create symlinks from compose-relative volume dirs to LXC mount points.
+# Docker resolves ./xxx relative to compose file dir (PROJECT_DIR), but the actual
+# files are bind-mounted to /xxx in the LXC by template 160. Symlinks bridge this gap.
+grep -E '^\s*-\s*\./[^:]+:/[^:]+' "$PROJECT_DIR/docker-compose.yaml" 2>/dev/null | while IFS= read -r vline; do
+  # Extract host-side relative path (./xxx) and container path (/xxx)
+  rel_path=$(echo "$vline" | sed -E 's/^\s*-\s*\.\/([^:]+):.*/\1/')
+  container_path=$(echo "$vline" | sed -E 's/^\s*-\s*\.[^:]+:([^:]+).*/\1/')
+
+  # Skip if we couldn't parse
+  [ -z "$rel_path" ] && continue
+  [ -z "$container_path" ] && continue
+
+  target="$PROJECT_DIR/$rel_path"
+
+  # Only create symlink if the LXC mount point exists and target doesn't already exist
+  if [ -d "$container_path" ] && [ ! -e "$target" ]; then
+    ln -sf "$container_path" "$target"
+    echo "Symlinked $target -> $container_path" >&2
+  elif [ -d "$container_path" ] && [ -L "$target" ]; then
+    # Update existing symlink
+    ln -sf "$container_path" "$target"
+    echo "Updated symlink $target -> $container_path" >&2
+  fi
+done
+
 echo "Docker Compose files uploaded successfully to $PROJECT_DIR" >&2
 echo '[{"id": "compose_files_uploaded", "value": "true"}, {"id": "compose_dir", "value": "'"$PROJECT_DIR"'"}]'

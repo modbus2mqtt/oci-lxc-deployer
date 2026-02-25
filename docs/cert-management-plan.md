@@ -98,6 +98,8 @@ CertificateStatus = "/api/ve/certificates/:veContext",
 CertificateRenew = "/api/ve/certificates/renew/:veContext",
 CertificateCa = "/api/ve/certificates/ca/:veContext",
 CertificateCaGenerate = "/api/ve/certificates/ca/generate/:veContext",
+CertificatePveStatus = "/api/ve/certificates/pve/:veContext",
+CertificatePveProvision = "/api/ve/certificates/pve/:veContext",
 ```
 
 ---
@@ -302,6 +304,8 @@ Endpoints:
 - `GET /api/ve/certificates/ca/:veContext` - CA info (no private key)
 - `POST /api/ve/certificates/ca/:veContext` - Import CA (upload key+cert)
 - `POST /api/ve/certificates/ca/generate/:veContext` - Generate new CA
+- `GET /api/ve/certificates/pve/:veContext` - PVE host cert status
+- `POST /api/ve/certificates/pve/:veContext` - Provision PVE host cert
 
 ### 8d. Frontend Service Methods in `ve-configuration.service.ts`
 
@@ -311,6 +315,8 @@ postCertificateRenew(body: IPostCertRenewBody): Observable<IPostCertRenewRespons
 getCaInfo(): Observable<ICaInfoResponse>
 postCaImport(body: IPostCaImportBody): Observable<ICaInfoResponse>
 postCaGenerate(): Observable<ICaInfoResponse>
+getPveStatus(): Observable<ICertificateStatus>
+postPveProvision(): Observable<{ success: boolean }>
 ```
 
 ### 8e. NEW: `frontend/src/app/certificate-management/certificate-management-dialog.ts`
@@ -323,7 +329,27 @@ Opened from installed-list (new "Certificates" button).
 - "Generate CA" button: Generate self-signed CA on backend
 - "Download CA cert" link: For distributing ca.crt to clients
 
-**Section 2: Certificate Status & Renewal**
+**Section 2: PVE Host Certificate (optional)**
+- Current PVE cert status (subject, expiry) read via SSH from `/etc/pve/local/pve-ssl.pem`
+- "Provision PVE Certificate" button: Generates server cert for PVE host FQDN, deploys via SSH:
+  - Write cert → `/etc/pve/local/pve-ssl.pem`
+  - Write key → `/etc/pve/local/pve-ssl.key`
+  - Write CA cert → `/etc/pve/pve-root-ca.pem`
+  - `systemctl restart pveproxy`
+- PVE host FQDN derived from VE context hostname + `domain_suffix`
+- Confirmation dialog before overwriting (warns about pveproxy restart)
+
+### 8f. NEW: `json/shared/scripts/host-provision-pve-certificate.sh`
+
+Runs on PVE host via SSH. Receives `ca_key_b64`, `ca_cert_b64`, `fqdn`, `domain_suffix` as parameters.
+1. Generate server cert for PVE FQDN using CA (via `cert-common.sh` library)
+2. Backup existing certs: `cp /etc/pve/local/pve-ssl.pem /etc/pve/local/pve-ssl.pem.bak`
+3. Write new cert + key to `/etc/pve/local/`
+4. Write CA cert to `/etc/pve/pve-root-ca.pem`
+5. `systemctl restart pveproxy`
+6. Output JSON result
+
+**Section 3: Certificate Status & Renewal**
 - Table: Hostname, Type, Subject, Expiry, Status, Checkbox
 - Status chips: green "OK", yellow "Warning" (<=30d), red "Expired"
 - "Renew Selected" button
@@ -460,6 +486,7 @@ Pattern: Use fixture application with certtype parameters, load via TemplateProc
 | MODIFY | `frontend/src/app/ve-configuration.service.ts` | 8d |
 | CREATE | `frontend/src/app/certificate-management/certificate-management-dialog.ts` | 8e |
 | MODIFY | `frontend/src/app/installed-list/installed-list.ts` | 8e |
+| CREATE | `json/shared/scripts/host-provision-pve-certificate.sh` | 8f |
 | CREATE | `backend/tests/fixtures/applications/test-certtype/application.json` | 9b |
 | CREATE | `backend/tests/services/certificate-authority-service.test.mts` | 9c |
 | CREATE | `backend/tests/webapp/webapp-certificate-routes.test.mts` | 9d |
@@ -477,4 +504,5 @@ Pattern: Use fixture application with certtype parameters, load via TemplateProc
 5. **Validity check**: Cert expiring <30 days → regenerated on redeploy
 6. **CA management UI**: Import/Generate CA in dialog, verify encrypted storage
 7. **Bulk renewal**: Select certs, renew, verify new expiry
-8. **Live test**: `./backend/tests/livetests/run-live-test.sh pve1.cluster`
+8. **PVE provisioning**: Provision PVE host cert, verify pveproxy restart
+9. **Live test**: `./backend/tests/livetests/run-live-test.sh pve1.cluster`

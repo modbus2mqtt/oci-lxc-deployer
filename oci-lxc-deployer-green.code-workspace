@@ -1,0 +1,44 @@
+{
+  "folders": [
+    { "path": "." },
+    { "path": "frontend" },
+
+    { "path": "backend" }
+  ],
+  "settings": {
+    "workbench.colorCustomizations": {
+    // Hintergrund des Editors
+    "activityBar.background": "#71e971",
+    "activityBar.foreground": "#130d03",},
+
+    "claudeCode.allowDangerouslySkipPermissions": true,
+    "terminal.integrated.env.osx": {
+      "DEPLOYER_PORT": "3201",
+      "FRONTEND_PORT": "4301"
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "start frontend",
+        "type": "shell",
+        "command": "pnpm start",
+        "options": { "cwd": "${workspaceFolder:frontend}" },
+        "isBackground": true,
+        "problemMatcher": []
+      }
+    ]
+  },
+  "launch": {
+    "configurations": [
+      {
+        "name": "ng serve",
+        "type": "chrome",
+        "request": "launch",
+        "preLaunchTask": "start frontend",
+        "url": "http://localhost:4301/"
+      }
+    ]
+  }
+}

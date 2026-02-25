@@ -35,6 +35,7 @@ export class TemplateValidator {
   shouldSkipTemplate(
     tmplData: ITemplate,
     resolvedParams: IResolvedParam[],
+    applicationParams?: IParameterWithTemplate[],
   ): { shouldSkip: boolean; reason?: "property_set" | "all_missing" } {
     if (tmplData.skip_if_property_set) {
       const resolved = resolvedParams.find(
@@ -53,6 +54,13 @@ export class TemplateValidator {
       for (const paramId of tmplData.skip_if_all_missing) {
         const resolved = resolvedParams.find((p) => p.id === paramId);
         if (resolved) {
+          allSkipParamsMissing = false;
+          break;
+        }
+        // Also consider application-declared parameters as "present".
+        // If the application defines a parameter (even without a value),
+        // the template should run so it can produce its outputs (e.g. shared_volpath).
+        if (applicationParams?.some((p) => p.id === paramId)) {
           allSkipParamsMissing = false;
           break;
         }

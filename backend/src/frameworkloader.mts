@@ -281,14 +281,9 @@ export class FrameworkLoader {
 
         templateParameters.push(param);
       } else if (paramValue !== undefined) {
-        // For docker-compose framework: skip certain properties
-        if (framework.id === "docker-compose") {
-          // volumes is output by 310-extract-volumes-from-compose.json template
-          if (propId === "volumes") {
-            continue;
-          }
-          // env_file is handled separately below (marker detection)
-        }
+        // For docker-compose framework: env_file is handled separately below (marker detection)
+        // Note: volumes is now marked as default:true in docker-compose.json,
+        // so it takes the shouldAddAsParameter path above and never reaches here.
 
         // Create property/output entry
         templateProperties.push({
@@ -489,6 +484,7 @@ export class FrameworkLoader {
               name: fileLabel,
               type: "string",
               upload: true,
+              ...(uploadFile.certtype ? { certtype: uploadFile.certtype } : {}),
               required: uploadFile.required ?? false,
               advanced: uploadFile.advanced ?? false,
               description: `Configuration file: ${fileLabel}`,
@@ -795,10 +791,11 @@ upload_output_result "${outputId}"
   }
 
   /**
-   * Sanitize filename for use in parameter IDs and template names
+   * Sanitize filename for use in parameter IDs and template names.
+   * Includes the file extension to avoid collisions (e.g., server.crt vs server.key).
    */
   private sanitizeFilename(filename: string): string {
-    const base = path.basename(filename, path.extname(filename));
+    const base = path.basename(filename);
     return base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
 

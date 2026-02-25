@@ -73,6 +73,8 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
   availableStacktypes = signal<IStacktypeEntry[]>([]);
   stacksLoading = signal(false);
   selectedStack: IStack | null = null;
+  hasCertTypeParams = false;
+  sslDisabledForApp = false;
   private formManager!: ParameterFormManager;
   private enumRefreshAttempted = false;
   private visibilityHandler = () => this.onVisibilityChange();
@@ -130,6 +132,16 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
         this.form.markAllAsTouched();
         this.loading.set(false);
         this.loadEnumValues();
+
+        // Detect certtype parameters for SSL toggle
+        this.hasCertTypeParams = this.unresolvedParameters.some(p => p.certtype);
+        if (this.hasCertTypeParams) {
+          this.configService.getCaInfo().subscribe({
+            next: (info) => {
+              this.sslDisabledForApp = !(info.ssl_enabled ?? false);
+            }
+          });
+        }
 
         // Create ParameterFormManager from existing form
         this.formManager = ParameterFormManager.fromExistingForm(
@@ -366,6 +378,9 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
     this.loading.set(true);
 
     // Addons are already set in formManager via toggleAddon() -> setSelectedAddons()
+    if (this.sslDisabledForApp) {
+      this.formManager.setSslDisabled(true);
+    }
     this.formManager.install(this.data.app.id, this.task).subscribe({
       next: () => {
         this.loading.set(false);

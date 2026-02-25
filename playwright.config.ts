@@ -56,6 +56,9 @@ const vmUrl = process.env.E2E_VM_URL || `http://${instance.pveHost}:${deployerPo
 // Check if we're running with nested-vm project only
 const isNestedVmOnly = process.argv.includes('--project=nested-vm');
 
+// Configurable frontend port (set via FRONTEND_PORT env var or workspace settings)
+const frontendPort = process.env.FRONTEND_PORT || '4200';
+
 export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   testDir: './e2e',
@@ -81,7 +84,7 @@ export default defineConfig({
     {
       name: 'local',
       use: {
-        baseURL: 'http://localhost:4200',
+        baseURL: `http://localhost:${frontendPort}`,
       },
     },
     {
@@ -97,8 +100,8 @@ export default defineConfig({
 
   // Angular dev server - only start for local project
   webServer: isNestedVmOnly ? undefined : {
-    command: 'cd frontend && pnpm ng serve --configuration=e2e',
-    url: 'http://localhost:4200',
+    command: `cd frontend && pnpm ng serve --port ${frontendPort} --configuration=e2e`,
+    url: `http://localhost:${frontendPort}`,
     reuseExistingServer: true,
     timeout: 120_000,
   },

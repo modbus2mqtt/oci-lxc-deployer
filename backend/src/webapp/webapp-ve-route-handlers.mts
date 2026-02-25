@@ -6,7 +6,9 @@ import {
   IJsonError,
   ICommand,
   ITemplate,
+  IParameter,
 } from "@src/types.mjs";
+import { CertificateAuthorityService } from "@src/services/certificate-authority-service.mjs";
 import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
@@ -222,7 +224,7 @@ export class WebAppVeRouteHandlers {
 
       // Log viewer URL parameters for Notes links
       // Priority: OCI_LXC_DEPLOYER_URL env var > auto-generated from hostname + port
-      const deployerPort = process.env.PORT || "3000";
+      const deployerPort = process.env.DEPLOYER_PORT || process.env.PORT || "3000";
       const deployerUrl =
         process.env.OCI_LXC_DEPLOYER_URL ||
         `http://${os.hostname()}:${deployerPort}`;
@@ -253,6 +255,9 @@ export class WebAppVeRouteHandlers {
         loaded.parameters,
         contextManager,
       );
+
+      // Auto-generate certificate parameters for certtype params without user upload
+      this.injectCertificateRequests(processedParams, loaded.parameters, contextManager, veContextKey, body.sslDisabled);
 
       // Start ProxmoxExecution
       const inputs = processedParams.map((p) => ({
@@ -854,5 +859,59 @@ export class WebAppVeRouteHandlers {
     }
 
     return result;
+  }
+
+  /**
+   * Injects cert_requests, ca_key_b64, ca_cert_b64 into processedParams
+   * when certtype parameters exist and user didn't upload their own certs.
+   */
+  private injectCertificateRequests(
+    processedParams: Array<{ id: string; value: string | number | boolean }>,
+    loadedParameters: IParameter[],
+    contextManager: import("@src/context-manager.mjs").ContextManager,
+    veContextKey: string,
+    sslDisabled?: boolean,
+  ): void {
+    const caService = new CertificateAuthorityService(contextManager);
+    const globalSslEnabled = caService.getSslEnabled(veContextKey);
+    const effectiveSslEnabled = sslDisabled === true ? false : globalSslEnabled;
+    if (!effectiveSslEnabled) return;
+
+    const certParams = loadedParameters.filter((p) => p.certtype && p.upload);
+    if (certParams.length === 0) return;
+
+    const inputMap = new Map(processedParams.map((p) => [p.id, p.value]));
+    const certLines: string[] = [];
+
+    for (const param of certParams) {
+      const userValue = inputMap.get(param.id);
+      const hasValue = userValue && userValue !== "" && String(userValue) !== "NOT_DEFINED";
+      if (hasValue) continue; // User uploaded own cert
+
+      const volumeKey = this.resolveVolumeKeyForCert(param);
+      certLines.push(`${param.id}|${param.certtype}|${volumeKey}`);
+    }
+
+    if (certLines.length > 0) {
+      const caService = new CertificateAuthorityService(contextManager);
+      const ca = caService.ensureCA(veContextKey);
+      processedParams.push({ id: "cert_requests", value: certLines.join("\n") });
+      processedParams.push({ id: "ca_key_b64", value: ca.key });
+      processedParams.push({ id: "ca_cert_b64", value: ca.cert });
+    }
+  }
+
+  /**
+   * Resolves the volume key for a cert parameter.
+   * Looks at parameter ID pattern for volume hints, defaults to "secret".
+   */
+  private resolveVolumeKeyForCert(param: IParameter): string {
+    // If param id contains a volume key hint (e.g. upload_certs_server_crt_content)
+    // try to extract volume key from the id pattern
+    const id = param.id || "";
+    if (id.includes("certs")) return "certs";
+    if (id.includes("secret")) return "secret";
+    if (id.includes("ssl") || id.includes("tls")) return "certs";
+    return "secret";
   }
 }

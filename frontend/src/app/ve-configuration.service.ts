@@ -1,6 +1,6 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, IStacktypesResponse, IStacksResponse, IStackResponse, IStack, IFrameworkApplicationDataBody } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostVeCopyUpgradeBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, IStacktypesResponse, IStacksResponse, IStackResponse, IStack, IFrameworkApplicationDataBody, ICertificateStatusResponse, IPostCertRenewBody, IPostCertRenewResponse, IPostCaImportBody, IPostSslToggleBody, ICaInfoResponse, ICertificateStatus } from '../shared/types';
 import { ICreateStackResponse } from '../shared/types-frontend';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
@@ -130,7 +130,7 @@ export class VeConfigurationService {
     return this.get<ISshCheckResponse>(`${ApiUri.SshCheck}?${params.toString()}`);
   }
 
-  postVeConfiguration(application: string, task: string, params: VeConfigurationParam[], changedParams?: VeConfigurationParam[], selectedAddons?: string[], stackId?: string): Observable<{ success: boolean; restartKey?: string; vmInstallKey?: string }> {
+  postVeConfiguration(application: string, task: string, params: VeConfigurationParam[], changedParams?: VeConfigurationParam[], selectedAddons?: string[], stackId?: string, sslDisabled?: boolean): Observable<{ success: boolean; restartKey?: string; vmInstallKey?: string }> {
     const url = ApiUri.VeConfiguration
       .replace(':application', encodeURIComponent(application))
       .replace(':task', encodeURIComponent(task));
@@ -143,6 +143,9 @@ export class VeConfigurationService {
     }
     if (stackId) {
       body.stackId = stackId;
+    }
+    if (sslDisabled) {
+      body.sslDisabled = sslDisabled;
     }
     return this.post<IPostVeConfigurationResponse,IPostVeConfigurationBody>(url, body).pipe(
       tap((res) => this.setVeContextKeyFrom(res))
@@ -269,5 +272,38 @@ export class VeConfigurationService {
   deleteStack(id: string): Observable<{ success: boolean; deleted: boolean }> {
     const url = ApiUri.Stack.replace(':id', encodeURIComponent(id));
     return this.http.delete<{ success: boolean; deleted: boolean }>(url);
+  }
+
+  // Certificate management methods
+  getCertificateStatus(): Observable<ICertificateStatusResponse> {
+    return this.get<ICertificateStatusResponse>(ApiUri.CertificateStatus);
+  }
+
+  postCertificateRenew(body: IPostCertRenewBody): Observable<IPostCertRenewResponse> {
+    return this.post<IPostCertRenewResponse, IPostCertRenewBody>(ApiUri.CertificateRenew, body);
+  }
+
+  getCaInfo(): Observable<ICaInfoResponse> {
+    return this.get<ICaInfoResponse>(ApiUri.CertificateCa);
+  }
+
+  postCaImport(body: IPostCaImportBody): Observable<ICaInfoResponse> {
+    return this.post<ICaInfoResponse, IPostCaImportBody>(ApiUri.CertificateCa, body);
+  }
+
+  postCaGenerate(): Observable<ICaInfoResponse> {
+    return this.post<ICaInfoResponse, object>(ApiUri.CertificateCaGenerate, {});
+  }
+
+  getPveStatus(): Observable<ICertificateStatus> {
+    return this.get<ICertificateStatus>(ApiUri.CertificatePveStatus);
+  }
+
+  postPveProvision(domainSuffix?: string): Observable<{ success: boolean }> {
+    return this.post<{ success: boolean }, object>(ApiUri.CertificatePveProvision, { domain_suffix: domainSuffix || '.local' });
+  }
+
+  postSslToggle(body: IPostSslToggleBody): Observable<ICaInfoResponse> {
+    return this.post<ICaInfoResponse, IPostSslToggleBody>(ApiUri.CertificateSslToggle, body);
   }
 }

@@ -2,7 +2,26 @@
     "name": "MariaDB",
     "description": "MariaDB is an open source relational database management system.",
     "tags": ["database"],
+    "uploadfiles": [
+        { "destination": "certs:server.crt", "required": true, "file": "../../certs/server.crt" },
+        { "destination": "certs:server.key", "required": true, "file": "../../certs/server.key" },
+        { "destination": "conf.d:ssl.cnf", "required": true, "file": "ssl.cnf" }
+    ],
     "installParams": {
         "bridge": "vmbr1"
+    },
+    "validation": {
+        "waitBeforeValidation": 10,
+        "ports": [
+            { "port": 3306, "protocol": "tcp", "service": "mariadb" }
+        ],
+        "commands": [
+            {
+                "command": "IP=$(lxc-info -n {vmId} -iH | head -1) && echo | openssl s_client -starttls mysql -connect $IP:3306 2>&1 | grep -q 'Certificate chain'",
+                "executeOn": "host",
+                "expectedExitCode": 0,
+                "description": "MariaDB TLS should be available via STARTTLS on port 3306"
+            }
+        ]
     }
 }

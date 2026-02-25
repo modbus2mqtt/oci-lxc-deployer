@@ -17,6 +17,7 @@ export interface IUploadFile {
   content?: string;             // Base64 encoded file content
   required?: boolean;
   advanced?: boolean;
+  certtype?: CertType;
 }
 
 export interface IApplicationBase {
@@ -116,6 +117,7 @@ export interface IVeExecuteMessage {
 
 export type ParameterType = "string" | "number" | "boolean" | "enum";
 export type IParameterValue = string | number | boolean;
+export type CertType = "ca" | "ca_pub" | "server" | "fullchain";
 
 export interface IParameter {
   id: string;
@@ -127,6 +129,7 @@ export interface IParameter {
   secure?: boolean;
   advanced?: boolean;
   upload?: boolean;
+  certtype?: CertType;
   default?: string | number | boolean;
   enumValues?: (string | { name: string; value: string | number | boolean })[];
   templatename?: string;
@@ -191,6 +194,15 @@ export enum ApiUri {
 
   // Version / build info
   Version = "/api/version",
+
+  // Certificate management endpoints
+  CertificateStatus = "/api/ve/certificates/:veContext",
+  CertificateRenew = "/api/ve/certificates/renew/:veContext",
+  CertificateCa = "/api/ve/certificates/ca/:veContext",
+  CertificateCaGenerate = "/api/ve/certificates/ca/generate/:veContext",
+  CertificatePveStatus = "/api/ve/certificates/pve/:veContext",
+  CertificatePveProvision = "/api/ve/certificates/pve/provision/:veContext",
+  CertificateSslToggle = "/api/ve/certificates/ssl/:veContext",
 
   // Logger endpoints
   LoggerConfig = "/api/logger/config",
@@ -258,6 +270,7 @@ export interface IPostVeConfigurationBody {
   changedParams?: { name: string; value: IParameterValue }[];
   selectedAddons?: string[];
   stackId?: string;
+  sslDisabled?: boolean;
 }
 export interface IPostEnumValuesBody {
   params?: { id: string; value: IParameterValue }[];
@@ -607,4 +620,47 @@ export interface IPostAddonInstallBody {
   vm_id: number;
   application_id?: string;
   params?: { name: string; value: string | number | boolean }[];
+}
+
+// Certificate management interfaces
+export interface ICertificateStatus {
+  hostname: string;
+  file: string;
+  certtype: string;
+  subject: string;
+  expiry_date: string;
+  days_remaining: number;
+  status: "ok" | "warning" | "expired";
+}
+
+export interface ICertificateStatusResponse {
+  certificates: ICertificateStatus[];
+  ca?: { subject: string; expiry_date: string; days_remaining: number; status: string };
+}
+
+export interface IPostCertRenewBody {
+  hostnames: string[];
+}
+
+export interface IPostCertRenewResponse {
+  success: boolean;
+  renewed: number;
+  errors?: string[];
+}
+
+export interface IPostCaImportBody {
+  key: string;   // Base64 PEM
+  cert: string;  // Base64 PEM
+}
+
+export interface ICaInfoResponse {
+  exists: boolean;
+  subject?: string;
+  expiry_date?: string;
+  days_remaining?: number;
+  ssl_enabled?: boolean;
+}
+
+export interface IPostSslToggleBody {
+  ssl_enabled: boolean;
 }

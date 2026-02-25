@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "data=var/lib/postgresql/data"
+      "default": "data=var/lib/postgresql/data\ncerts=certs\ninitdb=docker-entrypoint-initdb.d"
     },
     {
       "id": "envs",
@@ -51,7 +51,13 @@
       "value": "root"
     }
   ],
-  "installation": {},
+  "installation": {
+    "pre_start": [
+      "0-upload-server-crt.json",
+      "1-upload-server-key.json",
+      "2-upload-enable-ssl-sh.json"
+    ]
+  },
   "tags": [
     "database"
   ],

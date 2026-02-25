@@ -32,6 +32,14 @@ HOST_MOUNTPOINT="{{ host_mountpoint}}"
 BASE_PATH="{{ base_path}}"
 VOLUMES="{{ volumes}}"
 ADDON_VOLUMES="{{ addon_volumes}}"
+
+# Guard against NOT_DEFINED (unresolved template variables)
+if [ "$VOLUMES" = "NOT_DEFINED" ]; then
+  VOLUMES=""
+fi
+if [ "$ADDON_VOLUMES" = "NOT_DEFINED" ]; then
+  ADDON_VOLUMES=""
+fi
 USERNAME="{{ username}}"
 UID_VALUE="{{ uid}}"
 GID_VALUE="{{ gid}}"
@@ -45,8 +53,8 @@ if [ -z "$VMID" ] || [ -z "$HOSTNAME" ]; then
 fi
 
 if [ -z "$VOLUMES" ]; then
-  echo "Error: Required parameter 'volumes' must be set and not empty!" >&2
-  exit 1
+  echo "No volumes to bind, skipping." >&2
+  exit 0
 fi
 
 # Merge addon_volumes with base volumes (if addon_volumes is set)

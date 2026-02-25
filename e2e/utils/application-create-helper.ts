@@ -3,7 +3,7 @@ import { E2EApplication, UploadFile } from './application-loader';
 import { SSHValidator } from './ssh-validator';
 import { getPveHost, getLocalPath } from '../fixtures/test-base';
 import { readFileSync, existsSync, rmSync } from 'fs';
-import { join, dirname, resolve, basename, extname } from 'path';
+import { join, dirname, resolve, basename } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -770,8 +770,7 @@ export class ApplicationCreateHelper {
     const colonIndex = destination.indexOf(':');
     const filePath = colonIndex >= 0 ? destination.slice(colonIndex + 1) : destination;
     const filename = basename(filePath);
-    const base = basename(filename, extname(filename));
-    const sanitized = base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const sanitized = filename.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     return `upload_${sanitized.replace(/-/g, '_')}_content`;
   }
 

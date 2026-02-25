@@ -157,7 +157,7 @@ async function startWebApp(
     }
   } catch {}
   const webApp = new VEWebApp(pm.getContextManager());
-  const port = process.env.PORT || 3000;
+  const port = process.env.DEPLOYER_PORT || process.env.PORT || 3000;
   webApp.httpServer.listen(port, () => {
     logger.info("Server started", { port });
   });

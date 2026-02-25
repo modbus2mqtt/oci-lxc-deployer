@@ -1,4 +1,4 @@
-import { Component, Inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -40,14 +40,14 @@ export interface AddonNoticeDialogData {
   `]
 })
 export class AddonNoticeDialogComponent {
+  private dialogRef = inject(MatDialogRef<AddonNoticeDialogComponent>);
+  data = inject<AddonNoticeDialogData>(MAT_DIALOG_DATA);
+  private sanitizer = inject(DomSanitizer);
+
   renderedNotice: SafeHtml;
 
-  constructor(
-    private dialogRef: MatDialogRef<AddonNoticeDialogComponent>,
-    @Inject(MAT_DIALOG_DATA) public data: AddonNoticeDialogData,
-    private sanitizer: DomSanitizer,
-  ) {
-    const html = marked.parse(data.notice) as string;
+  constructor() {
+    const html = marked.parse(this.data.notice) as string;
     this.renderedNotice = this.sanitizer.bypassSecurityTrustHtml(html);
   }
 

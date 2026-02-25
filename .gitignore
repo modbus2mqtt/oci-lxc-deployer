@@ -46,3 +46,6 @@ docker/oci-lxc-deployer.tgz
 package-lock.json
 **/package-lock.json
 backend/tests/e2e/.nested-vm-ip
+
+# Generated test certificates
+e2e/certs/

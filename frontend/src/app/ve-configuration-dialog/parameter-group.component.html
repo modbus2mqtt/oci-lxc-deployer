@@ -54,6 +54,9 @@
 							</button>
 						}
 						</mat-form-field>
+						@if (param['certtype'] && !getDisplayValue(param.id)) {
+							<span class="cert-auto-hint">Auto-generated if not uploaded</span>
+						}
 						@if (hasExpandableHelp(param) && isHelpExpanded(param.id)) {
 							<div class="expandable-help" [innerHTML]="getMarkdownHelp(param)"></div>
 						}

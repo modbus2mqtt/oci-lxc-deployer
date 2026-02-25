@@ -5,13 +5,25 @@
     "tasktype": "postgres",
     "framework": "docker-compose",
     "dependsOn": ["postgres"],
+    "uploadfiles": [
+        { "destination": "certs:server.crt", "required": true, "file": "../../certs/server.crt" },
+        { "destination": "certs:server.key", "required": true, "file": "../../certs/server.key" }
+    ],
     "installParams": {
         "bridge": "vmbr1",
         "memory": "2048"
     },
     "validation": {
+        "waitBeforeValidation": 30,
         "ports": [
             { "port": 8080, "protocol": "tcp", "service": "zitadel" }
+        ],
+        "commands": [
+            {
+                "command": "curl -kf https://localhost:8080/debug/ready",
+                "expectedExitCode": 0,
+                "description": "Zitadel HTTPS endpoint should respond"
+            }
         ]
     }
 }

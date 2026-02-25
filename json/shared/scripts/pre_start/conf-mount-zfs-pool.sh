@@ -94,6 +94,6 @@ if [ -n "$UID_VALUE" ] && [ -n "$GID_VALUE" ] && [ "$UID_VALUE" != "" ] && [ "$G
 fi
 
 echo "ZFS pool $POOL_NAME mountpoint: $HOST_MOUNTPOINT" >&2
-echo '{ "id": "host_mountpoint", "value": "'$HOST_MOUNTPOINT'" }'
+echo '[{ "id": "host_mountpoint", "value": "'$HOST_MOUNTPOINT'" }, { "id": "shared_volpath", "value": "'$HOST_MOUNTPOINT'" }]'
 exit 0
 

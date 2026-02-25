@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { ensureTestCerts } from './utils/cert-generator';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,6 +19,8 @@ interface BuildInfo {
  * from the running server. Fails early if the backend needs a restart.
  */
 export default async function globalSetup() {
+  // Generate self-signed test certificates for HTTPS E2E tests (idempotent)
+  ensureTestCerts();
   // Read local build info
   const buildInfoPath = join(__dirname, '..', 'backend', 'dist', 'build-info.json');
   if (!existsSync(buildInfoPath)) {
@@ -36,8 +39,9 @@ export default async function globalSetup() {
 
   // Determine which project is used
   const isLocal = process.argv.includes('--project=local');
+  const frontendPort = process.env.FRONTEND_PORT || '4200';
   const baseURL = isLocal
-    ? 'http://localhost:4200'
+    ? `http://localhost:${frontendPort}`
     : `http://${instance?.pveHost || 'localhost'}:${deployerPort}`;
 
   // Fetch version from running backend
@@ -67,6 +71,31 @@ export default async function globalSetup() {
     }
 
     console.log(`✓ Backend version verified: ${remoteBuild.gitHash} (${remoteBuild.buildTime.substring(0, 19)})`);
+
+    // Enable SSL for e2e tests (default is OFF, but tests expect cert generation)
+    try {
+      const sshRes = await fetch(`${baseURL}/api/sshconfigs`, { signal: AbortSignal.timeout(5000) });
+      if (sshRes.ok) {
+        const sshData = await sshRes.json();
+        const veContextKey = sshData.key;
+        if (veContextKey) {
+          const sslUrl = `${baseURL}/api/ve/certificates/ssl/${veContextKey}`;
+          const sslRes = await fetch(sslUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ssl_enabled: true }),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (sslRes.ok) {
+            console.log(`✓ SSL enabled for e2e tests (veContext: ${veContextKey})`);
+          } else {
+            console.warn(`⚠ Could not enable SSL: ${sslRes.status}`);
+          }
+        }
+      }
+    } catch (sslErr: any) {
+      console.warn(`⚠ Could not enable SSL for e2e tests: ${sslErr.message}`);
+    }
   } catch (err: any) {
     if (err.message?.includes('BACKEND OUT OF DATE')) {
       throw err; // Re-throw our own error

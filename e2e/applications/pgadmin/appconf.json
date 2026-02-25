@@ -3,7 +3,21 @@
     "description": "pgAdmin is a feature-rich open source administration and development platform for PostgreSQL.",
     "tags": ["database"],
     "tasktype": "postgres",
+    "uploadfiles": [
+        { "destination": "certs:server.cert", "required": true, "file": "../../certs/server.crt" },
+        { "destination": "certs:server.key", "required": true, "file": "../../certs/server.key" }
+    ],
     "installParams": {
         "bridge": "vmbr1"
+    },
+    "validation": {
+        "waitBeforeValidation": 15,
+        "commands": [
+            {
+                "command": "wget --no-check-certificate -q -O /dev/null https://localhost:443/login",
+                "expectedExitCode": 0,
+                "description": "pgAdmin HTTPS endpoint should respond"
+            }
+        ]
     }
 }

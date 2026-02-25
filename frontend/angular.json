@@ -60,7 +60,7 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "options": {
-            "proxyConfig": "proxy.conf.json"
+            "proxyConfig": "proxy.conf.js"
           },
           "configurations": {
             "production": {
@@ -71,7 +71,7 @@
             },
             "e2e": {
               "buildTarget": "webapp-angular:build:development",
-              "proxyConfig": "proxy.e2e.conf.json"
+              "proxyConfig": "proxy.e2e.conf.js"
             }
           },
           "defaultConfiguration": "development"
