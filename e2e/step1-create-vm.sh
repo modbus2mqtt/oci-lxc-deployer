@@ -30,7 +30,7 @@ source "$SCRIPT_DIR/config.sh"
 # Load config: use positional arg as instance name, or default
 load_config "${1:-}"
 
-ISO_NAME="proxmox-ve-e2e-autoinstall.iso"
+ISO_NAME="proxmox-ve-e2e-${E2E_INSTANCE}.iso"
 
 # Colors
 RED='\033[0;31m'
@@ -50,6 +50,12 @@ pve_ssh() {
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 "root@$PVE_HOST" "$@"
 }
 
+# SSH wrapper for nested VM via port forwarding on PVE host
+# Connects directly through PVE_HOST:PORT_PVE_SSH -> nested VM:22
+nested_ssh() {
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -p "$PORT_PVE_SSH" "root@$PVE_HOST" "$@"
+}
+
 # Store nested VM IP for later steps
 NESTED_IP_FILE="$SCRIPT_DIR/.nested-vm-ip"
 
@@ -67,11 +73,12 @@ fi
 success "SSH connection verified"
 
 # Step 2: Check if ISO exists
-info "Checking for custom ISO..."
+info "Checking for ISO: $ISO_NAME"
 if ! pve_ssh "test -f /var/lib/vz/template/iso/$ISO_NAME"; then
-    error "Custom ISO not found. Run step0-create-iso.sh first."
+    error "ISO not found: $ISO_NAME
+Run: ./step0-create-iso.sh $E2E_INSTANCE"
 fi
-success "Custom ISO found"
+success "ISO found: $ISO_NAME"
 
 # Step 3: Cleanup existing VM (unless KEEP_VM is set)
 if [ -z "$KEEP_VM" ]; then
@@ -122,23 +129,45 @@ info "This typically takes 5-10 minutes..."
 info "The VM will reboot automatically after installation."
 info "Network: $VM_BRIDGE - Static IP: $NESTED_STATIC_IP"
 
-# Ensure sshpass is installed on PVE host for password-based SSH during setup
-if ! pve_ssh "command -v sshpass" &>/dev/null; then
-    info "Installing sshpass on $PVE_HOST..."
-    pve_ssh "apt-get update && apt-get install -y sshpass" &>/dev/null
-    success "sshpass installed"
-fi
+# Clean up any old known_hosts entries for the nested VM
+# (VM was recreated, so host key has changed)
+ssh-keygen -R "[$PVE_HOST]:$PORT_PVE_SSH" 2>/dev/null || true
 
-# Wait for SSH to become available on the static IP
+# Ensure SSH port forwarding exists BEFORE polling
+# (step0 may have used different ports, or rules may have been cleared)
+info "Ensuring port forwarding: $PVE_HOST:$PORT_PVE_SSH -> $NESTED_STATIC_IP:22"
+pve_ssh "
+    iptables -t nat -D PREROUTING -p tcp --dport $PORT_PVE_SSH -j DNAT --to-destination $NESTED_STATIC_IP:22 2>/dev/null || true
+    iptables -t nat -A PREROUTING -p tcp --dport $PORT_PVE_SSH -j DNAT --to-destination $NESTED_STATIC_IP:22
+    iptables -C FORWARD -p tcp -d $NESTED_STATIC_IP --dport 22 -j ACCEPT 2>/dev/null || iptables -A FORWARD -p tcp -d $NESTED_STATIC_IP --dport 22 -j ACCEPT
+    iptables -t nat -C POSTROUTING -s ${SUBNET}.0/24 -o vmbr0 -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s ${SUBNET}.0/24 -o vmbr0 -j MASQUERADE
+"
+
+# Wait for SSH to become available via port forwarding
 MAX_WAIT=900  # 15 minutes (installation can take a while)
 WAITED=0
 INTERVAL=15
+LAST_SSH_STATUS=""
+info "Polling SSH: root@$PVE_HOST:$PORT_PVE_SSH"
 
 while [ $WAITED -lt $MAX_WAIT ]; do
-    # Try SSH connection with password (new VM doesn't have our keys yet)
-    if pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@$NESTED_STATIC_IP 'echo SSH_OK'" 2>/dev/null | grep -q "SSH_OK"; then
-        success "Installation complete - SSH accessible at $NESTED_STATIC_IP"
+    # Try SSH via port forwarding (keys were injected via ISO answer file)
+    SSH_OUTPUT=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes -p "$PORT_PVE_SSH" "root@$PVE_HOST" 'echo SSH_OK' 2>&1) || true
+    if echo "$SSH_OUTPUT" | grep -q "SSH_OK"; then
+        echo ""
+        success "Installation complete - SSH accessible at $PVE_HOST:$PORT_PVE_SSH"
         break
+    fi
+
+    # Extract short status from SSH output (e.g. "Connection refused", "Connection timed out")
+    SSH_STATUS=$(echo "$SSH_OUTPUT" | grep -oE 'Connection (refused|timed out|reset)|No route to host|Host is down' | head -1)
+    [ -z "$SSH_STATUS" ] && [ -n "$SSH_OUTPUT" ] && SSH_STATUS="$SSH_OUTPUT"
+
+    # Log when status changes
+    if [ -n "$SSH_STATUS" ] && [ "$SSH_STATUS" != "$LAST_SSH_STATUS" ]; then
+        echo ""
+        info "SSH: $SSH_STATUS"
+        LAST_SSH_STATUS="$SSH_STATUS"
     fi
 
     # Show progress
@@ -157,8 +186,6 @@ Check VM console at: https://$PVE_HOST:8006/#v1:0:=qemu%2F$TEST_VMID"
 fi
 
 # Step 7: Copy SSH keys and wait for services
-# First, clean up any old known_hosts entries on PVE host
-pve_ssh "ssh-keygen -R $NESTED_STATIC_IP 2>/dev/null || true"
 
 # Note: Proxmox VE uses /etc/pve/priv/authorized_keys (symlinked from ~/.ssh/authorized_keys)
 # On fresh installations, /etc/pve/priv/ may not exist yet, so we create it
@@ -184,33 +211,21 @@ if [ -n "$LOCAL_PUBKEY" ]; then
 fi
 
 if [ -n "$ALL_KEYS" ]; then
-    # Write keys to a temp file on PVE host, then copy to nested VM
-    # This is more reliable than trying to echo multi-line content through nested SSH
-    pve_ssh "cat > /tmp/nested_keys.pub << 'KEYS_EOF'
-$ALL_KEYS
-KEYS_EOF"
-
-    # Copy keys file to nested VM and install it
-    # Try /etc/pve/priv/ first (PVE standard), fallback to ~/.ssh/
-    pve_ssh "sshpass -p '$NESTED_PASSWORD' scp -o StrictHostKeyChecking=no /tmp/nested_keys.pub root@$NESTED_STATIC_IP:/tmp/"
-
-    pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no root@$NESTED_STATIC_IP '
+    # Pipe keys directly to nested VM via port forwarding
+    echo "$ALL_KEYS" | nested_ssh "
         # Try PVE standard location first
         if [ -d /etc/pve/priv ] || mkdir -p /etc/pve/priv 2>/dev/null; then
-            cat /tmp/nested_keys.pub >> /etc/pve/priv/authorized_keys
+            cat >> /etc/pve/priv/authorized_keys
             chmod 600 /etc/pve/priv/authorized_keys
-            echo \"Keys installed to /etc/pve/priv/authorized_keys\"
+            echo 'Keys installed to /etc/pve/priv/authorized_keys'
         else
             # Fallback to standard SSH location
             mkdir -p ~/.ssh
-            cat /tmp/nested_keys.pub >> ~/.ssh/authorized_keys
+            cat >> ~/.ssh/authorized_keys
             chmod 600 ~/.ssh/authorized_keys
-            echo \"Keys installed to ~/.ssh/authorized_keys (fallback)\"
+            echo 'Keys installed to ~/.ssh/authorized_keys (fallback)'
         fi
-        rm -f /tmp/nested_keys.pub
-    '" || error "Failed to copy SSH keys"
-
-    pve_ssh "rm -f /tmp/nested_keys.pub"
+    " || error "Failed to copy SSH keys"
     success "SSH keys copied to nested VM"
 else
     info "No SSH keys found to copy"
@@ -218,12 +233,12 @@ fi
 
 # Verify SSH keys were actually copied (check both locations)
 info "Verifying SSH keys..."
-KEY_COUNT=$(pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no root@$NESTED_STATIC_IP '
+KEY_COUNT=$(nested_ssh "
     count=0
     [ -f /etc/pve/priv/authorized_keys ] && count=\$(cat /etc/pve/priv/authorized_keys | wc -l)
     [ \"\$count\" -eq 0 ] && [ -f ~/.ssh/authorized_keys ] && count=\$(cat ~/.ssh/authorized_keys | wc -l)
     echo \$count
-'" 2>/dev/null)
+" 2>/dev/null)
 if [ "$KEY_COUNT" -lt 1 ]; then
     error "SSH keys not found in authorized_keys (count: $KEY_COUNT)"
 fi
@@ -231,7 +246,7 @@ success "Verified $KEY_COUNT SSH key(s) in authorized_keys"
 
 # Sync filesystem to ensure keys are flushed to disk before snapshot
 info "Syncing filesystem..."
-pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$NESTED_STATIC_IP 'sync'" || true
+nested_ssh "sync" || true
 success "Filesystem synced"
 
 NESTED_IP="$NESTED_STATIC_IP"
@@ -241,14 +256,9 @@ success "Nested VM IP: $NESTED_IP"
 echo "$NESTED_IP" > "$NESTED_IP_FILE"
 info "IP saved to $NESTED_IP_FILE"
 
-# Helper for nested SSH with timeout
-nested_sshpass() {
-    pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$NESTED_STATIC_IP $*"
-}
-
-# Step 9: Verify Proxmox is running (via PVE host, not direct)
+# Step 9: Verify Proxmox is running
 info "Verifying Proxmox VE installation..."
-PVE_VERSION=$(pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$NESTED_IP pveversion 2>/dev/null" || echo "unknown")
+PVE_VERSION=$(nested_ssh "pveversion 2>/dev/null" 2>/dev/null || echo "unknown")
 
 if [[ "$PVE_VERSION" == *"pve-manager"* ]]; then
     success "Proxmox VE verified: $PVE_VERSION"
@@ -263,12 +273,12 @@ FIRST_BOOT_TIMEOUT=120
 FIRST_BOOT_WAITED=0
 while [ $FIRST_BOOT_WAITED -lt $FIRST_BOOT_TIMEOUT ]; do
     # Note: This is a oneshot service with RemainAfterExit=yes, so status is "active" when done
-    FB_STATUS=$(nested_sshpass "systemctl is-active proxmox-first-boot-network-online.service 2>/dev/null; true" 2>/dev/null | tr -d '[:space:]')
+    FB_STATUS=$(nested_ssh "systemctl is-active proxmox-first-boot-network-online.service 2>/dev/null; true" 2>/dev/null | tr -d '[:space:]')
     case "$FB_STATUS" in
         active|inactive) break ;;
         failed)
             info "First-boot service failed - checking logs..."
-            nested_sshpass "journalctl -u proxmox-first-boot-network-online.service --no-pager -n 20" 2>/dev/null || true
+            nested_ssh "journalctl -u proxmox-first-boot-network-online.service --no-pager -n 20" 2>/dev/null || true
             break ;;
     esac
     sleep 5
@@ -290,7 +300,7 @@ fi
 header "Configuring Free Repositories & System Update"
 
 info "Configuring no-subscription repository and disabling enterprise repos..."
-nested_sshpass "'
+nested_ssh "
     # Determine Debian codename (trixie for PVE 9.x, bookworm for PVE 8.x)
     CODENAME=\$(. /etc/os-release && echo \$VERSION_CODENAME)
     [ -z \"\$CODENAME\" ] && CODENAME=bookworm
@@ -312,21 +322,21 @@ nested_sshpass "'
 # Proxmox VE No-Subscription Repository (for testing/development)
 deb http://download.proxmox.com/debian/pve \$CODENAME pve-no-subscription
 REPOEOF
-'" || error "Failed to configure repositories"
+" || error "Failed to configure repositories"
 success "Free Proxmox repositories configured"
 
 info "Running apt update && apt dist-upgrade (this may take a few minutes)..."
-nested_sshpass "'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -qq'" || error "Failed to update packages"
+nested_ssh "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -qq" || error "Failed to update packages"
 success "System packages updated"
 
 # Install tools needed for E2E testing
 info "Installing additional tools..."
-nested_sshpass "'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq curl netcat-openbsd'" || error "Failed to install tools"
+nested_ssh "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq curl netcat-openbsd" || error "Failed to install tools"
 success "Tools installed (jq, curl, netcat)"
 
 # Install helper scripts on nested VM
 info "Installing helper scripts..."
-nested_sshpass "'cat > /usr/local/bin/pct-cleanup << \"SCRIPTEOF\"
+nested_ssh "cat > /usr/local/bin/pct-cleanup << 'SCRIPTEOF'
 #!/bin/bash
 # pct-cleanup - Destroy a range of LXC containers
 # Usage: pct-cleanup <from> <to>
@@ -341,14 +351,14 @@ for vmid in \$(seq \"\$FROM\" \"\$TO\"); do
     fi
 done
 SCRIPTEOF
-chmod +x /usr/local/bin/pct-cleanup'"
+chmod +x /usr/local/bin/pct-cleanup"
 success "Helper scripts installed (pct-cleanup)"
 
 # Step 10b: Configure kernel modules for Docker-in-LXC
 header "Configuring Kernel Modules for Docker-in-LXC"
 
 info "Loading and persisting kernel modules..."
-nested_sshpass "'
+nested_ssh "
     # Try to load modules immediately (may fail in nested VMs - that is OK)
     modprobe overlay 2>/dev/null || true
     modprobe ip_tables 2>/dev/null || true
@@ -363,10 +373,10 @@ ip_tables
 ip6_tables
 br_netfilter
 MODEOF
-'" || error "Failed to configure kernel modules"
+" || error "Failed to configure kernel modules"
 
 # Check if overlay is available now
-if nested_sshpass "lsmod | grep -q '^overlay ' || test -d /sys/module/overlay" 2>/dev/null; then
+if nested_ssh "lsmod | grep -q '^overlay ' || test -d /sys/module/overlay" 2>/dev/null; then
     success "Kernel modules loaded (overlay available)"
 else
     info "Overlay module not loaded yet - will be available after reboot"
@@ -377,11 +387,11 @@ header "Setting up Container NAT Bridge (vmbr1)"
 info "Creating vmbr1 in nested VM for container networking..."
 
 # Check if vmbr1 already exists
-if nested_sshpass "ip link show vmbr1" &>/dev/null; then
+if nested_ssh "ip link show vmbr1" &>/dev/null; then
     success "vmbr1 already exists"
 else
     # Add vmbr1 configuration to nested VM
-    nested_sshpass "'cat >> /etc/network/interfaces << EOF
+    nested_ssh "cat >> /etc/network/interfaces << EOF
 
 auto vmbr1
 iface vmbr1 inet static
@@ -395,16 +405,16 @@ iface vmbr1 inet static
     post-up iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o vmbr0 -j MASQUERADE
     post-down iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o vmbr0 -j MASQUERADE
 EOF
-'" || error "Failed to add vmbr1 configuration"
+" || error "Failed to add vmbr1 configuration"
 
     # Bring up vmbr1
-    nested_sshpass "ifup vmbr1" || error "Failed to bring up vmbr1"
+    nested_ssh "ifup vmbr1" || error "Failed to bring up vmbr1"
     success "vmbr1 created with NAT (10.0.0.0/24)"
 fi
 
 # Step 10d: Install and configure dnsmasq for DHCP on vmbr1
 info "Setting up DHCP server (dnsmasq) on vmbr1..."
-nested_sshpass "'
+nested_ssh "
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dnsmasq
 
     cat > /etc/dnsmasq.d/e2e-nat.conf << DNSEOF
@@ -421,13 +431,13 @@ DNSEOF
 
     systemctl enable dnsmasq
     systemctl restart dnsmasq
-'" || error "Failed to configure dnsmasq"
+" || error "Failed to configure dnsmasq"
 success "DHCP server configured on vmbr1 (10.0.0.100-200)"
 
 # Step 10e: Reboot nested VM to apply kernel upgrade + load modules
 header "Rebooting Nested VM"
 info "Rebooting to apply kernel upgrade and load modules..."
-nested_sshpass "reboot" 2>/dev/null || true
+nested_ssh "reboot" 2>/dev/null || true
 
 # Wait for SSH to come back after reboot
 info "Waiting for nested VM to come back online..."
@@ -436,7 +446,7 @@ REBOOT_WAITED=0
 sleep 10  # Give it time to actually shut down
 
 while [ $REBOOT_WAITED -lt $REBOOT_TIMEOUT ]; do
-    if pve_ssh "sshpass -p '$NESTED_PASSWORD' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@$NESTED_STATIC_IP 'echo SSH_OK'" 2>/dev/null | grep -q "SSH_OK"; then
+    if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes -p "$PORT_PVE_SSH" "root@$PVE_HOST" 'echo SSH_OK' 2>/dev/null | grep -q "SSH_OK"; then
         break
     fi
     sleep 5
@@ -453,7 +463,7 @@ success "Nested VM back online after reboot (${REBOOT_WAITED}s)"
 
 # Verify kernel modules are loaded after reboot
 info "Verifying kernel modules after reboot..."
-if nested_sshpass "lsmod | grep -q '^overlay ' || test -d /sys/module/overlay" 2>/dev/null; then
+if nested_ssh "lsmod | grep -q '^overlay ' || test -d /sys/module/overlay" 2>/dev/null; then
     success "Overlay module loaded"
 else
     info "Warning: overlay module still not available after reboot"
@@ -461,22 +471,22 @@ fi
 
 # Verify Proxmox version after upgrade + reboot
 info "Verifying Proxmox version..."
-PVE_FULL=$(nested_sshpass "pveversion 2>/dev/null" 2>/dev/null || echo "unknown")
+PVE_FULL=$(nested_ssh "pveversion 2>/dev/null" 2>/dev/null || echo "unknown")
 success "Proxmox version: $PVE_FULL"
 
 # Verify vmbr1 and dnsmasq survived reboot
-if nested_sshpass "ip link show vmbr1" &>/dev/null; then
+if nested_ssh "ip link show vmbr1" &>/dev/null; then
     success "vmbr1 active after reboot"
 else
     info "Warning: vmbr1 not active after reboot - bringing up..."
-    nested_sshpass "ifup vmbr1" 2>/dev/null || true
+    nested_ssh "ifup vmbr1" 2>/dev/null || true
 fi
 
-if nested_sshpass "systemctl is-active dnsmasq" 2>/dev/null | grep -q "active"; then
+if nested_ssh "systemctl is-active dnsmasq" 2>/dev/null | grep -q "active"; then
     success "dnsmasq running after reboot"
 else
     info "Warning: dnsmasq not running - restarting..."
-    nested_sshpass "systemctl restart dnsmasq" 2>/dev/null || true
+    nested_ssh "systemctl restart dnsmasq" 2>/dev/null || true
 fi
 
 # Step 11: Set up port forwarding on PVE host to nested VM
@@ -537,7 +547,7 @@ echo "  - IP Address: $NESTED_IP"
 echo "  - Root Password: $NESTED_PASSWORD"
 echo ""
 echo "Network Configuration:"
-echo "  - vmbr1 on $PVE_HOST: NAT network (${SUBNET}.0/24)"
+echo "  - $VM_BRIDGE on $PVE_HOST: NAT network (${SUBNET}.0/24)"
 echo "  - vmbr0 in nested VM: External network"
 echo "  - vmbr1 in nested VM: NAT for containers (10.0.0.0/24)"
 echo "  - dnsmasq DHCP: 10.0.0.100-200 on vmbr1"

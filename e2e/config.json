@@ -8,6 +8,7 @@
       "vmName": "pve-e2e-local",
       "portOffset": 0,
       "subnet": "10.99.1",
+      "bridge": "vmbr1",
       "localPath": "./examples",
       "filesystem": "zfs"
     },
@@ -18,6 +19,7 @@
       "vmName": "pve-e2e-ci",
       "portOffset": 1000,
       "subnet": "10.99.2",
+      "bridge": "vmbr2",
       "filesystem": "ext4",
       "wol": {
         "macAddress": "XX:XX:XX:XX:XX:XX"
@@ -29,7 +31,6 @@
     "vmCores": 2,
     "vmDiskSize": 100,
     "vmStorage": "local-zfs",
-    "vmBridge": "vmbr1",
     "filesystem": "zfs",
     "swapSize": 4,
     "nestedPassword": "e2e-test-2024",
