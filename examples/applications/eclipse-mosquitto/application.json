@@ -1,8 +1,8 @@
 {
-  "name": "postgres",
-  "description": "PostgreSQL is an open source object-relational database system.",
+  "name": "mosquitto",
+  "description": "Eclipse Mosquitto is an open source message broker that implements the MQTT protocol.",
   "extends": "oci-image",
-  "icon": "Postgresql_elephant.svg",
+  "icon": "icon.svg",
   "parameters": [
     {
       "id": "hostname",
@@ -12,7 +12,7 @@
       "description": "Hostname for the LXC container",
       "template": "100-conf-create-configure-lxc.json",
       "templatename": "Create and Configure LXC",
-      "default": "postgres"
+      "default": "eclipse-mosquitto"
     },
     {
       "id": "volumes",
@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "data=var/lib/postgresql/data\ncerts=certs\ninitdb=docker-entrypoint-initdb.d"
+      "default": "config=mosquitto/config"
     },
     {
       "id": "envs",
@@ -31,7 +31,7 @@
       "type": "string",
       "advanced": true,
       "multiline": true,
-      "default": "GID=70\nPGDATA=/var/lib/postgresql/data/pgdata\nPOSTGRES_DB=postgres\nPOSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}\nPOSTGRES_PORT=5432\nPOSTGRES_USER=postgres\nPOSTGRES_VERSION=16-alpine\nUID=70",
+      "default": "GID=1883\nMOSQUITTO_VERSION=2\nMQTTS_PORT=8883\nMQTT_PORT=1883\nMQTT_WS_PORT=9001\nUID=1883",
       "description": "Environment variables to substitute in initial_command.",
       "template": "107-conf-oci-lxc-configuration.json",
       "templatename": "Configure LXC for OCI"
@@ -40,11 +40,11 @@
   "properties": [
     {
       "id": "oci_image",
-      "value": "postgres:16-alpine"
+      "value": "eclipse-mosquitto:2"
     },
     {
       "id": "uid",
-      "value": "70"
+      "value": "1883"
     },
     {
       "id": "username",
@@ -53,13 +53,16 @@
   ],
   "installation": {
     "pre_start": [
-      "0-upload-server-crt.json",
-      "1-upload-server-key.json",
-      "2-upload-enable-ssl-sh.json"
+      "0-upload-mosquitto-conf.json",
+      "1-upload-server-crt.json",
+      "2-upload-server-key.json"
     ]
   },
+  "url": "https://mosquitto.org/",
+  "documentation": "https://mosquitto.org/documentation/",
+  "source": "https://github.com/eclipse-mosquitto/mosquitto",
   "tags": [
-    "database"
-  ],
-  "stacktype": "postgres"
+    "messaging",
+    "iot"
+  ]
 }

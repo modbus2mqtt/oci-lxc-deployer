@@ -21,6 +21,7 @@
       "request": "launch",
       "sourceMaps": true,
       "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
       "args": [
         "--local",
         "${workspaceFolder}/examples",

@@ -39,8 +39,9 @@ export default async function globalSetup() {
 
   // Determine which project is used
   const isLocal = process.argv.includes('--project=local');
+  const frontendPort = process.env.FRONTEND_PORT || '4200';
   const baseURL = isLocal
-    ? 'http://localhost:4200'
+    ? `http://localhost:${frontendPort}`
     : `http://${instance?.pveHost || 'localhost'}:${deployerPort}`;
 
   // Fetch version from running backend

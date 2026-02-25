@@ -4,12 +4,26 @@
     "description": "Eclipse Mosquitto is an open source message broker that implements the MQTT protocol.",
     "uploadfiles": [
         { "destination": "config:mosquitto.conf", "required": true, "file": "mosquitto.conf" },
-        { "destination": "config:certs/ca.crt", "advanced": true },
-        { "destination": "config:certs/server.crt", "advanced": true },
-        { "destination": "config:certs/server.key", "advanced": true }
+        { "destination": "config:certs/server.crt", "required": true, "file": "../../certs/server.crt" },
+        { "destination": "config:certs/server.key", "required": true, "file": "../../certs/server.key" }
     ],
     "tags": ["messaging", "iot"],
     "installParams": {
         "bridge": "vmbr1"
+    },
+    "validation": {
+        "waitBeforeValidation": 5,
+        "ports": [
+            { "port": 1883, "protocol": "tcp", "service": "mqtt" },
+            { "port": 8883, "protocol": "tcp", "service": "mqtts" }
+        ],
+        "commands": [
+            {
+                "command": "IP=$(lxc-info -n {vmId} -iH | head -1) && echo | openssl s_client -connect $IP:8883 2>&1 | grep -q 'Certificate chain'",
+                "executeOn": "host",
+                "expectedExitCode": 0,
+                "description": "Mosquitto MQTTS should present a certificate on port 8883"
+            }
+        ]
     }
 }

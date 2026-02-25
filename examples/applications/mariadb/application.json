@@ -1,8 +1,8 @@
 {
-  "name": "postgres",
-  "description": "PostgreSQL is an open source object-relational database system.",
+  "name": "MariaDB",
+  "description": "MariaDB is an open source relational database management system.",
   "extends": "oci-image",
-  "icon": "Postgresql_elephant.svg",
+  "icon": "icon.svg",
   "parameters": [
     {
       "id": "hostname",
@@ -12,7 +12,7 @@
       "description": "Hostname for the LXC container",
       "template": "100-conf-create-configure-lxc.json",
       "templatename": "Create and Configure LXC",
-      "default": "postgres"
+      "default": "mariadb"
     },
     {
       "id": "volumes",
@@ -23,7 +23,7 @@
       "description": "One per line: key=/container/path",
       "template": "150-conf-create-storage-volumes-for-lxc.json",
       "templatename": "Create Storage Volumes for LXC",
-      "default": "data=var/lib/postgresql/data\ncerts=certs\ninitdb=docker-entrypoint-initdb.d"
+      "default": "data=var/lib/mysql\ncerts=certs\nconf.d=etc/mysql/conf.d"
     },
     {
       "id": "envs",
@@ -31,7 +31,7 @@
       "type": "string",
       "advanced": true,
       "multiline": true,
-      "default": "GID=70\nPGDATA=/var/lib/postgresql/data/pgdata\nPOSTGRES_DB=postgres\nPOSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}\nPOSTGRES_PORT=5432\nPOSTGRES_USER=postgres\nPOSTGRES_VERSION=16-alpine\nUID=70",
+      "default": "GID=999\nMARIADB_DATABASE=appdb\nMARIADB_PASSWORD={{ MARIADB_PASSWORD }}\nMARIADB_PORT=3306\nMARIADB_ROOT_PASSWORD={{ MARIADB_ROOT_PASSWORD }}\nMARIADB_USER=appuser\nMARIADB_VERSION=11\nUID=999",
       "description": "Environment variables to substitute in initial_command.",
       "template": "107-conf-oci-lxc-configuration.json",
       "templatename": "Configure LXC for OCI"
@@ -40,11 +40,11 @@
   "properties": [
     {
       "id": "oci_image",
-      "value": "postgres:16-alpine"
+      "value": "mariadb:11"
     },
     {
       "id": "uid",
-      "value": "70"
+      "value": "999"
     },
     {
       "id": "username",
@@ -55,11 +55,14 @@
     "pre_start": [
       "0-upload-server-crt.json",
       "1-upload-server-key.json",
-      "2-upload-enable-ssl-sh.json"
+      "2-upload-ssl-cnf.json"
     ]
   },
+  "url": "https://github.com/MariaDB/mariadb-docker",
+  "documentation": "https://hub.docker.com/_/mariadb/",
+  "source": "https://github.com/MariaDB/mariadb-docker",
+  "vendor": "MariaDB Community",
   "tags": [
     "database"
-  ],
-  "stacktype": "postgres"
+  ]
 }

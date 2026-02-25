@@ -3,12 +3,18 @@
     "description": "PostgreSQL is an open source object-relational database system.",
     "tags": ["database"],
     "tasktype": "postgres",
+    "uploadfiles": [
+        { "destination": "certs:server.crt", "required": true, "file": "../../certs/server.crt" },
+        { "destination": "certs:server.key", "required": true, "file": "../../certs/server.key" },
+        { "destination": "initdb:enable-ssl.sh", "required": true, "file": "enable-ssl.sh" }
+    ],
     "installParams": {
         "bridge": "vmbr1",
         "static_ip": "10.0.0.50/24",
         "static_gw": "10.0.0.1"
     },
     "validation": {
+        "waitBeforeValidation": 10,
         "ports": [
             { "port": 5432, "protocol": "tcp", "service": "postgres" }
         ],
@@ -17,6 +23,12 @@
                 "command": "pct config {vmId} | grep 'ip=10.0.0.50'",
                 "executeOn": "host",
                 "description": "Static IP 10.0.0.50 is configured"
+            },
+            {
+                "command": "echo | openssl s_client -starttls postgres -connect 10.0.0.50:5432 2>&1 | grep -q 'Certificate chain'",
+                "executeOn": "host",
+                "expectedExitCode": 0,
+                "description": "PostgreSQL TLS should be available via STARTTLS on port 5432"
             }
         ]
     }

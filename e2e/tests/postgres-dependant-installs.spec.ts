@@ -178,7 +178,7 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     let ready = false;
     for (let i = 0; i < 60; i++) {
       try {
-        hostValidator.execOnHost(`pct exec ${vmId} -- pg_isready -h 127.0.0.1 -p 5432`);
+        hostValidator.execOnHost(`nc -z ${POSTGRES_HOST} ${POSTGRES_PORT}`);
         ready = true;
         console.log(`Postgres ready after ${i + 1}s`);
         break;
@@ -248,9 +248,11 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
     // Query the test table through PostgREST REST API
+    // Note: use 127.0.0.1 instead of localhost — Alpine wget tries IPv6 first,
+    // but PostgREST only listens on IPv4
     console.log('Querying PostgREST API...');
     const apiResponse = postgrestValidator.execInContainer(
-      "wget -qO- 'http://localhost:3000/e2e_test?select=name&limit=1'"
+      "wget -qO- 'http://127.0.0.1:3000/e2e_test?select=name&limit=1'"
     );
     console.log(`PostgREST API response: ${apiResponse}`);
     expect(apiResponse).toContain('postgrest-works');
@@ -275,13 +277,20 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     });
 
     // Find postgres container VMID and verify it's running
+    // Must match hostname exactly to avoid matching "postgrest" etc.
     const pctOutput = hostValidator.execOnHost('pct list').trim();
-    const postgresLine = pctOutput.split('\n').find(
-      (line) => line.toLowerCase().includes('postgres') && line.toLowerCase().includes('running')
-    );
+    const postgresLine = pctOutput.split('\n').find((line) => {
+      const parts = line.trim().split(/\s+/);
+      const hostname = parts[parts.length - 1]; // hostname is always the last column
+      const status = parts[1];
+      return hostname === 'postgres' && status?.toLowerCase() === 'running';
+    });
 
     if (!postgresLine) {
-      const allLines = pctOutput.split('\n').filter((l) => l.toLowerCase().includes('postgres'));
+      const allLines = pctOutput.split('\n').filter((l) => {
+        const parts = l.trim().split(/\s+/);
+        return parts[parts.length - 1] === 'postgres';
+      });
       const status = allLines.length > 0 ? allLines[0].trim() : 'not found';
       throw new Error(`Postgres container not running. Status: ${status}`);
     }
@@ -289,14 +298,34 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     const postgresVmId = postgresLine.trim().split(/\s+/)[0];
     console.log(`Found running postgres container: VMID ${postgresVmId}`);
 
-    // Drop zitadel database so start-from-init can do a clean setup
+    // Terminate active connections and drop zitadel database + roles for a clean start-from-init
     try {
       hostValidator.execOnHost(
-        `pct exec ${postgresVmId} -- psql -U postgres -c 'DROP DATABASE IF EXISTS zitadel;'`
+        `pct exec ${postgresVmId} -- /usr/local/bin/psql -U postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'zitadel';"`
+      );
+    } catch {
+      // No active connections - OK
+    }
+
+    try {
+      hostValidator.execOnHost(
+        `pct exec ${postgresVmId} -- /usr/local/bin/psql -U postgres -c 'DROP DATABASE IF EXISTS zitadel;'`
       );
       console.log('Dropped zitadel database');
     } catch (e) {
-      throw new Error(`Failed to reset zitadel database on container ${postgresVmId}: ${e}`);
+      throw new Error(`Failed to drop zitadel database on container ${postgresVmId}: ${e}`);
+    }
+
+    // Clean up Zitadel-created roles (may not exist on first run)
+    for (const role of ['zitadel', 'zitadel_admin']) {
+      try {
+        hostValidator.execOnHost(
+          `pct exec ${postgresVmId} -- /usr/local/bin/psql -U postgres -c "REASSIGN OWNED BY ${role} TO postgres; DROP OWNED BY ${role} CASCADE; DROP ROLE ${role};"`
+        );
+        console.log(`Dropped role: ${role}`);
+      } catch {
+        // Role doesn't exist - OK
+      }
     }
   });
 
@@ -327,9 +356,9 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
 
     console.log('Waiting for zitadel to accept connections on port 8080...');
     let ready = false;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 180; i++) {
       try {
-        hostValidator.execOnHost(`pct exec ${vmId} -- nc -z 127.0.0.1 8080`);
+        hostValidator.execOnHost(`IP=$(lxc-info -n ${vmId} -iH | head -1) && nc -z $IP 8080`);
         ready = true;
         console.log(`Zitadel ready after ${i + 1}s`);
         break;
@@ -337,7 +366,7 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
-    expect(ready, 'Zitadel not ready after 60s').toBe(true);
+    expect(ready, 'Zitadel not ready after 180s').toBe(true);
 
     // Cleanup old containers with same hostname (from previous test runs)
     hostValidator.cleanupOldContainers(
