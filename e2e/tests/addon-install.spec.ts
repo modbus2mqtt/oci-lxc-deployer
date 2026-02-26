@@ -1,10 +1,10 @@
-import { test, expect, getPveHost } from '../fixtures/test-base';
+import { test, expect, getPveHost, getSshPort, getDeployerStaticIp } from '../fixtures/test-base';
 import { E2EApplicationLoader, E2EApplication } from '../utils/application-loader';
 import { SSHValidator } from '../utils/ssh-validator';
 import { ApplicationInstallHelper } from '../utils/application-install-helper';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync, existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,14 +23,7 @@ const __dirname = dirname(__filename);
  * - Angular dev server running
  */
 
-// Load config for SSH port
-interface E2EConfig {
-  ports: { pveSsh: number };
-  defaults: { deployerStaticIp: string };
-}
-const configPath = join(__dirname, '..', 'config.json');
-const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-const SSH_PORT = e2eConfig.ports.pveSsh;
+const SSH_PORT = getSshPort();
 
 // Addon test configuration
 interface AddonTestConfig {
@@ -377,7 +370,7 @@ test.describe('Addon Installation E2E Tests', () => {
       const cleanupResult = cleanupValidator.cleanupOldContainers(
         app!.applicationId,
         createdVmId,
-        e2eConfig.defaults.deployerStaticIp,
+        getDeployerStaticIp(),
       );
       console.log(`Container cleanup: ${cleanupResult.message}`);
     }

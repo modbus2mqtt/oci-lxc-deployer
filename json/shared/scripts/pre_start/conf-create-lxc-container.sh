@@ -96,6 +96,7 @@ pct create "$VMID" "$TEMPLATE_PATH" \
   --net0 name=eth0,bridge="{{ bridge }}",ip=dhcp \
   --ostype "{{ ostype }}" \
   --unprivileged 1 \
+  --onboot 1 \
   $ARCH_ARG >&2
 RC=$? 
 if [ $RC -ne 0 ]; then

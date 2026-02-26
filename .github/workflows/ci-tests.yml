@@ -71,7 +71,7 @@ jobs:
         run: pvetest exec pnpm install --frozen-lockfile
 
       - name: Code quality (jscpd)
-        run: pvetest exec npx jscpd --config .jscpd.json backend/src frontend/src
+        run: pvetest exec "pnpm dupcheck"
 
       - name: Frontend tests
         run: pvetest exec "cd frontend && CI=true pnpm test"
@@ -92,7 +92,7 @@ jobs:
           retention-days: 7
 
   template-tests:
-    needs: [wake-backend]
+    needs: [install-test]
     runs-on: [self-hosted, linux, pve1]
     timeout-minutes: 30
     steps:
@@ -110,11 +110,16 @@ jobs:
     runs-on: [self-hosted, linux, pve1]
     timeout-minutes: 30
     steps:
-      - name: Install test (snapshot rollback + install + verify)
-        run: pvetest install-test ${{ github.sha }} https://github.com/${{ github.repository }}.git
+      - uses: actions/checkout@v4
+
+      - name: Rollback to baseline
+        run: pvetest snapshot-rollback baseline
+
+      - name: Install deployer
+        run: ./e2e/step2-install-deployer.sh github-action
 
   e2e-tests:
-    needs: [wake-backend]
+    needs: [install-test]
     runs-on: [self-hosted, linux, pve1]
     timeout-minutes: 45
     steps:
@@ -124,14 +129,14 @@ jobs:
       - name: Install and build
         run: |
           pvetest exec pnpm install --frozen-lockfile
-          pvetest exec npx playwright install chromium
+          pvetest exec pnpm exec playwright install chromium
           pvetest exec pnpm run build
 
       - name: Clean test containers
         run: pvetest exec "./e2e/clean-test-containers.sh github-action" || true
 
       - name: Playwright E2E tests
-        run: pvetest exec "CI=true E2E_INSTANCE=github-action npx playwright test --project=nested-vm"
+        run: pvetest exec "CI=true E2E_INSTANCE=github-action pnpm exec playwright test --project=nested-vm"
 
       - name: Fetch Playwright report
         if: always()

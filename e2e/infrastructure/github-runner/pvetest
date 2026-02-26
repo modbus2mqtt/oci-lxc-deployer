@@ -145,6 +145,8 @@ cmd_checkout() {
     remote_ssh bash <<SCRIPT
 set -e
 if [ ! -d $WORKSPACE/.git ]; then
+    # Remove non-git content (e.g. from rsync) before cloning
+    rm -rf $WORKSPACE
     git clone "$repo" $WORKSPACE
 fi
 cd $WORKSPACE
@@ -196,6 +198,17 @@ cmd_snapshot_rollback() {
     info "Rolling back VM $NESTED_VMID to snapshot '$name'..."
     host_ssh "qm stop $NESTED_VMID 2>/dev/null || true"
     sleep 3
+
+    # Delete all snapshots except the target so rollback can proceed
+    # qm listsnapshot format: `-> name   timestamp   description
+    local snap
+    for snap in $(host_ssh "qm listsnapshot $NESTED_VMID 2>/dev/null" | sed -n 's/^.*-> \([^ ]*\).*/\1/p'); do
+        if [ "$snap" != "$name" ] && [ "$snap" != "current" ]; then
+            info "Deleting snapshot '$snap'..."
+            host_ssh "qm delsnapshot $NESTED_VMID $snap" 2>/dev/null || true
+        fi
+    done
+
     host_ssh "qm rollback $NESTED_VMID $name"
     host_ssh "qm start $NESTED_VMID"
     ok "Snapshot '$name' rolled back, VM starting"
@@ -369,9 +382,63 @@ VSCRIPT2
     ok "=== Install test passed ==="
 }
 
+# --- check: validate environment and SSH connectivity ---
+cmd_check() {
+    local errors=0
+
+    # --- Phase 1: Runner Environment ---
+    info "=== Runner Environment ==="
+    local vars=(
+        "PVETEST_HOST:$HOST"
+        "PVETEST_WORKER_HOST:$WORKER_HOST"
+        "PVETEST_WORKER_PORT:$PORT"
+        "PVETEST_WORKER_USER:$WORKER_USER"
+        "PVETEST_WOL_MAC:${WOL_MAC:-(not set)}"
+        "PVETEST_WOL_INTERFACE:${WOL_IFACE:-(not set)}"
+        "PVETEST_DEPLOYER_PORT:${DEPLOYER_PORT:-(not set)}"
+        "PVETEST_WORKSPACE:$WORKSPACE"
+        "PVETEST_WOL_TIMEOUT:$WOL_TIMEOUT"
+        "PVETEST_SSH_TIMEOUT:$SSH_TIMEOUT"
+        "PVETEST_API_TIMEOUT:$API_TIMEOUT"
+        "PVETEST_NESTED_SSH_PORT:${NESTED_PORT:-(not set)}"
+        "PVETEST_NESTED_VMID:${NESTED_VMID:-(not set)}"
+        "PVETEST_SNAPSHOT_NAME:${PVETEST_SNAPSHOT_NAME:-(not set)}"
+        "PVETEST_DEPLOYER_VMID:${PVETEST_DEPLOYER_VMID:-(not set)}"
+        "PVETEST_DEPLOYER_BRIDGE:${PVETEST_DEPLOYER_BRIDGE:-(not set)}"
+        "PVETEST_DEPLOYER_STATIC_IP:${PVETEST_DEPLOYER_STATIC_IP:-(not set)}"
+        "PVETEST_DEPLOYER_GATEWAY:${PVETEST_DEPLOYER_GATEWAY:-(not set)}"
+        "PVETEST_OWNER:${PVETEST_OWNER:-(not set)}"
+        "PVETEST_OCI_OWNER:${PVETEST_OCI_OWNER:-(not set)}"
+    )
+    for entry in "${vars[@]}"; do
+        local name="${entry%%:*}"
+        local value="${entry#*:}"
+        printf "  %-28s = %s\n" "$name" "$value"
+    done
+
+    # Runner-specific env vars (from entrypoint / LXC environment)
+    printf "  %-28s = %s\n" "REPO_URL" "${REPO_URL:-(not set)}"
+    printf "  %-28s = %s\n" "RUNNER_NAME" "${RUNNER_NAME:-(not set)}"
+    printf "  %-28s = %s\n" "LABELS" "${LABELS:-(not set)}"
+    if [ -n "${ACCESS_TOKEN:-}" ]; then
+        printf "  %-28s = %s\n" "ACCESS_TOKEN" "***masked***"
+    else
+        printf "  %-28s = %s\n" "ACCESS_TOKEN" "(not set)"
+    fi
+    if [ -n "${SSH_PRIVATE_KEY:-}" ] || [ -f /root/.ssh/id_ed25519 ]; then
+        printf "  %-28s = %s\n" "SSH_PRIVATE_KEY" "present"
+    else
+        printf "  %-28s = %s\n" "SSH_PRIVATE_KEY" "(not set)"
+    fi
+    echo ""
+
+    ok "Environment check complete"
+}
+
 # --- Main ---
 case "${1:-help}" in
     wake)              cmd_wake ;;
+    check)             cmd_check ;;
     checkout)          shift; cmd_checkout "$@" ;;
     exec)              shift; cmd_exec "$@" ;;
     fetch)             shift; cmd_fetch "$@" ;;
@@ -386,6 +453,7 @@ Usage: pvetest <command> [arguments]
 
 Commands:
   wake                          Wake PVE host via WOL, wait for test-worker SSH
+  check                         Validate environment variables and SSH connectivity
   checkout <sha> <repo-url>     Clone/fetch/checkout on test-worker
   exec <command...>             Run command in workspace on test-worker
   fetch <remote-path> <local>   Copy files from test-worker workspace

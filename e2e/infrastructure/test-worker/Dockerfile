@@ -1,31 +1,33 @@
-FROM node:24-alpine
+FROM node:24-bookworm-slim
 
 # Install test dependencies and SSH server
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
       bash \
       jq \
       git \
       openssh-server \
-      # Playwright Chromium system dependencies
-      chromium \
-      nss \
-      freetype \
-      harfbuzz \
+      openssl \
       ca-certificates \
-      ttf-freefont \
+      netcat-openbsd \
+      python3 \
+    && rm -rf /var/lib/apt/lists/* \
     && corepack enable \
-    && corepack prepare pnpm@latest --activate \
-    # Generate SSH host keys
-    && ssh-keygen -A \
-    # Allow root login via public key only
-    && sed -i 's/#PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config \
-    && sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config \
-    && mkdir -p /root/.ssh \
-    && chmod 700 /root/.ssh
+    && corepack prepare pnpm@latest --activate
 
-# Tell Playwright to use system Chromium instead of downloading its own
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# Install Playwright system dependencies (as root, before switching to node)
+RUN npx playwright install-deps chromium
+
+# SSH config: disable root login, allow pubkey auth
+RUN mkdir -p /run/sshd \
+    && sed -i 's/#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+# Set up unprivileged test user (node user already exists in base image)
+RUN mkdir -p /home/node/.ssh /home/node/workspace \
+    && chmod 700 /home/node/.ssh \
+    && chown -R node:node /home/node/.ssh /home/node/workspace \
+    # Ensure node account is not locked (sshd rejects locked accounts)
+    && passwd -d node
 
 EXPOSE 22
 
@@ -36,10 +38,10 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 LABEL \
     org.opencontainers.image.title="oci-lxc-deployer-ci-test-worker" \
-    org.opencontainers.image.description="CI test worker with Playwright, pnpm, and SSH for oci-lxc-deployer E2E tests" \
+    org.opencontainers.image.description="CI test worker with pnpm and SSH for oci-lxc-deployer E2E tests" \
     org.opencontainers.image.vendor="modbus2mqtt" \
     org.opencontainers.image.authors="Volkmar Nissen <volkmar.nissen@gmail.com>" \
     org.opencontainers.image.licenses="MIT" \
-    org.opencontainers.image.version="1.0.0" \
+    org.opencontainers.image.version="2.0.0" \
     org.opencontainers.image.source="https://github.com/modbus2mqtt/oci-lxc-deployer" \
-    org.opencontainers.image.base.name="node:24-alpine"
+    org.opencontainers.image.base.name="node:24-bookworm-slim"

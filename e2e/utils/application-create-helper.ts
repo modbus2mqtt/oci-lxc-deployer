@@ -1,7 +1,7 @@
 import { Page, expect } from '@playwright/test';
 import { E2EApplication, UploadFile } from './application-loader';
 import { SSHValidator } from './ssh-validator';
-import { getPveHost, getLocalPath } from '../fixtures/test-base';
+import { getPveHost, getLocalPath, getSshPort } from '../fixtures/test-base';
 import { readFileSync, existsSync, rmSync } from 'fs';
 import { join, dirname, resolve, basename } from 'path';
 import { fileURLToPath } from 'url';
@@ -9,13 +9,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load config for SSH port
-interface E2EConfig {
-  ports: { pveSsh: number };
-}
-const configPath = join(__dirname, '..', 'config.json');
-const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-const SSH_PORT = e2eConfig.ports.pveSsh;
+const SSH_PORT = getSshPort();
 
 /**
  * Page Object for application creation via UI wizard.
