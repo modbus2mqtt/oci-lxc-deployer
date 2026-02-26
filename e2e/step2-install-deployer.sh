@@ -75,11 +75,14 @@ header() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}\n"
 }
 
-# SSH wrapper for nested VM
-# Uses port forwarding via PVE_HOST, connects to PORT_PVE_SSH
-# Uses /dev/null for known_hosts to avoid host key conflicts during E2E testing
+# SSH wrapper for nested VM (via PVE host port forwarding)
 nested_ssh() {
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -p "$PORT_PVE_SSH" "root@$PVE_HOST" "$@"
+}
+
+# SSH wrapper for PVE host directly (for VM management: qm commands)
+pve_ssh() {
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 "root@$PVE_HOST" "$@"
 }
 
 header "Step 2: Install oci-lxc-deployer"
@@ -289,8 +292,12 @@ nested_ssh "
   iptables -D FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT 2>/dev/null || true
   iptables -t nat -A PREROUTING -p tcp --dport 3000 -j DNAT --to-destination $DEPLOYER_IP:3000
   iptables -A FORWARD -p tcp -d $DEPLOYER_IP --dport 3000 -j ACCEPT
+  # Persist iptables rules so they survive reboot/snapshot-rollback
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent >/dev/null 2>&1 || true
+  mkdir -p /etc/iptables
+  iptables-save > /etc/iptables/rules.v4
 "
-success "Nested VM :3000 -> $DEPLOYER_IP:3000 (container)"
+success "Nested VM :3000 -> $DEPLOYER_IP:3000 (container, persisted)"
 
 # Step 5c: Build and deploy local package (if LOCAL_PACKAGE is set or we're in the project directory)
 if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "$PROJECT_ROOT/package.json"; then
@@ -370,10 +377,21 @@ if [ -f "$PROJECT_ROOT/package.json" ] && grep -q '"name": "oci-lxc-deployer"' "
     nested_ssh "rm -f /tmp/$TARBALL"
 fi
 
-# Step 6: Snapshot disabled - step1 only takes ~2 minutes, just re-run instead
-# Snapshots caused GRUB boot issues after rollback, and are not worth the complexity
+# Step 6: Create snapshot with deployer installed (VM must be stopped for clean snapshot)
 if [ "$UPDATE_ONLY" != "true" ]; then
-    info "Snapshot creation disabled - re-run step1 + step2 for fresh setup (~3 min total)"
+    header "Creating Snapshot"
+    info "Stopping nested VM $TEST_VMID for clean snapshot..."
+    pve_ssh "qm shutdown $TEST_VMID --timeout 60"
+    for i in $(seq 1 60); do
+        pve_ssh "qm status $TEST_VMID 2>/dev/null | grep -q stopped" 2>/dev/null && break
+        sleep 1
+    done
+    pve_ssh "qm status $TEST_VMID 2>/dev/null | grep -q stopped" 2>/dev/null \
+        || error "VM $TEST_VMID did not shut down cleanly — cannot create reliable snapshot"
+    pve_ssh "qm snapshot $TEST_VMID deployer-installed --description 'Nested VM with oci-lxc-deployer after step2'"
+    success "Snapshot 'deployer-installed' created"
+    pve_ssh "qm start $TEST_VMID"
+    success "VM restarted"
 fi
 
 # Summary

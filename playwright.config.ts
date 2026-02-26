@@ -1,10 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { getPveHost, getDeployerPort } from './e2e/fixtures/test-base';
 
 /**
  * Playwright E2E Test Configuration
@@ -21,37 +16,8 @@ const __dirname = dirname(__filename);
  * Configuration is loaded from e2e/config.json
  */
 
-// Load E2E configuration
-interface E2EConfig {
-  default: string;
-  instances: Record<string, {
-    description: string;
-    pveHost: string;
-    vmId: number;
-    vmName: string;
-    portOffset: number;
-    subnet: string;
-  }>;
-  ports: {
-    pveWeb: number;
-    pveSsh: number;
-    deployer: number;
-  };
-}
-
-const configPath = join(__dirname, 'e2e', 'config.json');
-const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-
-// Determine which instance to use
-const instanceName = process.env.E2E_INSTANCE || e2eConfig.default;
-const instance = e2eConfig.instances[instanceName];
-if (!instance) {
-  throw new Error(`E2E instance "${instanceName}" not found in config.json`);
-}
-
 // Calculate the nested-vm URL from config
-const deployerPort = e2eConfig.ports.deployer + instance.portOffset;
-const vmUrl = process.env.E2E_VM_URL || `http://${instance.pveHost}:${deployerPort}`;
+const vmUrl = process.env.E2E_VM_URL || `http://${getPveHost()}:${getDeployerPort()}`;
 
 // Check if we're running with nested-vm project only
 const isNestedVmOnly = process.argv.includes('--project=nested-vm');
@@ -64,7 +30,8 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false, // Sequential for Proxmox state-dependent tests
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
+  maxFailures: 3, // Stop early on systematic failures (e.g. wrong SSH port, infra down)
   workers: 1, // Single worker for stateful tests
   timeout: 600000, // 10min per test (OCI image download + container creation is slow)
 

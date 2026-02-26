@@ -28,9 +28,14 @@ interface E2EConfig {
     vmName: string;
     portOffset: number;
     subnet: string;
+    bridge: string;
     /** If set, use local file operations instead of SSH for cleanup */
     localPath?: string;
   }>;
+  defaults: {
+    deployerStaticIp: string;
+    [key: string]: unknown;
+  };
   ports: {
     pveWeb: number;
     pveSsh: number;
@@ -50,6 +55,27 @@ const instance = e2eConfig.instances[instanceName];
  */
 export function getPveHost(): string {
   return instance?.pveHost || 'ubuntupve';
+}
+
+/**
+ * Get the SSH port for the nested VM (base port + instance port offset)
+ */
+export function getSshPort(): number {
+  return e2eConfig.ports.pveSsh + (instance?.portOffset || 0);
+}
+
+/**
+ * Get the deployer port (base port + instance port offset)
+ */
+export function getDeployerPort(): number {
+  return e2eConfig.ports.deployer + (instance?.portOffset || 0);
+}
+
+/**
+ * Get the deployer static IP from config defaults
+ */
+export function getDeployerStaticIp(): string {
+  return e2eConfig.defaults.deployerStaticIp;
 }
 
 /**

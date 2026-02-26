@@ -111,11 +111,15 @@ pve_ssh "qm create $TEST_VMID \
     --memory $VM_MEMORY \
     --cores $VM_CORES \
     --cpu host \
+    --bios ovmf \
+    --machine q35 \
+    --efidisk0 $VM_STORAGE:1,efitype=4m,pre-enrolled-keys=0 \
     --net0 virtio,bridge=$VM_BRIDGE \
     --scsihw virtio-scsi-pci \
     --scsi0 $VM_STORAGE:$VM_DISK_SIZE \
     --cdrom local:iso/$ISO_NAME \
-    --ostype l26"
+    --ostype l26 \
+    --onboot 1"
 success "VM created"
 
 # Step 5: Start VM
@@ -530,9 +534,25 @@ info "This ensures port forwarding survives reboots and snapshot rollbacks..."
 PVE_HOST="$PVE_HOST" "$SCRIPT_DIR/scripts/setup-port-forwarding-service.sh"
 success "Persistent port forwarding service installed"
 
-# Step 12: Snapshot disabled - step1 only takes ~2 minutes, just re-run instead
-# Snapshots caused GRUB boot issues after rollback, and are not worth the complexity
-info "Snapshot creation disabled - re-run step1 for a fresh VM (~2 min)"
+# Step 12: Create baseline snapshot (VM must be stopped for clean snapshot)
+header "Creating Baseline Snapshot"
+info "Stopping VM $TEST_VMID for clean snapshot..."
+pve_ssh "qm shutdown $TEST_VMID --timeout 60"
+for i in $(seq 1 60); do
+    pve_ssh "qm status $TEST_VMID 2>/dev/null | grep -q stopped" 2>/dev/null && break
+    sleep 1
+done
+pve_ssh "qm status $TEST_VMID 2>/dev/null | grep -q stopped" 2>/dev/null \
+    || error "VM $TEST_VMID did not shut down cleanly — cannot create reliable snapshot"
+pve_ssh "qm snapshot $TEST_VMID baseline --description 'Clean nested Proxmox VM after step1 setup'"
+pve_ssh "qm start $TEST_VMID"
+info "Waiting for VM to boot after snapshot..."
+for i in $(seq 1 60); do
+    nested_ssh "true" 2>/dev/null && break
+    sleep 2
+done
+nested_ssh "true" 2>/dev/null || error "VM did not come back after snapshot"
+success "Baseline snapshot created"
 
 # Summary
 header "Step 1 Complete"

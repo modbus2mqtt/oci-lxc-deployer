@@ -22,7 +22,7 @@
     "test:all": "vitest run --config vitest.config.all.mts",
     "test:templates": "vitest run --config vitest.config.template-tests.mts",
     "build": "tsc --project tsconfig.production.json && tsc-alias -p tsconfig.production.json",
-    "postbuild": "chmod +x ./dist/oci-lxc-deployer.mjs && node -e \"const{execSync:e}=require('child_process');const h=e('git rev-parse --short HEAD').toString().trim();const d=e('git diff --stat HEAD').toString().trim();const j={gitHash:h,buildTime:new Date().toISOString(),dirty:d.length>0};require('fs').writeFileSync('dist/build-info.json',JSON.stringify(j,null,2))\"",
+    "postbuild": "chmod +x ./dist/oci-lxc-deployer.mjs && node -e \"const{execSync:e}=require('child_process');let h='unknown',d='';try{h=e('git rev-parse --short HEAD').toString().trim();d=e('git diff --stat HEAD').toString().trim()}catch{}const j={gitHash:h,buildTime:new Date().toISOString(),dirty:d.length>0};require('fs').writeFileSync('dist/build-info.json',JSON.stringify(j,null,2))\"",
     "lint:all": "eslint \"src/**/*.{ts,mts,cts}\" \"tests/**/*.{ts,mts,cts}\"",
     "lint:fix": "eslint \"src/**/*.{ts,mts,cts}\" \"tests/**/*.{ts,mts,cts}\" --fix",
     "prettier": "prettier --write ."

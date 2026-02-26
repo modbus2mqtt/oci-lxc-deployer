@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { ensureTestCerts } from './utils/cert-generator';
+import { getPveHost, getDeployerPort } from './fixtures/test-base';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,19 +31,12 @@ export default async function globalSetup() {
 
   const localBuild: BuildInfo = JSON.parse(readFileSync(buildInfoPath, 'utf-8'));
 
-  // Load E2E config to determine base URL
-  const configPath = join(__dirname, 'config.json');
-  const e2eConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-  const instanceName = process.env.E2E_INSTANCE || e2eConfig.default;
-  const instance = e2eConfig.instances[instanceName];
-  const deployerPort = e2eConfig.ports.deployer + (instance?.portOffset || 0);
-
   // Determine which project is used
   const isLocal = process.argv.includes('--project=local');
   const frontendPort = process.env.FRONTEND_PORT || '4200';
   const baseURL = isLocal
     ? `http://localhost:${frontendPort}`
-    : `http://${instance?.pveHost || 'localhost'}:${deployerPort}`;
+    : `http://${getPveHost()}:${getDeployerPort()}`;
 
   // Fetch version from running backend
   try {
@@ -54,7 +48,10 @@ export default async function globalSetup() {
 
     const remoteBuild: BuildInfo & { startTime: string } = await response.json();
 
-    if (remoteBuild.gitHash !== localBuild.gitHash || remoteBuild.buildTime !== localBuild.buildTime) {
+    // Skip version check when git info is unavailable (e.g. CI without .git)
+    if (localBuild.gitHash === 'unknown') {
+      console.log(`✓ Backend version check skipped (local build has no git info)`);
+    } else if (remoteBuild.gitHash !== localBuild.gitHash || remoteBuild.buildTime !== localBuild.buildTime) {
       const msg = [
         '',
         '╔══════════════════════════════════════════════════════════════╗',

@@ -1,23 +1,15 @@
-import { test, expect, getPveHost } from '../fixtures/test-base';
+import { test, expect, getPveHost, getSshPort, getDeployerStaticIp } from '../fixtures/test-base';
 import { E2EApplicationLoader, E2EApplication, ValidationConfig } from '../utils/application-loader';
 import { SSHValidator } from '../utils/ssh-validator';
 import { ValidationGenerator } from '../utils/validation-generator';
 import { ApplicationInstallHelper } from '../utils/application-install-helper';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load config for SSH port
-interface E2EConfig {
-  ports: { pveSsh: number };
-  defaults: { deployerStaticIp: string };
-}
-const configPath = join(__dirname, '..', 'config.json');
-const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-const SSH_PORT = e2eConfig.ports.pveSsh;
+const SSH_PORT = getSshPort();
 
 const POSTGRES_HOST = '10.0.0.50';
 const POSTGRES_PORT = 5432;
@@ -151,7 +143,7 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     const cleanupResult = hostValidator.cleanupOldContainers(
       'postgres',
       '0',
-      e2eConfig.defaults.deployerStaticIp,
+      getDeployerStaticIp(),
     );
     console.log(`Postgres cleanup: ${cleanupResult.message}`);
 
@@ -266,7 +258,7 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     hostValidator.cleanupOldContainers(
       postgrestApp.applicationId,
       vmId,
-      e2eConfig.defaults.deployerStaticIp,
+      getDeployerStaticIp(),
     );
   });
 
@@ -372,7 +364,7 @@ test.describe('Postgres-dependent docker-compose E2E Tests', () => {
     hostValidator.cleanupOldContainers(
       zitadelApp.applicationId,
       vmId!,
-      e2eConfig.defaults.deployerStaticIp,
+      getDeployerStaticIp(),
     );
   });
 });

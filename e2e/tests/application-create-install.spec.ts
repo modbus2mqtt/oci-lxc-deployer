@@ -1,11 +1,10 @@
-import { test, expect, getPveHost } from '../fixtures/test-base';
+import { test, expect, getPveHost, getSshPort, getDeployerStaticIp } from '../fixtures/test-base';
 import { E2EApplicationLoader, ValidationConfig } from '../utils/application-loader';
 import { SSHValidator } from '../utils/ssh-validator';
 import { ValidationGenerator } from '../utils/validation-generator';
 import { ApplicationInstallHelper } from '../utils/application-install-helper';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,14 +24,7 @@ const __dirname = dirname(__filename);
  * - Optional: Reset snapshot before tests via ./e2e/scripts/snapshot-rollback.sh
  */
 
-// Load config for SSH port
-interface E2EConfig {
-  ports: { pveSsh: number };
-  defaults: { deployerStaticIp: string };
-}
-const configPath = join(__dirname, '..', 'config.json');
-const e2eConfig: E2EConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-const SSH_PORT = e2eConfig.ports.pveSsh;
+const SSH_PORT = getSshPort();
 
 const loader = new E2EApplicationLoader(join(__dirname, '../applications'));
 
@@ -86,7 +78,7 @@ test.describe('Application Installation E2E Tests', () => {
       const preCleanup = preCleanupValidator.cleanupOldContainers(
         app.applicationId,
         '0', // destroy ALL matching containers (no keepVmId yet)
-        e2eConfig.defaults.deployerStaticIp,
+        getDeployerStaticIp(),
       );
       console.log(`Pre-test container cleanup: ${preCleanup.message}`);
 
@@ -198,7 +190,7 @@ test.describe('Application Installation E2E Tests', () => {
       const cleanupResult = hostValidator.cleanupOldContainers(
         app.applicationId,
         createdVmId!,
-        e2eConfig.defaults.deployerStaticIp,
+        getDeployerStaticIp(),
       );
       console.log(`Container cleanup: ${cleanupResult.message}`);
     });
