@@ -1,5 +1,8 @@
 {
-  "selectedAddons": ["addon-mtls"],
+  "params": [
+    { "name": "upload_mosquitto_configuration_content", "value": "file:mosquitto-mtls.conf" }
+  ],
+  "selectedAddons": ["addon-ssl", "addon-mtls"],
   "wait_seconds": 30,
-  "description": "addon-mtls with default mtls_cns — issues one client cert for the hostname (check_file_paths default = /etc/mtls/<hostname>/cert.pem)"
+  "description": "addon-ssl (broker server cert at /mosquitto/config/certs root, require_certificate) + addon-mtls with default mtls_cns — issues one client cert for the hostname at /mosquitto/config/certs/mtls/<hostname>/. Also asserts the scoped mtls/ chown does not clobber the SSL server certs at the certs-volume root."
 }

@@ -23,25 +23,30 @@ service-account
 
 ## Output Layout
 
-The addon mounts a managed volume at `/etc/mtls` (mode `0700`) and writes one
-subfolder per CN, using Let's-Encrypt-style filenames:
+The addon does **not** create its own volume. It writes one subfolder per CN
+into the `mtls/` subdir of the application's existing `certs` managed volume
+(the same volume the SSL addon uses), using Let's-Encrypt-style filenames:
 
 ```
-/etc/mtls/<CN>/privkey.pem    # client private key (mode 0600)
-/etc/mtls/<CN>/cert.pem       # client certificate (clientAuth, CA:FALSE)
-/etc/mtls/<CN>/chain.pem      # root CA public certificate
+<certs-volume>/mtls/<CN>/privkey.pem    # client private key (mode 0600)
+<certs-volume>/mtls/<CN>/cert.pem       # client certificate (clientAuth, CA:FALSE)
+<certs-volume>/mtls/<CN>/chain.pem      # root CA public certificate
 ```
 
-Files are owned by the application's effective UID/GID.
+`<certs-volume>` is wherever the app mounts its `certs` volume — e.g.
+`/certs` (default), `/ssl` (modbus2mqtt), `/mosquitto/config/certs`
+(eclipse-mosquitto). Only the `mtls/` subtree is owned by the application's
+effective UID/GID; the SSL addon's server cert files at the volume root are
+left untouched.
 
 ## Consuming the Certificates
 
 Point a client at one CN folder. Example (MQTT client connecting to an
 mTLS-protected broker):
 
-- key:  `/etc/mtls/<CN>/privkey.pem`
-- cert: `/etc/mtls/<CN>/cert.pem`
-- CA:   `/etc/mtls/<CN>/chain.pem`
+- key:  `<certs-volume>/mtls/<CN>/privkey.pem`
+- cert: `<certs-volume>/mtls/<CN>/cert.pem`
+- CA:   `<certs-volume>/mtls/<CN>/chain.pem`
 
 The broker (e.g. eclipse-mosquitto with `require_certificate true` and
 `use_identity_as_username true`) maps the certificate CN to the authenticated

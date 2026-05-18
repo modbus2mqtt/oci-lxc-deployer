@@ -553,7 +553,7 @@
       "default": "{{ hostname }}",
       "certtype": "client",
       "group": "Authentication",
-      "description": "One Common Name per line. Each gets a CA-signed client certificate written to /etc/mtls/<CN>/."
+      "description": "One Common Name per line. Each gets a CA-signed client certificate written to the mtls/<CN>/ subdir of the app's certs volume."
     },
     "nameserver4": {
       "name": "nameserver4",

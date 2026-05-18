@@ -12,10 +12,12 @@ import {
   ITestScenariosResponse,
   IApplicationOverviewResponse,
 } from "@src/types.mjs";
+import * as path from "path";
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { ITemplateProcessorLoadResult } from "../templates/templateprocessor.mjs";
 import { ApplicationOverviewBuilder } from "../services/application-overview-builder.mjs";
+import { MarkdownReader } from "@src/markdown-reader.mjs";
 import { sendErrorResponse, asyncHandler } from "./webapp-error-utils.mjs";
 
 type ReturnResponse = <T>(
@@ -383,6 +385,29 @@ export function registerApplicationRoutes(
           application,
           installedAddonIds,
         );
+
+      // Per-application addon notice: if the app's application.md has a
+      // section named after the addon id (e.g. "## addon-mtls"), surface it
+      // as the addon's notice so the frontend shows it as a manual-setup
+      // warning when the addon is enabled. App-specific text overrides the
+      // addon's own global "## Notice". Local path wins over json path
+      // (same lookup as ApplicationOverviewBuilder.readApplicationMarkdown).
+      const pathes = pm.getPathes();
+      for (const addon of compatibleAddons) {
+        for (const base of [pathes.localPath, pathes.jsonPath]) {
+          const mdPath = path.join(
+            base,
+            "applications",
+            applicationId,
+            "application.md",
+          );
+          const section = MarkdownReader.extractSection(mdPath, addon.id);
+          if (section) {
+            addon.notice = section;
+            break;
+          }
+        }
+      }
 
       returnResponse<ICompatibleAddonsResponse>(res, {
         addons: compatibleAddons,

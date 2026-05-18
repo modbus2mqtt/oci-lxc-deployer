@@ -1,15 +1,19 @@
 #!/bin/sh
-# Write pre-signed mTLS client certificates to the managed `mtls` volume.
+# Write pre-signed mTLS client certificates into the `mtls/` subdir of the
+# app's managed `certs` volume (the same volume the SSL addon uses).
 #
 # Signing happens in the backend (CertificateAuthorityService in Hub mode, or
 # via Hub's POST /api/hub/ca/sign with mode=client in Spoke mode). This script
 # only writes the already-signed files. It MUST NOT have access to the CA
 # private key.
 #
-# One subfolder per CN under <shared_volpath>/volumes/<hostname>/mtls/:
-#   <CN>/privkey.pem  - client private key
-#   <CN>/cert.pem     - client certificate (clientAuth, CA:FALSE)
-#   <CN>/chain.pem    - CA public certificate
+# One subfolder per CN under <certs-volume>/mtls/:
+#   mtls/<CN>/privkey.pem  - client private key
+#   mtls/<CN>/cert.pem     - client certificate (clientAuth, CA:FALSE)
+#   mtls/<CN>/chain.pem    - CA public certificate
+#
+# Only the `mtls/` subtree is chmod/chown'd — never the `certs` volume root,
+# so the SSL addon's server cert files there are left untouched.
 #
 # Template variables:
 #   vm_id                  - Container VM ID
@@ -49,7 +53,8 @@ EFFECTIVE_GID=$(pve_effective_gid "$PCT_CFG" "$GID_VAL" "$MAPPED_GID")
 echo "mtls: effective_uid=$EFFECTIVE_UID effective_gid=$EFFECTIVE_GID" >&2
 
 SAFE_HOST=$(pve_sanitize_name "$HOSTNAME")
-MTLS_DIR=$(resolve_host_volume "$SAFE_HOST" "mtls" "$VM_ID")
+# Client certs live in the `mtls/` subdir of the shared `certs` volume.
+MTLS_DIR=$(resolve_host_volume "$SAFE_HOST" "certs" "$VM_ID")/mtls
 mkdir -p "$MTLS_DIR"
 chmod 0700 "$MTLS_DIR" 2>/dev/null || true
 

@@ -1,0 +1,11 @@
+{
+  "params": [
+    { "name": "upload_settings_js_content", "value": "file:settings.js" }
+  ],
+  "selectedAddons": [
+    "addon-ssl",
+    "addon-mtls"
+  ],
+  "wait_seconds": 30,
+  "description": "addon-ssl (server cert at /certs root, used by the test settings.js HTTPS) + addon-mtls (client cert at /certs/mtls/node-red/). Verifies the client cert exists at /certs/mtls/node-red/cert.pem (default mtls.check_file_paths) AND that addon-mtls's scoped chown of the mtls/ subdir does not clobber the SSL server certs at the certs-volume root (node-red would fail to start otherwise). node-red is not auto-configured — manual flow wiring is documented in application.md (## addon-mtls)."
+}

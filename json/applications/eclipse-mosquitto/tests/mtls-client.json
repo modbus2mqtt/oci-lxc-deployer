@@ -1,9 +1,9 @@
 {
-  "selectedAddons": ["addon-mtls"],
+  "selectedAddons": ["addon-ssl", "addon-mtls"],
   "params": [
-    { "name": "mtls_cns", "value": "alice\nbob" },
-    { "name": "check_file_paths", "value": "/etc/mtls/alice/cert.pem\n/etc/mtls/alice/privkey.pem\n/etc/mtls/alice/chain.pem\n/etc/mtls/bob/cert.pem" }
+    { "name": "upload_mosquitto_configuration_content", "value": "file:mosquitto-mtls.conf" },
+    { "name": "mtls_cns", "value": "{{ hostname }}\nalice\nbob" }
   ],
   "wait_seconds": 30,
-  "description": "addon-mtls issues CA-signed client certs for alice + bob into /etc/mtls/<cn>/"
+  "description": "addon-ssl (broker server cert) + addon-mtls with multiple CNs — issues CA-signed client certs for the hostname plus alice + bob into the certs-volume mtls/ subdir (/mosquitto/config/certs/mtls/<cn>/). The default mtls.check_file_paths verifies the hostname cert; alice/bob exercise multi-CN issuance."
 }

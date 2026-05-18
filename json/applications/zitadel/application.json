@@ -89,6 +89,9 @@
       "application": "postgres"
     }
   ],
+  "supported_addons": [
+    "addon-mtls"
+  ],
   "installation": {
     "pre_start": [
       "155-conf-write-zitadel-yaml.json"
