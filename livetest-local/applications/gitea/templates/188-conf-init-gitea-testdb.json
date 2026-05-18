@@ -1,0 +1,17 @@
+{
+  "name": "Init Gitea Test DB Role",
+  "description": "TEST-ONLY. Runs in the postgres dependency container before gitea starts. Creates the passwordless `gitea` LOGIN role (mTLS cert CN) and hands the `gitea` database (created by production template 187) to it, so cert-only gitea livetest scenarios have a working owner role. Production proxvex creates NO database SQL; the operator does this (see json/applications/gitea/application.md, ## Database setup).",
+  "execute_on": "application:postgres",
+  "skip_if_all_missing": [
+    "database_name"
+  ],
+  "parameters": [
+    "database_name"
+  ],
+  "commands": [
+    {
+      "name": "Init Gitea Test DB Role",
+      "script": "conf-init-gitea-testdb.sh"
+    }
+  ]
+}

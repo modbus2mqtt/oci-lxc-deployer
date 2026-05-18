@@ -30,7 +30,16 @@ if [ -z "$CERTS_B64" ] || [ "$CERTS_B64" = "NOT_DEFINED" ]; then
 fi
 
 SAFE_HOST=$(echo "$HOSTNAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
-MTLS_PATH="/certs/mtls/${HOSTNAME}"
+
+# Two CNs, one per DB role (per-role-CN cert-only auth):
+#   User.SSL  -> role `zitadel`  (== container hostname)  -> /certs/mtls/<host>/
+#   Admin.SSL -> superuser `postgres`                      -> /certs/mtls/postgres/
+# The deploy must pass mtls_cns="<hostname>\npostgres" so addon-mtls issues
+# both client certs.
+USER_CN="$SAFE_HOST"
+ADMIN_CN="postgres"
+USER_PATH="/certs/mtls/${USER_CN}"
+ADMIN_PATH="/certs/mtls/${ADMIN_CN}"
 
 # --- 1. Add the /certs bind mount to the zitadel-api service (idempotent) ---
 TMPFILE=$(mktemp)
@@ -64,20 +73,42 @@ COMPOSE_MTLS_B64=$(base64 < "$TMPFILE" | tr -d '\n')
 # so relax the mtls/<cn>/ path the same way zitadel's SSL hook relaxes the
 # certs-volume root for the non-root Traefik user.
 CERTS_DIR=$(resolve_host_volume "$SAFE_HOST" "certs" "$VM_ID")
-MTLS_CN_DIR="$CERTS_DIR/mtls/$HOSTNAME"
-if [ -d "$MTLS_CN_DIR" ]; then
-  chmod 0755 "$CERTS_DIR/mtls" "$MTLS_CN_DIR" 2>/dev/null || true
-  chmod 0644 "$MTLS_CN_DIR"/*.pem 2>/dev/null || true
-  echo "mtls: relaxed perms on $MTLS_CN_DIR for non-root zitadel-api user" >&2
-fi
+for CN in "$USER_CN" "$ADMIN_CN"; do
+  MTLS_CN_DIR="$CERTS_DIR/mtls/$CN"
+  if [ -d "$MTLS_CN_DIR" ]; then
+    chmod 0755 "$CERTS_DIR/mtls" "$MTLS_CN_DIR" 2>/dev/null || true
+    chmod 0644 "$MTLS_CN_DIR"/*.pem 2>/dev/null || true
+    echo "mtls: relaxed perms on $MTLS_CN_DIR for non-root zitadel-api user" >&2
+  fi
+done
 
 CONFIG_DIR=$(resolve_host_volume "$SAFE_HOST" "config" "$VM_ID")
 if [ -f "$CONFIG_DIR/zitadel.yaml" ]; then
   if grep -q 'RootCert:' "$CONFIG_DIR/zitadel.yaml"; then
     echo "mtls: zitadel.yaml already carries client cert config — no-op" >&2
   else
-    sed -i -E "s#^([[:space:]]*)Mode: (disable|require)#\1Mode: verify-ca\n\1Cert: ${MTLS_PATH}/cert.pem\n\1Key: ${MTLS_PATH}/privkey.pem\n\1RootCert: ${MTLS_PATH}/chain.pem#g" "$CONFIG_DIR/zitadel.yaml"
-    echo "mtls: patched zitadel.yaml Database SSL -> verify-ca + client cert ($MTLS_PATH)" >&2
+    # Block-aware rewrite: the User: block's SSL Mode gets USER_PATH, the
+    # Admin: block's gets ADMIN_PATH (the single global sed of old wrongly
+    # applied one CN to both). Portable awk (mawk/gawk); writes back in place
+    # so the file's owner/mode (1000:1001) are preserved.
+    TMPY=$(mktemp)
+    awk -v up="$USER_PATH" -v ap="$ADMIN_PATH" '
+      /^[ ]*User:[ ]*$/  { ctx="user";  print; next }
+      /^[ ]*Admin:[ ]*$/ { ctx="admin"; print; next }
+      /^[ ]*Mode: (disable|require)[ ]*$/ {
+        ind=$0; sub(/Mode:.*/, "", ind)
+        p = (ctx=="admin") ? ap : up
+        printf "%sMode: verify-ca\n", ind
+        printf "%sCert: %s/cert.pem\n", ind, p
+        printf "%sKey: %s/privkey.pem\n", ind, p
+        printf "%sRootCert: %s/chain.pem\n", ind, p
+        next
+      }
+      { print }
+    ' "$CONFIG_DIR/zitadel.yaml" > "$TMPY"
+    cat "$TMPY" > "$CONFIG_DIR/zitadel.yaml"
+    rm -f "$TMPY"
+    echo "mtls: patched zitadel.yaml Database SSL -> verify-ca (User=$USER_PATH, Admin=$ADMIN_PATH)" >&2
   fi
 else
   echo "Warning: $CONFIG_DIR/zitadel.yaml not found — mTLS DB config not patched" >&2
