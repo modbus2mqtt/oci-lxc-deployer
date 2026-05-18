@@ -1,0 +1,11 @@
+{
+  "name": "PostgREST E2E Query Check",
+  "description": "TEST-ONLY. Runs inside the postgrest LXC after the docker stack is up. Performs a real HTTP request to PostgREST which forces a query to PostgreSQL over the configured connection (mTLS for the mtls scenario). Fails the scenario if the seeded row does not come back — the definitive end-to-end proof of the PostgREST -> PostgreSQL path.",
+  "execute_on": "lxc",
+  "commands": [
+    {
+      "name": "PostgREST E2E Query Check",
+      "script": "post-check-postgrest-query.sh"
+    }
+  ]
+}

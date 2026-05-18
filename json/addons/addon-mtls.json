@@ -1,6 +1,6 @@
 {
   "name": "mTLS Client Certificates",
-  "description": "Issue per-user client certificates signed by the project root CA into /etc/mtls/<CN>/.",
+  "description": "Issue per-user client certificates signed by the project root CA into the mtls/<CN>/ subdir of the app's certs volume.",
   "tags": [
     "security",
     "network"
@@ -10,22 +10,20 @@
   ],
   "properties": [
     {
-      "id": "mtls.addon_volumes",
-      "value": "mtls=/etc/mtls,0700"
-    },
-    {
       "id": "mtls.check_file_paths",
-      "value": "/etc/mtls/{{ hostname }}/cert.pem"
+      "value": "/certs/mtls/{{ hostname }}/cert.pem"
     }
   ],
   "installation": {
     "pre_start": [
-      { "name": "161-conf-generate-mtls-certs.json", "position": "end" }
+      { "name": "161-conf-generate-mtls-certs.json", "position": "end" },
+      { "name": "162-conf-enable-mtls-app.json", "position": "end" }
     ]
   },
   "reconfigure": {
     "pre_start": [
-      { "name": "161-conf-generate-mtls-certs.json", "position": "end" }
+      { "name": "161-conf-generate-mtls-certs.json", "position": "end" },
+      { "name": "162-conf-enable-mtls-app.json", "position": "end" }
     ]
   },
   "disable": {

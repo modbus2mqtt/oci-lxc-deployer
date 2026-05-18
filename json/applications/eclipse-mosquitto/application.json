@@ -8,7 +8,8 @@
   "icon": "icon.svg",
   "properties": [
     { "id": "hostname", "default": "eclipse-mosquitto" },
-    { "id": "volumes", "default": "config=mosquitto/config" },
+    { "id": "volumes", "default": "config=mosquitto/config\ncerts=/mosquitto/config/certs,0700,1883:1883" },
+    { "id": "mtls.check_file_paths", "value": "/mosquitto/config/certs/mtls/{{ hostname }}/cert.pem" },
     { "id": "envs", "default": "GID=1883\nMOSQUITTO_VERSION=2\nMQTTS_PORT=8883\nMQTT_PORT=1883\nMQTT_WS_PORT=9001\nUID=1883" },
     { "id": "oci_image", "value": "eclipse-mosquitto:{{oci_image_tag}}" },
     { "id": "uid", "value": "1883" },

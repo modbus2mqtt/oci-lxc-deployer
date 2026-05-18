@@ -1,0 +1,6 @@
+{
+  "name": "Test mTLS Doc App",
+  "description": "Fixture: app with a per-addon application.md section for addon-mtls",
+  "supported_addons": ["addon-mtls"],
+  "installation": { "pre_start": [] }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "Enable mTLS App Configuration",
+  "description": "Application-specific mTLS setup when the mTLS addon is enabled. The default shared script is a no-op. Applications can override conf-enable-mtls-app.sh in their own scripts/ directory (e.g. zitadel patches zitadel.yaml + compose to use the client cert).",
+  "execute_on": "ve",
+  "skip_if_all_missing": [
+    "mtls_client_certs_b64"
+  ],
+  "parameters": [
+    "hostname",
+    "vm_id",
+    "mtls_client_certs_b64",
+    "uid",
+    "gid",
+    "mapped_uid",
+    "mapped_gid"
+  ],
+  "commands": [
+    {
+      "name": "Enable mTLS App Configuration",
+      "script": "conf-enable-mtls-app.sh",
+      "outputs": [
+        "mtls_app_enabled",
+        {
+          "id": "compose_file",
+          "default": true
+        }
+      ]
+    }
+  ]
+}

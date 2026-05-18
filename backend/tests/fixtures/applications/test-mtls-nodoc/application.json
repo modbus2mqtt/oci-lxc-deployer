@@ -1,0 +1,6 @@
+{
+  "name": "Test mTLS NoDoc App",
+  "description": "Fixture: app supporting addon-mtls but WITHOUT an addon-mtls application.md section",
+  "supported_addons": ["addon-mtls"],
+  "installation": { "pre_start": [] }
+}
