@@ -6,8 +6,10 @@
     { "name": "previous_vm_id", "value": 614 },
     { "name": "upload_modbus2mqtt_config_content", "value": "file:modbus2mqtt-config.yaml" },
     { "name": "oidc_redirect_uri", "value": "https://modbus2mqtt:3443/api/auth/callback" },
-    { "name": "oidc_post_logout_uri", "value": "https://modbus2mqtt:3443/" }
+    { "name": "oidc_post_logout_uri", "value": "https://modbus2mqtt:3443/" },
+    { "name": "mtls_cns", "value": "modbus2mqtt" },
+    { "name": "ssl.needs_server_cert", "value": "false" }
   ],
-  "selectedAddons": ["addon-oidc", "addon-ssl"],
+  "selectedAddons": ["addon-oidc", "addon-ssl", "addon-mtls"],
   "stackIds": ["oidc_production"]
 }

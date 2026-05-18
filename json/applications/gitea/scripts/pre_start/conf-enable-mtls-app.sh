@@ -13,8 +13,10 @@
 # deploying the `postgres` dependency with addon-ssl + pg_client_cert=true,
 # and the cert-only `gitea` login role is created by template 187 (db_role).
 #
-# Library functions are prepended automatically:
-# - pve_sanitize_name, resolve_host_volume (pve-common.sh)
+# resolve_host_volume is auto-injected for execute_on:ve scripts (ve-global.sh).
+# pve_sanitize_name is NOT auto-injected (pve-common.sh, not declared as a
+# template library), so the SAFE_HOST slug is computed inline like zitadel's
+# conf-enable-mtls-app.sh.
 set -eu
 
 HOSTNAME="{{ hostname }}"
@@ -35,10 +37,15 @@ if [ ! -f "$CONF_FILE" ]; then
   exit 1
 fi
 
-# CN of the client cert = container hostname (mtls_cns default {{ hostname }},
-# production sets it to `gitea` == db_role). Certs are inside the container at
-# the addon-ssl mount (/etc/ssl/addon) + the mtls/<CN>/ subdir.
-CN=$(echo "$HOSTNAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+# The client-cert CN must equal the PostgreSQL login role gitea connects as
+# (pg_hba `cert` maps CN -> role). That role is always `gitea` (created by the
+# operator / livetest overlay; GITEA__database__USER=gitea below), independent
+# of the container hostname (which is e.g. `gitea-mtls` in livetest). So the
+# CN — and thus the addon-mtls cert subdir `mtls/<CN>/` — is the fixed role
+# name, NOT $HOSTNAME. The deploy must issue this CN: mtls_cns must contain
+# `gitea` (livetest sets it explicitly; production hostname is `gitea` so the
+# {{ hostname }} default also yields it).
+CN="gitea"
 MTLS_PATH="/etc/ssl/addon/mtls/${CN}"
 
 # --- 1. Append the libpq / Gitea DB env (idempotent) ---
@@ -61,7 +68,7 @@ fi
 # by lib/pq. Defensively make the dirs traversable and the public cert/chain
 # group/other-readable; keep the private key 0600 (lib/pq is fine with an
 # owner-only key it owns).
-SAFE_HOST=$(pve_sanitize_name "$HOSTNAME")
+SAFE_HOST=$(echo "$HOSTNAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
 CERTS_DIR=$(resolve_host_volume "$SAFE_HOST" "certs" "$VM_ID")
 MTLS_CN_DIR="$CERTS_DIR/mtls/$CN"
 if [ -d "$MTLS_CN_DIR" ]; then

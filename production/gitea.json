@@ -9,8 +9,9 @@
     { "name": "nameserver6", "value": "2606:4700:4700::1111" },
     { "name": "local_https_port", "value": 1443 },
     { "name": "oidc_redirect_uri", "value": "https://git.ohnewarum.de/user/oauth2/zitadel/callback" },
-    { "name": "oidc_post_logout_uri", "value": "https://git.ohnewarum.de/" }
+    { "name": "oidc_post_logout_uri", "value": "https://git.ohnewarum.de/" },
+    { "name": "mtls_cns", "value": "gitea" }
   ],
-  "selectedAddons": ["addon-oidc", "addon-ssl"],
+  "selectedAddons": ["addon-oidc", "addon-ssl", "addon-mtls"],
   "stackIds": ["postgres_production", "oidc_production"]
 }

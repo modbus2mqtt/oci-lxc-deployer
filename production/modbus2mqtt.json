@@ -3,8 +3,10 @@
   "task": "installation",
   "params": [
     { "name": "vm_id_start", "value": 600 },
-    { "name": "upload_modbus2mqtt_config_content", "value": "file:modbus2mqtt-config.yaml" }
+    { "name": "upload_modbus2mqtt_config_content", "value": "file:modbus2mqtt-config.yaml" },
+    { "name": "mtls_cns", "value": "modbus2mqtt" },
+    { "name": "ssl.needs_server_cert", "value": "false" }
   ],
-  "selectedAddons": ["addon-oidc", "addon-ssl"],
+  "selectedAddons": ["addon-oidc", "addon-ssl", "addon-mtls"],
   "stackIds": ["oidc_production"]
 }

@@ -18,7 +18,10 @@
       "script": "conf-enable-ssl-app.sh",
       "outputs": [
         "ssl_app_enabled",
-        "pg_mtls_enabled",
+        {
+          "id": "pg_mtls_enabled",
+          "optional": true
+        },
         {
           "id": "compose_file",
           "default": true
