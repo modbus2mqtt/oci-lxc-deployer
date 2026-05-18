@@ -27,7 +27,7 @@
     },
     {
       "id": "volumes",
-      "default": "certs=certs,0700,0:0"
+      "default": "certs=certs,0755,0:0"
     },
     {
       "id": "compose_file",

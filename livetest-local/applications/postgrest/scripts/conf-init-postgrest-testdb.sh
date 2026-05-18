@@ -8,9 +8,9 @@
 # deployments; see json/applications/postgrest/application.md ## Database setup).
 #
 # Creates:
-#   - role `postgrest`  LOGIN   (mTLS cert CN / connection role)
-#   - role `web_anon`   NOLOGIN (db_anon_role default)
-#   - GRANT web_anon TO postgrest, postgres  (anon switch for mTLS + password)
+#   - role `postgrest-mtls` LOGIN  (mTLS cert CN = postgrest hostname)
+#   - role `web_anon`       NOLOGIN (db_anon_role default)
+#   - GRANT web_anon TO postgrest-mtls, postgres (anon switch mTLS + password)
 #   - public.livetest_ping(msg) with one row, SELECT granted to web_anon
 #   - pgrst_watch event trigger (schema reload on DDL)
 
@@ -18,15 +18,18 @@ echo "livetest: initializing postgrest test database..." >&2
 
 psql -U postgres -v ON_ERROR_STOP=1 -f - >&2 <<'SQL'
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgrest') THEN
-    CREATE ROLE postgrest LOGIN;
+  -- Role name = client-cert CN = postgrest container hostname. For the
+  -- `postgrest/mtls` livetest scenario that hostname is `postgrest-mtls`
+  -- (PostgreSQL `cert` hba auth requires DB role == cert CN).
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgrest-mtls') THEN
+    CREATE ROLE "postgrest-mtls" LOGIN;
   END IF;
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'web_anon') THEN
     CREATE ROLE web_anon NOLOGIN;
   END IF;
 END $$;
 
-GRANT web_anon TO postgrest;
+GRANT web_anon TO "postgrest-mtls";
 GRANT web_anon TO postgres;
 
 CREATE TABLE IF NOT EXISTS public.livetest_ping (msg text);
