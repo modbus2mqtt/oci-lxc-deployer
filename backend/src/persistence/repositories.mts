@@ -544,19 +544,29 @@ export class FileSystemRepositories
       return template;
     }
 
-    const appPath = this.getApplicationPath(ref.applicationId);
-    if (!appPath) return null;
-    const resolved = TemplatePathResolver.resolveTemplatePath(
-      ref.name,
-      appPath,
-      this.pathes,
-    );
-    if (!resolved) return null;
-    const template = this.persistence.loadTemplate(resolved.fullPath);
-    if (this.enableCache && template && ref.origin === "json") {
-      this.templateCache.set(cacheKey, template);
+    // Try EVERY materialised base path for the app (overlay first, canonical
+    // last), not just getApplicationPath()[0]. resolveTemplateRef already
+    // searches all of them; if it found the file under the canonical path
+    // (e.g. a base template of an app that also has a livetest-local overlay),
+    // getTemplate must look there too — otherwise the singular overlay-only
+    // path misses it and the template is reported "not found". Mirrors the
+    // getScript / resolveTemplateRef plural-path rationale.
+    for (const appPath of this.getApplicationPaths(ref.applicationId)) {
+      if (!appPath) continue;
+      const resolved = TemplatePathResolver.resolveTemplatePath(
+        ref.name,
+        appPath,
+        this.pathes,
+      );
+      if (!resolved) continue;
+      const template = this.persistence.loadTemplate(resolved.fullPath);
+      if (!template) continue;
+      if (this.enableCache && template && ref.origin === "json") {
+        this.templateCache.set(cacheKey, template);
+      }
+      return template;
     }
-    return template;
+    return null;
   }
 
   getScript(ref: ScriptRef): string | null {
