@@ -29,7 +29,7 @@
   "tags": [
     "development"
   ],
-  "supported_addons": ["addon-oidc"],
+  "supported_addons": ["addon-oidc", "addon-ssl", "addon-mtls"],
   "oidc_roles": [
     { "key": "admin", "display_name": "Administrator" }
   ],

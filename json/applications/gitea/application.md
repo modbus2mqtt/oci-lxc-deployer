@@ -41,6 +41,42 @@ Gitea uses `ssl_mode: native`. When SSL is enabled:
 - `GITEA__server__PROTOCOL` is set to `https`
 - Certificates are placed at `/etc/ssl/addon/`
 
+## mTLS
+
+Enable the `addon-mtls` addon (alongside `addon-ssl`) for a **passwordless,
+cert-only** PostgreSQL connection:
+
+- `addon-mtls` issues a client certificate with `CN=gitea` into
+  `/etc/ssl/addon/mtls/gitea/` (`cert.pem`, `privkey.pem`, `chain.pem`).
+- `conf-enable-mtls-app.sh` appends, as LXC environment (overriding the
+  password-mode defaults): `GITEA__database__SSL_MODE=verify-ca`,
+  `GITEA__database__USER=gitea`, and `PGSSLCERT`/`PGSSLKEY`/`PGSSLROOTCERT`
+  pointing at that folder.
+- The dependency PostgreSQL must run with `addon-ssl` + `pg_client_cert=true`
+  so its `pg_hba.conf` authenticates the connection by the client
+  certificate's CN (`gitea`).
+- Without `addon-mtls`, gitea connects in the default password mode
+  (`GITEA__database__USER=postgres` + `GITEA__database__PASSWD`) — non-mTLS
+  scenarios are unaffected.
+
+## Database setup
+
+proxvex does **not** create database roles or grants (neither password nor
+mTLS deployments). For an mTLS / cert-only deployment, create the connection
+role once against the database, as the `postgres` superuser, before deploying
+gitea:
+
+```sql
+CREATE ROLE gitea LOGIN;             -- no password: cert-only (pg_hba `cert`)
+ALTER DATABASE gitea OWNER TO gitea; -- gitea runs its DDL migrations
+```
+
+The `gitea` database itself is created automatically (shared
+`create-postgres-database` template). The role name must equal the client
+certificate CN (`gitea`). Livetest scenarios seed this automatically via the
+`livetest-local` overlay (`188-conf-init-gitea-testdb`); production is the
+operator's responsibility.
+
 ## Ports
 
 | Port | Protocol | Description |

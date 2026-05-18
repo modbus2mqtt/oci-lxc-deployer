@@ -1,0 +1,14 @@
+{
+  "name": "gitea",
+  "extends": "json:gitea",
+  "installation": {
+    "pre_start": [
+      { "name": "188-conf-init-gitea-testdb.json", "category": "pre_start" }
+    ]
+  },
+  "reconfigure": {
+    "pre_start": [
+      { "name": "188-conf-init-gitea-testdb.json", "category": "pre_start" }
+    ]
+  }
+}

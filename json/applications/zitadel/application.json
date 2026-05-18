@@ -68,6 +68,10 @@
       "value": "true"
     },
     {
+      "id": "mtls_cns",
+      "default": "{{ hostname }}\npostgres"
+    },
+    {
       "id": "startup_order",
       "value": "20"
     },
