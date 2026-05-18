@@ -408,11 +408,10 @@ nested_ssh "command -v skopeo >/dev/null 2>&1" \
         ssh -p $PORT_PVE_SSH root@$PVE_HOST 'pveversion && dpkg -l skopeo'"
 # When the docker.io test mirror is broken and intentionally skipped
 # (STEP2A_SKIP_DOCKER_MIRROR_TEST=1), do NOT pin skopeo to it. Without the
-# [[registry.mirror]] block skopeo uses canonical docker.io, which dnsmasq
-# resolves (registry-1.docker.io / index.docker.io -> 192.168.4.45) to the
-# production Docker Hub mirror — the path the dnsmasq block itself documents
-# as the working livetest docker.io route. Falls back until the test mirror
-# is fixed (analogous to STEP2A_SKIP_ZOT_MIRROR for ghcr.io).
+# [[registry.mirror]] block skopeo uses canonical docker.io directly
+# (upstream, no mirror). There is no longer an IP-redirect fallback (the
+# old 192.168.4.45 prod-mirror DNS record was removed); the skip flag is
+# only a last resort that requires direct docker.io reachability.
 if [ "${STEP2A_SKIP_DOCKER_MIRROR_TEST:-}" = "1" ]; then
     nested_ssh "
     set -e
