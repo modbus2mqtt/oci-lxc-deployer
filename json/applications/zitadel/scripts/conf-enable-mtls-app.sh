@@ -31,12 +31,15 @@ fi
 
 SAFE_HOST=$(echo "$HOSTNAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
 
-# Two CNs, one per DB role (per-role-CN cert-only auth):
-#   User.SSL  -> role `zitadel`  (== container hostname)  -> /certs/mtls/<host>/
-#   Admin.SSL -> superuser `postgres`                      -> /certs/mtls/postgres/
-# The deploy must pass mtls_cns="<hostname>\npostgres" so addon-mtls issues
-# both client certs.
-USER_CN="$SAFE_HOST"
+# Two CNs, one per DB *role* (pg_hba `cert` maps cert-CN -> role). These are
+# the fixed role names from zitadel.yaml.tmpl (User.Username=zitadel,
+# Admin.Username=postgres), NOT the container hostname (e.g. the livetest
+# hostname is `zitadel-mtls-certonly`; the role is still `zitadel`):
+#   User.SSL  -> role `zitadel`    -> /certs/mtls/zitadel/
+#   Admin.SSL -> superuser `postgres` -> /certs/mtls/postgres/
+# The deploy must issue these CNs: mtls_cns="zitadel\npostgres" (zitadel app
+# default; scenarios also set it explicitly).
+USER_CN="zitadel"
 ADMIN_CN="postgres"
 USER_PATH="/certs/mtls/${USER_CN}"
 ADMIN_PATH="/certs/mtls/${ADMIN_CN}"

@@ -21,6 +21,6 @@
     { "name": "smtp_mx_target", "value": "mxext1.mailbox.org" },
     { "name": "smtp_spf_value", "value": "v=spf1 include:mailbox.org ~all" }
   ],
-  "selectedAddons": ["addon-ssl"],
+  "selectedAddons": ["addon-ssl", "addon-mtls"],
   "stackIds": ["postgres_production", "oidc_production", "cloudflare_production"]
 }

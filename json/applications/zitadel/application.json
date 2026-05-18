@@ -69,7 +69,7 @@
     },
     {
       "id": "mtls_cns",
-      "default": "{{ hostname }}\npostgres"
+      "default": "zitadel\npostgres"
     },
     {
       "id": "startup_order",

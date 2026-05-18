@@ -4,15 +4,16 @@
 # container starts. The exact YAML schema follows the modbus2mqtt source
 # (set by the user during their REST endpoint integration).
 #
-# MQTT broker connection: mTLS against eclipse-mosquitto.local. Certificates
-# are provisioned by addon-ssl into /certs/ inside the container.
+# MQTT broker connection: mTLS against eclipse-mosquitto.local using a
+# dedicated addon-mtls client certificate (CN=modbus2mqtt) provisioned into
+# /ssl/mtls/modbus2mqtt/ inside the container (ssl.needs_server_cert=false).
 mqtt:
   url: mqtts://eclipse-mosquitto.local:8883
   clientId: modbus2mqtt
   tls:
-    ca: /certs/chain.pem
-    cert: /certs/cert.pem
-    key: /certs/privkey.pem
+    ca: /ssl/mtls/modbus2mqtt/chain.pem
+    cert: /ssl/mtls/modbus2mqtt/cert.pem
+    key: /ssl/mtls/modbus2mqtt/privkey.pem
     servername: eclipse-mosquitto.local
     rejectUnauthorized: true
 

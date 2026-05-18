@@ -1,10 +1,13 @@
 {
   "selectedAddons": ["addon-ssl", "addon-mtls"],
   "depends_on": ["postgres/mtls"],
+  "params": [
+    { "name": "mtls_cns", "value": "zitadel\npostgres" }
+  ],
   "cleanup": {
     "postgres": "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='zitadel' AND pid<>pg_backend_pid(); DROP DATABASE IF EXISTS zitadel; DROP ROLE IF EXISTS zitadel;"
   },
   "cli_timeout": 480,
   "wait_seconds": 90,
-  "description": "Pure cert-only, per-role-CN. postgres/mtls enforces hostssl ... cert (no password). mtls_cns defaults (zitadel app property) to '<hostname>\\npostgres', so addon-mtls issues two client certs (CN=zitadel and CN=postgres). conf-enable-mtls-app.sh splits zitadel.yaml so Database User.SSL -> /certs/mtls/zitadel/ (login role zitadel, auto-created by zitadel via the Admin connection) and Admin.SSL -> /certs/mtls/postgres/ (superuser). zitadel reaching Healthy + /bootstrap/login-client.pat written proves both cert-only connections work end-to-end (no DB password is consulted). Distinct from zitadel/mtls, which is password + verify-ca against postgres/ssl."
+  "description": "Pure cert-only, per-role-CN. postgres/mtls enforces hostssl ... cert (no password). mtls_cns=zitadel\\npostgres (= the DB roles, hostname-independent), so addon-mtls issues two client certs (CN=zitadel and CN=postgres). conf-enable-mtls-app.sh splits zitadel.yaml so Database User.SSL -> /certs/mtls/zitadel/ (login role zitadel, auto-created by zitadel via the Admin connection) and Admin.SSL -> /certs/mtls/postgres/ (superuser). zitadel reaching Healthy + /bootstrap/login-client.pat written proves both cert-only connections work end-to-end (no DB password is consulted). Distinct from zitadel/mtls, which is password + verify-ca against postgres/ssl."
 }

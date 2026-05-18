@@ -17,7 +17,8 @@
     { "id": "gid", "value": "1000" },
     { "id": "username", "value": "git" },
     { "id": "database_name", "default": "gitea" },
-    { "id": "ssl_mode", "value": "native" }
+    { "id": "ssl_mode", "value": "native" },
+    { "id": "mtls.check_file_paths", "value": "/etc/ssl/addon/mtls/gitea/cert.pem" }
   ],
   "installation": {
     "create_ct": [

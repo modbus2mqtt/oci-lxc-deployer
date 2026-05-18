@@ -4,8 +4,9 @@
   "params": [
     { "name": "vm_id_start", "value": 600 },
     { "name": "upload_settings_js_content", "value": "file:node-red-settings.js" },
-    { "name": "upload_flows_json_content", "value": "file:node-red-flows.json" }
+    { "name": "upload_flows_json_content", "value": "file:node-red-flows.json" },
+    { "name": "mtls_cns", "value": "node-red" }
   ],
-  "selectedAddons": ["addon-oidc", "addon-ssl"],
+  "selectedAddons": ["addon-oidc", "addon-ssl", "addon-mtls"],
   "stackIds": ["oidc_production"]
 }

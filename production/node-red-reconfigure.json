@@ -7,8 +7,9 @@
     { "name": "upload_settings_js_content", "value": "file:node-red-settings.js" },
     { "name": "upload_flows_json_content", "value": "file:node-red-flows.json" },
     { "name": "oidc_redirect_uri", "value": "https://node-red:1880/auth/strategy/callback" },
-    { "name": "oidc_post_logout_uri", "value": "https://node-red:1880/" }
+    { "name": "oidc_post_logout_uri", "value": "https://node-red:1880/" },
+    { "name": "mtls_cns", "value": "node-red" }
   ],
-  "selectedAddons": ["addon-oidc", "addon-ssl"],
+  "selectedAddons": ["addon-oidc", "addon-ssl", "addon-mtls"],
   "stackIds": ["oidc_production"]
 }
