@@ -408,48 +408,56 @@ export class FileSystemRepositories
     // Get the full application hierarchy (child -> parent -> grandparent...)
     const hierarchy = this.getApplicationHierarchy(applicationId);
 
-    // Search through the hierarchy: child first, then parents
-    for (const appId of hierarchy) {
-      const appPath = this.getApplicationPath(appId);
-      if (!appPath) continue;
+    const templateNameWithExt = templateName.endsWith(".json")
+      ? templateName
+      : `${templateName}.json`;
 
-      // Check if template exists in this application's templates folder.
-      // Apps may organise templates by lifecycle phase
-      // (e.g. templates/post_start/X.json) — accept those too. The cache key
-      // for application templates does not include the subdirectory, so the
-      // lookup is by bare name and the first match wins.
-      const templateNameWithExt = templateName.endsWith(".json")
-        ? templateName
-        : `${templateName}.json`;
-      const candidates: string[] = [
-        path.join(appPath, "templates", templateNameWithExt),
-      ];
-      const templatesRoot = path.join(appPath, "templates");
-      if (fs.existsSync(templatesRoot)) {
-        for (const entry of fs.readdirSync(templatesRoot, {
-          withFileTypes: true,
-        })) {
-          if (entry.isDirectory() && !entry.name.startsWith(".")) {
-            candidates.push(
-              path.join(templatesRoot, entry.name, templateNameWithExt),
-            );
+    // Search through the hierarchy: child first, then parents. For each app
+    // in the chain consult EVERY materialised base path (overlay first,
+    // canonical last) — a livetest-local overlay adds templates/ files while
+    // inheriting the canonical app's, so a single-path lookup would mask the
+    // overlay's templates exactly like it did for scripts (see getScript and
+    // the getApplicationPaths rationale).
+    for (const appId of hierarchy) {
+      for (const appPath of this.getApplicationPaths(appId)) {
+        if (!appPath) continue;
+
+        // Check if template exists in this application's templates folder.
+        // Apps may organise templates by lifecycle phase
+        // (e.g. templates/post_start/X.json) — accept those too. The cache
+        // key for application templates does not include the subdirectory, so
+        // the lookup is by bare name and the first match wins.
+        const candidates: string[] = [
+          path.join(appPath, "templates", templateNameWithExt),
+        ];
+        const templatesRoot = path.join(appPath, "templates");
+        if (fs.existsSync(templatesRoot)) {
+          for (const entry of fs.readdirSync(templatesRoot, {
+            withFileTypes: true,
+          })) {
+            if (entry.isDirectory() && !entry.name.startsWith(".")) {
+              candidates.push(
+                path.join(templatesRoot, entry.name, templateNameWithExt),
+              );
+            }
           }
         }
-      }
 
-      for (const candidate of candidates) {
-        if (!fs.existsSync(candidate)) continue;
-        const origin = this.detectOrigin(candidate);
-        if (!origin) continue;
-        const name = TemplatePathResolver.normalizeTemplateName(templateName);
-        return {
-          name,
-          scope: "application",
-          origin,
-          applicationId: appId,
-          // See InMemoryRepositories.resolveTemplateRef for the rationale.
-          category,
-        };
+        for (const candidate of candidates) {
+          if (!fs.existsSync(candidate)) continue;
+          const origin = this.detectOrigin(candidate);
+          if (!origin) continue;
+          const name =
+            TemplatePathResolver.normalizeTemplateName(templateName);
+          return {
+            name,
+            scope: "application",
+            origin,
+            applicationId: appId,
+            // See InMemoryRepositories.resolveTemplateRef for the rationale.
+            category,
+          };
+        }
       }
     }
 
