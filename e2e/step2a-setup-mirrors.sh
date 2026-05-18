@@ -379,18 +379,12 @@ address=/${TEST_MIRROR_HOST}/::
 address=/${ZOT_MIRROR_HOST}/${ZOT_MIRROR_IP}
 address=/${ZOT_MIRROR_HOST}/::
 ${GHCR_REDIRECT_BLOCK}
-# docker.io -> production Docker Hub mirror (pve1.cluster). Test mirrors
-# on ubuntupve hold only ghcr.io upstream; for docker.io pulls in livetest
-# (e.g. traefik:v3.6) we redirect to the production-side mirror at
-# 192.168.4.45 which proxies registry-1.docker.io. Previously baked at
-# runner-startup time (live-test-runner.mts), which lost the entries on
-# every \`qm rollback\` to mirrors-ready/deployer-installed — symptom was
-# \`unexpected EOF\` on traefik pull during zitadel install/reconfigure.
-# Baking here means future rollbacks preserve the DNS-redirect.
-address=/registry-1.docker.io/192.168.4.45
-address=/registry-1.docker.io/::
-address=/index.docker.io/192.168.4.45
-address=/index.docker.io/::
+# NOTE: no docker.io -> IP redirect here. docker.io pulls are routed by
+# skopeo's [[registry.mirror]] in /etc/containers/registries.conf to the
+# \`${TEST_MIRROR_HOST}\` hostname (resolved above to ${TEST_MIRROR_IP}),
+# so the registry-1.docker.io / index.docker.io A-records were never
+# consulted on the normal path. The old 192.168.4.45 prod-mirror redirect
+# is removed: that container no longer exists and the entry was dead.
 # docker-registry-mirror hostname → forwarder. The forwarder address
 # comes from the per-instance e2e/config.json registryMirror.dnsForwarder
 # (router IP in the green nested-VM network) so containers inside the
@@ -414,11 +408,10 @@ nested_ssh "command -v skopeo >/dev/null 2>&1" \
         ssh -p $PORT_PVE_SSH root@$PVE_HOST 'pveversion && dpkg -l skopeo'"
 # When the docker.io test mirror is broken and intentionally skipped
 # (STEP2A_SKIP_DOCKER_MIRROR_TEST=1), do NOT pin skopeo to it. Without the
-# [[registry.mirror]] block skopeo uses canonical docker.io, which dnsmasq
-# resolves (registry-1.docker.io / index.docker.io -> 192.168.4.45) to the
-# production Docker Hub mirror — the path the dnsmasq block itself documents
-# as the working livetest docker.io route. Falls back until the test mirror
-# is fixed (analogous to STEP2A_SKIP_ZOT_MIRROR for ghcr.io).
+# [[registry.mirror]] block skopeo uses canonical docker.io directly
+# (upstream, no mirror). There is no longer an IP-redirect fallback (the
+# old 192.168.4.45 prod-mirror DNS record was removed); the skip flag is
+# only a last resort that requires direct docker.io reachability.
 if [ "${STEP2A_SKIP_DOCKER_MIRROR_TEST:-}" = "1" ]; then
     nested_ssh "
     set -e

@@ -55,30 +55,51 @@ fi
 if grep -q 'sslcert=' "$TMPFILE"; then
   echo "mtls: PGRST_DB_URI already carries client cert params — no-op" >&2
 else
-  # Swap the login role to `postgrest` and append the libpq SSL query string
-  # before the closing quote of the PGRST_DB_URI value. Only that line.
+  # Swap the login role to the cert CN (PostgreSQL `cert` hba auth requires
+  # the DB role to equal the client-cert CN, which is the container hostname
+  # = mtls_cns default). Then append the libpq SSL query string before the
+  # closing quote of the PGRST_DB_URI value. Only that line is touched.
   SSL_QS="?sslmode=verify-ca\&sslrootcert=${MTLS_PATH}/chain.pem\&sslcert=${MTLS_PATH}/cert.pem\&sslkey=${MTLS_PATH}/privkey.pem"
-  sed -i -E "s#(PGRST_DB_URI: \"postgres://)\\\$\{POSTGRES_USER:-postgres\}:#\1postgrest:#" "$TMPFILE"
+  sed -i -E "s#(PGRST_DB_URI: \"postgres://)\\\$\{POSTGRES_USER:-postgres\}:#\1${CN}:#" "$TMPFILE"
   sed -i -E "s#(PGRST_DB_URI: \"postgres://[^\"]*)\"#\1${SSL_QS}\"#" "$TMPFILE"
-  echo "mtls: rewrote PGRST_DB_URI -> role postgrest + verify-ca client cert ($MTLS_PATH)" >&2
+  echo "mtls: rewrote PGRST_DB_URI -> role ${CN} + verify-ca client cert ($MTLS_PATH)" >&2
 fi
 
 COMPOSE_MTLS_B64=$(base64 < "$TMPFILE" | tr -d '\n')
 
-# --- 3. Cert perms for the postgrest container ---
-# The official postgrest/postgrest image runs as root, so a root-owned 0600
-# private key is accepted by libpq. libpq REJECTS a group/world-readable
-# sslkey, so privkey.pem MUST stay 0600 (unlike zitadel's Go client, which
-# tolerates 0644). Only the public cert/chain may be loosened; directories
-# must be traversable.
-SAFE_HOST=$(pve_sanitize_name "$HOSTNAME")
-CERTS_DIR=$(resolve_host_volume "$SAFE_HOST" "certs" "$VM_ID")
-MTLS_CN_DIR="$CERTS_DIR/mtls/$CN"
-if [ -d "$MTLS_CN_DIR" ]; then
-  chmod 0755 "$CERTS_DIR/mtls" "$MTLS_CN_DIR" 2>/dev/null || true
-  chmod 0644 "$MTLS_CN_DIR/cert.pem" "$MTLS_CN_DIR/chain.pem" 2>/dev/null || true
-  chmod 0600 "$MTLS_CN_DIR/privkey.pem" 2>/dev/null || true
-  echo "mtls: set perms on $MTLS_CN_DIR (privkey 0600, cert/chain 0644)" >&2
+# --- 3. Cert perms for the non-root postgrest container (uid 1000) ---
+# 161-conf-generate-mtls-certs writes the mtls subtree owned by the LXC's
+# unprivileged root (e.g. host uid 100000) with the dir 0700 and privkey.pem
+# 0600. The official postgrest/postgrest image runs as uid 1000, so inside
+# the container it cannot traverse the 0700 dir nor read the 0600 key — libpq
+# then reports the cert file as "does not exist". Fix it on the certs volume's
+# host path (the LXC is not running yet, so no `pct exec`):
+#   - dirs 0755 so uid 1000 can traverse,
+#   - cert.pem/chain.pem 0644 (public),
+#   - privkey.pem stays 0600 but chowned to the host uid that maps to the
+#     container's uid 1000 (= LXC-root host uid + 1000); libpq requires the
+#     key be unreadable by group/world OR owned by the reader — 0600 owned by
+#     the postgrest uid satisfies it. Resolve the host path via pct/pvesm
+#     (the 162 template prepends no library, so no resolve_host_volume).
+CERTS_VOLID=$(pct config "$VM_ID" 2>/dev/null \
+  | awk '/^mp[0-9]+:.*[ ,]mp=\/certs([, ]|$)/ { sub(/^mp[0-9]+:[[:space:]]*/,""); split($0,a,","); print a[1]; exit }')
+if [ -n "$CERTS_VOLID" ]; then
+  CERTS_HOST=$(pvesm path "$CERTS_VOLID" 2>/dev/null)
+  MTLS_CN_DIR="$CERTS_HOST/mtls/$CN"
+  if [ -n "$CERTS_HOST" ] && [ -d "$MTLS_CN_DIR" ]; then
+    # LXC-root host uid (what 161 chowned the mtls dir to) + container uid 1000.
+    BASE_UID=$(stat -c %u "$CERTS_HOST/mtls" 2>/dev/null || echo 100000)
+    PG_UID=$((BASE_UID + 1000))
+    chmod 0755 "$CERTS_HOST/mtls" "$MTLS_CN_DIR" 2>/dev/null || true
+    chmod 0644 "$MTLS_CN_DIR/cert.pem" "$MTLS_CN_DIR/chain.pem" 2>/dev/null || true
+    chown "${PG_UID}:${PG_UID}" "$MTLS_CN_DIR/privkey.pem" 2>/dev/null || true
+    chmod 0600 "$MTLS_CN_DIR/privkey.pem" 2>/dev/null || true
+    echo "mtls: perms set for postgrest uid ${PG_UID} on $MTLS_CN_DIR (dirs 0755, privkey 0600 owned ${PG_UID})" >&2
+  else
+    echo "mtls: WARN could not resolve certs host dir ($CERTS_HOST / $MTLS_CN_DIR) — perms not adjusted" >&2
+  fi
+else
+  echo "mtls: WARN no /certs mp on VM $VM_ID — perms not adjusted" >&2
 fi
 
 echo "[{\"id\":\"mtls_app_enabled\",\"value\":\"true\"},{\"id\":\"compose_file\",\"value\":\"$COMPOSE_MTLS_B64\"}]"
