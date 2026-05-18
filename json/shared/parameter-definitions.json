@@ -698,6 +698,24 @@
       "required": true,
       "group": "Application"
     },
+    "pg_client_cert": {
+      "name": "PostgreSQL Client Certificate Auth (mTLS)",
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "group": "Authentication",
+      "advanced": true,
+      "description": "When true (and addon-ssl is active), PostgreSQL requires a CA-signed client certificate for all TCP connections (managed pg_hba.conf with 'hostssl ... cert'). The CA public certificate is written to /certs/chain.pem and referenced via ssl_ca_file. Unix-socket connections keep 'local all all trust' so the container's own initdb/admin tasks keep working. Password-only TCP clients must migrate to addon-mtls client certs. Toggling off fully reverts to password auth."
+    },
+    "pg_hba_content": {
+      "name": "PostgreSQL pg_hba.conf",
+      "type": "string",
+      "required": false,
+      "upload": true,
+      "group": "Authentication",
+      "advanced": true,
+      "description": "Base64 of the rendered pg_hba.conf (from file:pg_hba.conf.tmpl). Only applied when pg_client_cert=true; written verbatim to <pgdata>/pg_hba.conf, replacing the managed default. Supply custom content for cert+password (clientcert=verify-ca / verify-full) or mixed policies."
+    },
     "platform": {
       "name": "Platform",
       "type": "string",

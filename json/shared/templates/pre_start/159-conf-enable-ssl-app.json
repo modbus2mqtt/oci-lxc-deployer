@@ -4,10 +4,13 @@
   "execute_on": "ve",
   "parameters": [
     "hostname",
+    "vm_id",
     "uid",
     "gid",
     "mapped_uid",
-    "mapped_gid"
+    "mapped_gid",
+    "pg_client_cert",
+    "pg_hba_content"
   ],
   "commands": [
     {
@@ -15,6 +18,7 @@
       "script": "conf-enable-ssl-app.sh",
       "outputs": [
         "ssl_app_enabled",
+        "pg_mtls_enabled",
         {
           "id": "compose_file",
           "default": true

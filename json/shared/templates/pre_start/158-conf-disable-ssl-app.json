@@ -4,14 +4,17 @@
   "execute_on": "ve",
   "parameters": [
     "hostname",
-    "vm_id"
+    "vm_id",
+    "pg_client_cert",
+    "pg_hba_content"
   ],
   "commands": [
     {
       "name": "Disable SSL App Configuration",
       "script": "conf-disable-ssl-app.sh",
       "outputs": [
-        "ssl_app_disabled"
+        "ssl_app_disabled",
+        "pg_mtls_disabled"
       ]
     }
   ]

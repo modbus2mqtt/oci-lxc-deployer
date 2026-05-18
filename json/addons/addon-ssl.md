@@ -20,7 +20,11 @@ Best for most applications — no app-specific TLS configuration needed.
 
 The application configures HTTPS itself using the provisioned certificates at `/etc/ssl/addon/`. Supported by:
 
-- **PostgreSQL:** Modifies `postgresql.conf` with SSL settings
+- **PostgreSQL:** Modifies `postgresql.conf` with SSL settings. Always receives
+  the CA public cert as `chain.pem` (`ssl.needs_ca_cert: true`); with the
+  `pg_client_cert` parameter it additionally manages `ssl_ca_file` and a
+  cert-only `pg_hba.conf` for client-certificate (mTLS) auth — see the
+  PostgreSQL application docs.
 - **Gitea:** Sets `GITEA__server__PROTOCOL=https`
 - Other apps with built-in TLS support
 
