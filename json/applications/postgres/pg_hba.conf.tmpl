@@ -1,0 +1,15 @@
+# Managed by proxvex (pg_client_cert=true). Replace via the pg_hba_content parameter.
+#
+# Default policy: client-certificate authentication for all TCP/IP connections.
+# The certificate Common Name (CN) must match the requested database user.
+# Unix-socket connections stay trusted so the container's own initdb /
+# POSTGRES_PASSWORD bootstrap / admin maintenance keep working.
+#
+# To require a password in addition to the certificate, replace this file
+# (upload via the pg_hba_content parameter) with e.g.:
+#   hostssl all all 0.0.0.0/0 scram-sha-256 clientcert=verify-ca
+#
+# TYPE   DATABASE  USER  ADDRESS     METHOD
+local    all       all               trust
+hostssl  all       all   0.0.0.0/0   cert
+hostssl  all       all   ::/0        cert

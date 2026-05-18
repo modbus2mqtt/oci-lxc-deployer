@@ -1,0 +1,17 @@
+{
+  "execute_on": "ve",
+  "name": "Check PG mTLS",
+  "description": "Verifies PostgreSQL requires client certificates when pg_client_cert is enabled. The script self-skips when pg_client_cert is not 'true'.",
+  "skip_if_all_missing": ["pg_client_cert"],
+  "parameters": [
+    "vm_id",
+    "pg_client_cert"
+  ],
+  "commands": [
+    {
+      "name": "Check PG mTLS",
+      "script": "host-check-pg-mtls.sh",
+      "outputs": ["check_pg_mtls"]
+    }
+  ]
+}
