@@ -292,6 +292,22 @@
       "type": "string",
       "group": "Application"
     },
+    "db_anon_role": {
+      "name": "Anonymous DB Role",
+      "type": "string",
+      "required": false,
+      "default": "web_anon",
+      "group": "Authentication",
+      "description": "PGRST_DB_ANON_ROLE — PostgreSQL role for unauthenticated PostgREST requests. Must exist in the database (operator-created); see the Database setup section in the application docs."
+    },
+    "db_schemas": {
+      "name": "Exposed DB Schemas",
+      "type": "string",
+      "required": false,
+      "default": "public",
+      "group": "Application",
+      "description": "PGRST_DB_SCHEMAS — comma-separated list of PostgreSQL schemas PostgREST exposes."
+    },
     "debian_mirror": {
       "name": "Debian Mirror",
       "type": "string",

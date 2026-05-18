@@ -1,0 +1,20 @@
+{
+  "name": "postgrest",
+  "extends": "json:postgrest",
+  "installation": {
+    "pre_start": [
+      { "name": "188-conf-init-postgrest-testdb.json", "category": "pre_start" }
+    ],
+    "post_start": [
+      { "name": "355-post-check-postgrest-query.json", "category": "post_start", "position": "end" }
+    ]
+  },
+  "reconfigure": {
+    "pre_start": [
+      { "name": "188-conf-init-postgrest-testdb.json", "category": "pre_start" }
+    ],
+    "post_start": [
+      { "name": "355-post-check-postgrest-query.json", "category": "post_start", "position": "end" }
+    ]
+  }
+}

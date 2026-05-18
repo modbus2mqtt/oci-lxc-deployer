@@ -1,0 +1,11 @@
+{
+  "name": "Init PostgREST Test DB",
+  "description": "TEST-ONLY. Runs on the postgres dependency before postgrest starts. Creates the `postgrest` login role (mTLS cert CN), the `web_anon` anon role (db_anon_role default), a sample public table, the grants, and the pgrst_watch reload trigger — so every postgrest livetest scenario has a working database. Production proxvex creates NO database SQL; the operator does this (see json/applications/postgrest/application.md, ## Database setup).",
+  "execute_on": "application:postgres",
+  "commands": [
+    {
+      "name": "Init PostgREST Test DB",
+      "script": "conf-init-postgrest-testdb.sh"
+    }
+  ]
+}
