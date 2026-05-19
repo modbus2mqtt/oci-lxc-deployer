@@ -17,13 +17,15 @@
   "installation": {
     "pre_start": [
       { "name": "161-conf-generate-mtls-certs.json", "position": "end" },
-      { "name": "162-conf-enable-mtls-app.json", "position": "end" }
+      { "name": "162-conf-enable-mtls-app.json", "position": "end" },
+      { "name": "163-conf-create-mtls-db-roles.json", "position": "end" }
     ]
   },
   "reconfigure": {
     "pre_start": [
       { "name": "161-conf-generate-mtls-certs.json", "position": "end" },
-      { "name": "162-conf-enable-mtls-app.json", "position": "end" }
+      { "name": "162-conf-enable-mtls-app.json", "position": "end" },
+      { "name": "163-conf-create-mtls-db-roles.json", "position": "end" }
     ]
   },
   "disable": {
