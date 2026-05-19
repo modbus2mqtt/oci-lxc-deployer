@@ -104,7 +104,11 @@ if [ -f "$CONFIG_DIR/zitadel.yaml" ]; then
         printf "%sMode: verify-ca\n", ind
         printf "%sCert: %s/cert.pem\n", ind, p
         printf "%sKey: %s/privkey.pem\n", ind, p
-        printf "%sRootCert: %s/chain.pem\n", ind, p
+        # CA chain is global (one project CA, identical for every CN) and is
+        # written to the certs-volume ROOT by addon-ssl, NOT per-CN under
+        # mtls/<CN>/. Pointing RootCert at the shared /certs/chain.pem avoids
+        # the "open /certs/mtls/<CN>/chain.pem: no such file" failure.
+        printf "%sRootCert: /certs/chain.pem\n", ind
         next
       }
       { print }
