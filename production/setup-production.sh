@@ -476,6 +476,58 @@ echo "  Deployer hostname: ${DEPLOYER_HOST}"
 echo "  Starting from step: ${START_STEP}"
 echo ""
 
+# --- Pre-flight: orphaned OIDC enforcement on a surviving deployer ---
+# If a deployer kept across a partial teardown still enforces OIDC (Step 11
+# wrote OIDC_* lxc.environment) but its IdP (zitadel) was destroyed, every
+# pre-Step-11 deployer API call returns a bare HTTP 401 and the rebuild
+# cannot bootstrap. Detect that and abort with an actionable recovery
+# instruction instead of letting Step 3 fail opaquely. Skipped under
+# --bootstrap (fresh, OIDC-free deployer) and when resuming at Step >= 11
+# (operator explicitly continuing the OIDC-enabled phase, zitadel expected).
+# Note: production/destroy-except.sh Phase 3 does this automatically; this
+# guard only fires when the deployer survived some other way.
+if [ "$BOOTSTRAP" -ne 1 ] && [ "$START_STEP" -le 10 ]; then
+  echo "  Checking deployer auth state (OIDC vs. zitadel)..."
+  oidc_probe=$(curl -sk --connect-timeout 3 -o /dev/null -w '%{http_code}' \
+    "https://${DEPLOYER_HOST}:3443/api/applications" 2>/dev/null || echo 000)
+  if [ "$oidc_probe" = "000" ]; then
+    oidc_probe=$(curl -s --connect-timeout 3 -o /dev/null -w '%{http_code}' \
+      "http://${DEPLOYER_HOST}:3080/api/applications" 2>/dev/null || echo 000)
+  fi
+  if [ "$oidc_probe" = "401" ] || [ "$oidc_probe" = "403" ]; then
+    zitadel_host=$(host_for_app zitadel)
+    zitadel_present=$(pve_ssh_at "$zitadel_host" \
+      "pct list 2>/dev/null | awk '\$NF==\"zitadel\"{print \$1; exit}'" 2>/dev/null || true)
+    if [ -z "$zitadel_present" ]; then
+      deployer_vmid=$(pve_ssh \
+        "pct list 2>/dev/null | awk -v h='${DEPLOYER_HOST}' '\$2==\"running\" && \$NF==h{print \$1; exit}'" \
+        2>/dev/null || true)
+      cat >&2 <<EOF
+
+ERROR: Deployer ${DEPLOYER_HOST} enforces OIDC (HTTP ${oidc_probe}) but no
+       'zitadel' container exists on ${zitadel_host}. Its IdP is gone, so
+       every pre-Step-11 API call will fail with 401 and this rebuild
+       cannot bootstrap.
+
+Recovery — disable OIDC enforcement on the kept deployer, then re-run this
+script with the same arguments:
+
+  ssh root@${PVE_HOST} '
+    vmid=${deployer_vmid:-<proxvex-vmid>}
+    conf=/etc/pve/lxc/\$vmid.conf
+    cp "\$conf" "\$conf.bak-\$(date +%s)"
+    sed -i "/^lxc\\.environment:[[:space:]]*OIDC_/d" "\$conf"
+    pct stop \$vmid && pct start \$vmid
+  '
+
+Or rebuild via production/destroy-except.sh, whose Phase 3 does this for you.
+EOF
+      exit 1
+    fi
+  fi
+  echo "  OK (deployer auth state consistent)"
+fi
+
 # Note: the Zitadel admin PAT (created during Step 10 at FirstInstance init,
 # json/applications/zitadel/Zitadel.docker-compose.yml:44, persists in
 # /bootstrap/admin-client.pat) is the bearer for the deployer API once OIDC

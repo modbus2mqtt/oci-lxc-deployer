@@ -22,14 +22,40 @@ unset _pvx_self _pvx_rr
 # them, so their absence means something is already off and the operator
 # should investigate before wiping anything else.
 #
-# Two phases:
+# Three phases:
 #   1. Locked containers (lock entry in pct config) — pct unlock + force
 #      destroy first, since a stuck lock blocks normal stop/destroy.
 #   2. Everything else — pct stop + pct destroy --purge --force.
+#   3. Neutralize OIDC on the kept deployer: this script always keeps
+#      `proxvex` but never `zitadel`, so a deployer that had OIDC enabled
+#      (setup-production.sh Step 11) now points at an IdP that no longer
+#      exists — every pre-Step-11 deployer API call would 401 and the
+#      rebuild could not bootstrap. We strip the OIDC_* lxc.environment
+#      lines from the deployer's LXC config and restart it so it comes
+#      back with auth disabled. Step 11 re-adds them. Idempotent.
 #
 # Usage (on pve1.cluster):
 #   ./production/destroy-except.sh           # ask for confirmation, then run
 #   ./production/destroy-except.sh -y        # skip confirmation
+#
+# Full rebuild recipe (zitadel DB reset, managed-volume reshape, ...):
+#   1. ./production/destroy-except.sh        # on pve1; Phase 3 strips the
+#                                            #   kept deployer's OIDC env so
+#                                            #   the API is reachable unauth'd
+#   2. ./production/deploy.sh --host pve1.cluster \
+#        production/proxvex-upgrade.json     # upgrade TASK → new container
+#                                            #   from latest OCI; the oci-image
+#                                            #   upgrade carries the managed
+#                                            #   /config + /secure volumes
+#                                            #   (oidc/cloudflare stacks, nginx
+#                                            #   certs) over to it. Do NOT use
+#                                            #   `curl install-proxvex.sh|sh`:
+#                                            #   that creates a fresh container
+#                                            #   WITHOUT the volumes → stack
+#                                            #   lost. previous_vm_id is
+#                                            #   auto-resolved by deploy.sh.
+#   3. ./production/setup-production.sh --all # re-deploys; Step 11 re-enables
+#                                            #   OIDC; kept mirror/nginx skipped
 
 set -eu
 
@@ -112,8 +138,46 @@ for vmid in $ALL_VMIDS; do
   fi
 done
 
+# Phase 3 — strip orphaned OIDC enforcement from the kept deployer and
+# restart it. webapp-oidc.mts gates auth purely on OIDC_ENABLED=true; with
+# the OIDC_* lxc.environment lines gone the deployer comes up with no auth
+# middleware, so setup-production.sh can bootstrap. Idempotent: a deployer
+# without OIDC_* lines is left untouched. Safe to call even when nothing was
+# destroyed (e.g. a re-run after a previous destroy-except).
+neutralize_deployer_oidc() {
+  echo "=== Phase 3: neutralize OIDC on kept deployer (proxvex) ==="
+  local vmid deployer_vmid="" conf
+  for vmid in $ALL_VMIDS; do
+    if [ "$(ct_hostname "$vmid")" = "proxvex" ]; then
+      deployer_vmid="$vmid"
+      break
+    fi
+  done
+  if [ -z "$deployer_vmid" ]; then
+    echo "  WARN: proxvex VMID not resolved — skipping OIDC neutralization" >&2
+    return 0
+  fi
+  conf="/etc/pve/lxc/${deployer_vmid}.conf"
+  if [ -f "$conf" ] && grep -q '^lxc\.environment:[[:space:]]*OIDC_' "$conf"; then
+    cp "$conf" "${conf}.bak-$(date +%s)"
+    sed -i '/^lxc\.environment:[[:space:]]*OIDC_/d' "$conf"
+    echo "  Stripped OIDC_* env from $conf (backup kept alongside)"
+    pct stop "$deployer_vmid" 2>/dev/null || true
+    if pct start "$deployer_vmid"; then
+      echo "  proxvex (VMID $deployer_vmid) restarted — OIDC enforcement disabled"
+    else
+      echo "  WARN: pct start $deployer_vmid failed — start it manually" >&2
+    fi
+  else
+    echo "  proxvex (VMID $deployer_vmid) has no OIDC_* env — already neutral"
+  fi
+  echo ""
+}
+
 if [ -z "$LOCKED_LIST" ] && [ -z "$NORMAL_LIST" ]; then
   echo "No containers to destroy (keep-list: $KEEP_HOSTS)."
+  echo ""
+  neutralize_deployer_oidc
   exit 0
 fi
 
@@ -175,6 +239,8 @@ if [ -n "$NORMAL_LIST" ]; then
   done
   echo ""
 fi
+
+neutralize_deployer_oidc
 
 echo "Done. Surviving containers:"
 pct list
