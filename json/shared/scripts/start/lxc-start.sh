@@ -117,12 +117,12 @@ EOF
   # so this brief extra dual-run is within the existing tradeoff window.
   STOP_LOG="/var/log/proxvex-self-upgrade-${PREV_VMID}-to-${VMID}.log"
   echo "Stopping $PREV_VMID (detached, +10s delay so the switchover result reaches the orchestrator first, log: $STOP_LOG)..." >&2
-  setsid sh -c "echo '=== $(date -u +%FT%TZ) scheduled stop of $PREV_VMID for upgrade to $VMID (10s delay) ===' > '$STOP_LOG'; sleep 10; pct stop '$PREV_VMID' --timeout 30 >> '$STOP_LOG' 2>&1; echo '=== $(date -u +%FT%TZ) pct stop exit=$?' >> '$STOP_LOG'" </dev/null >/dev/null 2>&1 &
+  setsid sh -c "echo '=== $(date -u +%FT%TZ) scheduled stop of $PREV_VMID for upgrade to $VMID (10s delay) ===' > '$STOP_LOG'; sleep 10; pct stop '$PREV_VMID' --timeout 90 >> '$STOP_LOG' 2>&1; echo '=== $(date -u +%FT%TZ) pct stop exit=$?' >> '$STOP_LOG'" </dev/null >/dev/null 2>&1 &
 
   echo "" >&2
   echo "=== Self-upgrade switchover initiated ===" >&2
   echo "  NEW: $VMID running, will own the static IP once OLD finishes stopping" >&2
-  echo "  OLD: $PREV_VMID being stopped (graceful, 30s timeout) — see $STOP_LOG on the PVE host" >&2
+  echo "  OLD: $PREV_VMID being stopped (graceful, 90s timeout) — see $STOP_LOG on the PVE host" >&2
   echo "  finalizer on $VMID's first boot will unlink OLD's managed volumes" >&2
   echo "If $VMID fails after this point, the recovery procedure is:" >&2
   echo "  ssh root@<pve> 'pct start $PREV_VMID; pct unlock $PREV_VMID; pct set $PREV_VMID --onboot 1'" >&2

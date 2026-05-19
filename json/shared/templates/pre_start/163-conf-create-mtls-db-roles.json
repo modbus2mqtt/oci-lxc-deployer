@@ -1,0 +1,18 @@
+{
+  "name": "Ensure mTLS DB Roles",
+  "description": "Production postgres is cert-only (pg_hba `cert`): every mTLS client-cert CN must map to an existing LOGIN role. addon-mtls is otherwise client-side only; this ensures a passwordless LOGIN role per mtls_cns CN in the postgres dependency container so cert-only apps (e.g. gitea) can authenticate. Idempotent; DB ownership/GRANTs stay app-specific. Skipped for mTLS apps without a postgres dependency via skip_if_all_missing:[database_name] (e.g. eclipse-mosquitto/MQTT) — so it never tries to resolve a postgres dependency there.",
+  "execute_on": "application:postgres",
+  "skip_if_all_missing": [
+    "database_name"
+  ],
+  "parameters": [
+    "mtls_cns",
+    "database_name"
+  ],
+  "commands": [
+    {
+      "name": "Ensure mTLS DB Roles",
+      "script": "conf-create-mtls-db-roles.sh"
+    }
+  ]
+}
