@@ -102,9 +102,22 @@ EOF
   # puts pct stop in its own session so it survives the SIGHUP that follows.
   # We log to a file on the host because stderr/stdout get torn down with
   # the SSH connection.
+  #
+  # Switchover-result race: this script runs over an SSH session whose client
+  # lives inside OLD (the orchestrator's own container). It exits 0 with the
+  # `switchover_scheduled` JSON on stdout; ve-execution.mts:790 then marks the
+  # remaining steps complete and ends the task cleanly. But if OLD halts
+  # before that result is delivered over SSH, the orchestrator's ssh client is
+  # killed mid-read → the command looks like exit 255 → ve-execution's error
+  # path runs instead of the switchover short-circuit → the task wrongly
+  # reports "Failed" (observed for the reconfigure phase, which lost this
+  # race where upgrade usually won it). Deferring the OLD-stop by a few
+  # seconds gives the result a deterministic window to propagate before OLD
+  # goes down — NEW is already running and OLD is already onboot=0/lock=migrate,
+  # so this brief extra dual-run is within the existing tradeoff window.
   STOP_LOG="/var/log/proxvex-self-upgrade-${PREV_VMID}-to-${VMID}.log"
-  echo "Stopping $PREV_VMID (detached, log: $STOP_LOG)..." >&2
-  setsid sh -c "echo '=== $(date -u +%FT%TZ) stopping $PREV_VMID for upgrade to $VMID ===' > '$STOP_LOG'; pct stop '$PREV_VMID' --timeout 30 >> '$STOP_LOG' 2>&1; echo '=== $(date -u +%FT%TZ) pct stop exit=$?' >> '$STOP_LOG'" </dev/null >/dev/null 2>&1 &
+  echo "Stopping $PREV_VMID (detached, +10s delay so the switchover result reaches the orchestrator first, log: $STOP_LOG)..." >&2
+  setsid sh -c "echo '=== $(date -u +%FT%TZ) scheduled stop of $PREV_VMID for upgrade to $VMID (10s delay) ===' > '$STOP_LOG'; sleep 10; pct stop '$PREV_VMID' --timeout 30 >> '$STOP_LOG' 2>&1; echo '=== $(date -u +%FT%TZ) pct stop exit=$?' >> '$STOP_LOG'" </dev/null >/dev/null 2>&1 &
 
   echo "" >&2
   echo "=== Self-upgrade switchover initiated ===" >&2

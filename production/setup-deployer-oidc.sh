@@ -28,7 +28,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PVE_HOST="${PVE_HOST:-pve1.cluster}"
 DEPLOYER_HOST="${DEPLOYER_HOST:-proxvex}"
-CLI="npx tsx $PROJECT_ROOT/cli/src/oci-lxc-cli.mts"
+# --yes: auto-install tsx non-interactively (no "Ok to proceed?" stall).
+CLI="npx --yes tsx $PROJECT_ROOT/cli/src/oci-lxc-cli.mts"
 
 # Fetch a deployer JWT via init_oidc_jwt — this requests the right Zitadel
 # scopes (project audience + projects:roles) so the JWT carries the admin
