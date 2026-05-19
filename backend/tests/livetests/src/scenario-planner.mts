@@ -149,6 +149,44 @@ export function partitionAfterFailure(
 }
 
 /**
+ * Phase 1 (`--parallel`) scheduling primitive — pure & unit-tested.
+ *
+ * Given the plan and a per-index lifecycle state, classify the still-pending
+ * scenarios into:
+ *  - `ready`   — every in-plan `depends_on` is `done` → may start now
+ *  - `blocked` — at least one in-plan `depends_on` is `failed` → must skip
+ *
+ * `depends_on` entries that are not part of this plan are ignored (treated
+ * as satisfied — same convention as the sequential planner). The caller
+ * applies the concurrency cap and the running-count; this function only
+ * answers "what is eligible given current state".
+ */
+export function classifyParallel(
+  planned: PlannedScenario[],
+  state: ReadonlyArray<"pending" | "running" | "done" | "failed">,
+): { ready: number[]; blocked: number[] } {
+  const indexById = new Map<string, number>();
+  planned.forEach((p, idx) => indexById.set(p.scenario.id, idx));
+  const ready: number[] = [];
+  const blocked: number[] = [];
+  for (let idx = 0; idx < planned.length; idx++) {
+    if (state[idx] !== "pending") continue;
+    const deps = planned[idx]!.scenario.depends_on ?? [];
+    let depBlocked = false;
+    let allDone = true;
+    for (const depId of deps) {
+      const di = indexById.get(depId);
+      if (di === undefined) continue; // dep not in this plan → satisfied
+      if (state[di] === "failed") { depBlocked = true; break; }
+      if (state[di] !== "done") allDone = false;
+    }
+    if (depBlocked) blocked.push(idx);
+    else if (allDone) ready.push(idx);
+  }
+  return { ready, blocked };
+}
+
+/**
  * Select scenarios based on CLI argument.
  * - "app" → all scenarios under app/*
  * - "app/scenario" → exact match

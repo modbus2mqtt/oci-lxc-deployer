@@ -8,7 +8,7 @@
 import { runCli, type CliJsonResult } from "./cli-executor.mjs";
 import { SnapshotManager } from "./snapshot-manager.mjs";
 import { nestedSsh, nestedSshStrict, waitForServices, waitForContainerStable, waitForLxcInit } from "./ssh-helpers.mjs";
-import { buildParams, partitionAfterFailure } from "./scenario-planner.mjs";
+import { buildParams, partitionAfterFailure, classifyParallel } from "./scenario-planner.mjs";
 import { TestResultWriter, type TestResultDependency } from "./test-result-writer.mjs";
 import { collectFailureLogs } from "./diagnostics.mjs";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -356,8 +356,15 @@ export async function executeScenarios(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string },
+  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number },
 ): Promise<TestResult> {
+  // Phase 0: per-application dependency-snapshot name (`<app>_deps`), or
+  // `null` for `--all` / multi-app subsets where no dep snapshot is taken.
+  const depSnapshotName: string | null = options?.depSnapshotName ?? null;
+  // Phase 1: bounded-concurrency driver when concurrency > 1 (`--parallel`).
+  // Default 1 → the unchanged sequential driver.
+  const concurrency = Math.max(1, options?.concurrency ?? 1);
+  const failFast = !!options?.failFast;
   const result: TestResult = {
     name: planned.map((p) => p.scenario.id).join(", "),
     description: planned.map((p) => p.scenario.description).join("; "),
@@ -439,7 +446,7 @@ export async function executeScenarios(
     buildHash = buildInfo.dirty ? `${buildInfo.gitHash}-dirty` : buildInfo.gitHash;
   } catch { /* ignore */ }
 
-  // Snapshot manager for the single dep-stacks-ready snapshot.
+  // Snapshot manager for the per-application `<app>_deps` snapshot.
   // Provider/consumer distinction comes from `step.isDependency` set by the
   // planner (planned[].isDependency = true if not in selectedIdSet).
   const isLocalDeployer = config.deployerUrl.includes("localhost");
@@ -501,8 +508,19 @@ export async function executeScenarios(
     }
   } catch { /* deployer has no OIDC */ }
 
-  try {
-    for (let i = 0; i < planned.length; i++) {
+  // Outcome of one scenario step, driving the sequential / parallel driver.
+  type StepOutcome =
+    | { type: "done" }
+    | { type: "failed-partition"; scenarioId: string }
+    | { type: "crashed"; err: unknown };
+
+  // Per-scenario unit of work. Byte-identical to the original loop body
+  // except control flow: `continue` → `return {type:"done"}`, the inline
+  // partition block → `return {type:"failed-partition"}`, and the crash
+  // fail-fast decision is deferred to the driver via `{type:"crashed"}`.
+  // The self-contained try/catch/finally (crash safety + source-clone
+  // cleanup) is preserved exactly.
+  const runStep = async (i: number): Promise<StepOutcome> => {
       const step = planned[i]!;
       const scenario = step.scenario;
       const task = scenario.task || "installation";
@@ -545,7 +563,7 @@ export async function executeScenarios(
             logOk(`Test OIDC deployer credentials loaded from oidc_${step.stackName} stack (skipped Zitadel)`);
           }
         }
-        continue;
+        return { type: "done" };
       }
 
       // Build params.
@@ -591,7 +609,7 @@ export async function executeScenarios(
             vmId: step.vmId, hostname: effectiveHostname,
             application: scenario.application, scenarioId: scenario.id,
           });
-          continue;
+          return { type: "done" };
         }
       }
 
@@ -605,9 +623,18 @@ export async function executeScenarios(
         // dependencies (e.g. postgres for a zitadel test) stay quiet so the
         // result directory only carries the artefact for the test the user
         // actually asked for.
+        //
+        // Under `--parallel` (concurrency > 1) the backend's debug-log sink
+        // (`Logger.setDebugSink`, webapp-ve-execution-setup.mts) is a global
+        // singleton keyed by restartKey — concurrent deploys would clobber
+        // each other's bundle. Rather than touch that single-task production
+        // path, the parallel driver simply does not engage it: per-scenario
+        // test-result.md + Playwright artefacts (own dirs) are unaffected;
+        // only the deployer debug-log bundle is omitted in parallel mode.
         ...(options?.debugLevel
           && options.debugLevel !== "off"
           && !step.isDependency
+          && concurrency <= 1
           ? [{ name: "debug_level", value: options.debugLevel }]
           : []),
       ];
@@ -701,7 +728,7 @@ export async function executeScenarios(
           // Aborting here (via `break`) hid many passable scenarios whenever
           // a reconfigure/upgrade task's live dependency VM had already been
           // torn down by a previous scenario's cleanup.
-          continue;
+          return { type: "done" };
         }
         // From here on existingVm is guaranteed non-null. Bind into a typed
         // local so TS keeps the narrowing across the reassignment below
@@ -928,8 +955,9 @@ export async function executeScenarios(
         logInfo("Deployer reload not available (continuing)");
       }
 
-      // No pre-test snapshot — failure rollback uses the single
-      // dep-stacks-ready host snapshot (created once after all providers).
+      // No pre-test snapshot — failure rollback uses the per-application
+      // `<app>_deps` host snapshot (created once after all providers, only
+      // for single-application run scopes).
 
       // Run CLI
       logInfo(`Running: ${scenario.application} ${task}...`);
@@ -1038,19 +1066,20 @@ export async function executeScenarios(
           step.vmId, step.hostname, cliResult.output,
         );
 
-        // Rollback to dep-stacks-ready (atomic whole-VM snapshot on host PVE)
-        // to restore consistent state across all stack-provider LXCs and the
-        // nested-VM host FS (storagecontext-backup, deployer-context, etc.).
-        // Skipped if no providers were planned (no dep-stacks-ready snapshot).
+        // Rollback to the per-application `<app>_deps` snapshot (atomic
+        // whole-VM snapshot on host PVE) to restore consistent state across
+        // all stack-provider LXCs and the nested-VM host FS. Skipped when
+        // this run has no dependency-snapshot scope (--all / multi-app) or no
+        // providers were planned.
         // KEEP_VM also skips the rollback so the failed LXC stays available
         // for inspection (rollback would destroy it atomically).
         const keepForDebug = !!process.env.KEEP_VM;
         if (keepForDebug) {
-          logInfo(`KEEP_VM set — skipping rollback to dep-stacks-ready (failed VM ${step.vmId} preserved for inspection)`);
+          logInfo(`KEEP_VM set — skipping rollback to @${depSnapshotName ?? "dep-snapshot"} (failed VM ${step.vmId} preserved for inspection)`);
         }
-        if (snapMgr && !step.isDependency && !keepForDebug && snapMgr.exists("dep-stacks-ready")) {
+        if (snapMgr && depSnapshotName && !step.isDependency && !keepForDebug && snapMgr.exists(depSnapshotName)) {
           try {
-            snapMgr.rollbackHostSnapshot("dep-stacks-ready");
+            snapMgr.rollbackHostSnapshot(depSnapshotName);
             // After qm rollback the nested VM (and Hub LXC inside it) is
             // restarting. The Spoke proxies all stack/CA-sign requests to the
             // Hub, so the next scenario's POST /api/stacks or /api/hub/ca/sign
@@ -1059,10 +1088,10 @@ export async function executeScenarios(
             await waitForHubViaSpoke(apiUrl, 60000);
             checkVolumeConsistency(
               config.pveHost, config.portPveSsh, projectRoot,
-              `rollback to dep-stacks-ready`,
+              `rollback to ${depSnapshotName}`,
             );
           } catch (err) {
-            logInfo(`Warning: rollback to dep-stacks-ready failed: ${err}`);
+            logInfo(`Warning: rollback to @${depSnapshotName} failed: ${err}`);
           }
         }
 
@@ -1089,28 +1118,10 @@ export async function executeScenarios(
           }));
         }
 
-        // Partition remaining tests: skip those that depend on the failed scenario
-        const remaining = planned.slice(i + 1);
-        const allTestsMap = new Map(planned.map((p) => [p.scenario.id, p.scenario]));
-        const { unaffected, blocked } = partitionAfterFailure(scenario.id, remaining, allTestsMap);
-
-        if (unaffected.length > 0 && blocked.length > 0) {
-          logInfo(`${scenario.id} failed — running ${unaffected.length} unaffected test(s), skipping ${blocked.length} blocked`);
-          for (let u = 0; u < unaffected.length; u++) {
-            planned[i + 1 + u] = unaffected[u]!;
-          }
-          for (let b = 0; b < blocked.length; b++) {
-            planned[i + 1 + unaffected.length + b] = blocked[b]!;
-          }
-        }
-
-        for (const b of blocked) {
-          logWarn(`Skipping ${b.scenario.id} (blocked by failed dependency ${scenario.id})`);
-          b.skipExecution = true;
-          result.errors.push(`Skipped: ${b.scenario.id} (dependency ${scenario.id} failed)`);
-        }
-
-        continue;
+        // Failure → let the driver partition remaining tests (sequential)
+        // or block dependents (parallel). Keeps the orchestration that needs
+        // the plan index / scheduling state out of the per-step unit.
+        return { type: "failed-partition", scenarioId: scenario.id };
       }
 
       // For replace_ct: discover new VM ID. Pass step.hostname so the lookup
@@ -1414,7 +1425,7 @@ export async function executeScenarios(
           logOk(`Playwright passed: ${specPath}`);
         }
       }
-      if (playwrightFailed) continue;
+      if (playwrightFailed) return { type: "done" };
 
       // Write test result
       if (resultWriter) {
@@ -1434,7 +1445,7 @@ export async function executeScenarios(
           return {
             scenario_id: depId, vm_id: depStep?.vmId ?? 0,
             status: "passed" as const, version,
-            snapshot_used: snapMgr ? "dep-stacks-ready" : null,
+            snapshot_used: snapMgr && depSnapshotName ? depSnapshotName : null,
             snapshot_date: null,
           };
         });
@@ -1477,22 +1488,27 @@ export async function executeScenarios(
         logInfo(`Skipping cleanup of VM ${step.vmId} — shared with another planned scenario (in-place upgrade source)`);
       }
 
-      // After the LAST stack-provider step, create the single dep-stacks-ready
-      // snapshot on the host PVE. All subsequent consumer tests use this as
-      // their failure-rollback target. Encode the full captured dep set in the
-      // description so the next run can verify the snapshot covers its needs
-      // (see SnapshotManager.coversRun).
-      if (snapMgr && step.isDependency && !step.skipExecution
+      // After the LAST stack-provider step, create the per-application
+      // `<app>_deps` snapshot on the host PVE. Subsequent runs of the SAME
+      // single application reuse it as a clean dependency baseline (and as
+      // the failure-rollback target). Only created when this run has a
+      // dependency-snapshot scope (single selected application, not `--all`);
+      // a broad/`--all` run never snapshots, so a consumer's state can never
+      // be baked into a snapshot a later narrow run would reuse. The captured
+      // dep set is encoded in the description (see SnapshotManager.coversRun).
+      if (snapMgr && depSnapshotName && step.isDependency && !step.skipExecution
           && planned.slice(i + 1).every((p) => !p.isDependency)) {
         try {
           const capturedDeps = planned
             .filter((p) => p.isDependency)
             .map((p) => p.scenario.application);
-          snapMgr.createHostSnapshot("dep-stacks-ready", buildHash, capturedDeps);
+          snapMgr.createHostSnapshot(depSnapshotName, buildHash, capturedDeps);
         } catch (err) {
           logInfo(`Snapshot creation failed (non-fatal): ${err}`);
         }
       }
+
+      return { type: "done" };
       } catch (iterErr) {
         // Uncaught exception during this scenario — turn it into a "failed"
         // result so the run continues with the remaining scenarios. The
@@ -1526,9 +1542,9 @@ export async function executeScenarios(
             }));
           } catch { /* result write failure — already logging the throw above */ }
         }
-        if (options?.failFast) {
-          throw iterErr;
-        }
+        // Fail-fast decision is deferred to the driver (the `finally` clone
+        // cleanup below still runs before the driver sees this outcome).
+        return { type: "crashed", err: iterErr };
       } finally {
         // Phase 2: destroy any source clones we made for this scenario.
         // Runs on pass, fail AND crash so isolated clones never leak across
@@ -1551,6 +1567,132 @@ export async function executeScenarios(
           }
         }
       }
+  };
+
+  // Apply the partition-after-failure bookkeeping for a failed scenario:
+  // skip every still-pending scenario that (transitively) depends on it.
+  // Shared by both drivers (the sequential one also reorders `planned` so
+  // unaffected siblings keep running before the blocked ones).
+  const applyFailurePartition = (
+    failedId: string,
+    fromIndex: number,
+    reorder: boolean,
+  ): void => {
+    const remaining = planned.slice(fromIndex + 1);
+    const allTestsMap = new Map(planned.map((p) => [p.scenario.id, p.scenario]));
+    const { unaffected, blocked } = partitionAfterFailure(
+      failedId, remaining, allTestsMap,
+    );
+    if (reorder && unaffected.length > 0 && blocked.length > 0) {
+      logInfo(`${failedId} failed — running ${unaffected.length} unaffected test(s), skipping ${blocked.length} blocked`);
+      for (let u = 0; u < unaffected.length; u++) {
+        planned[fromIndex + 1 + u] = unaffected[u]!;
+      }
+      for (let b = 0; b < blocked.length; b++) {
+        planned[fromIndex + 1 + unaffected.length + b] = blocked[b]!;
+      }
+    }
+    for (const b of blocked) {
+      if (b.skipExecution) continue;
+      logWarn(`Skipping ${b.scenario.id} (blocked by failed dependency ${failedId})`);
+      b.skipExecution = true;
+      result.errors.push(`Skipped: ${b.scenario.id} (dependency ${failedId} failed)`);
+    }
+  };
+
+  try {
+    if (concurrency > 1) {
+      // ── Parallel driver ──────────────────────────────────────────────
+      // Bounded async pool in the single Node process. A scenario starts
+      // only when every depends_on entry that is part of this plan has
+      // finished successfully; a failed/crashed scenario blocks its
+      // dependents (same semantics as the sequential partition). The
+      // performance win is purely from overlapping the long idle waits
+      // (container create, package install, docker compose up,
+      // wait_seconds, Playwright) — the deployer/API stay single.
+      logInfo(`Parallel scenario execution: concurrency=${concurrency}`);
+      type St = "pending" | "running" | "done" | "failed";
+      const state: St[] = planned.map(() => "pending");
+      let active = 0;
+      let crashedErr: unknown = null;
+      let aborted = false;
+      await new Promise<void>((resolve) => {
+        const pump = (): void => {
+          if (aborted) {
+            if (active === 0) resolve();
+            return;
+          }
+          if (state.every((s) => s === "done" || s === "failed")) {
+            resolve();
+            return;
+          }
+          // Cascade blocked scenarios to a fixpoint (a failed dep blocks its
+          // dependents, which transitively block theirs) before scheduling.
+          let ready: number[] = [];
+          for (;;) {
+            const c = classifyParallel(planned, state);
+            ready = c.ready;
+            if (c.blocked.length === 0) break;
+            for (const idx of c.blocked) {
+              state[idx] = "failed";
+              const p = planned[idx]!;
+              if (!p.skipExecution) {
+                logWarn(`Skipping ${p.scenario.id} (blocked by failed dependency)`);
+                p.skipExecution = true;
+                result.errors.push(`Skipped: ${p.scenario.id} (blocked dependency)`);
+              }
+            }
+          }
+          if (state.every((s) => s === "done" || s === "failed")) {
+            resolve();
+            return;
+          }
+          for (const idx of ready) {
+            if (active >= concurrency) break;
+            if (state[idx] !== "pending") continue;
+            state[idx] = "running";
+            active++;
+            void runStep(idx)
+              .then((outcome) => {
+                active--;
+                if (outcome.type === "crashed") {
+                  state[idx] = "failed";
+                  if (failFast) { crashedErr = outcome.err; aborted = true; }
+                } else if (outcome.type === "failed-partition") {
+                  state[idx] = "failed";
+                  applyFailurePartition(outcome.scenarioId, idx, false);
+                  if (failFast) aborted = true;
+                } else {
+                  state[idx] = "done";
+                }
+                pump();
+              })
+              .catch((err) => {
+                active--;
+                state[idx] = "failed";
+                crashedErr = err;
+                aborted = true;
+                pump();
+              });
+          }
+          if (active === 0 && state.every((s) => s !== "pending")) resolve();
+        };
+        pump();
+      });
+      if (crashedErr) throw crashedErr;
+    } else {
+      // ── Sequential driver (unchanged behaviour) ──────────────────────
+      for (let i = 0; i < planned.length; i++) {
+        const outcome = await runStep(i);
+        if (outcome.type === "crashed") {
+          if (failFast) throw outcome.err;
+          continue;
+        }
+        if (outcome.type === "failed-partition") {
+          applyFailurePartition(outcome.scenarioId, i, true);
+          continue;
+        }
+      }
     }
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
@@ -1559,4 +1701,30 @@ export async function executeScenarios(
   result.passed = verifier.passed;
   result.failed += verifier.failed;
   return result;
+}
+
+/**
+ * Phase 1 (`--parallel`): bounded-concurrency variant of
+ * {@link executeScenarios}. Same per-scenario unit of work (shared
+ * `runStep`), only the driver differs. The deployer/API and the single
+ * nested VM are untouched; the gain is overlapping idle waits.
+ */
+export async function executeScenariosParallel(
+  planned: PlannedScenario[],
+  config: Parameters<typeof executeScenarios>[1],
+  apiUrl: string,
+  veHost: string,
+  projectRoot: string,
+  appMetaMap: Map<string, AppMeta>,
+  allTests: Map<string, ResolvedScenario>,
+  stackIdMap: Map<string, string[]>,
+  resultWriter?: TestResultWriter,
+  fixtureBaseDir?: string,
+  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number },
+): Promise<TestResult> {
+  return executeScenarios(
+    planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
+    stackIdMap, resultWriter, fixtureBaseDir,
+    { ...(options ?? {}), concurrency: Math.max(2, options?.concurrency ?? 4) },
+  );
 }

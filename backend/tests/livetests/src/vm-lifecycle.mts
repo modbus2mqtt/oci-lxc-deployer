@@ -68,7 +68,12 @@ export async function restoreBestSnapshot(
   config: { pveHost: string; vmId: number; portPveSsh: number; deployerUrl: string; snapshot?: { enabled: boolean } },
   apiUrl: string,
   projectRoot: string,
+  depSnapshotName: string | null,
 ): Promise<void> {
+  // Phase 0: no per-application dependency snapshot for this run scope
+  // (e.g. `--all` or a multi-application subset) → never restore.
+  if (!depSnapshotName) return;
+
   const allDepIds = new Set([...allTests.values()].flatMap((s) => s.depends_on ?? []));
   const depSteps = planned.filter((p) => allDepIds.has(p.scenario.id));
   const isLocalDeployer = config.deployerUrl.includes("localhost");
@@ -90,13 +95,13 @@ export async function restoreBestSnapshot(
     (msg) => logInfo(msg), localContextPath,
   );
 
-  // Single-snapshot strategy: roll the whole nested VM back to dep-stacks-ready
-  // and skip all provider installations — but only when the snapshot's
-  // captured dep set covers every dep this run needs. A snapshot built for a
-  // run with fewer deps (e.g. `zitadel/default` captures just postgres) must
-  // not be reused for a run that needs more (e.g. proxvex/playwright-oidc
-  // needs postgres+playwright+zitadel), or pre_start dep-resolution fails.
-  const SNAP_NAME = "dep-stacks-ready";
+  // Per-application snapshot strategy: roll the whole nested VM back to
+  // `<app>_deps` and skip all provider installations — but only when the
+  // snapshot's captured dep set covers every dep this run needs. A snapshot
+  // built for a run with fewer/other deps (e.g. a `postgres/default`-backed
+  // `zitadel_deps`) must not be reused for a run that needs more or a
+  // different variant, or pre_start dep-resolution fails.
+  const SNAP_NAME = depSnapshotName;
   const requiredDeps = depSteps.map((d) => d.scenario.application);
   if (!snapMgr.exists(SNAP_NAME) || !snapMgr.coversRun(SNAP_NAME, buildHash, requiredDeps)) {
     return;

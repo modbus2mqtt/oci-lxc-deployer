@@ -5,9 +5,11 @@ import {
   buildParams,
   planScenarios,
   partitionAfterFailure,
+  resolveDepSnapshotName,
   type ResolvedScenario,
   type PlannedScenario,
 } from "./live-test-runner.mjs";
+import { classifyParallel } from "./scenario-planner.mjs";
 
 // ── Tests ──
 
@@ -550,5 +552,172 @@ describe("partitionAfterFailure", () => {
     const { unaffected, blocked } = partitionAfterFailure("nginx/default", remaining, all);
     expect(unaffected.map((p) => p.scenario.id)).toEqual(["postgres/default"]);
     expect(blocked).toHaveLength(0);
+  });
+});
+
+// ── Phase 0: per-application dependency-snapshot scope ──
+
+describe("resolveDepSnapshotName", () => {
+  function plan(
+    entries: Array<{ id: string; isDependency?: boolean }>,
+  ): PlannedScenario[] {
+    return entries.map((e, i) => {
+      const [app] = e.id.split("/");
+      return {
+        vmId: 200 + i,
+        hostname: e.id.replace("/", "-"),
+        stackName: e.id.split("/")[1] ?? "default",
+        scenario: { id: e.id, application: app!, description: e.id },
+        hasStacktype: false,
+        isDependency: e.isDependency ?? false,
+        skipExecution: false,
+      };
+    });
+  }
+
+  it("returns null for --all (never snapshots a broad run)", () => {
+    const planned = plan([
+      { id: "postgres/default", isDependency: true },
+      { id: "zitadel/default" },
+    ]);
+    const selected = new Set(["postgres/default", "zitadel/default"]);
+    expect(resolveDepSnapshotName("--all", planned, selected)).toBeNull();
+  });
+
+  it("returns <app>_deps for a single selected application (deps excluded)", () => {
+    // `zitadel/default` selected; postgres pulled in only as a dependency.
+    const planned = plan([
+      { id: "postgres/default", isDependency: true },
+      { id: "zitadel/default" },
+    ]);
+    const selected = new Set(["zitadel/default"]);
+    expect(resolveDepSnapshotName("zitadel/default", planned, selected)).toBe(
+      "zitadel_deps",
+    );
+  });
+
+  it("returns <app>_deps when several scenarios of the SAME app are selected", () => {
+    const planned = plan([
+      { id: "postgres/default", isDependency: true },
+      { id: "postgres/ssl", isDependency: true },
+      { id: "zitadel/default" },
+      { id: "zitadel/ssl" },
+    ]);
+    const selected = new Set(["zitadel/default", "zitadel/ssl"]);
+    expect(
+      resolveDepSnapshotName("zitadel/default,zitadel/ssl", planned, selected),
+    ).toBe("zitadel_deps");
+  });
+
+  it("returns null for a multi-application subset (no cross-app pollution)", () => {
+    const planned = plan([
+      { id: "postgres/default", isDependency: true },
+      { id: "zitadel/default" },
+      { id: "gitea/default" },
+    ]);
+    const selected = new Set(["zitadel/default", "gitea/default"]);
+    expect(
+      resolveDepSnapshotName("zitadel/default,gitea/default", planned, selected),
+    ).toBeNull();
+  });
+
+  it("returns null when a consumer of the selected app is also selected", () => {
+    // zitadel/default + nginx/oidc-ssl (nginx depends on zitadel) → two
+    // selected applications → no snapshot, so zitadel-as-dependency state
+    // can never be baked into a snapshot a later narrow run would reuse.
+    const planned = plan([
+      { id: "postgres/default", isDependency: true },
+      { id: "zitadel/default", isDependency: true },
+      { id: "nginx/oidc-ssl" },
+    ]);
+    const selected = new Set(["zitadel/default", "nginx/oidc-ssl"]);
+    expect(
+      resolveDepSnapshotName("zitadel/default,nginx/oidc-ssl", planned, selected),
+    ).toBeNull();
+  });
+});
+
+// ── Phase 1: parallel scheduling primitive ──
+
+describe("classifyParallel", () => {
+  type St = "pending" | "running" | "done" | "failed";
+  function plan(
+    entries: Array<{ id: string; depends_on?: string[] }>,
+  ): PlannedScenario[] {
+    return entries.map((e, i) => {
+      const [app] = e.id.split("/");
+      return {
+        vmId: 200 + i,
+        hostname: e.id.replace("/", "-"),
+        stackName: e.id.split("/")[1] ?? "default",
+        scenario: {
+          id: e.id,
+          application: app!,
+          description: e.id,
+          ...(e.depends_on ? { depends_on: e.depends_on } : {}),
+        },
+        hasStacktype: false,
+        isDependency: false,
+        skipExecution: false,
+      };
+    });
+  }
+
+  it("only dependency-free scenarios are ready initially", () => {
+    const p = plan([
+      { id: "postgres/default" },
+      { id: "zitadel/default", depends_on: ["postgres/default"] },
+    ]);
+    const { ready, blocked } = classifyParallel(p, ["pending", "pending"]);
+    expect(ready).toEqual([0]);
+    expect(blocked).toEqual([]);
+  });
+
+  it("a dependent becomes ready once its dependency is done", () => {
+    const p = plan([
+      { id: "postgres/default" },
+      { id: "zitadel/default", depends_on: ["postgres/default"] },
+    ]);
+    const { ready } = classifyParallel(p, ["done", "pending"]);
+    expect(ready).toEqual([1]);
+  });
+
+  it("a dependent is blocked when its dependency failed", () => {
+    const p = plan([
+      { id: "postgres/default" },
+      { id: "zitadel/default", depends_on: ["postgres/default"] },
+    ]);
+    const { ready, blocked } = classifyParallel(p, ["failed", "pending"]);
+    expect(ready).toEqual([]);
+    expect(blocked).toEqual([1]);
+  });
+
+  it("ignores depends_on entries that are not part of the plan", () => {
+    const p = plan([{ id: "zitadel/default", depends_on: ["postgres/ssl"] }]);
+    const { ready, blocked } = classifyParallel(p, ["pending"]);
+    expect(ready).toEqual([0]);
+    expect(blocked).toEqual([]);
+  });
+
+  it("running / done / failed scenarios are never re-classified", () => {
+    const p = plan([
+      { id: "a/default" },
+      { id: "b/default" },
+      { id: "c/default" },
+    ]);
+    const state: St[] = ["running", "done", "failed"];
+    const { ready, blocked } = classifyParallel(p, state);
+    expect(ready).toEqual([]);
+    expect(blocked).toEqual([]);
+  });
+
+  it("independent scenarios are all ready (cap is the driver's concern)", () => {
+    const p = plan([
+      { id: "a/default" },
+      { id: "b/default" },
+      { id: "c/default" },
+    ]);
+    const { ready } = classifyParallel(p, ["pending", "pending", "pending"]);
+    expect(ready).toEqual([0, 1, 2]);
   });
 });

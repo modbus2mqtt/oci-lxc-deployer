@@ -34,6 +34,7 @@ import { renderResultsMarkdown } from "./result-summary.mjs";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ResolvedScenario, PlannedScenario } from "./livetest-types.mjs";
+import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
 import { rollbackToBaseline, restoreBestSnapshot, prepareVms } from "./vm-lifecycle.mjs";
@@ -45,6 +46,7 @@ import { buildAdHocFilter, buildFilter, loadTestSets, resolvePreset, type Resolv
 
 // Re-export types so existing imports from this module continue to work
 export type { TestScenario, ResolvedScenario, PlannedScenario, StepResult, TestResult, E2EConfig, ParamEntry } from "./livetest-types.mjs";
+export { resolveDepSnapshotName } from "./livetest-types.mjs";
 export { collectWithDeps, selectScenarios, buildParams, planScenarios, partitionAfterFailure, type BuildParamsResult } from "./scenario-planner.mjs";
 export { runCli, type CliJsonResult, type CliMessage } from "./cli-executor.mjs";
 
@@ -359,6 +361,25 @@ async function main() {
   const includeUntestable = args.includes("--include-untestable");
   const depsOnlyFlag = args.includes("--deps-only");
 
+  // Phase 1 (opt-in): `--parallel` or `--parallel=N` switches the scenario
+  // loop to a bounded async scheduler. Without the flag the runner takes the
+  // unchanged sequential path → near-zero regression risk.
+  const parallelArg = args.find(
+    (a) => a === "--parallel" || a.startsWith("--parallel="),
+  );
+  const parallelEnabled = !!parallelArg;
+  let parallelLimit = 4;
+  if (parallelArg && parallelArg.includes("=")) {
+    const n = Number.parseInt(parallelArg.split("=")[1] ?? "", 10);
+    if (!Number.isFinite(n) || n < 1) {
+      console.error(
+        `Invalid --parallel value "${parallelArg.split("=")[1]}". Expected a positive integer.`,
+      );
+      process.exit(2);
+    }
+    parallelLimit = n;
+  }
+
   // Coverage-report short-circuits before any deployer interaction.
   if (args.includes("--coverage-report")) {
     const formatIdx = args.indexOf("--format");
@@ -399,6 +420,7 @@ async function main() {
     a !== "--coverage-report" &&
     a !== "--gaps-only" &&
     a !== "--deps-only" &&
+    !a.startsWith("--parallel") &&
     !(arr[i - 1] === "--format")
   );
   const instance = positionalArgs[0] || undefined;
@@ -663,7 +685,7 @@ async function main() {
   }
 
   // --deps-only: drop non-dependency steps so we install all providers, create
-  // the dep-stacks-ready snapshot, and skip the target tests. Iteration loop
+  // the per-application `<app>_deps` snapshot, and skip the target tests. Iteration loop
   // for the target test (e.g. tweaking a Playwright spec or a single template)
   // can then re-run without paying the dep-install cost.
   if (depsOnlyFlag) {
@@ -689,9 +711,19 @@ async function main() {
   }
   console.log("");
 
+  // Phase 0: resolve the per-application dependency-snapshot name for this
+  // run scope. `null` for `--all` / multi-application subsets → no dep
+  // snapshot is created or restored (those go the parallelisation route).
+  const depSnapshotName = resolveDepSnapshotName(testArg, planned, selectedIdSet);
+  if (depSnapshotName) {
+    logInfo(`Dependency snapshot for this run: @${depSnapshotName}`);
+  } else {
+    logInfo("No dependency snapshot for this run scope (--all / multi-app)");
+  }
+
   // VM preparation: snapshot restore → pre-cleanup
   if (testArg === "--all") rollbackToBaseline(config, projectRoot);
-  await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot);
+  await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
   // qm rollback wipes the nested-VM iptables + dnsmasq state, so reapply
   // port forwarding (idempotent) so Playwright specs and OIDC redirect URIs
   // still reach the right inner containers.
@@ -712,7 +744,18 @@ async function main() {
   const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
   logInfo(`Results: ${resultWriter.getOutputDir()}`);
   if (failFastFlag) logInfo("--fail-fast enabled: aborting on first scenario failure");
-  const result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel });
+  let result;
+  if (parallelEnabled) {
+    logInfo(`--parallel enabled: concurrency limit ${parallelLimit}`);
+    const { executeScenariosParallel } = await import("./scenario-executor.mjs");
+    result = await executeScenariosParallel(
+      planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
+      appStackIdsMap, resultWriter, fixtureBaseDir,
+      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit },
+    );
+  } else {
+    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName });
+  }
   const allResults = [result];
 
   // Cleanup

@@ -188,6 +188,41 @@ export interface E2EConfig {
   };
 }
 
+/**
+ * Resolve the dependency-snapshot name for a run, or `null` when no
+ * dependency snapshot may be created/restored.
+ *
+ * Strategy (see plan residuum-separat-pre-existing-curried-leaf):
+ * the single global `dep-stacks-ready` snapshot is replaced by a
+ * per-target-application snapshot `<app>_deps`. It is only valid for an
+ * explicitly-selected single-application run — there the tested app is always
+ * a *target* (never a dependency), so its dependency state (e.g. postgres) is
+ * clean by construction at snapshot time. A `--all` run, or any run spanning
+ * more than one selected application, gets NO dependency snapshot (those go
+ * the parallelisation route instead) so a broad run can never bake a
+ * consumer's state into a snapshot a narrow run would later reuse.
+ *
+ * @param testArg     the positional test argument (e.g. "--all", "zitadel/default")
+ * @param planned     the planned scenarios
+ * @param selectedIds the set of explicitly-selected scenario ids (NOT the
+ *                    transitively-pulled dependencies)
+ */
+export function resolveDepSnapshotName(
+  testArg: string,
+  planned: PlannedScenario[],
+  selectedIds: Set<string>,
+): string | null {
+  if (testArg === "--all") return null;
+  const selectedApps = new Set(
+    planned
+      .filter((p) => selectedIds.has(p.scenario.id))
+      .map((p) => p.scenario.application),
+  );
+  if (selectedApps.size !== 1) return null;
+  const [app] = [...selectedApps];
+  return `${app}_deps`;
+}
+
 /** Param entry in a scenario params file */
 export interface ParamEntry {
   name: string;

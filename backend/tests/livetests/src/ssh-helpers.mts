@@ -5,7 +5,7 @@
  * and to wait for docker services inside containers.
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 
 /**
  * Execute an SSH command on the PVE host.
@@ -48,6 +48,91 @@ export function nestedSsh(
 ): string {
   try {
     return nestedSshStrict(pveHost, port, command, timeoutMs);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Async, non-blocking counterpart of {@link nestedSshStrict}.
+ *
+ * Phase 1 (`--parallel`): the sequential path keeps the synchronous
+ * `nestedSsh`/`nestedSshStrict` (`execSync`) unchanged. The parallel
+ * scheduler MUST use this variant instead — a synchronous `execSync` blocks
+ * the single Node event loop and would serialise the whole pool, defeating
+ * the point of the bounded-concurrency runner.
+ *
+ * Uses `spawn` with an argv (no local shell) so `command` needs no extra
+ * quoting; ssh receives it as a single remote-command argument, matching the
+ * sync helper's behaviour. Throws on non-zero exit or timeout.
+ */
+export function nestedSshStrictAsync(
+  pveHost: string,
+  port: number,
+  command: string,
+  timeoutMs = 15000,
+  stdin?: string,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "ssh",
+      [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        "-p", String(port),
+        `root@${pveHost}`,
+        command,
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(() =>
+        reject(new Error(`SSH timeout after ${timeoutMs}ms: ${command}`)),
+      );
+    }, timeoutMs);
+    child.stdout.on("data", (d) => { stdout += d; });
+    child.stderr.on("data", (d) => { stderr += d; });
+    child.on("error", (err) => finish(() => reject(err)));
+    child.on("close", (code) =>
+      finish(() => {
+        if (code === 0) resolve(stdout.trim());
+        else
+          reject(
+            new Error(
+              `SSH exit ${code}: ${stderr.trim() || stdout.trim()}`,
+            ),
+          );
+      }),
+    );
+    if (stdin !== undefined) child.stdin.write(stdin);
+    child.stdin.end();
+  });
+}
+
+/**
+ * Async, error-swallowing counterpart of {@link nestedSsh} (returns "" on
+ * failure). Use only in the `--parallel` path.
+ */
+export async function nestedSshAsync(
+  pveHost: string,
+  port: number,
+  command: string,
+  timeoutMs = 15000,
+): Promise<string> {
+  try {
+    return await nestedSshStrictAsync(pveHost, port, command, timeoutMs);
   } catch {
     return "";
   }
