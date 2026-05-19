@@ -1,4 +1,15 @@
 #!/bin/bash
+# >>> proxvex-cwd-guard (auto-generated) — repo-root cwd + absolute $0, any caller cwd
+case "$0" in
+  /*) _pvx_self="$0" ;;
+  *)  _pvx_self="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")" || { echo "FATAL cwd-guard: cannot resolve $0" >&2; exit 2; } ;;
+esac
+_pvx_rr="$(cd "$(dirname "$_pvx_self")/.." 2>/dev/null && pwd)" || { echo "FATAL cwd-guard: cannot resolve repo root from $0" >&2; exit 2; }
+{ [ -f "$_pvx_rr/package.json" ] && [ -d "$_pvx_rr/e2e" ] && [ -d "$_pvx_rr/production" ]; } || { echo "FATAL cwd-guard: invalid repo root '$_pvx_rr' (from '$0')" >&2; exit 2; }
+if [ "$0" != "$_pvx_self" ]; then cd "$_pvx_rr" && exec "$_pvx_self" "$@"; fi
+cd "$_pvx_rr" || { echo "FATAL cwd-guard: cannot cd to '$_pvx_rr'" >&2; exit 2; }
+unset _pvx_self _pvx_rr
+# <<< proxvex-cwd-guard
 # Set up production stack: Cloudflare credentials and domain suffix.
 # ACME is only used for the nginx wildcard certificate.
 #

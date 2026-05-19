@@ -15,6 +15,10 @@ import {
   IApplicationPersistence,
   ITemplatePersistence,
 } from "./persistence/interfaces.mjs";
+// Circular by design (persistence-manager ↔ context-manager). Safe because
+// `PersistenceManager` is referenced only at call time inside
+// getTemplateProcessor(), never at module-eval time.
+import { PersistenceManager } from "./persistence/persistence-manager.mjs";
 
 export class VMContext implements IVMContext {
   vmid: number;
@@ -189,7 +193,21 @@ export class ContextManager extends Context implements IContext {
   }
 
   getTemplateProcessor(): TemplateProcessor {
-    return new TemplateProcessor(this.pathes, this, this.persistence);
+    // Template resolution MUST use the live PersistenceManager's pathes +
+    // persistence, never this ContextManager's own `this.pathes`. The route
+    // layer captures one ContextManager at server start and
+    // PersistenceManager.reload() deliberately carries that same instance
+    // forward across every /api/reload — so `this.pathes` can be stale/wrong
+    // (e.g. the `examples` default or a per-test temp dir instead of the
+    // `--local livetest-local` the Spoke was started with). A wrong
+    // localPath makes getApplicationPaths() omit livetest-local overlay apps,
+    // so overlay templates resolve to nothing → "Template file not found:
+    // [object Object]". Pulling pathes/persistence from the current singleton
+    // keeps resolution correct regardless of reload/capture state. Imported
+    // lazily-by-reference (used only at call time) to avoid the
+    // persistence-manager ↔ context-manager import cycle.
+    const pm = PersistenceManager.getInstance();
+    return new TemplateProcessor(pm.getPathes(), this, pm.getPersistence());
   }
   getCurrentVEContext(): IVEContext | null {
     for (const ctx of this.keys()
