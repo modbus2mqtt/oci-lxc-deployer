@@ -5,10 +5,9 @@ case "$0" in
   *)  _pvx_self="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")" || { echo "FATAL cwd-guard: cannot resolve $0" >&2; exit 2; } ;;
 esac
 _pvx_rr="$(cd "$(dirname "$_pvx_self")/.." 2>/dev/null && pwd)" || { echo "FATAL cwd-guard: cannot resolve repo root from $0" >&2; exit 2; }
-if [ -f "$_pvx_rr/package.json" ] && [ -d "$_pvx_rr/e2e" ] && [ -d "$_pvx_rr/production" ]; then
-  if [ "$0" != "$_pvx_self" ]; then cd "$_pvx_rr" && exec "$_pvx_self" "$@"; fi
-  cd "$_pvx_rr" || echo "WARN cwd-guard: cannot cd to '$_pvx_rr'; continuing in $(pwd)" >&2
-fi
+{ [ -f "$_pvx_rr/package.json" ] && [ -d "$_pvx_rr/e2e" ] && [ -d "$_pvx_rr/production" ]; } || { echo "FATAL cwd-guard: invalid repo root '$_pvx_rr' (from '$0')" >&2; exit 2; }
+if [ "$0" != "$_pvx_self" ]; then cd "$_pvx_rr" && exec "$_pvx_self" "$@"; fi
+cd "$_pvx_rr" || { echo "FATAL cwd-guard: cannot cd to '$_pvx_rr'" >&2; exit 2; }
 unset _pvx_self _pvx_rr
 # <<< proxvex-cwd-guard
 # Master orchestrator for production environment setup.
@@ -355,23 +354,9 @@ if [ "$JSON_DEV_SYNC" -eq 1 ]; then
   find "$JSON_SRC" -name '.DS_Store' -delete 2>/dev/null || true
   find "$JSON_SRC" -name '._*' -delete 2>/dev/null || true
 
-  # Resolve the deployer VMID authoritatively by hostname via `pct config`
-  # — NOT `pct list`'s last column, which an optional Lock column shifts and
-  # can spuriously match a second container (cf. destroy-except.sh ct_hostname).
-  # Only running containers; require exactly one. A duplicate '$DEPLOYER_HOST'
-  # (e.g. a self-upgrade that left the old container) must fail loudly here
-  # instead of expanding to multiple VMIDs and corrupting the pct push below.
-  deployer_vmid=$(pve_ssh "for v in \$(pct list 2>/dev/null | awk 'NR>1 && \$2==\"running\"{print \$1}'); do [ \"\$(pct config \$v 2>/dev/null | awk '/^hostname:/{print \$2; exit}')\" = '$DEPLOYER_HOST' ] && echo \$v; done" 2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' || true)
-  deployer_count=$(printf '%s\n' "$deployer_vmid" | grep -c . || true)
-  if [ -z "$deployer_vmid" ] || [ "$deployer_count" -eq 0 ]; then
-    echo "ERROR: deployer container '$DEPLOYER_HOST' not found (running) on $PVE_HOST" >&2
-    exit 1
-  fi
-  if [ "$deployer_count" -ne 1 ]; then
-    echo "ERROR: expected exactly one running '$DEPLOYER_HOST' container on $PVE_HOST," >&2
-    echo "       found VMIDs: $(echo $deployer_vmid). Resolve the duplicate (a" >&2
-    echo "       self-upgrade likely left the old one) — destroy the stale" >&2
-    echo "       container, then re-run." >&2
+  deployer_vmid=$(pve_ssh "pct list | awk -v h='$DEPLOYER_HOST' '\$2==\"running\" && \$NF==h{print \$1}'" 2>/dev/null || true)
+  if [ -z "$deployer_vmid" ]; then
+    echo "ERROR: deployer container '$DEPLOYER_HOST' not found on $PVE_HOST" >&2
     exit 1
   fi
   echo "  Deployer VMID: $deployer_vmid"
@@ -490,58 +475,6 @@ fi
 echo "  Deployer hostname: ${DEPLOYER_HOST}"
 echo "  Starting from step: ${START_STEP}"
 echo ""
-
-# --- Pre-flight: orphaned OIDC enforcement on a surviving deployer ---
-# If a deployer kept across a partial teardown still enforces OIDC (Step 11
-# wrote OIDC_* lxc.environment) but its IdP (zitadel) was destroyed, every
-# pre-Step-11 deployer API call returns a bare HTTP 401 and the rebuild
-# cannot bootstrap. Detect that and abort with an actionable recovery
-# instruction instead of letting Step 3 fail opaquely. Skipped under
-# --bootstrap (fresh, OIDC-free deployer) and when resuming at Step >= 11
-# (operator explicitly continuing the OIDC-enabled phase, zitadel expected).
-# Note: production/destroy-except.sh Phase 3 does this automatically; this
-# guard only fires when the deployer survived some other way.
-if [ "$BOOTSTRAP" -ne 1 ] && [ "$START_STEP" -le 10 ]; then
-  echo "  Checking deployer auth state (OIDC vs. zitadel)..."
-  oidc_probe=$(curl -sk --connect-timeout 3 -o /dev/null -w '%{http_code}' \
-    "https://${DEPLOYER_HOST}:3443/api/applications" 2>/dev/null || echo 000)
-  if [ "$oidc_probe" = "000" ]; then
-    oidc_probe=$(curl -s --connect-timeout 3 -o /dev/null -w '%{http_code}' \
-      "http://${DEPLOYER_HOST}:3080/api/applications" 2>/dev/null || echo 000)
-  fi
-  if [ "$oidc_probe" = "401" ] || [ "$oidc_probe" = "403" ]; then
-    zitadel_host=$(host_for_app zitadel)
-    zitadel_present=$(pve_ssh_at "$zitadel_host" \
-      "pct list 2>/dev/null | awk '\$NF==\"zitadel\"{print \$1; exit}'" 2>/dev/null || true)
-    if [ -z "$zitadel_present" ]; then
-      deployer_vmid=$(pve_ssh \
-        "pct list 2>/dev/null | awk -v h='${DEPLOYER_HOST}' '\$2==\"running\" && \$NF==h{print \$1; exit}'" \
-        2>/dev/null || true)
-      cat >&2 <<EOF
-
-ERROR: Deployer ${DEPLOYER_HOST} enforces OIDC (HTTP ${oidc_probe}) but no
-       'zitadel' container exists on ${zitadel_host}. Its IdP is gone, so
-       every pre-Step-11 API call will fail with 401 and this rebuild
-       cannot bootstrap.
-
-Recovery — disable OIDC enforcement on the kept deployer, then re-run this
-script with the same arguments:
-
-  ssh root@${PVE_HOST} '
-    vmid=${deployer_vmid:-<proxvex-vmid>}
-    conf=/etc/pve/lxc/\$vmid.conf
-    cp "\$conf" "\$conf.bak-\$(date +%s)"
-    sed -i "/^lxc\\.environment:[[:space:]]*OIDC_/d" "\$conf"
-    pct stop \$vmid && pct start \$vmid
-  '
-
-Or rebuild via production/destroy-except.sh, whose Phase 3 does this for you.
-EOF
-      exit 1
-    fi
-  fi
-  echo "  OK (deployer auth state consistent)"
-fi
 
 # Note: the Zitadel admin PAT (created during Step 10 at FirstInstance init,
 # json/applications/zitadel/Zitadel.docker-compose.yml:44, persists in
