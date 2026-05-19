@@ -354,9 +354,23 @@ if [ "$JSON_DEV_SYNC" -eq 1 ]; then
   find "$JSON_SRC" -name '.DS_Store' -delete 2>/dev/null || true
   find "$JSON_SRC" -name '._*' -delete 2>/dev/null || true
 
-  deployer_vmid=$(pve_ssh "pct list | awk -v h='$DEPLOYER_HOST' '\$2==\"running\" && \$NF==h{print \$1}'" 2>/dev/null || true)
-  if [ -z "$deployer_vmid" ]; then
-    echo "ERROR: deployer container '$DEPLOYER_HOST' not found on $PVE_HOST" >&2
+  # Resolve the deployer VMID authoritatively by hostname via `pct config`
+  # — NOT `pct list`'s last column, which an optional Lock column shifts and
+  # can spuriously match a second container (cf. destroy-except.sh ct_hostname).
+  # Only running containers; require exactly one. A duplicate '$DEPLOYER_HOST'
+  # (e.g. a self-upgrade that left the old container) must fail loudly here
+  # instead of expanding to multiple VMIDs and corrupting the pct push below.
+  deployer_vmid=$(pve_ssh "for v in \$(pct list 2>/dev/null | awk 'NR>1 && \$2==\"running\"{print \$1}'); do [ \"\$(pct config \$v 2>/dev/null | awk '/^hostname:/{print \$2; exit}')\" = '$DEPLOYER_HOST' ] && echo \$v; done" 2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' || true)
+  deployer_count=$(printf '%s\n' "$deployer_vmid" | grep -c . || true)
+  if [ -z "$deployer_vmid" ] || [ "$deployer_count" -eq 0 ]; then
+    echo "ERROR: deployer container '$DEPLOYER_HOST' not found (running) on $PVE_HOST" >&2
+    exit 1
+  fi
+  if [ "$deployer_count" -ne 1 ]; then
+    echo "ERROR: expected exactly one running '$DEPLOYER_HOST' container on $PVE_HOST," >&2
+    echo "       found VMIDs: $(echo $deployer_vmid). Resolve the duplicate (a" >&2
+    echo "       self-upgrade likely left the old one) — destroy the stale" >&2
+    echo "       container, then re-run." >&2
     exit 1
   fi
   echo "  Deployer VMID: $deployer_vmid"
