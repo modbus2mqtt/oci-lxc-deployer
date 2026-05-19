@@ -1,0 +1,19 @@
+{
+  "execute_on": "application:postgres",
+  "name": "Provision Auth RLS",
+  "description": "Installs the generic Zitadel<->Postgres identity/RLS core (auth schema: organizations/users/user_roles, JIT ensure_principal, STABLE accessors, whoami) into the app database and grants it to the PostgREST roles. Runs after 330-provision-postgres-app. Roles are assigned app-side in auth.user_roles (role-name-agnostic).",
+  "parameters": [
+    "app_name",
+    "database",
+    "db_anon_role"
+  ],
+  "commands": [
+    {
+      "name": "Provision Auth RLS",
+      "script": "post-provision-auth-rls.sh",
+      "outputs": [
+        "auth_schema"
+      ]
+    }
+  ]
+}
