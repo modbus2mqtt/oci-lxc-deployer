@@ -1303,18 +1303,60 @@ export async function executeScenarios(
         try { writeFileSync(pwLogPath, ""); } catch { /* dir may not exist yet — runner creates it */ }
 
         for (const spec of specs) {
-          // Persistence layer hands us the project-root-relative path to
-          // this app's directory via scenario.appDir (local → hub → json
-          // resolution). Fall back to the legacy json/applications/<app>
-          // shape for backward compatibility with deployers that haven't
-          // shipped the appDir field yet.
-          const appDir =
-            scenario.appDir ?? path.join("json/applications", scenario.application);
-          const specPath = path.join(appDir, "tests/playwright", spec);
-          const absSpec = path.join(projectRoot, specPath);
-          if (!existsSync(absSpec)) {
+          // A playwright_spec may be authored in the app that *defines* the
+          // scenario and only inherited (via `extends`) by the running app —
+          // e.g. test-proxvex-deployer (extends json:proxvex) reuses
+          // proxvex's proxvex.spec.ts, which lives in
+          // json/applications/proxvex/tests/playwright/. scenario.appDir is a
+          // single (overlay-only) path, so resolve the spec across every
+          // candidate base: scenario.appDir, the running app's
+          // livetest-local + json dirs, then walk the extends chain doing the
+          // same for each parent. First existing match wins. (Same
+          // overlay→canonical→hierarchy rationale as the template resolver.)
+          const specCandidateBases: string[] = [];
+          const addBase = (b?: string) => {
+            if (b && !specCandidateBases.includes(b)) specCandidateBases.push(b);
+          };
+          addBase(scenario.appDir);
+          const readExtends = (appId: string): string | undefined => {
+            for (const root of ["livetest-local/applications", "json/applications"]) {
+              const aj = path.join(projectRoot, root, appId, "application.json");
+              if (!existsSync(aj)) continue;
+              try {
+                const ext = JSON.parse(readFileSync(aj, "utf-8"))?.extends;
+                if (typeof ext === "string" && ext)
+                  return ext.includes(":") ? ext.slice(ext.indexOf(":") + 1) : ext;
+              } catch {
+                /* malformed application.json — ignore for spec resolution */
+              }
+              return undefined;
+            }
+            return undefined;
+          };
+          let curApp: string | undefined = scenario.application;
+          const seenApps = new Set<string>();
+          while (curApp && !seenApps.has(curApp)) {
+            seenApps.add(curApp);
+            addBase(path.join("livetest-local/applications", curApp));
+            addBase(path.join("json/applications", curApp));
+            curApp = readExtends(curApp);
+          }
+          let specPath: string | undefined;
+          let absSpec: string | undefined;
+          for (const base of specCandidateBases) {
+            const candidate = path.join(base, "tests/playwright", spec);
+            const abs = path.join(projectRoot, candidate);
+            if (existsSync(abs)) {
+              specPath = candidate;
+              absSpec = abs;
+              break;
+            }
+          }
+          if (!specPath || !absSpec) {
             throw new Error(
-              `playwright_spec missing: ${specPath} (resolved to ${absSpec})`,
+              `playwright_spec missing: ${spec} — searched ${specCandidateBases
+                .map((b) => path.join(b, "tests/playwright", spec))
+                .join(", ")} (app=${scenario.application}, appDir=${scenario.appDir ?? "unset"})`,
             );
           }
           logInfo(`Playwright: ${specPath} (artifacts → ${path.relative(projectRoot, pwArtifactsDir)})`);

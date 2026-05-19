@@ -281,17 +281,35 @@ When `--fix` is set, time does not matter — the goal is to get all tests green
 
 5. **If the same scenario fails again** with a different error: fix and retry again
 
-6. **If a scenario fails with an issue you cannot fix** (infrastructure problem, external service down, unclear root cause after 2 attempts): Skip it and continue with the remaining scenarios. Report the unfixable issue to the user at the end.
+6. **Every failure must be fixed — there is no "skip".** All failures are
+   equal. There is no such thing as a "pre-existing", "orthogonal",
+   "unrelated", "out-of-scope", "test-infra", "flaky", or "environmental"
+   failure that may be excused or skipped under `--fix`. This explicitly
+   **includes infrastructure failures** (missing test fixtures/spec files,
+   Hub/VM/snapshot/dependency-resolution issues, deployer problems, missing
+   files, cascades): fix the infrastructure too.
+   - If a scenario fails because of a cascade (its dependency failed), fix the
+     root dependency — do not report the cascade as separate or skip it.
+   - If, after genuine effort, a fix is truly not possible (e.g. requires an
+     external credential you do not have), you may not skip silently: produce
+     a **deep root-cause analysis** instead — exact failing component, the
+     precise mechanism (with bundle/log evidence), why each attempted fix did
+     not work, and the concrete change that would fix it. "Deep analysis" is
+     the only permitted alternative to a fix, and only as a last resort.
 
-7. **Repeat** until all fixable tests pass
+7. **Repeat** until **every** scenario passes (or, for the genuinely
+   unfixable, a deep root-cause analysis exists for each).
 
 ### Fix loop principles:
 - **Be autonomous**: Don't ask the user unless you're truly stuck. Fix, rebuild, retest.
 - **Time is not a concern**: A full test run can take 5-10 minutes. That's fine.
+- **No failure is someone else's problem**: never classify a failure away as
+  pre-existing/orthogonal/infra to avoid fixing it. Own all of them.
 - **Dependency failures cascade**: If postgres fails, zitadel and gitea will also fail. Fix the root dependency first.
 - **Always restart the deployer** after code changes — it caches schemas and templates.
 - **Run unit tests** (`pnpm test`) after significant backend changes to catch regressions early.
-- **At the end**, report: which tests pass, which were unfixable and why.
+- **At the end**, report: every test passes; or for any genuinely unfixable
+  one, the deep root-cause analysis (never a bare "skipped/unrelated").
 
 ## How the test runner works
 
