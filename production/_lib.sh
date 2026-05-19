@@ -280,6 +280,6 @@ init_deployer_pat() {
   if [ -n "${OCI_DEPLOYER_PAT:-}" ]; then
     echo "  Deployer PAT loaded from production/.env (${#OCI_DEPLOYER_PAT} chars) — will be passed as ZITADEL_PAT param" >&2
   else
-    echo "  OCI_DEPLOYER_PAT not set — Zitadel-API calls will fall back to /bootstrap/admin-client.pat on the LXC" >&2
+    echo "  OCI_DEPLOYER_PAT not set — Zitadel-API calls use the oidc_production stack (client_credentials grant); no admin-client.pat fallback" >&2
   fi
 }
