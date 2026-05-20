@@ -6,7 +6,8 @@
     "app_slug",
     "app_tgz_content",
     "db_migrations_table",
-    "database"
+    "database",
+    "api_login_password"
   ],
   "commands": [
     {

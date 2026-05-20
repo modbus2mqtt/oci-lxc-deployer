@@ -431,7 +431,8 @@
       "name": "Deployer OIDC Project ID",
       "type": "string",
       "required": false,
-      "internal": true
+      "internal": true,
+      "description": "Zitadel project ID the deployer's machine-user belongs to. Used to request project-scoped tokens with role assertion."
     },
     "disk_size": {
       "name": "Disk size",
@@ -1438,6 +1439,18 @@
     "ZITADEL_PROTO": {
       "name": "Zitadel Protocol",
       "description": "Protocol for Zitadel API: http or https (provided by oidc stack).",
+      "type": "string",
+      "internal": true
+    },
+    "ZITADEL_SSL_PORT": {
+      "name": "Zitadel SSL Port",
+      "description": "HTTPS port of the Zitadel container when addon-ssl is active (provided by oidc stack).",
+      "type": "string",
+      "internal": true
+    },
+    "ZITADEL_SSL_PROTO": {
+      "name": "Zitadel SSL Protocol",
+      "description": "HTTPS protocol marker for Zitadel API (provided by oidc stack when addon-ssl is active).",
       "type": "string",
       "internal": true
     },

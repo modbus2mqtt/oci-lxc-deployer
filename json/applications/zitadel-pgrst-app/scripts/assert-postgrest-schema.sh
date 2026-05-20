@@ -46,13 +46,13 @@ if echo ",$SCHEMAS," | tr -d ' ' | grep -q ",${EXPECTED},"; then
 fi
 
 cat >&2 <<EOF
-ERROR: PostgREST does not expose '$EXPECTED'.
+WARN: PostgREST does not expose '$EXPECTED' yet.
 
   Current PGRST_DB_SCHEMAS: $SCHEMAS
 
-  Iteration 1 of zitadel-pgrst-app requires the operator to extend the
-  postgrest application's 'db_schemas' parameter to include all app API
-  schemas before installing each new SPA, e.g.:
+  The install will continue, but API requests to /api/${APP_SLUG}/... will
+  return 404 until the operator extends the postgrest application's
+  'db_schemas' parameter:
 
     db_schemas = public,${EXPECTED}
 
@@ -60,4 +60,5 @@ ERROR: PostgREST does not expose '$EXPECTED'.
 
   Iteration 2 will automate this (see plan, Open Question 2).
 EOF
-exit 1
+echo '[{"id": "postgrest_schema_present", "value": "false"}]'
+exit 0

@@ -25,9 +25,11 @@ APP_SLUG="{{ app_slug }}"
 TGZ_B64="{{ app_tgz_content }}"
 MIG_TABLE="{{ db_migrations_table }}"
 DATABASE="{{ database }}"
+API_LOGIN_PASSWORD="{{ api_login_password }}"
 
 case "$MIG_TABLE" in ""|NOT_DEFINED) MIG_TABLE="_proxvex_migrations" ;; esac
 case "$DATABASE" in ""|NOT_DEFINED) DATABASE="postgres" ;; esac
+case "$API_LOGIN_PASSWORD" in ""|NOT_DEFINED) API_LOGIN_PASSWORD="api_login_123" ;; esac
 
 if [ -z "$APP_SLUG" ] || [ "$APP_SLUG" = "NOT_DEFINED" ]; then
   echo "ERROR: app_slug is required" >&2
@@ -57,7 +59,9 @@ if [ ! -d "$STAGE/bootstrap/db" ]; then
 fi
 
 run_sql() { psql -U postgres -d "$DATABASE" -tAc "$1" 2>&1; }
-run_sql_file() { psql -U postgres -d "$DATABASE" -v ON_ERROR_STOP=1 -f "$1"; }
+# Pass authpw for the framework's 00_roles.sql which uses :authpw to set the
+# authenticator role password. Harmless for other SQL files that don't reference it.
+run_sql_file() { psql -U postgres -d "$DATABASE" -v "authpw=$API_LOGIN_PASSWORD" -v ON_ERROR_STOP=1 -f "$1"; }
 
 # Bookkeeping table lives in <slug>_data; create the schema if absent so the
 # table can be created even before 330-provision-postgres-app runs. (330 is

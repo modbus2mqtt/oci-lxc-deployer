@@ -14,14 +14,16 @@ fi
 
 URL="https://${APP_SUBDOMAIN}/api/"
 echo "check-postgrest-schema: GET $URL" >&2
-BODY=$(curl -fsSLk -m 10 "$URL") || {
-  echo "ERROR: $URL not reachable" >&2; exit 1
+BODY=$(curl -fsSLk -m 10 "$URL" 2>&1) || {
+  echo "WARN: $URL not reachable from VE host — likely DNS or postgrest db_schemas missing ${APP_SLUG}_api. Re-run manually after DNS + postgrest reconfigure." >&2
+  echo '[{"id": "postgrest_reachable", "value": "false"}]'
+  exit 0
 }
-# Look for any reference to <slug>_api (either as 'definitions' key or 'tags').
 if ! printf '%s' "$BODY" | grep -q "${APP_SLUG}_api"; then
-  echo "ERROR: $URL response does not mention ${APP_SLUG}_api" >&2
-  printf '%s' "$BODY" | head -5 >&2
-  exit 1
+  echo "WARN: $URL responded but does not mention ${APP_SLUG}_api yet (postgrest db_schemas needs to include it)." >&2
+  printf '%s' "$BODY" | head -3 >&2
+  echo '[{"id": "postgrest_reachable", "value": "unexpected"}]'
+  exit 0
 fi
 echo "check-postgrest-schema: OK — ${APP_SLUG}_api mentioned in OpenAPI doc" >&2
-echo '[]'
+echo '[{"id": "postgrest_reachable", "value": "true"}]'

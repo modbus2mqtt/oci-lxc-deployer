@@ -101,9 +101,11 @@ def main() -> None:
                 # If stack filter is set, accept containers that declare any of
                 # the requested stack ids in their stack_ids list. With no
                 # filter, fall back to all matches (legacy behaviour).
+                # Empty container_stacks (e.g. nginx deployed without a stack)
+                # is treated as shared infrastructure — matches any caller.
                 if stack_ids_filter:
                     container_stacks = set(config.stack_ids or [])
-                    if not (container_stacks & stack_ids_filter):
+                    if container_stacks and not (container_stacks & stack_ids_filter):
                         continue
                 matching.append({
                     "vm_id": int(vmid_str),
