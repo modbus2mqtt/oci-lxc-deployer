@@ -1,7 +1,6 @@
 {
   "name": "Zitadel-PostgREST SPA",
   "description": "Installs an Angular SPA + PostgREST API + Zitadel-bootstrapped tenants from a *-proxvex.tgz packaged by zitadel-pgrst-auth/examples/packaging/pack-for-proxvex.sh. Provisions resources INTO existing nginx, postgres, postgrest, zitadel applications — no own container.",
-  "hidden": true,
   "tags": [
     "app",
     "spa",

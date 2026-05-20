@@ -1,7 +1,8 @@
 {
   "description": "Installs zitadel-pgrst-app with the products fixture. Verifies the install pipeline runs through (OIDC client created in Zitadel, postgres DB provisioned, SQL migrations applied, SPA deployed to nginx, vhost written). Reachability check templates are soft-warnings (need DNS for app_subdomain). UI-flow tests via Playwright come in a follow-up.",
+  "stack_name": "default",
   "depends_on": ["postgres/default", "postgrest/default", "nginx/default", "zitadel/default"],
-  "wait_seconds": 120,
+  "wait_seconds": 0,
   "cli_timeout": 480,
   "params": [
     { "name": "app_slug", "value": "products" },
