@@ -66,7 +66,7 @@ export async function destroyStaleVms(
   sshPort: number,
   apiUrl: string,
   appStacktypes: Map<string, string | string[]>,
-  snapMgr?: SnapshotManager,
+  _snapMgr?: SnapshotManager,
 ): Promise<void> {
   let contextRestoreAttempted = false;
   for (const p of planned) {
@@ -82,30 +82,14 @@ export async function destroyStaleVms(
       } catch { stackMissing = true; }
     }
     if (stackMissing) {
-      // Stack missing but container is running — context is stale.
-      // This happens when a previous failed test run overwrote the deployer context.
-      // Try to restore context from the snapshot backup on the nested VM.
+      // Stack missing but container is running. In the new pct-snapshot model
+      // the deployer is read-only after stack-fill (Secrets write-once) and
+      // its context is never rolled back, so this stale-context-recovery
+      // path is moot — there is no context backup to restore from. Surface
+      // the inconsistency and let the dep-VM destroy path below take over.
       if (!contextRestoreAttempted) {
         contextRestoreAttempted = true;
-        logInfo("Stacks missing for running VMs — restoring context from snapshot backup");
-        try {
-          snapMgr?.restoreContextPublic();
-          const reloadResp = await fetch(`${apiUrl}/api/reload`, { method: "POST", signal: AbortSignal.timeout(10000) });
-          if (reloadResp.ok) {
-            logOk("Context restored and deployer reloaded — rechecking stacks");
-            // Recheck this VM's stacks after restore
-            stackMissing = false;
-            for (const st of sts) {
-              const sid = `${st}_${p.stackName}`;
-              try {
-                const r = await fetch(`${apiUrl}/api/stack/${sid}`, { signal: AbortSignal.timeout(3000) });
-                if (!r.ok) stackMissing = true;
-              } catch { stackMissing = true; }
-            }
-          }
-        } catch {
-          logInfo("Warning: context restore failed");
-        }
+        logInfo("Stacks missing for running VMs — destroying dep CT and reinstalling (no context-restore in pct-snapshot model)");
       }
 
       if (stackMissing) {

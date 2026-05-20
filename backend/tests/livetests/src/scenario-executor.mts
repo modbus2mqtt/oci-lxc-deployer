@@ -7,7 +7,7 @@
 
 import { runCli, type CliJsonResult } from "./cli-executor.mjs";
 import { SnapshotManager } from "./snapshot-manager.mjs";
-import { nestedSsh, nestedSshStrict, waitForServices, waitForContainerStable, waitForLxcInit } from "./ssh-helpers.mjs";
+import { nestedSsh, nestedSshAsync, nestedSshStrictAsync, waitForServices, waitForContainerStable, waitForLxcInit } from "./ssh-helpers.mjs";
 import { buildParams, partitionAfterFailure, classifyParallel } from "./scenario-planner.mjs";
 import { TestResultWriter, type TestResultDependency } from "./test-result-writer.mjs";
 import { collectFailureLogs } from "./diagnostics.mjs";
@@ -265,32 +265,9 @@ function allocateCloneVmId(
   return null;
 }
 
-/** Round-trip a Spoke→Hub call to verify the Hub is reachable.
- *
- * After `qm rollback` the nested VM and the Hub LXC inside it are restarting.
- * `waitForNestedVm` only checks SSH, but the Hub HTTP API needs additional
- * seconds before it accepts requests. The Spoke proxies stack and CA-sign
- * calls to the Hub via curl with a 15s timeout — if the next scenario starts
- * before the Hub is listening, those calls fail with curl rc=7. This helper
- * polls the Spoke's /api/applications endpoint, which (in Spoke mode) forces
- * a Hub round-trip, until it succeeds or the timeout elapses. */
-async function waitForHubViaSpoke(apiUrl: string, timeoutMs: number): Promise<void> {
-  const start = Date.now();
-  let lastError = "";
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const resp = await fetch(`${apiUrl}/api/applications`, {
-        signal: AbortSignal.timeout(8000),
-      });
-      if (resp.ok) return;
-      lastError = `HTTP ${resp.status}`;
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  logInfo(`Warning: Hub did not respond via Spoke within ${timeoutMs / 1000}s (last: ${lastError}) — continuing anyway`);
-}
+// `waitForHubViaSpoke` removed in Schritt 3b: it was only needed because
+// `qm rollback` restarted the entire nested VM (including the Hub). pct
+// rollback is container-local; the Hub is never touched.
 
 /** Return VMIDs (other than `excludeVmId`) whose hostname matches `hostname`.
  *
@@ -356,11 +333,15 @@ export async function executeScenarios(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number },
+  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null },
 ): Promise<TestResult> {
   // Phase 0: per-application dependency-snapshot name (`<app>_deps`), or
   // `null` for `--all` / multi-app subsets where no dep snapshot is taken.
   const depSnapshotName: string | null = options?.depSnapshotName ?? null;
+  // Schritt 3b: `--snapshot <name>` mode (Build mode). Wenn gesetzt, werden
+  // alle erfolgreich installierten Provider-Szenarien am Iterations-Ende
+  // pct-snapshottet (statt Teardown), und der Cluster-Name ist genau dieser.
+  const snapshotMode: string | null = options?.snapshotMode ?? null;
   // Phase 1: bounded-concurrency driver when concurrency > 1 (`--parallel`).
   // Default 1 → the unchanged sequential driver.
   const concurrency = Math.max(1, options?.concurrency ?? 1);
@@ -455,7 +436,7 @@ export async function executeScenarios(
     : undefined;
 
   const snapMgr = config.snapshot?.enabled
-    ? new SnapshotManager(config.pveHost, config.vmId, config.portPveSsh, (msg) => logInfo(msg), localContextPath)
+    ? new SnapshotManager(config.pveHost, config.portPveSsh, (msg) => logInfo(msg), localContextPath)
     : null;
 
   // OIDC credentials for delegated access (loaded after Zitadel installation)
@@ -581,11 +562,11 @@ export async function executeScenarios(
       let effectiveHostname = step.hostname;
       if (isHiddenApp) {
         try {
-          effectiveHostname = nestedSsh(
+          effectiveHostname = (await nestedSshAsync(
             config.pveHost, config.portPveSsh,
             "uname -n | cut -d. -f1",
             5000,
-          ).trim() || step.hostname;
+          )).trim() || step.hostname;
         } catch { /* fall back to step.hostname */ }
       }
       const isReplaceCt = REPLACE_CT_TASKS.includes(task);
@@ -763,13 +744,13 @@ export async function executeScenarios(
             const snapName = `iso-clone-${cloneVmId}`;
             let snapTaken = false;
             try {
-              nestedSsh(
+              await nestedSshAsync(
                 config.pveHost, config.portPveSsh,
                 `pct snapshot ${sourceVm.vm_id} ${snapName}`,
                 120000,
               );
               snapTaken = true;
-              nestedSsh(
+              await nestedSshAsync(
                 config.pveHost, config.portPveSsh,
                 `pct clone ${sourceVm.vm_id} ${cloneVmId} --snapname ${snapName} --full 1`,
                 300000,
@@ -800,7 +781,7 @@ export async function executeScenarios(
                 `{ awk '/^[^#]/ {exit} {print}' '${SRC_CONF}'; cat "$T"; } > '${DST_CONF}'\n` +
                 `rm -f "$T"\n`;
               try {
-                nestedSshStrict(
+                await nestedSshStrictAsync(
                   config.pveHost, config.portPveSsh,
                   "sh -s",
                   30000,
@@ -811,7 +792,7 @@ export async function executeScenarios(
               }
               // Delete the source-side snapshot — we don't need it again.
               try {
-                nestedSsh(
+                await nestedSshAsync(
                   config.pveHost, config.portPveSsh,
                   `pct delsnapshot ${sourceVm.vm_id} ${snapName}`,
                   60000,
@@ -826,7 +807,7 @@ export async function executeScenarios(
               // Start the clone so downstream `pct exec` works (the clone is
               // stopped by default).
               try {
-                nestedSsh(
+                await nestedSshAsync(
                   config.pveHost, config.portPveSsh,
                   `pct start ${cloneVmId} 2>&1 || true`,
                   60000,
@@ -837,7 +818,7 @@ export async function executeScenarios(
                 const deadline = Date.now() + 30000;
                 while (Date.now() < deadline) {
                   try {
-                    nestedSshStrict(
+                    await nestedSshStrictAsync(
                       config.pveHost, config.portPveSsh,
                       `pct exec ${cloneVmId} -- /bin/true 2>/dev/null`,
                       5000,
@@ -861,7 +842,7 @@ export async function executeScenarios(
               // Best-effort cleanup of a snapshot we may have created.
               if (snapTaken) {
                 try {
-                  nestedSsh(
+                  await nestedSshAsync(
                     config.pveHost, config.portPveSsh,
                     `pct delsnapshot ${sourceVm.vm_id} ${snapName} 2>/dev/null || true`,
                     60000,
@@ -946,13 +927,19 @@ export async function executeScenarios(
 
       if (allAddons.length > 0) logInfo(`Addons: ${allAddons.join(", ")}`);
 
-      // Reload deployer
-      try {
-        const reloadResp = await fetch(`${apiUrl}/api/reload`, { method: "POST" });
-        if (reloadResp.ok) logInfo("Deployer reloaded");
-        else logInfo(`Deployer reload returned ${reloadResp.status} (continuing)`);
-      } catch {
-        logInfo("Deployer reload not available (continuing)");
+      // Reload deployer. Under --parallel (concurrency > 1) the reload is
+      // skipped: PersistenceManager.reload() swaps the singleton instance and
+      // re-reads storagecontext from disk — mid-pool that races peer deploys
+      // (see plan: read-only deployer ⇒ reload is unnecessary in a non-editing
+      // measurement run anyway). Sequenzpfad bleibt unverändert.
+      if (concurrency <= 1) {
+        try {
+          const reloadResp = await fetch(`${apiUrl}/api/reload`, { method: "POST" });
+          if (reloadResp.ok) logInfo("Deployer reloaded");
+          else logInfo(`Deployer reload returned ${reloadResp.status} (continuing)`);
+        } catch {
+          logInfo("Deployer reload not available (continuing)");
+        }
       }
 
       // No pre-test snapshot — failure rollback uses the per-application
@@ -1077,27 +1064,25 @@ export async function executeScenarios(
         if (keepForDebug) {
           logInfo(`KEEP_VM set — skipping rollback to @${depSnapshotName ?? "dep-snapshot"} (failed VM ${step.vmId} preserved for inspection)`);
         }
-        // A whole-VM `qm rollback` stops/rolls/restarts the ENTIRE nested VM
-        // — it would wipe every concurrently-running scenario. Mid-run
-        // snapshot restore is fundamentally incompatible with the parallel
-        // pool, so the failure-rollback recovery only runs in the sequential
-        // driver (concurrency <= 1). Under --parallel a failed scenario just
-        // fails and its dependents are blocked via classifyParallel.
-        if (concurrency <= 1 && snapMgr && depSnapshotName && !step.isDependency && !keepForDebug && snapMgr.exists(depSnapshotName)) {
+        // Failure-rollback per Dep-CT (pct rollback). Container-lokal —
+        // beeinflusst andere Cluster nicht. Trotzdem nur im sequentiellen
+        // Driver (concurrency<=1) ausführen: ein mid-pool Rollback eines
+        // Dep-CTs würde gleichzeitig laufende Consumer kaputt machen, die
+        // genau auf diesem Dep-CT installieren/verifizieren. Im
+        // Parallel-Pfad fällt ein gescheitertes Szenario stattdessen einfach
+        // durch (und blockiert via classifyParallel seine Dependents).
+        if (concurrency <= 1 && snapMgr && depSnapshotName && !step.isDependency && !keepForDebug) {
           try {
-            snapMgr.rollbackHostSnapshot(depSnapshotName);
-            // After qm rollback the nested VM (and Hub LXC inside it) is
-            // restarting. The Spoke proxies all stack/CA-sign requests to the
-            // Hub, so the next scenario's POST /api/stacks or /api/hub/ca/sign
-            // will fail with curl rc=7 if Hub isn't listening yet. Round-trip
-            // a Spoke→Hub call here to wait until the Hub answers.
-            await waitForHubViaSpoke(apiUrl, 60000);
+            const depVmids = planned.filter((p) => p.isDependency).map((p) => p.vmId);
+            await Promise.all(depVmids.map((v) => snapMgr.rollbackCtSnapshot(v, depSnapshotName)));
+            // After the rollback the Hub LXC has not been touched (it is
+            // read-only / not snapshotted); Spoke-Hub-Calls bleiben verfügbar.
             checkVolumeConsistency(
               config.pveHost, config.portPveSsh, projectRoot,
-              `rollback to ${depSnapshotName}`,
+              `pct rollback to ${depSnapshotName}`,
             );
           } catch (err) {
-            logInfo(`Warning: rollback to @${depSnapshotName} failed: ${err}`);
+            logInfo(`Warning: pct rollback to @${depSnapshotName} failed: ${err}`);
           }
         }
 
@@ -1285,7 +1270,7 @@ export async function executeScenarios(
               logInfo(
                 `Granting test-deployer all project roles on ${zitadelDep.scenario.id} (CT ${zitadelDep.vmId})...`,
               );
-              nestedSshStrict(
+              await nestedSshStrictAsync(
                 config.pveHost,
                 config.portPveSsh,
                 `pct exec ${zitadelDep.vmId} -- sh -s`,
@@ -1435,14 +1420,14 @@ export async function executeScenarios(
 
       // Write test result
       if (resultWriter) {
-        const depInfos: TestResultDependency[] = (scenario.depends_on ?? []).map((depId) => {
+        const depInfos: TestResultDependency[] = await Promise.all((scenario.depends_on ?? []).map(async (depId) => {
           const depStep = planned.find((p) => p.scenario.id === depId);
           const depApp = depId.split("/")[0] ?? "";
           const prefix = depApp.toUpperCase().replace(/-/g, "_");
           let version = cliResult.resolvedVersions.get(prefix) ?? "";
           if (!version && depStep) {
             try {
-              const raw = nestedSsh(config.pveHost, config.portPveSsh,
+              const raw = await nestedSshAsync(config.pveHost, config.portPveSsh,
                 `sed -n 's/.*proxvex%3Aversion \\([^ <]*\\).*/\\1/p' /etc/pve/lxc/${depStep.vmId}.conf 2>/dev/null | head -1`,
                 5000);
               version = decodeURIComponent(raw.trim());
@@ -1454,7 +1439,7 @@ export async function executeScenarios(
             snapshot_used: snapMgr && depSnapshotName ? depSnapshotName : null,
             snapshot_date: null,
           };
-        });
+        }));
         await resultWriter.write(TestResultWriter.buildResult({
           runId: resultWriter.getRunId(),
           scenarioId: scenario.id, application: scenario.application, task,
@@ -1484,10 +1469,19 @@ export async function executeScenarios(
       const isSharedSourceVm = planned.some(
         (p) => p.scenario.id !== scenario.id && p.vmId === step.vmId,
       );
-      if (snapMgr && !step.isDependency && !step.skipExecution && !isSharedSourceVm) {
+      // Consumer-Teardown: `pct stop` (kein destroy) — Forensik im
+      // Ausnahmefall möglich, schneller. Pre-Run-prepareVms räumt CTs > 1 h
+      // asynchron weg (Janitor-Pass) und destroyt liegen­gebliebene
+      // Non-Dependency-CTs am nächsten Lauf-Start ohnehin (running ODER
+      // stopped) — kein VMID-Slot-Konflikt.
+      //
+      // In `--snapshot <name>` mode skip teardown entirely: every listed
+      // scenario is a *provider* whose CT we want to snapshot (below) and
+      // keep running as the cluster baseline.
+      if (snapMgr && !snapshotMode && !step.isDependency && !step.skipExecution && !isSharedSourceVm) {
         try {
-          nestedSsh(config.pveHost, config.portPveSsh,
-            `pct stop ${step.vmId} 2>/dev/null; pct destroy ${step.vmId} --force --purge 2>/dev/null; true`,
+          await nestedSshAsync(config.pveHost, config.portPveSsh,
+            `pct stop ${step.vmId} 2>/dev/null; true`,
             30000);
         } catch { /* ignore */ }
       } else if (isSharedSourceVm) {
@@ -1510,12 +1504,45 @@ export async function executeScenarios(
       if (concurrency <= 1 && snapMgr && depSnapshotName && step.isDependency && !step.skipExecution
           && planned.slice(i + 1).every((p) => !p.isDependency)) {
         try {
-          const capturedDeps = planned
-            .filter((p) => p.isDependency)
-            .map((p) => p.scenario.application);
-          snapMgr.createHostSnapshot(depSnapshotName, buildHash, capturedDeps);
+          // One pct snapshot per dep CT with the same logical name; the
+          // declared members enumerate ALL participating dep scenario IDs.
+          // Build-Hash steht zur Information in der Description (siehe
+          // Lebensdauer-Policy: bei Mismatch nur warnen, nicht ablehnen).
+          const depSteps = planned.filter((p) => p.isDependency);
+          const memberIds = depSteps.map((p) => p.scenario.id);
+          const description = SnapshotManager.buildDescription({
+            name: depSnapshotName,
+            members: memberIds,
+            ...(buildHash !== undefined ? { buildHash } : {}),
+          });
+          await Promise.all(depSteps.map((dep) =>
+            snapMgr.createCtSnapshot(dep.vmId, depSnapshotName, description),
+          ));
         } catch (err) {
           logInfo(`Snapshot creation failed (non-fatal): ${err}`);
+        }
+      }
+
+      // `--snapshot <name>` build mode: after the LAST listed scenario
+      // (= the last entry in `planned`) installed successfully, write one
+      // pct snapshot per planned CT with the explicit cluster name. All
+      // listed members were marked isDependency by the runner, so they are
+      // already exempt from teardown above. The build itself ran with the
+      // normal livetest pipeline → full debug bundle + bootstrap diagnosis.
+      if (concurrency <= 1 && snapMgr && snapshotMode && !step.skipExecution && i === planned.length - 1) {
+        try {
+          const memberIds = planned.map((p) => p.scenario.id);
+          const description = SnapshotManager.buildDescription({
+            name: snapshotMode,
+            members: memberIds,
+            ...(buildHash !== undefined ? { buildHash } : {}),
+          });
+          await Promise.all(planned.map((p) =>
+            snapMgr.createCtSnapshot(p.vmId, snapshotMode, description),
+          ));
+          logOk(`pct snapshots @${snapshotMode} created on VMs ${planned.map((p) => p.vmId).join(", ")}`);
+        } catch (err) {
+          logInfo(`--snapshot build failed (non-fatal): ${err}`);
         }
       }
 
@@ -1568,7 +1595,7 @@ export async function executeScenarios(
         } else {
           for (const cloneVmId of sourceCloneVmIds) {
             try {
-              nestedSsh(
+              await nestedSshAsync(
                 config.pveHost, config.portPveSsh,
                 `pct stop ${cloneVmId} 2>/dev/null; pct unlock ${cloneVmId} 2>/dev/null; pct destroy ${cloneVmId} --force --purge 2>/dev/null; true`,
                 30000,
@@ -1731,7 +1758,7 @@ export async function executeScenariosParallel(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number },
+  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null },
 ): Promise<TestResult> {
   return executeScenarios(
     planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,

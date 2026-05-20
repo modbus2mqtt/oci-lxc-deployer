@@ -37,7 +37,7 @@ import type { ResolvedScenario, PlannedScenario } from "./livetest-types.mjs";
 import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
-import { rollbackToBaseline, restoreBestSnapshot, prepareVms } from "./vm-lifecycle.mjs";
+import { restoreBestSnapshot, prepareVms } from "./vm-lifecycle.mjs";
 import { executeScenarios } from "./scenario-executor.mjs";
 import { RED, GREEN, NC, logOk, logFail, logWarn, logInfo } from "./log-helpers.mjs";
 import { analyzeCoverage } from "./coverage-analyzer.mjs";
@@ -361,6 +361,24 @@ async function main() {
   const includeUntestable = args.includes("--include-untestable");
   const depsOnlyFlag = args.includes("--deps-only");
 
+  // Schritt 3b: `--snapshot <name>` build mode. Listed scenarios are
+  // installed as a normal livetest (full debug bundle, bootstrap diagnosis)
+  // and at the end of each iteration their CTs are pct-snapshotted with
+  // `<name>` (selbstbeschreibende description). Sole writer of dep
+  // snapshots; regular livetest runs only restore them.
+  const snapshotIdx = args.indexOf("--snapshot");
+  let snapshotMode: string | null = null;
+  if (snapshotIdx >= 0) {
+    const next = args[snapshotIdx + 1];
+    if (!next || next.startsWith("--")) {
+      console.error("--snapshot requires a name, e.g. `--snapshot oidc-base \"postgres/default,zitadel/default\"`.");
+      process.exit(2);
+    }
+    snapshotMode = next;
+    // Remove the flag + its value so the positional parser doesn't see them.
+    args.splice(snapshotIdx, 2);
+  }
+
   // Phase 1 (opt-in): `--parallel` or `--parallel=N` switches the scenario
   // loop to a bounded async scheduler. Without the flag the runner takes the
   // unchanged sequential path → near-zero regression risk.
@@ -683,6 +701,12 @@ async function main() {
     p.isDependency =
       !selectedIdSet.has(p.scenario.id) || dependedOn.has(p.scenario.id);
   }
+  // In `--snapshot <name>` build mode every listed scenario is a provider
+  // whose CT we want to pct-snapshot at the end — none of them should be
+  // torn down. Forcing isDependency=true reuses the existing exemption.
+  if (snapshotMode) {
+    for (const p of planned) p.isDependency = true;
+  }
 
   // --deps-only: drop non-dependency steps so we install all providers, create
   // the per-application `<app>_deps` snapshot, and skip the target tests. Iteration loop
@@ -714,15 +738,21 @@ async function main() {
   // Phase 0: resolve the per-application dependency-snapshot name for this
   // run scope. `null` for `--all` / multi-application subsets → no dep
   // snapshot is created or restored (those go the parallelisation route).
-  const depSnapshotName = resolveDepSnapshotName(testArg, planned, selectedIdSet);
-  if (depSnapshotName) {
+  // In `--snapshot <name>` mode the cluster name is given on the CLI;
+  // otherwise apply the per-application heuristic from Phase 0.
+  const depSnapshotName = snapshotMode ?? resolveDepSnapshotName(testArg, planned, selectedIdSet);
+  if (snapshotMode) {
+    logInfo(`Building snapshot @${snapshotMode} from listed providers`);
+  } else if (depSnapshotName) {
     logInfo(`Dependency snapshot for this run: @${depSnapshotName}`);
   } else {
     logInfo("No dependency snapshot for this run scope (--all / multi-app)");
   }
 
   // VM preparation: snapshot restore → pre-cleanup
-  if (testArg === "--all") rollbackToBaseline(config, projectRoot);
+  // Baseline-Reset (qm rollback auf deployer-installed) ist Aufgabe des
+  // `--fresh`-Skills außerhalb des Runners; pct-Restore der Dep-CTs läuft
+  // hier pre-pool, container-lokal.
   await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
   // qm rollback wipes the nested-VM iptables + dnsmasq state, so reapply
   // port forwarding (idempotent) so Playwright specs and OIDC redirect URIs
@@ -751,10 +781,10 @@ async function main() {
     result = await executeScenariosParallel(
       planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
       appStackIdsMap, resultWriter, fixtureBaseDir,
-      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit },
+      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode },
     );
   } else {
-    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName });
+    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode });
   }
   const allResults = [result];
 

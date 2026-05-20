@@ -8,8 +8,8 @@
  */
 
 import { SnapshotManager } from "./snapshot-manager.mjs";
-import { nestedSsh, nestedSshStrict } from "./ssh-helpers.mjs";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { nestedSsh, nestedSshStrict, nestedSshAsync } from "./ssh-helpers.mjs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { PlannedScenario, ResolvedScenario } from "./livetest-types.mjs";
 import { logOk, logFail, logWarn, logInfo, logStep } from "./log-helpers.mjs";
@@ -19,69 +19,50 @@ import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
 
 /**
- * Rollback to @baseline snapshot for --all runs.
- * Clears local context (passwords) since baseline has no stacks.
- */
-export function rollbackToBaseline(
-  config: { pveHost: string; vmId: number; portPveSsh: number; snapshot?: { enabled: boolean } },
-  projectRoot: string,
-): void {
-  if (!config.snapshot?.enabled) return;
-
-  const isLocalDeployer = true; // baseline rollback only used for dev instance
-  const localContextPath = isLocalDeployer
-    ? path.join(projectRoot, ".livetest-data")
-    : undefined;
-  const snapMgr = new SnapshotManager(
-    config.pveHost, config.vmId, config.portPveSsh,
-    (msg) => logInfo(msg), localContextPath,
-  );
-  // Prefer deployer-installed snapshot (includes mirrors + Docker setup from step2),
-  // fall back to baseline (clean VM without deployer)
-  const rollbackTarget = snapMgr.exists("deployer-installed") ? "deployer-installed" : "baseline";
-  if (snapMgr.exists(rollbackTarget)) {
-    logStep("Snapshot", `Rolling back to @${rollbackTarget} for --all run`);
-    snapMgr.rollbackHostSnapshot(rollbackTarget);
-    checkVolumeConsistency(
-      config.pveHost, config.portPveSsh, projectRoot,
-      `baseline rollback to ${rollbackTarget}`,
-    );
-    if (localContextPath) {
-      for (const f of ["storagecontext.json", "secret.txt"]) {
-        const fp = path.join(localContextPath, f);
-        if (existsSync(fp)) rmSync(fp);
-      }
-      logInfo("Local context cleared (baseline has no stacks)");
-    }
-  } else {
-    logWarn("No @baseline snapshot found — skipping rollback");
-  }
-}
-
-/**
- * Restore dependencies from the best available VM snapshot.
- * Must run BEFORE pre-cleanup so that the correct VMs are found running.
+ * Restore providers from the best-covering per-CT pct snapshot pre-pool.
+ *
+ * Schritt 3b der konvergierten Architektur: Whole-VM-`qm rollback` ist raus
+ * (incompatible mit Parallelisierung); stattdessen wird **jeder Dep-CT mit
+ * `pct rollback`** auf den selbstbeschreibend identifizierten Snapshot
+ * zurückgesetzt. Container-lokal → andere Cluster bleiben unberührt.
+ *
+ * `depSnapshotName` darf null sein (z. B. `--all`, Multi-App-Subset): dann
+ * findet keine Auflösung statt. Sonst sucht `SnapshotManager.findCoveringSnapshot`
+ * den Snapshot, der auf jeder Dep-VMID existiert und dessen `members` den
+ * Lauf abdeckt. Build-Hash-Mismatch wird nur geloggt, nicht abgelehnt.
+ *
+ * Baseline-Reset (qm) gehört nicht hierher — das übernimmt das
+ * `--fresh`-Skill außerhalb des Runners.
  */
 export async function restoreBestSnapshot(
   planned: PlannedScenario[],
-  allTests: Map<string, ResolvedScenario>,
+  _allTests: Map<string, ResolvedScenario>,
   config: { pveHost: string; vmId: number; portPveSsh: number; deployerUrl: string; snapshot?: { enabled: boolean } },
-  apiUrl: string,
+  _apiUrl: string,
   projectRoot: string,
   depSnapshotName: string | null,
 ): Promise<void> {
-  // Phase 0: no per-application dependency snapshot for this run scope
-  // (e.g. `--all` or a multi-application subset) → never restore.
-  if (!depSnapshotName) return;
+  // Hinweis: `depSnapshotName` gilt nur für die *Create*-Seite (Phase-0
+  // `<app>_deps`-Heuristik bzw. explizit `--snapshot <name>` Build-Modus).
+  // Für die RESTORE-Seite scannen wir generell — Schritt 3b: jeder vorhandene
+  // selbstbeschreibende pct-Snapshot, dessen `members ⊇ requiredDeps`, ist ein
+  // gültiges Restore-Ziel, unabhängig von der CLI-Form. Damit kann ein zuvor
+  // gebauter `oidc-base`-Snapshot auch von einem `--all` oder Multi-App-
+  // Subset wiederverwendet werden.
+  void depSnapshotName;
 
-  const allDepIds = new Set([...allTests.values()].flatMap((s) => s.depends_on ?? []));
-  const depSteps = planned.filter((p) => allDepIds.has(p.scenario.id));
+  // Dep-Steps = die vom Runner als isDependency markierten Plan-Einträge
+  // (dependedOn-Logik aus live-test-runner.mts). Vorher wurde versucht über
+  // allTests-depends_on zu rekonstruieren — das ist zu breit (zieht das
+  // Target ein, wenn es irgendwo sonst Dep ist) und führt dann zu „kein
+  // covering snapshot gefunden".
+  const depSteps = planned.filter((p) => p.isDependency);
+  if (!config.snapshot?.enabled || depSteps.length === 0) return;
+
   const isLocalDeployer = config.deployerUrl.includes("localhost");
   const localContextPath = isLocalDeployer
     ? path.join(projectRoot, ".livetest-data")
     : undefined;
-
-  if (!config.snapshot?.enabled || depSteps.length === 0) return;
 
   let buildHash: string | undefined;
   try {
@@ -91,70 +72,132 @@ export async function restoreBestSnapshot(
   } catch { /* ignore */ }
 
   const snapMgr = new SnapshotManager(
-    config.pveHost, config.vmId, config.portPveSsh,
+    config.pveHost, config.portPveSsh,
     (msg) => logInfo(msg), localContextPath,
   );
 
-  // Per-application snapshot strategy: roll the whole nested VM back to
-  // `<app>_deps` and skip all provider installations — but only when the
-  // snapshot's captured dep set covers every dep this run needs. A snapshot
-  // built for a run with fewer/other deps (e.g. a `postgres/default`-backed
-  // `zitadel_deps`) must not be reused for a run that needs more or a
-  // different variant, or pre_start dep-resolution fails.
-  const SNAP_NAME = depSnapshotName;
-  const requiredDeps = depSteps.map((d) => d.scenario.application);
-  if (!snapMgr.exists(SNAP_NAME) || !snapMgr.coversRun(SNAP_NAME, buildHash, requiredDeps)) {
+  const depVmids = depSteps.map((d) => d.vmId);
+  const requiredMembers = depSteps.map((d) => d.scenario.id);
+  let chosen: Awaited<ReturnType<typeof snapMgr.findCoveringSnapshot>>;
+  try {
+    chosen = await snapMgr.findCoveringSnapshot(depVmids, requiredMembers, buildHash);
+  } catch (err) {
+    logInfo(`Snapshot lookup failed (will install normally): ${err}`);
+    return;
+  }
+  if (!chosen) {
+    logInfo(`No pct snapshot covers required deps ${requiredMembers.join(", ")} on VMs ${depVmids.join(", ")} — providers will install fresh`);
     return;
   }
 
   try {
-    logStep("Snapshot", `Restoring to @${SNAP_NAME}`);
-    snapMgr.rollbackHostSnapshot(SNAP_NAME);
+    logStep("Snapshot", `Restoring per-CT to @${chosen.name} (VMs ${depVmids.join(", ")})`);
+    // Roll back each dep CT to the named snapshot in parallel — container-
+    // local, no shared state, safe to do concurrently.
+    await Promise.all(depVmids.map((vmid) => snapMgr.rollbackCtSnapshot(vmid, chosen!.name)));
     checkVolumeConsistency(
       config.pveHost, config.portPveSsh, projectRoot,
-      `restore to ${SNAP_NAME}`,
+      `pct restore to ${chosen.name}`,
     );
 
-    // Mark all stack-provider steps as already-installed (the snapshot
-    // captured them all in one consistent state).
+    // Mark all stack-provider steps as already-installed.
     for (const dep of depSteps) {
       dep.skipExecution = true;
     }
 
-    // Reload deployer to pick up the restored context (stack passwords).
-    let reloaded = false;
-    for (let attempt = 0; attempt < 2 && !reloaded; attempt++) {
-      if (attempt > 0) {
-        logInfo("Retrying context restore + reload...");
-        snapMgr.restoreContextPublic();
-      }
-      for (const url of [apiUrl, apiUrl.replace("https://", "http://")]) {
-        try {
-          const r = await fetch(`${url}/api/reload`, { method: "POST", signal: AbortSignal.timeout(10000) });
-          if (r.ok) { logInfo("Deployer reloaded after snapshot restore"); reloaded = true; break; }
-        } catch { /* try next */ }
-      }
-    }
-    if (!reloaded) {
-      logInfo("Warning: deployer reload after snapshot restore failed — stacks may be stale");
-    }
-
-    logOk(`Stack providers restored from @${SNAP_NAME}`);
+    logOk(`Stack providers restored from @${chosen.name}`);
   } catch (err) {
-    logInfo(`VM snapshot restore failed, will install normally: ${err}`);
+    logInfo(`pct snapshot restore failed, will install normally: ${err}`);
   }
+}
+
+/**
+ * Janitor: asynchron managed stopped CTs > 1 h post-stop weg­räumen.
+ *
+ * Consumer-Teardown legt Containers per `pct stop` (kein destroy) ab → 1 h
+ * Forensik-Fenster. Beim nächsten Lauf-Start räumt dieser Janitor alle
+ * stopped, managed CTs ab, deren Stop-mtime von `/etc/pve/lxc/<vmid>.conf`
+ * älter als der TTL ist. Fire-and-forget: blockiert die Test-Ausführung
+ * nicht; die `pct destroy`-Aufrufe laufen im Hintergrund weiter, während
+ * Phase prepareVms + Stack-Setup + Szenarien starten.
+ */
+function runJanitorAsync(
+  pveHost: string,
+  sshPort: number,
+  plannedVmIds: ReadonlySet<number>,
+  ttlSeconds: number = 3600,
+): void {
+  void (async () => {
+    try {
+      // Enumerate stopped CTs and their conf-mtimes. Skip planned VMIDs
+      // (those are handled by the existing prepareVms destroy-path).
+      const out = await nestedSshAsync(
+        pveHost, sshPort,
+        `for f in /etc/pve/lxc/*.conf; do ` +
+        `  [ -f "$f" ] || continue; ` +
+        `  vmid=$(basename "$f" .conf); ` +
+        `  st=$(pct status "$vmid" 2>/dev/null | awk '{print $2}'); ` +
+        `  [ "$st" = "stopped" ] || continue; ` +
+        `  grep -q 'proxvex%3Amanaged\\|proxvex:managed' "$f" 2>/dev/null || continue; ` +
+        `  mt=$(stat -c %Y "$f" 2>/dev/null); ` +
+        `  [ -n "$mt" ] && echo "$vmid $mt"; ` +
+        `done`,
+        15000,
+      );
+      if (!out) return;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const stale: number[] = [];
+      for (const line of out.split("\n")) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length !== 2) continue;
+        const vmid = Number.parseInt(parts[0]!, 10);
+        const mtime = Number.parseInt(parts[1]!, 10);
+        if (!Number.isFinite(vmid) || !Number.isFinite(mtime)) continue;
+        if (plannedVmIds.has(vmid)) continue;
+        if (nowSec - mtime <= ttlSeconds) continue;
+        stale.push(vmid);
+      }
+      if (stale.length === 0) return;
+      logInfo(`Janitor: ${stale.length} stale stopped CT(s) > ${ttlSeconds}s old → async destroy: ${stale.join(", ")}`);
+      // Fire-and-forget destroys (no await on the outer caller); errors
+      // logged but never re-thrown to the test pipeline.
+      await Promise.all(stale.map(async (vmid) => {
+        try {
+          await nestedSshAsync(
+            pveHost, sshPort,
+            `pct destroy ${vmid} --force --purge 2>/dev/null; true`,
+            60000,
+          );
+        } catch (err) {
+          logWarn(`Janitor: destroy ${vmid} failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }));
+      logOk(`Janitor: ${stale.length} CT(s) destroyed`);
+    } catch (err) {
+      logWarn(`Janitor: enumeration failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  })();
 }
 
 /**
  * Pre-test cleanup: smart handling of dependencies vs targets.
  * - Dependencies: reuse if running + managed + correct app/stack, destroy otherwise
  * - Targets: always destroy (unless replace_ct task)
+ *
+ * Additionally fires a non-blocking janitor pass that destroys managed
+ * stopped CTs older than the TTL (1 h post-stop) in the background.
  */
 export function prepareVms(
   planned: PlannedScenario[],
   config: { pveHost: string; portPveSsh: number },
   appStacktypes: Map<string, string | string[]>,
 ): void {
+  // Background janitor: managed stopped CTs > 1 h are async-destroyed.
+  // Planned VMIDs are skipped (handled below by the synchronous destroy
+  // path).
+  const plannedVmIds = new Set(planned.map((p) => p.vmId));
+  runJanitorAsync(config.pveHost, config.portPveSsh, plannedVmIds);
+
   for (const p of planned) {
     if (p.skipExecution) continue;
 
