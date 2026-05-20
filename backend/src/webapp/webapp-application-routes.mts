@@ -93,7 +93,7 @@ export function registerApplicationRoutes(
 
   app.post(
     ApiUri.EnumValues,
-    express.json(),
+    express.json({ limit: "50mb" }),
     asyncHandler(async (req, res) => {
       const application = String(req.params.application);
       const task = String(req.body?.task ?? "");
@@ -315,7 +315,7 @@ export function registerApplicationRoutes(
 
   app.post(
     ApiUri.ApplicationTestData,
-    express.json(),
+    express.json({ limit: "50mb" }),
     (req, res) => {
       try {
         const applicationId = req.params.applicationId;

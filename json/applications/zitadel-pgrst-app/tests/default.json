@@ -7,6 +7,6 @@
   "params": [
     { "name": "app_slug", "value": "products" },
     { "name": "app_subdomain", "value": "products.test.local" },
-    { "name": "app_tgz_content", "value": "file:fixtures/products-proxvex.tgz" }
+    { "name": "app_tgz_content", "value": "file:products-proxvex.tgz" }
   ]
 }
