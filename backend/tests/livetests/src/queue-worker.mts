@@ -42,10 +42,17 @@ export async function runQueueWorker(
   veHost: string,
   projectRoot: string,
   appMetaMap: Map<string, AppMeta>,
-  resolveVolumeStorage: (pveHost: string, sshPort: number, params: { name: string; value: string }[]) => void,
+  enumerateZfsPoolStorages: (pveHost: string, sshPort: number) => string[],
 ) {
   const workerId = `worker-${process.pid}`;
   logInfo(`Queue worker started: ${workerId}`);
+
+  // Enumerate ZFS pool storages once at worker startup. Empty list →
+  // we leave volume_storage unset and let the deployer's default kick in.
+  const zfsPoolStorages = enumerateZfsPoolStorages(config.pveHost, config.portPveSsh);
+  if (zfsPoolStorages.length > 0) {
+    logInfo(`zfspool storages available for round-robin: ${zfsPoolStorages.join(", ")}`);
+  }
 
   // Init queue (idempotent — only first worker actually initializes)
   try {
@@ -139,8 +146,17 @@ export async function runQueueWorker(
 
       const buildResult = buildParams(scenario, baseParams, templateVars, tmpDir);
 
-      // Resolve enum defaults (e.g. volume_storage) via API
-      resolveVolumeStorage(config.pveHost, config.portPveSsh, buildResult.params);
+      // Spread scenarios across zfspool storages (round-robin by scenario
+      // index within this worker). Skipped if operator already pinned
+      // volume_storage via scenario.json or buildParams, or if no zfspool
+      // exists (legacy single-storage cluster).
+      if (!buildResult.params.some((p) => p.name === "volume_storage")) {
+        if (zfsPoolStorages.length > 0) {
+          const picked = zfsPoolStorages[(scenarioCount - 1) % zfsPoolStorages.length]!;
+          buildResult.params.push({ name: "volume_storage", value: picked });
+          logInfo(`Round-robin volume_storage=${picked} for scenario ${scenarioId}`);
+        }
+      }
 
       const allAddons = buildResult.selectedAddons ?? [];
 

@@ -18,7 +18,7 @@ import path from "node:path";
 import type { ResolvedScenario, PlannedScenario, TestResult } from "./livetest-types.mjs";
 import { Verifier, buildDefaultVerify, type AppMeta } from "./verifier.mjs";
 import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type ScenarioLogContext } from "./log-helpers.mjs";
-import { resolveVolumeStorage } from "./live-test-runner.mjs";
+import { enumerateZfsPoolStorages } from "./live-test-runner.mjs";
 import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
 
@@ -357,6 +357,19 @@ export async function executeScenarios(
 
   const verifier = new Verifier(config.pveHost, config.portPveSsh, apiUrl, veHost);
   const tmpDir = mkdtempSync(path.join(tmpdir(), "livetest-"));
+
+  // Enumerate ZFS pool storages once. Each scenario gets one via round-robin
+  // (see `volume_storage` push in runStep below) so parallel `pct create` /
+  // `pct restore` / `zfs snapshot` calls don't queue on the same `rpool/data`
+  // lock. Empty list (legacy single-storage cluster, SSH failure) → callers
+  // leave volume_storage unset and the deployer's default takes over.
+  const zfsPoolStorages = enumerateZfsPoolStorages(config.pveHost, config.portPveSsh);
+  if (zfsPoolStorages.length > 0) {
+    logInfo(`zfspool storages available for round-robin: ${zfsPoolStorages.join(", ")}`);
+    if (concurrency > zfsPoolStorages.length) {
+      logWarn(`--parallel=${concurrency} > storages=${zfsPoolStorages.length} — multiple scenarios will share a storage, lock contention possible`);
+    }
+  }
 
   // Phase: pre-test proxvex rebuild.
   //
@@ -908,7 +921,17 @@ export async function executeScenarios(
         }
       }
 
-      resolveVolumeStorage(config.pveHost, config.portPveSsh, buildResult.params);
+      // Spread parallel scenarios across separate zfspool storages to dodge
+      // `rpool/data`-lock contention. Operator overrides (volume_storage in
+      // scenario.json or set earlier in buildParams) win; empty list means
+      // we leave it unset and let the deployer's default kick in.
+      if (!buildResult.params.some((p) => p.name === "volume_storage")) {
+        if (zfsPoolStorages.length > 0) {
+          const picked = zfsPoolStorages[i % zfsPoolStorages.length]!;
+          buildResult.params.push({ name: "volume_storage", value: picked });
+          logInfo(`Round-robin volume_storage=${picked} for scenario ${scenario.id} (i=${i})`);
+        }
+      }
 
       const allAddons = buildResult.selectedAddons ?? [];
 

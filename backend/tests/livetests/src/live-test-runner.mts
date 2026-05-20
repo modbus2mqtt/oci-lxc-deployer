@@ -176,34 +176,30 @@ function loadConfig(instanceName?: string): {
 }
 
 /**
- * Resolve volume_storage parameter by querying PVE rootdir storages via SSH.
- * Prioritizes zfspool > dir > any other type.
+ * Enumerate all `zfspool` rootdir storages on the PVE host via SSH.
+ * Returns names in `pvesm status` order, or `[]` when SSH fails or no
+ * zfspool storage exists. Callers use this list to spread parallel
+ * scenarios across separate ZFS pools (separate datasets = separate
+ * locks, so `pct create`/`zfs snapshot` don't queue on `rpool/data`).
+ * Empty list → callers leave `volume_storage` unset, default from
+ * `parameter-definitions.json` kicks in.
  */
-export function resolveVolumeStorage(
+export function enumerateZfsPoolStorages(
   pveHost: string,
   sshPort: number,
-  existingParams: { name: string; value: string }[],
-): void {
-  if (existingParams.some((p) => p.name === "volume_storage")) return;
+): string[] {
   try {
     const raw = nestedSshStrict(pveHost, sshPort,
       "pvesm status --content rootdir 2>/dev/null | tail -n +2", 10000);
-    const storages = raw.trim().split("\n")
+    return raw.trim().split("\n")
       .map((line) => {
         const [name, type] = line.trim().split(/\s+/);
         return { name: name || "", type: type || "" };
       })
-      .filter((s) => s.name);
-    if (storages.length === 0) return;
-    // Prioritize: zfspool > dir > first available
-    const preferred =
-      storages.find((s) => s.type === "zfspool") ??
-      storages.find((s) => s.type === "dir") ??
-      storages[0];
-    existingParams.push({ name: "volume_storage", value: preferred.name });
-    logInfo(`Auto-resolved volume_storage=${preferred.name} (${preferred.type})`);
+      .filter((s) => s.name && s.type === "zfspool")
+      .map((s) => s.name);
   } catch {
-    // SSH failed — continue without, CLI will validate
+    return [];
   }
 }
 
@@ -600,7 +596,7 @@ async function main() {
   // Queue worker mode — delegate all scenario management to the queue API
   if (queueFlag) {
     const { runQueueWorker: runQueue } = await import("./queue-worker.mjs");
-    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, resolveVolumeStorage);
+    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, enumerateZfsPoolStorages);
     return;
   }
 
