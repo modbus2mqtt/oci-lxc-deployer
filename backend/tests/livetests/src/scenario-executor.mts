@@ -90,6 +90,9 @@ function evaluateExpect2Fail(
         : finals.length > 0
           ? finals[finals.length - 1]
           : msgs[msgs.length - 1];
+    // msgs is non-empty here (filter step kept us in the loop), so lastMsg is
+    // defined — the explicit guard exists to satisfy noUncheckedIndexedAccess.
+    if (!lastMsg) continue;
     if (lastMsg.exitCode !== expectedCode) {
       mismatches.push(
         `${tmpl}: expected exit ${expectedCode}, got ${lastMsg.exitCode}`,
@@ -185,10 +188,12 @@ async function findExistingVm(
         const addons = [...addonMatches].map(m => m[1]!).filter(Boolean);
         const hostMatch = conf.match(/^hostname:\s*(\S+)/m);
         const hostname = hostMatch?.[1];
-        const result = {
+        // exactOptionalPropertyTypes forbids `addons: undefined` on `addons?: string[]`;
+        // spread the field conditionally so it's omitted when absent.
+        const result: { vm_id: number; addons?: string[]; hostname?: string } = {
           vm_id: vmId,
-          addons: addons.length > 0 ? addons : undefined,
-          hostname,
+          ...(addons.length > 0 ? { addons } : {}),
+          ...(hostname ? { hostname } : {}),
         };
         if (expectedHostname) {
           if (hostname === expectedHostname) return result;
@@ -333,7 +338,7 @@ export async function executeScenarios(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null },
+  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null; volumeStorageOverride?: string },
 ): Promise<TestResult> {
   // Phase 0: per-application dependency-snapshot name (`<app>_deps`), or
   // `null` for `--all` / multi-app subsets where no dep snapshot is taken.
@@ -358,17 +363,62 @@ export async function executeScenarios(
   const verifier = new Verifier(config.pveHost, config.portPveSsh, apiUrl, veHost);
   const tmpDir = mkdtempSync(path.join(tmpdir(), "livetest-"));
 
-  // Enumerate ZFS pool storages once. Each scenario gets one via round-robin
-  // (see `volume_storage` push in runStep below) so parallel `pct create` /
-  // `pct restore` / `zfs snapshot` calls don't queue on the same `rpool/data`
-  // lock. Empty list (legacy single-storage cluster, SSH failure) → callers
-  // leave volume_storage unset and the deployer's default takes over.
+  // Enumerate ZFS pool storages once. Each scenario picks one of these for
+  // its volumes via the hierarchy below (see `volume_storage` push in runStep):
+  //
+  //   1. --volume-storage CLI override (step3 mode: pin every CT of one
+  //      cluster build to one storage so chain-internal pct clone stays
+  //      ZFS-CoW-fast).
+  //   2. Dependency inheritance: if the scenario's deps already live on a
+  //      storage (looked up via `vmidToStorage`), inherit that storage so
+  //      the consumer's CT lands next to its source → CoW clones, ZFS-local
+  //      ops.
+  //   3. Index round-robin: cluster roots (no deps) spread evenly across the
+  //      storages, so parallel rollbacks of independent chains don't all
+  //      contend on the same `rpool/data` lock.
+  //
+  // Empty list (legacy single-storage cluster, SSH failure) → callers leave
+  // volume_storage unset and the deployer's default takes over.
   const zfsPoolStorages = enumerateZfsPoolStorages(config.pveHost, config.portPveSsh);
-  if (zfsPoolStorages.length > 0) {
-    logInfo(`zfspool storages available for round-robin: ${zfsPoolStorages.join(", ")}`);
+  const volumeStorageOverride = options?.volumeStorageOverride;
+  if (volumeStorageOverride) {
+    logInfo(`--volume-storage=${volumeStorageOverride}: every scenario in this run pinned to this pool`);
+  } else if (zfsPoolStorages.length > 0) {
+    logInfo(`zfspool storages available for distribution: ${zfsPoolStorages.join(", ")}`);
     if (concurrency > zfsPoolStorages.length) {
       logWarn(`--parallel=${concurrency} > storages=${zfsPoolStorages.length} — multiple scenarios will share a storage, lock contention possible`);
     }
+  }
+
+  // Cache `VMID → storage`. Pre-populated from existing CTs (snapshot-restore
+  // case: dep CTs already exist when this run starts), and live-updated as
+  // each scenario picks a storage for its own CT. Consumed by the dep-
+  // inheritance step in the storage-pick hierarchy.
+  const vmidToStorage = new Map<number, string>();
+  try {
+    const out = await nestedSshStrictAsync(
+      config.pveHost, config.portPveSsh,
+      // `pct config <v> | grep rootfs: | awk` extracts the storage name from
+      // the `rootfs: storage:subvol-…` line. Single multi-line SSH avoids
+      // N×SSH-handshake overhead for clusters with many existing CTs.
+      "for v in $(pct list 2>/dev/null | awk 'NR>1{print $1}'); do " +
+      "s=$(pct config \"$v\" 2>/dev/null | awk '/^rootfs:/{split($2,a,\":\"); print a[1]; exit}'); " +
+      "[ -n \"$s\" ] && echo \"$v $s\"; " +
+      "done",
+      30000,
+    );
+    for (const line of out.split("\n")) {
+      const [vmidStr, storage] = line.trim().split(/\s+/);
+      if (vmidStr && storage) {
+        const vmid = Number.parseInt(vmidStr, 10);
+        if (Number.isFinite(vmid)) vmidToStorage.set(vmid, storage);
+      }
+    }
+    if (vmidToStorage.size > 0) {
+      logInfo(`Seeded VMID→storage cache with ${vmidToStorage.size} existing CT(s) for dep inheritance`);
+    }
+  } catch {
+    // Best-effort: an empty cache just means everyone falls back to round-robin.
   }
 
   // Phase: pre-test proxvex rebuild.
@@ -921,15 +971,41 @@ export async function executeScenarios(
         }
       }
 
-      // Spread parallel scenarios across separate zfspool storages to dodge
-      // `rpool/data`-lock contention. Operator overrides (volume_storage in
-      // scenario.json or set earlier in buildParams) win; empty list means
-      // we leave it unset and let the deployer's default kick in.
+      // Pick `volume_storage` hierarchically: operator override > CLI override
+      // > inherit-from-dep > index round-robin. The order matters — explicit
+      // wins, then sticky-with-deps (CoW clones), then spread for cluster
+      // roots. Operator overrides (volume_storage set in scenario.json or
+      // earlier in buildParams) bypass everything.
       if (!buildResult.params.some((p) => p.name === "volume_storage")) {
-        if (zfsPoolStorages.length > 0) {
-          const picked = zfsPoolStorages[i % zfsPoolStorages.length]!;
+        let picked: string | undefined;
+        let pickReason = "";
+        if (volumeStorageOverride) {
+          picked = volumeStorageOverride;
+          pickReason = "--volume-storage override";
+        } else {
+          // Walk the scenario's deps looking for an already-known storage.
+          // First hit wins — by convention deps within one chain all live on
+          // the same storage (cluster-root sets it, downstream inherits).
+          for (const depId of scenario.depends_on ?? []) {
+            const depStep = planned.find((p) => p.scenario.id === depId);
+            const depStorage = depStep ? vmidToStorage.get(depStep.vmId) : undefined;
+            if (depStorage) {
+              picked = depStorage;
+              pickReason = `inherited from dep ${depId} (VM ${depStep!.vmId})`;
+              break;
+            }
+          }
+          if (!picked && zfsPoolStorages.length > 0) {
+            picked = zfsPoolStorages[i % zfsPoolStorages.length]!;
+            pickReason = `round-robin i=${i} mod ${zfsPoolStorages.length}`;
+          }
+        }
+        if (picked) {
           buildResult.params.push({ name: "volume_storage", value: picked });
-          logInfo(`Round-robin volume_storage=${picked} for scenario ${scenario.id} (i=${i})`);
+          // Record our pick so any downstream scenario depending on us
+          // inherits the same storage (CoW clones for the whole chain).
+          vmidToStorage.set(step.vmId, picked);
+          logInfo(`volume_storage=${picked} for ${scenario.id} [VM ${step.vmId}] (${pickReason})`);
         }
       }
 
@@ -1833,7 +1909,7 @@ export async function executeScenariosParallel(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null },
+  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null; volumeStorageOverride?: string },
 ): Promise<TestResult> {
   return executeScenarios(
     planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,

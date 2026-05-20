@@ -54,7 +54,6 @@ describe("WebApp Installations API", () => {
         "hostname: cont-101",
         "description: <!-- proxvex:managed -->\\n<!-- proxvex:oci-image docker://alpine:3.19 -->\\nOCI image: docker://alpine:3.19",
       ].join("\n"),
-      "utf-8",
     );
     // managed but NOT oci -> should be ignored
     writeTextFile(
@@ -63,7 +62,6 @@ describe("WebApp Installations API", () => {
         "hostname: cont-102",
         "description: <!-- proxvex:managed -->\\nLXC template: local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst",
       ].join("\n"),
-      "utf-8",
     );
     // oci but NOT managed -> should be ignored
     writeTextFile(
@@ -72,7 +70,6 @@ describe("WebApp Installations API", () => {
         "hostname: cont-103",
         "description: <!-- proxvex:oci-image docker://debian:bookworm -->",
       ].join("\n"),
-      "utf-8",
     );
     // managed + oci (fallback visible line only) -> should be returned
     writeTextFile(
@@ -81,7 +78,6 @@ describe("WebApp Installations API", () => {
         "hostname: cont-104",
         "description: <!-- proxvex:managed -->\\nOCI image: ghcr.io/example/app:1.2.3",
       ].join("\n"),
-      "utf-8",
     );
 
     // Point scan logic to our fake dir in tests

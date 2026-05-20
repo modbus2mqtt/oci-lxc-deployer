@@ -15,9 +15,7 @@ import {
 describe("TemplateProcessor - Parameters from skipped templates should not appear in unresolved parameters", () => {
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
-  let contextManager: ReturnType<
-    typeof PersistenceManager.getInstance
-  >["getContextManager"];
+  let contextManager: ReturnType<ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]>;
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 

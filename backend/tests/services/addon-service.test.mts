@@ -13,6 +13,8 @@ import {
 } from "@tests/helper/test-persistence-helper.mjs";
 import type { AddonTemplateReference } from "@src/types.mjs";
 import type { IApplication } from "@src/backend-types.mjs";
+import type { IAddon } from "@src/types.mjs";
+import type { IAddonPersistence } from "@src/persistence/interfaces.mjs";
 
 describe("AddonService", () => {
   let env: TestEnvironment;
@@ -27,21 +29,21 @@ describe("AddonService", () => {
   // Helper to create a valid addon JSON (without id, which is derived from filename)
   const createAddonJson = (
     overrides: Record<string, unknown> = {},
-  ): Record<string, unknown> => ({
+  ): IAddon => ({
     name: "Test Addon",
     description: "A test addon",
     notes_key: "test-addon",
     ...overrides,
-  });
+  }) as IAddon;
 
   // Helper to create an inline addon object with id (for isAddonCompatible tests)
   const createInlineAddon = (
     id: string,
     overrides: Record<string, unknown> = {},
-  ): Record<string, unknown> => ({
-    id,
+  ): IAddon => ({
     ...createAddonJson(overrides),
-  });
+    id,
+  }) as IAddon;
 
   // Helper to create a mock application
   const createApplication = (
@@ -86,7 +88,9 @@ describe("AddonService", () => {
       { jsonPath, localPath, schemaPath },
       jsonValidator,
     );
-    service = new AddonService(handler);
+    // Test handler implements the read surface AddonService needs but not the
+    // full IAddonPersistence (no invalidateCache/close — irrelevant to tests).
+    service = new AddonService(handler as unknown as IAddonPersistence);
   });
 
   afterEach(() => {
@@ -738,7 +742,7 @@ describe("AddonService", () => {
 
       const result = service.getCompatibleAddonsWithParameters(app);
       expect(result).toHaveLength(1);
-      const paramIds = result[0].parameters?.map((p) => p.id) ?? [];
+      const paramIds = result[0]!.parameters?.map((p) => p.id) ?? [];
       // http_port, local_https_port filtered because app defines them as parameters
       expect(paramIds).not.toContain("http_port");
       expect(paramIds).not.toContain("local_https_port");
@@ -777,7 +781,7 @@ describe("AddonService", () => {
 
       const result = service.getCompatibleAddonsWithParameters(app);
       expect(result).toHaveLength(1);
-      const paramIds = result[0].parameters?.map((p) => p.id) ?? [];
+      const paramIds = result[0]!.parameters?.map((p) => p.id) ?? [];
       // http_port, local_https_port filtered because app already defines them
       expect(paramIds).not.toContain("http_port");
       expect(paramIds).not.toContain("local_https_port");
@@ -810,7 +814,7 @@ describe("AddonService", () => {
 
       const result = service.getCompatibleAddonsWithParameters(app);
       expect(result).toHaveLength(1);
-      const paramIds = result[0].parameters?.map((p) => p.id) ?? [];
+      const paramIds = result[0]!.parameters?.map((p) => p.id) ?? [];
       // All addon parameters shown because app doesn't define any of them
       expect(paramIds).toContain("http_port");
       expect(paramIds).toContain("local_https_port");
@@ -841,7 +845,7 @@ describe("AddonService", () => {
 
       const result = service.getCompatibleAddonsWithParameters(app);
       expect(result).toHaveLength(1);
-      const paramIds = result[0].parameters?.map((p) => p.id) ?? [];
+      const paramIds = result[0]!.parameters?.map((p) => p.id) ?? [];
       expect(paramIds).toContain("ssl.mode");
     });
   });

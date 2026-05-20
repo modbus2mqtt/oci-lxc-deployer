@@ -139,7 +139,7 @@ async function buildResolverContext(
 ): Promise<ResolverContext> {
   const pathes = pm.getPathes();
   const analyzer = new TemplateAnalyzer(
-    new DocumentationPathResolver(pathes.jsonPath),
+    new DocumentationPathResolver(pathes),
     pathes,
   );
 

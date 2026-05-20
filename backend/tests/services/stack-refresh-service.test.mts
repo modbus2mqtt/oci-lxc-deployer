@@ -15,14 +15,14 @@ const makeApp = (stack_usage?: IApplication["stack_usage"]): IApplication => ({
   id: "zitadel",
   name: "Zitadel",
   description: "",
-  stack_usage,
+  ...(stack_usage ? { stack_usage } : {}),
 });
 
 const makeAddon = (id: string, stack_usage?: IAddon["stack_usage"]): IAddon => ({
   id,
   name: id,
   notes_key: id,
-  stack_usage,
+  ...(stack_usage ? { stack_usage } : {}),
 });
 
 describe("stack-refresh-service / buildActionsForContainer", () => {
@@ -117,9 +117,9 @@ describe("stack-refresh-service / buildActionsForContainer", () => {
       "ZITADEL_DB_PASSWORD",
     );
     expect(actions).toHaveLength(1);
-    expect(actions[0].varName).toBe("ZITADEL_DB_PASSWORD");
-    expect(actions[0].replacement).toBe("compose-env");
-    expect(actions[0].composeKey).toBe(
+    expect(actions[0]!.varName).toBe("ZITADEL_DB_PASSWORD");
+    expect(actions[0]!.replacement).toBe("compose-env");
+    expect(actions[0]!.composeKey).toBe(
       "ZITADEL_DATABASE_POSTGRES_USER_PASSWORD",
     );
   });
@@ -133,7 +133,7 @@ describe("stack-refresh-service / buildActionsForContainer", () => {
     ]);
     const actions = buildActionsForContainer(baseContainer, app, [], "gitea");
     expect(actions).toHaveLength(1);
-    expect(actions[0].replacement).toBe("manual");
+    expect(actions[0]!.replacement).toBe("manual");
   });
 
   it("handles missing application gracefully (addons still contribute)", () => {
@@ -152,7 +152,7 @@ describe("stack-refresh-service / buildActionsForContainer", () => {
       "cloudflare",
     );
     expect(actions).toHaveLength(1);
-    expect(actions[0].source.kind).toBe("addon");
+    expect(actions[0]!.source.kind).toBe("addon");
   });
 
   it("passes on-start-env script and scriptVar fields through", () => {
@@ -177,10 +177,10 @@ describe("stack-refresh-service / buildActionsForContainer", () => {
       "cloudflare",
     );
     expect(actions).toHaveLength(1);
-    expect(actions[0].replacement).toBe("on-start-env");
-    expect(actions[0].script).toBe("acme-renew.sh");
-    expect(actions[0].scriptVar).toBe("CF_API_TOKEN");
-    expect(actions[0].description).toBe("patch baked token");
+    expect(actions[0]!.replacement).toBe("on-start-env");
+    expect(actions[0]!.script).toBe("acme-renew.sh");
+    expect(actions[0]!.scriptVar).toBe("CF_API_TOKEN");
+    expect(actions[0]!.description).toBe("patch baked token");
   });
 
   it("no-action replacement is carried through unchanged", () => {
@@ -198,7 +198,7 @@ describe("stack-refresh-service / buildActionsForContainer", () => {
     ]);
     const actions = buildActionsForContainer(baseContainer, app, [], "cloudflare");
     expect(actions).toHaveLength(1);
-    expect(actions[0].replacement).toBe("no-action");
-    expect(actions[0].description).toBe("informational");
+    expect(actions[0]!.replacement).toBe("no-action");
+    expect(actions[0]!.description).toBe("informational");
   });
 });

@@ -165,7 +165,7 @@ describe("DocumentationGenerator skip_if_property_set", () => {
     const { DocumentationPathResolver } =
       await import("@src/documentation-path-resolver.mjs");
 
-    const pathResolver = new DocumentationPathResolver(jsonPath, localPath);
+    const pathResolver = new DocumentationPathResolver({ jsonPath, schemaPath, localPath });
     const templateAnalyzer = new TemplateAnalyzer(pathResolver, {
       jsonPath,
       schemaPath,
@@ -177,9 +177,10 @@ describe("DocumentationGenerator skip_if_property_set", () => {
       "test-skip-property-set-doc-app/templates/skip-if-property-set-template.json",
     );
 
-    // Check that skip_if_property_set is recognized as conditional
+    // Check that skip_if_property_set is recognized as conditional. The
+    // helper returns `unknown`; cast to `ITemplate` for the analyzer call.
     const isConditional =
-      templateAnalyzer.isConditionallyExecuted(templateData);
+      templateAnalyzer.isConditionallyExecuted(templateData as import("@src/types.mjs").ITemplate);
     expect(isConditional).toBe(true);
   });
 });

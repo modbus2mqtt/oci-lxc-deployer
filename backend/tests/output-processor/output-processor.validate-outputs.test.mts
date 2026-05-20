@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { OutputProcessor } from "@src/output-processor.mjs";
 import { ICommand } from "@src/types.mjs";
 import { ExecutionMode } from "@src/ve-execution/ve-execution-constants.mjs";

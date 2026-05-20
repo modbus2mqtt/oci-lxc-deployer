@@ -96,17 +96,51 @@ if [ "$DEPLOYER_OK" != "1" ]; then
   exit 3
 fi
 
+# ── zfspool-Storages für Cluster-Verteilung enumerieren ────────────────
+# Wir verteilen pro Cluster genau eine Storage (round-robin). Innerhalb eines
+# Clusters bleiben alle CTs auf derselben Storage → `pct clone` zwischen
+# Cluster-Mitgliedern ist ZFS-CoW (Millisekunden). Über Cluster verteilt
+# vermeiden parallele Restores im späteren Livetest-Lauf Lock-Contention
+# auf `rpool/data`. `pvesm status` läuft in der nested VM (step1 hat dort
+# `local-zfs` + `local-zfs-2/3/4` angelegt) — bei Single-Storage-Fallback
+# (z.B. alt-build der nested VM ohne Step 12c) bleibt das Array leer und
+# step3 lässt die Storage frei → Runner-Default greift.
+declare -a ZFS_STORAGES=()
+while IFS= read -r line; do
+  [ -n "$line" ] && ZFS_STORAGES+=("$line")
+done < <(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=10 \
+              -p "$PVE_SSH" root@ubuntupve \
+              "pvesm status --content rootdir 2>/dev/null | awk '\$2==\"zfspool\"{print \$1}'" 2>/dev/null)
+if [ "${#ZFS_STORAGES[@]}" -gt 0 ]; then
+  echo "[$(date -u +%FT%TZ)] zfspool storages for cluster distribution: ${ZFS_STORAGES[*]}" | tee -a "$LOG"
+else
+  echo "[$(date -u +%FT%TZ)] No zfspool storages enumerated — runner default will pick volume_storage" | tee -a "$LOG"
+fi
+
 # ── Build-Schleife ────────────────────────────────────────────────────
 declare -a FAILED=()
 OVERALL_START=$(date +%s)
+CLUSTER_IDX=0
 for entry in "${CLUSTERS[@]}"; do
   NAME="${entry%%|*}"
   MEMBERS="${entry#*|}"
-  echo "" | tee -a "$LOG"
-  echo "=== [$(date -u +%FT%TZ)] Building @$NAME from $MEMBERS ===" | tee -a "$LOG"
+  # Pro Cluster eine Storage round-robin; alle CTs dieses Clusters landen
+  # darauf, so dass deps/consumer per ZFS-CoW geklont werden und parallele
+  # Restores anderer Cluster auf anderen Pools laufen.
+  STORAGE_ARGS=()
+  if [ "${#ZFS_STORAGES[@]}" -gt 0 ]; then
+    PICKED="${ZFS_STORAGES[$((CLUSTER_IDX % ${#ZFS_STORAGES[@]}))]}"
+    STORAGE_ARGS=(--volume-storage "$PICKED")
+    echo "" | tee -a "$LOG"
+    echo "=== [$(date -u +%FT%TZ)] Building @$NAME from $MEMBERS on $PICKED ===" | tee -a "$LOG"
+  else
+    echo "" | tee -a "$LOG"
+    echo "=== [$(date -u +%FT%TZ)] Building @$NAME from $MEMBERS (default storage) ===" | tee -a "$LOG"
+  fi
   PHASE_START=$(date +%s)
   if DEPLOYER_PORT="$DEPLOYER_PORT" npx tsx backend/tests/livetests/src/live-test-runner.mts \
-       "$INSTANCE" --snapshot "$NAME" "$MEMBERS" >>"$LOG" 2>&1; then
+       "$INSTANCE" --snapshot "$NAME" "${STORAGE_ARGS[@]}" "$MEMBERS" >>"$LOG" 2>&1; then
     PHASE_END=$(date +%s); DUR=$((PHASE_END-PHASE_START))
     printf "[OK] @%s built in %dm%02ds\n" "$NAME" "$((DUR/60))" "$((DUR%60))" | tee -a "$LOG"
   else
@@ -114,6 +148,7 @@ for entry in "${CLUSTERS[@]}"; do
     printf "[FAIL] @%s after %dm%02ds — continuing with remaining clusters\n" "$NAME" "$((DUR/60))" "$((DUR%60))" | tee -a "$LOG"
     FAILED+=("$NAME")
   fi
+  CLUSTER_IDX=$((CLUSTER_IDX + 1))
 done
 
 OVERALL_END=$(date +%s); TOTAL=$((OVERALL_END-OVERALL_START))

@@ -33,8 +33,8 @@ describe("TemplateProcessor: cross-template property default vs empty parameter 
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
   let contextManager: ReturnType<
-    typeof PersistenceManager.getInstance
-  >["getContextManager"];
+    ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]
+  >;
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 
@@ -163,8 +163,8 @@ describe("TemplateProcessor: layered shared property default with /config overri
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
   let contextManager: ReturnType<
-    typeof PersistenceManager.getInstance
-  >["getContextManager"];
+    ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]
+  >;
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 
@@ -334,8 +334,8 @@ describe("TemplateProcessor: orphan property default flows to runtime defaults",
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
   let contextManager: ReturnType<
-    typeof PersistenceManager.getInstance
-  >["getContextManager"];
+    ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]
+  >;
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 

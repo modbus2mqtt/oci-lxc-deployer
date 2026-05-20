@@ -296,8 +296,8 @@ describe("VeLogsService", () => {
       // Check that the tail command was called with correct path
       const lastCall =
         mockSpawnAsync.mock.calls[mockSpawnAsync.mock.calls.length - 1];
-      expect(lastCall[1]).toContain("-c");
-      const command = lastCall[1][1];
+      expect(lastCall![1]).toContain("-c");
+      const command = lastCall![1][1];
       expect(command).toContain("/var/log/lxc/testcontainer-105.log");
       expect(command).toContain("tail -n 100");
     });
@@ -393,7 +393,7 @@ describe("VeLogsService", () => {
       await service.getDockerLogs({ vmId: 105, service: "myservice" });
 
       const lastCall = mockSpawnAsync.mock.calls[1];
-      const command = lastCall[1][1];
+      const command = lastCall![1][1];
       expect(command).toContain("lxc-attach -n 105");
       // Single-service logs go through docker-compose so the service name
       // resolves to the actual container (whose internal name is
@@ -466,10 +466,10 @@ describe("VeLogsService", () => {
 
       // In production mode, should use ssh command
       const firstCall = mockSpawnAsync.mock.calls[0];
-      expect(firstCall[0]).toBe("ssh");
-      expect(firstCall[1]).toContain("root@testhost");
-      expect(firstCall[1]).toContain("-p");
-      expect(firstCall[1]).toContain("22");
+      expect(firstCall![0]).toBe("ssh");
+      expect(firstCall![1]).toContain("root@testhost");
+      expect(firstCall![1]).toContain("-p");
+      expect(firstCall![1]).toContain("22");
     });
 
     it("should prepend root@ to host if not specified", async () => {
@@ -491,8 +491,8 @@ describe("VeLogsService", () => {
       await service.getConsoleLogs({ vmId: 100 });
 
       const firstCall = mockSpawnAsync.mock.calls[0];
-      expect(firstCall[1]).toContain("root@myserver");
-      expect(firstCall[1]).toContain("2222");
+      expect(firstCall![1]).toContain("root@myserver");
+      expect(firstCall![1]).toContain("2222");
     });
   });
 

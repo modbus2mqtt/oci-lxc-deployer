@@ -42,8 +42,8 @@ describe("ScriptValidator - Library validation", () => {
     );
 
     expect(errors.length).toBe(1);
-    expect(errors[0].message).toContain("contains template variables");
-    expect(errors[0].message).toContain("variable");
+    expect(errors[0]!.message).toContain("contains template variables");
+    expect(errors[0]!.message).toContain("variable");
   });
 
   it("should error when library file not found", () => {
@@ -60,8 +60,8 @@ describe("ScriptValidator - Library validation", () => {
     );
 
     expect(errors.length).toBe(1);
-    expect(errors[0].message).toContain("Library file not found");
-    expect(errors[0].message).toContain("non-existent-library.sh");
+    expect(errors[0]!.message).toContain("Library file not found");
+    expect(errors[0]!.message).toContain("non-existent-library.sh");
   });
 
   it("should pass validation when library contains no template variables", () => {
@@ -96,7 +96,7 @@ describe("ScriptValidator - Library validation", () => {
     );
 
     expect(errors.length).toBe(1);
-    expect(errors[0].message).toContain("scriptPathes not provided");
+    expect(errors[0]!.message).toContain("scriptPathes not provided");
   });
 
   it("should error when library file cannot be read", () => {

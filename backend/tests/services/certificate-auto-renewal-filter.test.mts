@@ -42,7 +42,7 @@ describe("filterRenewableCerts", () => {
 
     expect(selfSigned).toHaveLength(1);
     expect(toRenew).toHaveLength(1);
-    expect(toRenew[0].hostname).toBe("postgres");
+    expect(toRenew[0]!.hostname).toBe("postgres");
   });
 
   it("should skip non-server certtypes", () => {
@@ -87,6 +87,6 @@ describe("filterRenewableCerts", () => {
     const { selfSigned, toRenew } = filterRenewableCerts(certs);
 
     expect(selfSigned).toHaveLength(1);
-    expect(toRenew[0].hostname).toBe("postgres");
+    expect(toRenew[0]!.hostname).toBe("postgres");
   });
 });

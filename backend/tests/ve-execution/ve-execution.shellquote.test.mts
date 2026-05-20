@@ -43,7 +43,7 @@ describe("ProxmoxExecution shell quoting", () => {
     env.cleanup();
   });
 
-  it("should execute a shell script with special characters via runOnProxmoxHost", () => {
+  it("should execute a shell script with special characters via runOnProxmoxHost", async () => {
     // Prepare a shell script with special characters
     const script =
       'echo "foo && bar; $PATH \'quoted\' \\"double\\" \\`backtick\\`"';
@@ -76,16 +76,16 @@ describe("ProxmoxExecution shell quoting", () => {
         index: 0,
       };
     };
-    exec.run = function () {
-      const msg = this.runOnVeHost(command.command!, command, 10000);
+    exec.run = async function () {
+      const msg = await this.runOnVeHost(command.command!, command, 10000);
       return {
         lastSuccessfull: msg.exitCode === 0 ? 0 : -1,
         inputs: [],
         outputs: [],
         defaults: [],
-      };
+      } as never;
     };
-    const result = exec.run();
+    const result = await exec.run();
     expect(result?.lastSuccessfull).toBe(0);
   });
 

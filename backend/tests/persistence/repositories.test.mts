@@ -5,6 +5,7 @@ import os from "node:os";
 import { FileSystemRepositories } from "@src/persistence/repositories.mjs";
 import { FileSystemPersistence } from "@src/persistence/filesystem-persistence.mjs";
 import { TemplateResolver } from "@src/templates/template-resolver.mjs";
+import { JsonValidator } from "@src/jsonvalidator.mjs";
 import type { IConfiguredPathes } from "@src/backend-types.mjs";
 
 describe("FileSystemRepositories", () => {
@@ -41,7 +42,10 @@ describe("FileSystemRepositories", () => {
     fs.mkdirSync(schemaPath, { recursive: true });
 
     pathes = { jsonPath, localPath, schemaPath };
-    persistence = new FileSystemPersistence(pathes);
+    // Empty schema-list keeps the test self-contained; tests don't exercise
+    // JSON schema validation here.
+    const jsonValidator = new JsonValidator(schemaPath, []);
+    persistence = new FileSystemPersistence(pathes, jsonValidator, false);
     repositories = new FileSystemRepositories(pathes, persistence, false); // disable cache for tests
   });
 

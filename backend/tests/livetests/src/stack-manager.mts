@@ -157,8 +157,12 @@ export async function ensureStacks(
     if (addonStacktypeCache && p.scenario.selectedAddons) {
       for (const addonId of p.scenario.selectedAddons) {
         const addonSt = addonStacktypeCache.get(addonId);
-        if (addonSt && !stacktypes.includes(addonSt)) {
-          stacktypes.push(addonSt);
+        if (!addonSt) continue;
+        // addonSt is `string | string[]`; flatten so each stacktype joins the
+        // per-VM stacktype list independently.
+        const sts = Array.isArray(addonSt) ? addonSt : [addonSt];
+        for (const st of sts) {
+          if (!stacktypes.includes(st)) stacktypes.push(st);
         }
       }
     }

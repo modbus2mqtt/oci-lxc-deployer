@@ -1,6 +1,6 @@
 import { ApplicationLoader } from "@src/apploader.mjs";
 import { FileSystemPersistence } from "@src/persistence/filesystem-persistence.mjs";
-import { ITemplateReference } from "@src/backend-types.mjs";
+import { ITemplateReference, IReadApplicationOptions } from "@src/backend-types.mjs";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   createTestEnvironment,
@@ -26,6 +26,7 @@ function getTemplateName(
 ): string | undefined {
   if (!templates || index >= templates.length) return undefined;
   const t = templates[index];
+  if (!t) return undefined;
   return typeof t === "string" ? t : t.name;
 }
 

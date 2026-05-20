@@ -119,6 +119,13 @@ export interface ResolvedScenario extends TestScenario {
    * derived from app metadata and scenario configuration.
    */
   computedTags?: string[];
+  /**
+   * Filesystem directory of the application that defines this scenario,
+   * e.g. `json/applications/proxvex`. Used by the runtime spec-resolver to
+   * walk the `extends` chain when locating Playwright spec files. Set by the
+   * coverage analyzer / scenario loader; absent for API-delivered scenarios.
+   */
+  appDir?: string;
 }
 
 /** Planned scenario ready for execution */

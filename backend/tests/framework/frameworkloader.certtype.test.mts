@@ -89,12 +89,12 @@ describe("FrameworkLoader certtype", () => {
     );
 
     // Find the content parameter (first parameter)
-    const contentParam = templateContent.parameters?.find(
+    const contentParam = (templateContent as { parameters?: { id: string; upload?: boolean; certtype?: string }[] }).parameters?.find(
       (p: any) => p.id === "upload_server_crt_content",
     );
     expect(contentParam).toBeDefined();
-    expect(contentParam.upload).toBe(true);
-    expect(contentParam.certtype).toBe("server");
+    expect(contentParam?.upload).toBe(true);
+    expect(contentParam?.certtype).toBe("server");
   }, 60000);
 
   it("should generate upload template without certtype when not set", async () => {
@@ -131,11 +131,11 @@ describe("FrameworkLoader certtype", () => {
       "applications/test-no-certtype-app/templates/0-upload-app-conf.json",
     );
 
-    const contentParam = templateContent.parameters?.find(
-      (p: any) => p.id === "upload_app_conf_content",
+    const contentParam = (templateContent as { parameters?: { id: string; upload?: boolean; certtype?: string }[] }).parameters?.find(
+      (p) => p.id === "upload_app_conf_content",
     );
     expect(contentParam).toBeDefined();
-    expect(contentParam.upload).toBe(true);
-    expect(contentParam.certtype).toBeUndefined();
+    expect(contentParam?.upload).toBe(true);
+    expect(contentParam?.certtype).toBeUndefined();
   }, 60000);
 });

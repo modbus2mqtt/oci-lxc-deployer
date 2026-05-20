@@ -39,12 +39,15 @@ describe("VeExecution host: flow", () => {
   function setupVEContext(): void {
     const pm = PersistenceManager.getInstance();
     const storage = pm.getContextManager();
+    // setVEContext accepts ISsh (host/port/user); the runtime VEContext gains
+    // getStorageContext + getKey via the ContextManager. Cast keeps the test
+    // input ergonomic without exposing those extras at the ISsh-type seam.
     storage.setVEContext({
       host: "localhost",
       port: 22,
       getStorageContext: () => storage,
       getKey: () => "ve_localhost",
-    });
+    } as unknown as Parameters<typeof storage.setVEContext>[0]);
   }
 
   /**

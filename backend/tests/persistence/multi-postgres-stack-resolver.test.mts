@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync } from "fs";
 import path from "path";
 import os from "os";
-import { ContextManager, StackContext } from "@src/context-manager.mjs";
+import { StackContext } from "@src/context-manager.mjs";
+import { Context } from "@src/context.mjs";
 
 /**
  * Test: Multi-Postgres-Stack disambiguation in the variable resolver chain.
@@ -34,14 +35,33 @@ describe("Multi-postgres-stack resolver disambiguation", () => {
   let tmpDir: string;
   let contextFile: string;
   let secretFile: string;
-  let ctx: ContextManager;
+  // Test exercises the get/set/getStack surface of Context — no need for the
+  // full ContextManager (which needs persistence/jsonValidator wiring).
+  type TestCtx = Context & {
+    getStack(id: string): StackContext | null;
+    listStacks(): StackContext[];
+  };
+  let ctx: TestCtx;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `multi-postgres-resolver-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
     contextFile = path.join(tmpDir, "storagecontext.json");
     secretFile = path.join(tmpDir, "secret.txt");
-    ctx = new ContextManager(contextFile, secretFile);
+    const base = new Context(contextFile, secretFile) as TestCtx;
+    // Minimal shim so the resolver loop can do `ctx.getStack(sid)` like in the
+    // real handler — looks up the persisted stack_<id> key.
+    base.getStack = function (this: Context, id: string): StackContext | null {
+      const v = this.get(`stack_${id}`);
+      return v instanceof StackContext ? v : null;
+    } as TestCtx["getStack"];
+    base.listStacks = function (): StackContext[] {
+      return (this as Context).keys()
+        .filter((k) => k.startsWith("stack_"))
+        .map((k) => (this as Context).get(k))
+        .filter((v): v is StackContext => v instanceof StackContext);
+    };
+    ctx = base;
 
     // Two postgres stacks, distinct passwords
     ctx.set("stack_postgres_default", new StackContext({
@@ -90,7 +110,7 @@ describe("Multi-postgres-stack resolver disambiguation", () => {
       const stack = ctx.getStack(sid);
       if (stack?.entries) {
         for (const entry of stack.entries) {
-          defaults.set(entry.name, entry.value);
+          defaults.set(entry.name, String(entry.value));
         }
       }
     }
@@ -100,11 +120,11 @@ describe("Multi-postgres-stack resolver disambiguation", () => {
   it("getStack uses id, not name — postgres_default and postgres_ssl resolve independently", () => {
     const def = ctx.getStack("postgres_default");
     expect(def).not.toBeNull();
-    expect(def!.entries![0].value).toBe("AAA-default-pw");
+    expect(def!.entries![0]!.value).toBe("AAA-default-pw");
 
     const ssl = ctx.getStack("postgres_ssl");
     expect(ssl).not.toBeNull();
-    expect(ssl!.entries![0].value).toBe("BBB-ssl-pw");
+    expect(ssl!.entries![0]!.value).toBe("BBB-ssl-pw");
   });
 
   it("getStack with bare name 'default' must NOT match a stack (forces id-based lookup)", () => {

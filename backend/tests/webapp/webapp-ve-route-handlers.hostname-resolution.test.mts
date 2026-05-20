@@ -5,7 +5,7 @@ import * as containerListService from "@src/services/container-list-service.mjs"
 import {
   createTestEnvironment,
   type TestEnvironment,
-} from "../helper/test-environment.mts";
+} from "../helper/test-environment.mjs";
 
 vi.mock("@src/services/container-list-service.mjs", () => ({
   listManagedContainers: vi.fn(),

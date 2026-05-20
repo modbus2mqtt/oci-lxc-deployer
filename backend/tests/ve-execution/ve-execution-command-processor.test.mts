@@ -1082,9 +1082,7 @@ print(result)
 
       const outputs = new Map<string, string | number | boolean>();
       outputs.set("vm_id", 203);
-      const inputs = [
-        { id: "vm_id", value: 203 as string | number | boolean },
-      ];
+      const inputs: Record<string, string | number | boolean> = { vm_id: 203 };
       const defaults = new Map<string, string | number | boolean>();
       defaults.set("uid", "1000");
       defaults.set("gid", "1000");
@@ -1129,9 +1127,7 @@ print(result)
 
       const outputs = new Map<string, string | number | boolean>();
       outputs.set("vm_id", 203);
-      const inputs = [
-        { id: "vm_id", value: 203 as string | number | boolean },
-      ];
+      const inputs: Record<string, string | number | boolean> = { vm_id: 203 };
       const defaults = new Map<string, string | number | boolean>();
       defaults.set("uid", "1000");
       const variableResolver = new VariableResolver(

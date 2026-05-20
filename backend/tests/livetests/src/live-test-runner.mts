@@ -33,7 +33,7 @@ import { TestResultWriter } from "./test-result-writer.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { ResolvedScenario, PlannedScenario } from "./livetest-types.mjs";
+import type { ResolvedScenario, PlannedScenario, E2EConfig, ParamEntry } from "./livetest-types.mjs";
 import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
@@ -85,11 +85,11 @@ function loadConfig(instanceName?: string): {
   veHost: string;
   veSshPort: number;
   vmId: number;
-  snapshot: { enabled: boolean } | undefined;
-  registryMirror: { dnsForwarder: string } | undefined;
+  snapshot?: { enabled: boolean };
+  registryMirror?: { dnsForwarder: string };
   portForwarding: Array<{ port: number; hostname: string; ip: string; containerPort: number }>;
   nestedVmIp: string;
-  zitadelPat: string | undefined;
+  zitadelPat?: string;
 } {
   const projectRoot = path.resolve(import.meta.dirname, "../../../..");
   const configPath = path.join(projectRoot, "e2e/config.json");
@@ -150,6 +150,9 @@ function loadConfig(instanceName?: string): {
   // org permissions. Resolved like other strings (env var interpolation).
   const zitadelPat = inst.zitadelPat ? resolveEnv(inst.zitadelPat) : undefined;
 
+  // exactOptionalPropertyTypes treats `T | undefined` differently from `T?` —
+  // optional fields must be OMITTED when absent, not assigned `undefined`. Hence
+  // the conditional spreads for snapshot/registryMirror/zitadelPat.
   return {
     instance,
     pveHost,
@@ -165,13 +168,13 @@ function loadConfig(instanceName?: string): {
     veHost,
     veSshPort,
     vmId: inst.vmId,
-    snapshot,
-    registryMirror,
+    ...(snapshot ? { snapshot } : {}),
+    ...(registryMirror ? { registryMirror } : {}),
     portForwarding,
     // Nested VM static IP (always .10 in step1's subnet allocation). Used by
     // outer-host iptables DNAT rules so port-forwards reach the right nested VM.
     nestedVmIp: `${inst.subnet}.10`,
-    zitadelPat,
+    ...(zitadelPat ? { zitadelPat } : {}),
   };
 }
 
@@ -425,6 +428,16 @@ async function main() {
   // Default to extLog when livetest is run without --debug, so livetest-results
   // always carry a debug bundle. Suppress with --debug off.
   if (!debugLevel) debugLevel = "extLog";
+
+  // --volume-storage <name>: pin every scenario in this run to one zfspool
+  // storage. step3 uses this to spread cluster-builds across local-zfs/2/3/4
+  // (one cluster per storage → all CTs of one cluster on the same pool, so
+  // `pct clone`/`pct rollback` inside the chain stays ZFS-CoW-fast and the
+  // distribution across clusters keeps parallel snapshot-restores lock-free).
+  // Without the flag, scenarios pick their storage hierarchically:
+  //   1. dependency inheritance (same storage as existing dep CT) → CoW
+  //   2. round-robin by index → spread cluster-roots evenly
+  const volumeStorageOverride = popValueFlag(args, "--volume-storage");
 
   const positionalArgs = args.filter((a, i, arr) =>
     a !== "--fixtures" &&
@@ -777,10 +790,10 @@ async function main() {
     result = await executeScenariosParallel(
       planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
       appStackIdsMap, resultWriter, fixtureBaseDir,
-      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode },
+      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) },
     );
   } else {
-    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode });
+    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) });
   }
   const allResults = [result];
 
@@ -872,11 +885,15 @@ async function ensureSpokeMatchesBuild(
     dirty?: boolean;
   };
 
-  let spokeVersion: { gitHash?: string; dirty?: boolean; buildTime?: string; startTime?: string } | null = null;
+  type SpokeVersion = { gitHash?: string; dirty?: boolean; buildTime?: string; startTime?: string };
+  let spokeVersion: SpokeVersion | null = null;
   try {
     const resp = await fetch(`${apiUrl}/api/version`, { signal: AbortSignal.timeout(5000) });
     if (resp.ok) {
-      spokeVersion = (await resp.json()) as typeof spokeVersion;
+      // Naming the type rather than `typeof spokeVersion` avoids a tsc edge
+      // case where the self-referential `typeof` narrows the cast target to
+      // `never` after the initial `= null` flow analysis.
+      spokeVersion = (await resp.json()) as SpokeVersion;
     }
   } catch {
     // pre-flight endpoint may not exist on older spokes — treat as mismatch
