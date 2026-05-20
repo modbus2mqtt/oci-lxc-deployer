@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ResolvedScenario, PlannedScenario, TestResult } from "./livetest-types.mjs";
 import { Verifier, buildDefaultVerify, type AppMeta } from "./verifier.mjs";
-import { logOk, logFail, logWarn, logInfo, logStep } from "./log-helpers.mjs";
+import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type ScenarioLogContext } from "./log-helpers.mjs";
 import { resolveVolumeStorage } from "./live-test-runner.mjs";
 import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
@@ -501,7 +501,26 @@ export async function executeScenarios(
   // fail-fast decision is deferred to the driver via `{type:"crashed"}`.
   // The self-contained try/catch/finally (crash safety + source-clone
   // cleanup) is preserved exactly.
+  // Best-effort POST of buffered runner events into the per-restartKey
+  // debug bundle. Drains the context buffer on each call. Silent on
+  // network errors — these events are diagnostic-only.
+  const flushRunnerEvents = async (ctx: ScenarioLogContext): Promise<void> => {
+    if (!ctx.restartKey || ctx.buffer.length === 0) return;
+    const events = ctx.buffer.splice(0);
+    try {
+      await fetch(`${apiUrl}/api/ve/debug/${ctx.restartKey}/external-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch { /* best-effort */ }
+  };
+
   const runStep = async (i: number): Promise<StepOutcome> => {
+    const step0 = planned[i]!;
+    const ctx: ScenarioLogContext = { scenarioId: step0.scenario.id, buffer: [] };
+    return scenarioLogContext.run(ctx, async (): Promise<StepOutcome> => {
       const step = planned[i]!;
       const scenario = step.scenario;
       const task = scenario.task || "installation";
@@ -605,17 +624,24 @@ export async function executeScenarios(
         // result directory only carries the artefact for the test the user
         // actually asked for.
         //
-        // Under `--parallel` (concurrency > 1) the backend's debug-log sink
-        // (`Logger.setDebugSink`, webapp-ve-execution-setup.mts) is a global
-        // singleton keyed by restartKey — concurrent deploys would clobber
-        // each other's bundle. Rather than touch that single-task production
-        // path, the parallel driver simply does not engage it: per-scenario
-        // test-result.md + Playwright artefacts (own dirs) are unaffected;
-        // only the deployer debug-log bundle is omitted in parallel mode.
+        // Under `--parallel` (concurrency > 1) the bundle still runs:
+        // - Runner events flow into the correct bundle via the restartKey-
+        //   tagged endpoint `POST /api/ve/debug/:restartKey/external-events`
+        //   (see log-helpers AsyncLocalStorage). Cross-bundle isolation: ✓.
+        // - Backend stderr / script events route through messageManager,
+        //   which is already restartKey-keyed (since the recent
+        //   `getExecuteMessages` filter): ✓.
+        // - The deployer-side `Logger.setDebugSink` is the lone process-
+        //   global state ("single concurrent task is the current assumption"
+        //   in webapp-ve-execution-setup.mts). Lines tagged with the
+        //   currently-active restartKey may leak across bundles. Accepted
+        //   trade-off for now: three of four event sources are clean per
+        //   bundle, which is a net win over the previous "no bundle at all
+        //   under --parallel". Tightening the Logger sink to per-deploy
+        //   AsyncLocalStorage is a separate, optional follow-up.
         ...(options?.debugLevel
           && options.debugLevel !== "off"
           && !step.isDependency
-          && concurrency <= 1
           ? [{ name: "debug_level", value: options.debugLevel }]
           : []),
       ];
@@ -958,6 +984,13 @@ export async function executeScenarios(
         paramsFile, allAddons, scenario.cli_timeout, scenarioFixtureDir,
         useOidc ? oidcCredentials : undefined,
       );
+      // restartKey is now known → bind it to this scenario's log context and
+      // ship the buffered pre-CLI events into the bundle right away. The
+      // final flush at iteration-end picks up everything after.
+      if (cliResult.restartKey) {
+        ctx.restartKey = cliResult.restartKey;
+        await flushRunnerEvents(ctx);
+      }
 
       // expect2fail: if the scenario declares specific templates expected
       // to fail with specific exit codes, evaluate those expectations against
@@ -1046,6 +1079,19 @@ export async function executeScenarios(
       if (cliResult.exitCode !== 0) {
         const errMsg = `Scenario failed: ${scenario.id} (${task})`;
         logFail(errMsg);
+        // Surface the CLI's actual output (Backend-Antwort + stderr) so the
+        // runner log doesn't just say "Execution failed at step 'Failed'".
+        // Tagged with the scenario id so log readers can correlate under
+        // --parallel where lines interleave.
+        if (cliResult.output && cliResult.output.trim()) {
+          const tag = `[${scenario.id}]`;
+          for (const line of cliResult.output.trimEnd().split("\n")) {
+            logInfo(`${tag} ${line}`);
+          }
+        }
+        if (cliResult.restartKey) {
+          logInfo(`[${scenario.id}] restartKey=${cliResult.restartKey}`);
+        }
 
         // Collect failure logs BEFORE rollback (VM still in broken state)
         const failureLogs = collectFailureLogs(
@@ -1604,7 +1650,13 @@ export async function executeScenarios(
             } catch { /* best-effort */ }
           }
         }
+        // Final flush: send any remaining buffered runner events to the
+        // bundle before runStep returns. restartKey may be unset (deploy
+        // didn't reach the CLI summary line); in that case the events stay
+        // in console output only.
+        await flushRunnerEvents(ctx);
       }
+    });
   };
 
   // Apply the partition-after-failure bookkeeping for a failed scenario:

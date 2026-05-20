@@ -330,8 +330,12 @@ export class CliApiClient {
   async getExecuteMessages(
     veCtx: string,
     since?: number,
+    restartKey?: string,
   ): Promise<IVeExecuteMessagesResponse> {
-    const query = since !== undefined ? `?since=${since}` : "";
+    const parts: string[] = [];
+    if (since !== undefined) parts.push(`since=${since}`);
+    if (restartKey) parts.push(`restartKey=${encodeURIComponent(restartKey)}`);
+    const query = parts.length > 0 ? `?${parts.join("&")}` : "";
     return this.request("GET", `/api/${veCtx}/ve/execute${query}`);
   }
 

@@ -19,7 +19,7 @@
 # (945-host-check-cert-issuer compares the issuer against an expected pattern).
 
 CF_API_TOKEN="{{ CF_TOKEN }}"
-ACME_DOMAIN="{{ acme_domain }}"
+ACME_SAN="{{ acme_san }}"
 ACME_EMAIL="{{ acme_email }}"
 CERT_DIR="{{ acme.cert_dir }}"
 NEEDS_CA_CERT="{{ acme.needs_ca_cert }}"
@@ -31,6 +31,21 @@ APP_UID="${1:-0}"
 APP_GID="${2:-0}"
 ACME_HOME="/root/.acme.sh"
 RELOAD_SCRIPT="/etc/proxvex/reload_certificates"
+
+# acme_san is comma-separated (e.g. "example.com,www.example.com"). The
+# primary domain (first entry) is used for --list/--renew/--install-cert
+# lookups, every entry is passed as a separate -d to --issue.
+# Empty/NOT_DEFINED handling: addon-acme is only active when acme_san is set
+# (validated by conf-write-on-start-scripts.sh), but be defensive.
+[ "$ACME_SAN" = "NOT_DEFINED" ] && ACME_SAN=""
+PRIMARY_DOMAIN=$(printf '%s' "$ACME_SAN" | cut -d, -f1 | tr -d ' ')
+build_acme_d_args() {
+  # Echoes "-d san1 -d san2 ..." with each comma-separated entry trimmed.
+  printf '%s' "$ACME_SAN" | tr ',' '\n' | while IFS= read -r _san; do
+    _san=$(printf '%s' "$_san" | tr -d ' ')
+    [ -n "$_san" ] && printf -- '-d %s ' "$_san"
+  done
+}
 
 # --- Check if renewal loop already running ---
 if pgrep -f "acme-renew-loop" >/dev/null 2>&1; then
@@ -127,9 +142,14 @@ fi
 
 # --- Function: issue or renew certificate ---
 acme_issue_or_renew() {
+  if [ -z "$PRIMARY_DOMAIN" ]; then
+    echo "ERROR: acme_san is empty — nothing to issue" >&2
+    return 1
+  fi
   export CF_Token="$CF_API_TOKEN"
 
-  ACME_ARGS="--dns dns_cf -d $ACME_DOMAIN"
+  ACME_D_ARGS=$(build_acme_d_args)
+  ACME_ARGS="--dns dns_cf ${ACME_D_ARGS}"
   if [ "$ACME_STAGING" = "true" ]; then
     ACME_ARGS="$ACME_ARGS --server letsencrypt_test"
   fi
@@ -140,9 +160,9 @@ acme_issue_or_renew() {
     INSTALL_ARGS="$INSTALL_ARGS --ca-file ${CERT_DIR}/chain.pem"
   fi
 
-  # Issue certificate if not yet issued for this domain
-  if ! "$ACME_HOME/acme.sh" --list | grep -q "$ACME_DOMAIN"; then
-    echo "Issuing certificate for $ACME_DOMAIN..." >&2
+  # Issue certificate if not yet issued for this primary domain
+  if ! "$ACME_HOME/acme.sh" --list | grep -q "$PRIMARY_DOMAIN"; then
+    echo "Issuing certificate for ${PRIMARY_DOMAIN} (SAN: ${ACME_SAN})..." >&2
     "$ACME_HOME/acme.sh" --issue $ACME_ARGS >&2
     ISSUE_RC=$?
     if [ $ISSUE_RC -ne 0 ] && [ $ISSUE_RC -ne 2 ]; then
@@ -150,14 +170,14 @@ acme_issue_or_renew() {
       return 1
     fi
   else
-    echo "Certificate for $ACME_DOMAIN already issued, attempting renewal..." >&2
-    "$ACME_HOME/acme.sh" --renew -d "$ACME_DOMAIN" >&2 || true
+    echo "Certificate for $PRIMARY_DOMAIN already issued, attempting renewal..." >&2
+    "$ACME_HOME/acme.sh" --renew -d "$PRIMARY_DOMAIN" >&2 || true
   fi
 
-  # Install certificate files to target directory
+  # Install certificate files to target directory (always keyed by primary domain)
   mkdir -p "$CERT_DIR"
   echo "Installing certificate files to $CERT_DIR..." >&2
-  "$ACME_HOME/acme.sh" --install-cert -d "$ACME_DOMAIN" $INSTALL_ARGS >&2
+  "$ACME_HOME/acme.sh" --install-cert -d "$PRIMARY_DOMAIN" $INSTALL_ARGS >&2
   if [ $? -ne 0 ]; then
     echo "ERROR: Failed to install certificate files" >&2
     return 1
@@ -180,20 +200,25 @@ acme_issue_or_renew() {
 acme_issue_or_renew || true
 
 # --- Start background renewal loop ---
+# Use absolute path /bin/sh: the on_start hook context has a sparse PATH
+# (observed: `exec: line N: sh: not found` → exit 127 → renewal loop dies
+# silently). Both Alpine and Debian provide /bin/sh, so an absolute path is
+# portable and bypasses the PATH-lookup race entirely.
+# `exec -a` (set argv[0]) is supported by both bash and busybox-ash, used
+# here purely so pgrep can detect a running loop by name.
 (
-  # Tag the process for pgrep detection
-  exec -a acme-renew-loop sh -c '
+  exec -a acme-renew-loop /bin/sh -c '
     while true; do
       sleep 86400
       echo "[acme-renew-loop] Checking certificate renewal..." >&2
-      "'"$ACME_HOME"'/acme.sh" --renew -d "'"$ACME_DOMAIN"'" >&2 || true
+      "'"$ACME_HOME"'/acme.sh" --renew -d "'"$PRIMARY_DOMAIN"'" >&2 || true
 
       # Reinstall cert files (server cert always; CA chain conditional)
       INSTALL_ARGS="--key-file '"${CERT_DIR}"'/privkey.pem --cert-file '"${CERT_DIR}"'/cert.pem --fullchain-file '"${CERT_DIR}"'/fullchain.pem"
       if [ "'"$NEEDS_CA_CERT"'" = "true" ]; then
         INSTALL_ARGS="$INSTALL_ARGS --ca-file '"${CERT_DIR}"'/chain.pem"
       fi
-      "'"$ACME_HOME"'/acme.sh" --install-cert -d "'"$ACME_DOMAIN"'" $INSTALL_ARGS >&2 || true
+      "'"$ACME_HOME"'/acme.sh" --install-cert -d "'"$PRIMARY_DOMAIN"'" $INSTALL_ARGS >&2 || true
 
       # Set ownership
       if [ "'"$APP_UID"'" != "0" ] || [ "'"$APP_GID"'" != "0" ]; then

@@ -25,6 +25,12 @@ type TraceEvent =
     }
   | {
       ts: number;
+      source: "runner";
+      level: "info" | "ok" | "warn" | "fail" | "step" | "debug";
+      msg: string;
+    }
+  | {
+      ts: number;
       source: "substitution";
       varName: string;
       redactedValue: string;
@@ -170,6 +176,35 @@ export class WebAppDebugCollector {
       component: entry.component,
       msg: entry.message,
       ...(entry.meta ? { meta: entry.meta } : {}),
+    });
+  }
+
+  /**
+   * Attach an externally-sourced event from the livetest runner. The runner
+   * (`live-test-runner.mts` and its helpers in `log-helpers.mts`) holds
+   * per-scenario context that the deployer never sees — preFlight / verify /
+   * snapshot / janitor / Playwright / cleanup events. Posting them into the
+   * collector via `POST /api/debug/external-events` lets the unified bundle
+   * timeline interleave runner + backend events for diagnosis. Events
+   * arriving after `finish()` are appended to the in-memory entry; whether
+   * they make it into the rendered bundle depends on render timing — the
+   * runner posts them BEFORE downloading the bundle, so they normally do.
+   */
+  attachRunnerEvent(
+    restartKey: string,
+    event: {
+      ts: number;
+      level: "info" | "ok" | "warn" | "fail" | "step" | "debug";
+      msg: string;
+    },
+  ): void {
+    const e = this.entries.get(restartKey);
+    if (!e) return;
+    e.events.push({
+      ts: event.ts,
+      source: "runner",
+      level: event.level,
+      msg: event.msg,
     });
   }
 
@@ -595,6 +630,8 @@ export class WebAppDebugCollector {
           vmId: e.vmId,
           line: e.line,
         };
+      if (e.source === "runner")
+        return { ts: e.ts, source: "runner", level: e.level, msg: e.msg };
       return {
         ts: e.ts,
         source: "substitution",
@@ -782,6 +819,7 @@ function renderTraceHtml(events: TraceEvent[]): string {
     subst: false,
     applogLxc: false,
     applogDocker: false,
+    runner: false,
     debug: false,
     info: false,
     warn: false,
@@ -796,11 +834,13 @@ function renderTraceHtml(events: TraceEvent[]): string {
       if (e.channel === "lxc") present.applogLxc = true;
       else present.applogDocker = true;
     } else if (e.source === "substitution") present.subst = true;
+    else if (e.source === "runner") present.runner = true;
   }
 
   const filters: string[] = [];
   const filter = (cls: string, label: string) =>
     `<label><input type="checkbox" class="${cls}" checked /> ${label}</label>`;
+  if (present.runner) filters.push(filter("filter-runner", "Runner"));
   if (present.logger) filters.push(filter("filter-logger", "Logger"));
   if (present.stderr) filters.push(filter("filter-stderr", "Stderr"));
   if (present.applogLxc)
@@ -828,6 +868,9 @@ function renderTraceHtml(events: TraceEvent[]): string {
       // The docker line already carries the compose service prefix
       // ("<service>-1  | …") so the originating service stays visible.
       return `<div class="tr source-applog channel-${e.channel}"><span class="ts">${t}</span><span class="tag">[applog:${e.channel}]</span><span class="component">[ct ${e.vmId}]</span><span class="msg">${escapeHtml(e.line)}</span></div>`;
+    }
+    if (e.source === "runner") {
+      return `<div class="tr source-runner level-${e.level}"><span class="ts">${t}</span><span class="tag">[runner:${e.level}]</span><span class="msg">${escapeHtml(e.msg)}</span></div>`;
     }
     const secureMark = e.secure ? " (secure)" : "";
     return `<div class="tr source-subst"><span class="ts">${t}</span><span class="tag">[subst]</span><span class="msg">${escapeHtml(e.varName)}=${escapeHtml(e.redactedValue)}${secureMark} (line ${e.line})</span></div>`;

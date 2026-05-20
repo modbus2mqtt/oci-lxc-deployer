@@ -1,7 +1,14 @@
 {
   "execute_on": "ve",
   "name": "Check Volume Consistency",
-  "description": "Scans all active rootdir storages for orphan volumes (vmid gone, unmounted, dangling ZFS snapshots). Fails the deployment if inconsistencies are found.",
+  "description": "Validates that volumes owned by THIS install (vm_id, plus previous_vm_id in replace_ct flows) are in a consistent state on host storage. Does not scan other VMs — system-wide hygiene is a separate concern.",
+  "skip_if_all_missing": [
+    "previous_vm_id"
+  ],
+  "parameters": [
+    "vm_id",
+    "previous_vm_id"
+  ],
   "commands": [
     {
       "name": "Check Volume Consistency",

@@ -308,12 +308,15 @@ export class RemoteCli {
       process.stderr.write("Execution started. Polling for progress...\n");
     }
 
-    // 10. Poll for progress
+    // 10. Poll for progress — scope to this deploy's restartKey so parallel
+    // CLI processes against the same VE host don't see each other's messages
+    // (see backend webapp-ve-route-handlers.handleGetMessages).
     const progress = new CliProgress(this.client, veContext, {
       quiet: this.options.quiet ?? false,
       json: this.options.json ?? false,
       verbose: this.options.verbose ?? false,
       timeout: this.options.timeout,
+      ...(configResp.restartKey ? { restartKey: configResp.restartKey } : {}),
     });
 
     // poll() throws ExecutionFailedError / TimeoutError on script failure.

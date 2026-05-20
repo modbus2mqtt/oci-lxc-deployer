@@ -7,6 +7,12 @@ export interface ProgressOptions {
   json?: boolean;
   verbose?: boolean;
   timeout: number;
+  /** Filter polled messages to this restartKey only — required under
+   *  parallel livetest runs, where multiple CLI processes share the same
+   *  VE host but each speaks for a single deploy. Without it the server
+   *  returns the union of all groups → each CLI sees other CLIs' errors.
+   */
+  restartKey?: string;
 }
 
 export class CliProgress {
@@ -30,7 +36,11 @@ export class CliProgress {
       let messages: IVeExecuteMessage[];
       try {
         const since = this.lastSeenIndex >= 0 ? this.lastSeenIndex : undefined;
-        const response = await this.client.getExecuteMessages(this.veContext, since);
+        const response = await this.client.getExecuteMessages(
+          this.veContext,
+          since,
+          this.options.restartKey,
+        );
         // Response is array of ISingleExecuteMessagesResponse
         const latest = response[response.length - 1];
         messages = latest?.messages ?? [];

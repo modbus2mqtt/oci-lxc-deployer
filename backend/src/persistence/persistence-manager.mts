@@ -342,6 +342,18 @@ export class PersistenceManager {
    * Hub-overrides under `local/shared/templates/` are never found.
    */
   rebindRepositoriesRoot(newLocalPath: string): void {
+    // Dedup: if the target already matches, skip the mutation. Otherwise
+    // every duplicate rebind (e.g. the redundant second one fired by the
+    // SSH-route handler right after Spoke startup) re-mutates `this.pathes`
+    // in-place and re-instantiates `this.repositories` — and any
+    // `getApplicationPaths`/`resolveTemplateRef` call concurrently in flight
+    // sees torn state (the pathes object reference is shared by handlers
+    // that captured it). Under `--parallel` livetest runs that race
+    // manifests as `Template file not found: [object Object]` because
+    // getApplicationPaths returns the wrong directory set mid-mutation.
+    if (this.pathes.localPath === newLocalPath) {
+      return;
+    }
     this.pathes.localPath = newLocalPath;
     this.repositories = new FileSystemRepositories(
       this.pathes,

@@ -7,7 +7,7 @@
   ],
   "parameters": [
     "CF_TOKEN",
-    "acme_domain",
+    "acme_san",
     "acme_email",
     "acme.cert_dir",
     "acme.needs_server_cert",
