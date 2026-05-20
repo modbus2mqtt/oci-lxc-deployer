@@ -1,0 +1,28 @@
+{
+  "name": "Seed Demo Data",
+  "description": "Runs the bootstrap.sh from the uploaded tgz to create Zitadel demo orgs/users + seed demo data. NOT for production — needs upstream bootstrap.sh patches that gate instance-feature mutations behind a flag (see plan, Open Question 8). Skipped when seed_demo_data is not set.",
+  "execute_on": "ve",
+  "skip_if_all_missing": [
+    "seed_demo_data"
+  ],
+  "parameters": [
+    "app_slug",
+    "app_subdomain",
+    "app_tgz_content",
+    "seed_demo_data",
+    "ZITADEL_HOST",
+    "ZITADEL_PROTO",
+    "ZITADEL_PORT",
+    "POSTGRES_HOST",
+    "POSTGRES_PASSWORD",
+    "DEPLOYER_OIDC_MACHINE_CLIENT_ID",
+    "DEPLOYER_OIDC_MACHINE_CLIENT_SECRET",
+    "DEPLOYER_OIDC_ISSUER_URL"
+  ],
+  "commands": [
+    {
+      "name": "Seed Demo Data",
+      "script": "seed-demo-data.sh"
+    }
+  ]
+}

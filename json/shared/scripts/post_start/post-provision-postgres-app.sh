@@ -7,7 +7,7 @@
 #
 # With PostgREST (with_postgrest=true):
 #   - API schema: <app_name>_api
-#   - Shared login role: api_login (created once, reused)
+#   - Shared authenticator login role: ${DB_LOGIN_ROLE} (default api_login, created once, reused)
 #   - Anon role: <app_name>_anon (read-only)
 #   - User role: <app_name>_user (full access)
 #
@@ -15,7 +15,8 @@
 #   - app_name: Application name (required)
 #   - app_password: Password for app user (default: app123)
 #   - with_postgrest: Create PostgREST roles (default: false)
-#   - api_login_password: Password for api_login (default: api_login_123)
+#   - api_login_password: Password for the authenticator role (default: api_login_123)
+#   - db_login_role: Authenticator role name (default: api_login)
 #   - database: Target database (default: postgres)
 #
 # Output: JSON to stdout (logs to stderr)
@@ -24,12 +25,14 @@ APP_NAME="{{ app_name }}"
 APP_PASSWORD="{{ app_password }}"
 WITH_POSTGREST="{{ with_postgrest }}"
 API_LOGIN_PASSWORD="{{ api_login_password }}"
+DB_LOGIN_ROLE="{{ db_login_role }}"
 DATABASE="{{ database }}"
 
 # Defaults
 APP_PASSWORD="${APP_PASSWORD:-app123}"
 WITH_POSTGREST="${WITH_POSTGREST:-false}"
 API_LOGIN_PASSWORD="${API_LOGIN_PASSWORD:-api_login_123}"
+case "$DB_LOGIN_ROLE" in ""|NOT_DEFINED) DB_LOGIN_ROLE="api_login" ;; esac
 DATABASE="${DATABASE:-postgres}"
 
 # Validate required parameters
@@ -102,17 +105,17 @@ API_SCHEMAS_LIST=""
 
 # PostgREST setup
 if [ "$WITH_POSTGREST" = "true" ]; then
-  echo "Setting up PostgREST roles..." >&2
+  echo "Setting up PostgREST roles (authenticator role: ${DB_LOGIN_ROLE})..." >&2
 
-  # Create shared api_login role if not exists
-  if role_exists "api_login"; then
-    echo "Role api_login already exists" >&2
+  # Create shared authenticator role if not exists
+  if role_exists "${DB_LOGIN_ROLE}"; then
+    echo "Role ${DB_LOGIN_ROLE} already exists" >&2
   else
-    echo "Creating shared api_login role..." >&2
+    echo "Creating shared ${DB_LOGIN_ROLE} authenticator role..." >&2
     run_sql_file >&2 <<EOF
-CREATE ROLE api_login NOINHERIT LOGIN PASSWORD '${API_LOGIN_PASSWORD}';
+CREATE ROLE ${DB_LOGIN_ROLE} NOINHERIT LOGIN PASSWORD '${API_LOGIN_PASSWORD}';
 CREATE ROLE api_anon NOLOGIN;
-GRANT api_anon TO api_login;
+GRANT api_anon TO ${DB_LOGIN_ROLE};
 EOF
   fi
 
@@ -138,9 +141,9 @@ EOF
   # Grant role switching and schema privileges
   echo "Granting PostgREST privileges..." >&2
   run_sql_file >&2 <<EOF
-GRANT ${APP_NAME}_anon TO api_login;
-GRANT ${APP_NAME}_user TO api_login;
-GRANT CONNECT ON DATABASE ${DATABASE} TO api_login;
+GRANT ${APP_NAME}_anon TO ${DB_LOGIN_ROLE};
+GRANT ${APP_NAME}_user TO ${DB_LOGIN_ROLE};
+GRANT CONNECT ON DATABASE ${DATABASE} TO ${DB_LOGIN_ROLE};
 GRANT USAGE ON SCHEMA ${APP_NAME}_api TO ${APP_NAME}_anon, ${APP_NAME}_user;
 GRANT SELECT ON ALL TABLES IN SCHEMA ${APP_NAME}_api TO ${APP_NAME}_anon;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ${APP_NAME}_api TO ${APP_NAME}_user;

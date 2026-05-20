@@ -1,0 +1,59 @@
+{
+  "name": "Zitadel-PostgREST SPA",
+  "description": "Installs an Angular SPA + PostgREST API + Zitadel-bootstrapped tenants from a *-proxvex.tgz packaged by zitadel-pgrst-auth/examples/packaging/pack-for-proxvex.sh. Provisions resources INTO existing nginx, postgres, postgrest, zitadel applications — no own container.",
+  "tags": [
+    "app",
+    "spa",
+    "auth"
+  ],
+  "parameters": [
+    "app_slug",
+    "app_subdomain",
+    "app_tgz_content",
+    "app_json_content",
+    "seed_demo_data",
+    "api_login_password"
+  ],
+  "properties": [
+    { "id": "app_name", "value": "{{ app_slug }}" },
+    { "id": "database_name", "value": "{{ app_slug }}" },
+    { "id": "database", "value": "{{ app_slug }}" },
+    { "id": "with_postgrest", "value": "true" },
+    { "id": "oidc_app_name", "value": "{{ app_slug }}" },
+    { "id": "oidc_project_name", "value": "{{ app_slug }}" },
+    { "id": "oidc_redirect_uri", "value": "https://{{ app_subdomain }}/callback" },
+    { "id": "oidc_post_logout_uri", "value": "https://{{ app_subdomain }}/" }
+  ],
+  "supported_addons": [
+    "addon-oidc"
+  ],
+  "oidc_roles": [
+    { "key": "admin", "display_name": "Administrator" },
+    { "key": "user", "display_name": "User" }
+  ],
+  "dependencies": [
+    { "application": "postgres" },
+    { "application": "postgrest" },
+    { "application": "nginx" },
+    { "application": "zitadel" }
+  ],
+  "installation": {
+    "image": [],
+    "create_ct": [],
+    "pre_start": [],
+    "post_start": [
+      "330-provision-postgres-app.template.json",
+      "220-apply-sql-migrations.json",
+      "240-deploy-spa-to-nginx.json",
+      "260-generate-spa-config.json",
+      "280-write-nginx-vhost.json",
+      "300-seed-demo-data.json",
+      "320-assert-postgrest-schema.json",
+      "340-reload-nginx.json"
+    ],
+    "check": [
+      "910-check-spa-served.json",
+      "915-check-postgrest-schema.json"
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Generate SPA Config",
+  "description": "Writes config.json to the deployed SPA's web root. Uses values known to proxvex (zitadel issuer, oidc client id from 150-conf-setup-oidc-client, subdomain) and optionally merges an uploaded app.json overlay for app-specific runtime data.",
+  "execute_on": "application:nginx",
+  "parameters": [
+    "app_slug",
+    "app_subdomain",
+    "app_json_content",
+    "oidc_issuer_url",
+    "oidc_client_id"
+  ],
+  "commands": [
+    {
+      "name": "Generate config.json",
+      "script": "generate-spa-config.sh"
+    }
+  ]
+}
