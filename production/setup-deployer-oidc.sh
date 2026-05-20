@@ -5,9 +5,10 @@ case "$0" in
   *)  _pvx_self="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")" || { echo "FATAL cwd-guard: cannot resolve $0" >&2; exit 2; } ;;
 esac
 _pvx_rr="$(cd "$(dirname "$_pvx_self")/.." 2>/dev/null && pwd)" || { echo "FATAL cwd-guard: cannot resolve repo root from $0" >&2; exit 2; }
-{ [ -f "$_pvx_rr/package.json" ] && [ -d "$_pvx_rr/e2e" ] && [ -d "$_pvx_rr/production" ]; } || { echo "FATAL cwd-guard: invalid repo root '$_pvx_rr' (from '$0')" >&2; exit 2; }
-if [ "$0" != "$_pvx_self" ]; then cd "$_pvx_rr" && exec "$_pvx_self" "$@"; fi
-cd "$_pvx_rr" || { echo "FATAL cwd-guard: cannot cd to '$_pvx_rr'" >&2; exit 2; }
+if [ -f "$_pvx_rr/package.json" ] && [ -d "$_pvx_rr/e2e" ] && [ -d "$_pvx_rr/production" ]; then
+  if [ "$0" != "$_pvx_self" ]; then cd "$_pvx_rr" && exec "$_pvx_self" "$@"; fi
+  cd "$_pvx_rr" || echo "WARN cwd-guard: cannot cd to '$_pvx_rr'; continuing in $(pwd)" >&2
+fi
 unset _pvx_self _pvx_rr
 # <<< proxvex-cwd-guard
 # Reconfigure proxvex to enable OIDC authentication.
@@ -28,7 +29,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PVE_HOST="${PVE_HOST:-pve1.cluster}"
 DEPLOYER_HOST="${DEPLOYER_HOST:-proxvex}"
-CLI="npx tsx $PROJECT_ROOT/cli/src/oci-lxc-cli.mts"
+# --yes: auto-install tsx non-interactively (no "Ok to proceed?" stall).
+CLI="npx --yes tsx $PROJECT_ROOT/cli/src/oci-lxc-cli.mts"
 
 # Fetch a deployer JWT via init_oidc_jwt — this requests the right Zitadel
 # scopes (project audience + projects:roles) so the JWT carries the admin

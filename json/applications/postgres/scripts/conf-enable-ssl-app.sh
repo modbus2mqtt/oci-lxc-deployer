@@ -54,6 +54,28 @@ emit_result() {
   echo "[{\"id\":\"ssl_app_enabled\",\"value\":\"${SSL_ENABLED}\"},{\"id\":\"pg_mtls_enabled\",\"value\":\"${PG_MTLS_ENABLED}\"}]"
 }
 
+# Loud failure for the "operator explicitly asked for mTLS (pg_client_cert=
+# true) but we cannot deliver it" case. Previously every such path silently
+# fell back to SSL-only / stock password pg_hba, shipping a green Step 7 with
+# a password-mode postgres — which then breaks every cert-only client
+# (gitea/zitadel) cryptically much later. With "production = always mTLS"
+# that silent state is never acceptable: fail the step here instead.
+# Still emits a valid IOutput[] on stdout (JSON-only contract); diagnosis
+# goes to stderr; non-zero exit aborts the deploy at the real cause.
+die_mtls() {
+  echo "" >&2
+  echo "ERROR: pg_client_cert=true but mTLS cannot be enabled: $1" >&2
+  echo "  Refusing to silently fall back to password auth (would ship a" >&2
+  echo "  password-mode postgres while mTLS was requested)." >&2
+  echo "  Likely cause: the CA chain / server certs were not present at the" >&2
+  echo "  resolved certs volume when this ran (cert generation / CA delivery" >&2
+  echo "  ordering, or a surviving non-mTLS data volume). Ensure the certs" >&2
+  echo "  (fullchain.pem, privkey.pem, chain.pem) exist for this container's" >&2
+  echo "  certs volume, then reconfigure postgres." >&2
+  emit_result
+  exit 1
+}
+
 # Best-effort reload so a running container picks up pg_hba.conf / ssl_ca_file
 # changes without a restart (both are SIGHUP-only GUCs). Pre-first-boot this is
 # a harmless no-op (container not running yet).
@@ -92,6 +114,17 @@ restore_stock_pg_hba() {
     echo "mtls: restored stock pg_hba.conf (password auth)" >&2
   fi
 }
+
+# ── Precondition: mTLS requested ⇒ certs MUST be present (fail loud) ──
+# Single chokepoint covering both Mode 1 (existing DB) and Mode 2 (fresh
+# initdb) silent-fallback paths. When pg_client_cert!=true, SSL-only or
+# no-SSL are legitimate — behaviour unchanged.
+if [ "$PG_CLIENT_CERT" = "true" ]; then
+  for _f in fullchain.pem privkey.pem chain.pem; do
+    [ -f "${CERTS_DIR}/${_f}" ] || \
+      die_mtls "${CERTS_DIR}/${_f} missing at config time"
+  done
+fi
 
 # ── Mode 1: Existing database ──────────────────────────────────────
 if [ -f "$PG_CONF" ]; then

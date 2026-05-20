@@ -61,9 +61,17 @@ schema_exists() {
   [ "$result" = "1" ]
 }
 
-# Create app user if not exists
+# Create app user, or re-sync its password if it already exists.
+# Idempotent password re-sync is required: when the postgres data volume
+# survives a rebuild but the app's stack secret was regenerated, an existing
+# role keeps its OLD password while the app connects with the NEW one →
+# "password authentication failed" and the app container crash-loops (e.g.
+# gitea; same class as the zitadel postgres-auth livetest finding). ALTER …
+# PASSWORD converges the role to the authoritative stack value on every
+# (re)deploy/reconfigure instead of silently skipping.
 if role_exists "${APP_NAME}_app"; then
-  echo "User ${APP_NAME}_app already exists" >&2
+  echo "User ${APP_NAME}_app exists — re-syncing password to current stack value" >&2
+  run_sql "ALTER USER ${APP_NAME}_app WITH PASSWORD '${APP_PASSWORD}'" >&2
 else
   echo "Creating user ${APP_NAME}_app..." >&2
   run_sql "CREATE USER ${APP_NAME}_app WITH PASSWORD '${APP_PASSWORD}'" >&2

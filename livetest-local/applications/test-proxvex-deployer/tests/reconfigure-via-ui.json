@@ -1,0 +1,16 @@
+{
+  "task": "installation",
+  "depends_on": [
+    "playwright/default"
+  ],
+  "selectedAddons": [],
+  "params": [
+    { "name": "oci_image_tag", "value": "0.5.67" },
+    { "name": "memory", "value": "1024" },
+    { "name": "is_deployer", "value": "true" }
+  ],
+  "wait_seconds": 60,
+  "cli_timeout": 600,
+  "playwright_spec": "test-deployer-reconfigure.spec.ts",
+  "description": "Installs test-proxvex-deployer at 0.5.67 (admin-only, no OIDC), then runs a Playwright spec that drives a UI-triggered RECONFIGURE against itself (adds addon-ssl). Exercises the same replace-ct.sh/lxc-start.sh self-switchover path as upgrade-via-ui.json, but via the reconfigure phase — which lost the switchover-result race in production (Step 11 OIDC reconfigure → 'Start LXC Container exit 255 / Failed' instead of a clean switchover). The spec asserts the task ends cleanly: old goes unreachable, the NEW container comes back AND now serves HTTPS:3443 (addon-ssl applied), with no failed execution surfaced."
+}

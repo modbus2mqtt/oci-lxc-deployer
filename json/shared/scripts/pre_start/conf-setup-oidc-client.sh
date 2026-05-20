@@ -204,24 +204,17 @@ if [ -z "$PAT" ] \
   fi
 fi
 
-# Tier 3: legacy file fallback — read admin PAT from the Zitadel LXC's
-# bootstrap volume. Removed once Zitadel hardening drops admin-client.pat.
-if [ -z "$PAT" ]; then
-  PAT_FILE="$(resolve_host_volume "$ZITADEL_HOST" "bootstrap" "$ZITADEL_VMID")/admin-client.pat"
-  if [ -f "$PAT_FILE" ]; then
-    PAT=$(cat "$PAT_FILE")
-    if [ -n "$PAT" ]; then
-      PAT_SOURCE="file ${PAT_FILE} (legacy admin-client.pat fallback)"
-    fi
-  fi
-fi
-
+# Tier 3 (legacy admin-client.pat file fallback) intentionally removed:
+# Zitadel hardening deletes /bootstrap/admin-client.pat, so depending on it
+# is counterproductive — it silently masks a broken Tier 1/2 credential path
+# with a stale/absent PAT. Fail fast instead; the stack-backed
+# client_credentials grant (Tier 2) is the supported long-term path.
 if [ -z "$PAT" ]; then
   echo "ERROR: No Zitadel Bearer available." >&2
   echo "Tried in order:" >&2
   echo "  1) {{ ZITADEL_PAT }} template var — empty" >&2
   echo "  2) DEPLOYER_OIDC_MACHINE_* from oidc_production stack — incomplete or grant failed" >&2
-  echo "  3) admin-client.pat at $(resolve_host_volume "$ZITADEL_HOST" "bootstrap" "$ZITADEL_VMID")/admin-client.pat — missing" >&2
+  echo "  (legacy admin-client.pat fallback removed — hardening deletes it)" >&2
   echo '[]'
   exit 1
 fi
@@ -269,28 +262,39 @@ if [ -n "$ISSUER_URL" ] && [ "$ISSUER_URL" != "$ZITADEL_URL" ]; then
   ZITADEL_HOST_HEADER=$(echo "$ISSUER_URL" | sed 's|https\?://||; s|/.*||; s|:.*||')
 fi
 
+# Option a: address Zitadel's Management API via the public issuer URL
+# (nginx-routed) when one is configured. Zitadel resolves the instance from
+# the request authority/SNI; an internal URL (https://zitadel:1443) + a
+# `-H Host:` override does NOT work over HTTP/2 — curl derives :authority
+# from the URL host, so Zitadel sees domain `zitadel` and returns
+# Instance.NotFound (observed for gitea: ExternalDomain auth.ohnewarum.de).
+# The client_credentials grant above already proves the issuer URL is
+# reachable, so this adds no new dependency. Falls back to the internal URL
+# only when no distinct issuer is set (livetest/simple topology, where the
+# instance domain IS the internal hostname).
+if [ -n "$ISSUER_URL" ] && [ "$ISSUER_URL" != "$ZITADEL_URL" ]; then
+  ZITADEL_API_BASE="${ISSUER_URL%/}"
+else
+  ZITADEL_API_BASE="$ZITADEL_URL"
+fi
+echo "Using Zitadel Management API at ${ZITADEL_API_BASE}" >&2
+
 zitadel_api() {
   _method="$1"
   _path="$2"
   _body="$3"
-  _host_hdr=""
-  if [ -n "$ZITADEL_HOST_HEADER" ]; then
-    _host_hdr="-H Host:${ZITADEL_HOST_HEADER}"
-  fi
 
   if [ -n "$_body" ]; then
     curl -skL -X "$_method" \
       -H "Authorization: Bearer ${PAT}" \
       -H "Content-Type: application/json" \
-      $_host_hdr \
       -d "$_body" \
-      "${ZITADEL_URL}${_path}" 2>/dev/null
+      "${ZITADEL_API_BASE}${_path}" 2>/dev/null
   else
     curl -skL -X "$_method" \
       -H "Authorization: Bearer ${PAT}" \
       -H "Content-Type: application/json" \
-      $_host_hdr \
-      "${ZITADEL_URL}${_path}" 2>/dev/null
+      "${ZITADEL_API_BASE}${_path}" 2>/dev/null
   fi
 }
 

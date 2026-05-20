@@ -121,7 +121,7 @@ fi
 # the container kills the SSH session that's executing this script. Instead
 # we drop a marker into the NEW container's /config volume and return.
 # The NEW deployer reads the marker on first boot, SSHes back to the PVE
-# host, stops SOURCE with --timeout 30 and unlinks its managed volumes
+# host, stops SOURCE with --timeout 90 and unlinks its managed volumes
 # (see upgrade-finalization-service.mts + host-stop-and-unlink-previous-
 # deployer.sh). That removes the previous systemd-run race entirely.
 IS_SELF_UPGRADE=false
@@ -190,8 +190,21 @@ fi
 # ─── Step 4b: Regular stop + mark for delayed cleanup (non-self upgrades) ────
 source_status=$(pct status "$SOURCE_VMID" 2>/dev/null | awk '{print $2}' || echo "unknown")
 if [ "$source_status" = "running" ]; then
-  log "Stopping old container $SOURCE_VMID..."
-  pct stop "$SOURCE_VMID" >&2 || log "Warning: failed to stop old container $SOURCE_VMID"
+  # Per-app stop timeout. This generic replace path serves ALL apps, so it
+  # must NOT impose Zitadel's long window on everyone. Zitadel has no
+  # app-level shutdown-grace knob; its graceful stop is bounded by in-flight
+  # transaction timeouts, the largest being Projections.TransactionDuration
+  # (default 1m, zitadel cmd/defaults.yaml) → it needs ~90s or pct SIGKILLs
+  # mid-shutdown, leaving lock:/orphan state. Every other app keeps the
+  # normal 30s. Detect by the SOURCE container's hostname (cheap; matches
+  # how the rest of the codebase identifies zitadel).
+  _src_host=$(pct config "$SOURCE_VMID" 2>/dev/null | awk '/^hostname:/{print $2; exit}')
+  case "$_src_host" in
+    zitadel) _src_stop_timeout=90 ;;
+    *)       _src_stop_timeout=30 ;;
+  esac
+  log "Stopping old container $SOURCE_VMID (${_src_host:-?}, timeout ${_src_stop_timeout}s)..."
+  pct stop "$SOURCE_VMID" --timeout "$_src_stop_timeout" >&2 || log "Warning: failed to stop old container $SOURCE_VMID"
 fi
 
 # Unlink all managed volumes and rename to clean names. The new container

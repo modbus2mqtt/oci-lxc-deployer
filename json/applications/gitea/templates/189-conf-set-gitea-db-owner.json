@@ -1,0 +1,17 @@
+{
+  "name": "Init Gitea DB Role + Owner",
+  "description": "Create the cert-only `gitea` LOGIN role (passwordless; cert CN == role) and make it own the gitea database (created by template 187), so Gitea authenticates via mTLS AND can run its DDL migrations. PostgreSQL 15+ only lets the DB owner create objects in schema public — without this, cert-only Gitea fails migration with `permission denied for schema public`. Runs in the postgres dependency container, after 187 (database). App-specific by design: addon-mtls is generic (also used by non-postgres MQTT apps node-red/mosquitto/modbus2mqtt), so it does NOT create postgres roles; gitea provisions its own here (zitadel self-provisions via its FirstInstance bootstrap superuser-Admin connection). Production equivalent of the TEST overlay conf-init-gitea-testdb.sh. Idempotent. Skipped when no database_name (non-postgres deploys).",
+  "execute_on": "application:postgres",
+  "skip_if_all_missing": [
+    "database_name"
+  ],
+  "parameters": [
+    "database_name"
+  ],
+  "commands": [
+    {
+      "name": "Set Gitea DB Owner",
+      "script": "conf-set-gitea-db-owner.sh"
+    }
+  ]
+}

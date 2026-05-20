@@ -8,7 +8,9 @@
 #
 # Steps:
 # 1) Unlock the container (replace-ct.sh marked it with lock=migrate).
-# 2) pct stop --timeout 30 (graceful, then SIGKILL after 30s).
+# 2) pct stop --timeout 90 (graceful, then SIGKILL after 90s). 90s keeps it
+#    uniform with replace-ct.sh's Zitadel-bound stop window; the deployer
+#    itself stops fast, so the extra ceiling is just a safety margin.
 # 3) Unlink managed volumes (renamed to clean names; rootfs stays so the
 #    container remains restorable until the cleanup service purges it).
 #
@@ -35,8 +37,8 @@ pct unlock "$VMID" >&2 2>/dev/null || true
 
 status=$(pct status "$VMID" 2>/dev/null | awk '{print $2}' || echo "unknown")
 if [ "$status" = "running" ]; then
-  log "Stopping previous deployer container $VMID (timeout 30s)..."
-  pct stop "$VMID" --timeout 30 >&2 || fail "pct stop $VMID failed"
+  log "Stopping previous deployer container $VMID (timeout 90s)..."
+  pct stop "$VMID" --timeout 90 >&2 || fail "pct stop $VMID failed"
 else
   log "Container $VMID already stopped"
 fi
