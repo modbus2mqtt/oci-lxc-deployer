@@ -1077,7 +1077,13 @@ export async function executeScenarios(
         if (keepForDebug) {
           logInfo(`KEEP_VM set — skipping rollback to @${depSnapshotName ?? "dep-snapshot"} (failed VM ${step.vmId} preserved for inspection)`);
         }
-        if (snapMgr && depSnapshotName && !step.isDependency && !keepForDebug && snapMgr.exists(depSnapshotName)) {
+        // A whole-VM `qm rollback` stops/rolls/restarts the ENTIRE nested VM
+        // — it would wipe every concurrently-running scenario. Mid-run
+        // snapshot restore is fundamentally incompatible with the parallel
+        // pool, so the failure-rollback recovery only runs in the sequential
+        // driver (concurrency <= 1). Under --parallel a failed scenario just
+        // fails and its dependents are blocked via classifyParallel.
+        if (concurrency <= 1 && snapMgr && depSnapshotName && !step.isDependency && !keepForDebug && snapMgr.exists(depSnapshotName)) {
           try {
             snapMgr.rollbackHostSnapshot(depSnapshotName);
             // After qm rollback the nested VM (and Hub LXC inside it) is
@@ -1496,7 +1502,12 @@ export async function executeScenarios(
       // a broad/`--all` run never snapshots, so a consumer's state can never
       // be baked into a snapshot a later narrow run would reuse. The captured
       // dep set is encoded in the description (see SnapshotManager.coversRun).
-      if (snapMgr && depSnapshotName && step.isDependency && !step.skipExecution
+      //
+      // Skipped under --parallel: a mid-pool `qm snapshot` would capture an
+      // inconsistent state (peer scenarios in flight). Dependency snapshots
+      // are produced only by the sequential driver or a dedicated, exclusive
+      // build pass — never from inside the concurrent pool.
+      if (concurrency <= 1 && snapMgr && depSnapshotName && step.isDependency && !step.skipExecution
           && planned.slice(i + 1).every((p) => !p.isDependency)) {
         try {
           const capturedDeps = planned
