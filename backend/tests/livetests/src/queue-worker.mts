@@ -42,16 +42,17 @@ export async function runQueueWorker(
   veHost: string,
   projectRoot: string,
   appMetaMap: Map<string, AppMeta>,
-  enumerateZfsPoolStorages: (pveHost: string, sshPort: number) => string[],
+  enumerateParallelStorages: (pveHost: string, sshPort: number) => string[],
 ) {
   const workerId = `worker-${process.pid}`;
   logInfo(`Queue worker started: ${workerId}`);
 
-  // Enumerate ZFS pool storages once at worker startup. Empty list →
-  // we leave volume_storage unset and let the deployer's default kick in.
-  const zfsPoolStorages = enumerateZfsPoolStorages(config.pveHost, config.portPveSsh);
-  if (zfsPoolStorages.length > 0) {
-    logInfo(`zfspool storages available for round-robin: ${zfsPoolStorages.join(", ")}`);
+  // Enumerate parallel-capable storages (zfspool ∪ dir) once at worker
+  // startup. Empty list → we leave volume_storage unset and let the
+  // deployer's default kick in.
+  const parallelStorages = enumerateParallelStorages(config.pveHost, config.portPveSsh);
+  if (parallelStorages.length > 0) {
+    logInfo(`parallel storages available for round-robin: ${parallelStorages.join(", ")}`);
   }
 
   // Init queue (idempotent — only first worker actually initializes)
@@ -155,8 +156,8 @@ export async function runQueueWorker(
       const hasOperatorOverride =
         buildResult.params.some((p) => p.name === "volume_storage") ||
         buildResult.params.some((p) => p.name === "rootfs_storage");
-      if (!hasOperatorOverride && zfsPoolStorages.length > 0) {
-        const picked = zfsPoolStorages[(scenarioCount - 1) % zfsPoolStorages.length]!;
+      if (!hasOperatorOverride && parallelStorages.length > 0) {
+        const picked = parallelStorages[(scenarioCount - 1) % parallelStorages.length]!;
         buildResult.params.push({ name: "rootfs_storage", value: picked });
         buildResult.params.push({ name: "volume_storage", value: picked });
         logInfo(`Round-robin storage=${picked} for scenario ${scenarioId}`);

@@ -185,15 +185,20 @@ function loadConfig(instanceName?: string): {
 }
 
 /**
- * Enumerate all `zfspool` rootdir storages on the PVE host via SSH.
- * Returns names in `pvesm status` order, or `[]` when SSH fails or no
- * zfspool storage exists. Callers use this list to spread parallel
- * scenarios across separate ZFS pools (separate datasets = separate
- * locks, so `pct create`/`zfs snapshot` don't queue on `rpool/data`).
- * Empty list → callers leave `volume_storage` unset, default from
- * `parameter-definitions.json` kicks in.
+ * Enumerate rootdir-capable storages on the PVE host that can be used to
+ * spread parallel-livetest scenarios across separate lock domains. Includes
+ * `zfspool` (separate ZFS datasets → separate dataset locks) AND `dir`
+ * (separate filesystem directories → separate FS locks), so the same
+ * parallelization win is available on ext4/xfs nested VMs (github-action
+ * instance) without requiring ZFS. Other rootdir-capable types (lvm,
+ * lvmthin) are excluded — they share VG locks and the runner has no
+ * snapshot story for them.
+ *
+ * Returns storage names in `pvesm status` order, or `[]` when SSH fails or
+ * no eligible storage exists. Empty list → callers leave `volume_storage`
+ * unset, default from `parameter-definitions.json` kicks in.
  */
-export function enumerateZfsPoolStorages(
+export function enumerateParallelStorages(
   pveHost: string,
   sshPort: number,
 ): string[] {
@@ -205,7 +210,7 @@ export function enumerateZfsPoolStorages(
         const [name, type] = line.trim().split(/\s+/);
         return { name: name || "", type: type || "" };
       })
-      .filter((s) => s.name && s.type === "zfspool")
+      .filter((s) => s.name && (s.type === "zfspool" || s.type === "dir"))
       .map((s) => s.name);
   } catch {
     return [];
@@ -682,7 +687,7 @@ async function main() {
   // Queue worker mode — delegate all scenario management to the queue API
   if (queueFlag) {
     const { runQueueWorker: runQueue } = await import("./queue-worker.mjs");
-    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, enumerateZfsPoolStorages);
+    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, enumerateParallelStorages);
     return;
   }
 

@@ -162,6 +162,55 @@ export function partitionAfterFailure(
  * applies the concurrency cap and the running-count; this function only
  * answers "what is eligible given current state".
  */
+/**
+ * Pre-compute storage assignment per planned scenario. Each unique chain
+ * (root dep + its consumer subtree) gets one storage; consumers inherit
+ * from their dep. The round-robin counter only advances on ROOT picks
+ * (so 3 root deps + 4 storages → no collision, slot 4 stays free).
+ *
+ * If `override` is set (e.g. `--volume-storage` CLI flag), every scenario
+ * is pinned to that storage. If `parallelStorages` is empty, returns an
+ * empty map (callers fall back to deployer-default storage).
+ *
+ * The parallel driver uses this map both for actual storage pinning AND
+ * as a worker-occupancy gate: at most one scenario per storage runs
+ * concurrently (each worker == one storage == one volume domain). This
+ * eliminates lock contention on `/var/lock/pve-manager/pve-storage-<name>`.
+ */
+export function assignStoragePerScenario(
+  planned: PlannedScenario[],
+  parallelStorages: ReadonlyArray<string>,
+  override?: string,
+): Map<number, string> {
+  const out = new Map<number, string>();
+  if (override) {
+    planned.forEach((_, i) => out.set(i, override));
+    return out;
+  }
+  if (parallelStorages.length === 0) return out;
+
+  const idxById = new Map<string, number>();
+  planned.forEach((p, i) => idxById.set(p.scenario.id, i));
+  let rootIdx = 0;
+  for (let i = 0; i < planned.length; i++) {
+    const p = planned[i]!;
+    let picked: string | undefined;
+    for (const depId of p.scenario.depends_on ?? []) {
+      const di = idxById.get(depId);
+      if (di !== undefined && out.has(di)) {
+        picked = out.get(di);
+        break;
+      }
+    }
+    if (!picked) {
+      picked = parallelStorages[rootIdx % parallelStorages.length]!;
+      rootIdx++;
+    }
+    out.set(i, picked);
+  }
+  return out;
+}
+
 export function classifyParallel(
   planned: PlannedScenario[],
   state: ReadonlyArray<"pending" | "running" | "done" | "failed">,

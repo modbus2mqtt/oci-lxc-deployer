@@ -8,7 +8,7 @@
 import { runCli, type CliJsonResult } from "./cli-executor.mjs";
 import { SnapshotManager } from "./snapshot-manager.mjs";
 import { nestedSsh, nestedSshAsync, nestedSshStrictAsync, waitForServices, waitForContainerStable, waitForLxcInit } from "./ssh-helpers.mjs";
-import { buildParams, partitionAfterFailure, classifyParallel } from "./scenario-planner.mjs";
+import { buildParams, partitionAfterFailure, classifyParallel, assignStoragePerScenario } from "./scenario-planner.mjs";
 import { TestResultWriter, type TestResultDependency } from "./test-result-writer.mjs";
 import { collectFailureLogs } from "./diagnostics.mjs";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -19,12 +19,40 @@ import type { ResolvedScenario, PlannedScenario, TestResult, RunMode } from "./l
 import { sanitizeScenarioIdForSnapshot } from "./livetest-types.mjs";
 import { Verifier, buildDefaultVerify, type AppMeta } from "./verifier.mjs";
 import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type ScenarioLogContext } from "./log-helpers.mjs";
-import { enumerateZfsPoolStorages } from "./live-test-runner.mjs";
+import { enumerateParallelStorages } from "./live-test-runner.mjs";
 import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
+
+/**
+ * Emit a single worker-timeline event on STDERR. Separate from the normal
+ * stdout stream so operators can redirect it independently (`2> worker.log`)
+ * without losing the scenario-context logs. One line per event; columns are
+ * fixed-width for visual scanning, scenario+extra at the right edge for
+ * easy `awk`/`grep`.
+ *
+ * Kinds: start, wait, resume, done, fail
+ *   start  — worker took the storage and dispatched the scenario
+ *   wait   — scenario was ready but its storage was busy (logged once per gate)
+ *   resume — gated scenario got dispatched after the storage freed
+ *   done   — scenario finished successfully; storage released
+ *   fail   — scenario failed/crashed; storage released
+ */
+function logWorkerTimeline(
+  kind: "start" | "wait" | "resume" | "done" | "fail",
+  storage: string | undefined,
+  scenarioId: string,
+  extra?: string,
+): void {
+  const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+  const storageCol = (storage ?? "—").padEnd(14);
+  const kindCol = kind.toUpperCase().padEnd(6);
+  const line = `[${ts}] worker ${storageCol} ${kindCol} ${scenarioId}` +
+    (extra ? `  ${extra}` : "");
+  process.stderr.write(line + "\n");
+}
 
 /** Options accepted by both executor drivers (sequential + parallel). */
 export interface ExecuteScenariosOptions {
@@ -387,30 +415,42 @@ export async function executeScenarios(
   const verifier = new Verifier(config.pveHost, config.portPveSsh, apiUrl, veHost);
   const tmpDir = mkdtempSync(path.join(tmpdir(), "livetest-"));
 
-  // Enumerate ZFS pool storages once. Each scenario picks one of these for
-  // its volumes via the hierarchy below (see `volume_storage` push in runStep):
+  // Enumerate parallel-capable storages once (zfspool ∪ dir, see
+  // enumerateParallelStorages). Each scenario picks one for its volumes via
+  // the hierarchy below (see `volume_storage` push in runStep):
   //
   //   1. --volume-storage CLI override (step3 mode: pin every CT of one
   //      cluster build to one storage so chain-internal pct clone stays
-  //      ZFS-CoW-fast).
+  //      filesystem-local).
   //   2. Dependency inheritance: if the scenario's deps already live on a
   //      storage (looked up via `vmidToStorage`), inherit that storage so
-  //      the consumer's CT lands next to its source → CoW clones, ZFS-local
-  //      ops.
+  //      the consumer's CT lands next to its source → reflink/CoW clones,
+  //      FS-local ops.
   //   3. Index round-robin: cluster roots (no deps) spread evenly across the
   //      storages, so parallel rollbacks of independent chains don't all
-  //      contend on the same `rpool/data` lock.
+  //      contend on the same storage's lock.
   //
   // Empty list (legacy single-storage cluster, SSH failure) → callers leave
   // volume_storage unset and the deployer's default takes over.
-  const zfsPoolStorages = enumerateZfsPoolStorages(config.pveHost, config.portPveSsh);
+  const parallelStorages = enumerateParallelStorages(config.pveHost, config.portPveSsh);
   const volumeStorageOverride = options?.volumeStorageOverride;
   if (volumeStorageOverride) {
-    logInfo(`--volume-storage=${volumeStorageOverride}: every scenario in this run pinned to this pool`);
-  } else if (zfsPoolStorages.length > 0) {
-    logInfo(`zfspool storages available for distribution: ${zfsPoolStorages.join(", ")}`);
-    if (concurrency > zfsPoolStorages.length) {
-      logWarn(`--parallel=${concurrency} > storages=${zfsPoolStorages.length} — multiple scenarios will share a storage, lock contention possible`);
+    logInfo(`--volume-storage=${volumeStorageOverride}: every scenario in this run pinned to this storage`);
+  } else if (parallelStorages.length > 0) {
+    logInfo(`parallel storages available for distribution: ${parallelStorages.join(", ")}`);
+  }
+
+  // Pre-compute storage assignment per scenario (chain-root round-robin +
+  // consumer inheritance, see assignStoragePerScenario). Used both for
+  // storage pinning AND as the parallel-driver's worker-occupancy gate:
+  // each storage = one worker = one volume domain, so at most one
+  // scenario per storage runs concurrently → no `pve-storage-<name>`
+  // lock contention.
+  const storageByIdx = assignStoragePerScenario(planned, parallelStorages, volumeStorageOverride);
+  if (concurrency > 1 && parallelStorages.length > 0 && !volumeStorageOverride) {
+    const effective = Math.min(concurrency, parallelStorages.length);
+    if (effective < concurrency) {
+      logInfo(`Effective parallelism: ${effective} (capped by parallel storages=${parallelStorages.length})`);
     }
   }
 
@@ -1009,36 +1049,15 @@ export async function executeScenarios(
         buildResult.params.some((p) => p.name === "volume_storage") ||
         buildResult.params.some((p) => p.name === "rootfs_storage");
       if (!hasOperatorOverride) {
-        let picked: string | undefined;
-        let pickReason = "";
-        if (volumeStorageOverride) {
-          picked = volumeStorageOverride;
-          pickReason = "--volume-storage override";
-        } else {
-          // Walk the scenario's deps looking for an already-known storage.
-          // First hit wins — by convention deps within one chain all live on
-          // the same storage (cluster-root sets it, downstream inherits).
-          for (const depId of scenario.depends_on ?? []) {
-            const depStep = planned.find((p) => p.scenario.id === depId);
-            const depStorage = depStep ? vmidToStorage.get(depStep.vmId) : undefined;
-            if (depStorage) {
-              picked = depStorage;
-              pickReason = `inherited from dep ${depId} (VM ${depStep!.vmId})`;
-              break;
-            }
-          }
-          if (!picked && zfsPoolStorages.length > 0) {
-            picked = zfsPoolStorages[i % zfsPoolStorages.length]!;
-            pickReason = `round-robin i=${i} mod ${zfsPoolStorages.length}`;
-          }
-        }
+        // Use the pre-computed assignment from assignStoragePerScenario.
+        // The driver enforces worker-occupancy via busyStorages so two
+        // scenarios sharing a storage never run concurrently.
+        const picked = storageByIdx.get(i);
         if (picked) {
           buildResult.params.push({ name: "rootfs_storage", value: picked });
           buildResult.params.push({ name: "volume_storage", value: picked });
-          // Record our pick so any downstream scenario depending on us
-          // inherits the same storage (CoW clones for the whole chain).
           vmidToStorage.set(step.vmId, picked);
-          logInfo(`storage=${picked} for ${scenario.id} [VM ${step.vmId}] (${pickReason})`);
+          logInfo(`storage=${picked} for ${scenario.id} [VM ${step.vmId}]`);
         }
       }
 
@@ -1861,9 +1880,31 @@ export async function executeScenarios(
       // performance win is purely from overlapping the long idle waits
       // (container create, package install, docker compose up,
       // wait_seconds, Playwright) — the deployer/API stay single.
-      logInfo(`Parallel scenario execution: concurrency=${concurrency}`);
+      // Worker model: one logical worker per parallel-storage. A scenario
+      // can only be dispatched if its assigned storage's worker is idle
+      // (i.e. not in `busyStorages`). This caps effective parallelism at
+      // min(concurrency, parallelStorages.length) and structurally prevents
+      // `/var/lock/pve-manager/pve-storage-<name>` contention.
+      //
+      // If no parallel storages are available (SSH enumeration failed) the
+      // gate falls back to the unconstrained `concurrency` cap — same as
+      // pre-storage-gate behaviour.
+      const effectiveCap = parallelStorages.length > 0
+        ? Math.min(concurrency, parallelStorages.length)
+        : concurrency;
+      logInfo(`Parallel scenario execution: concurrency=${concurrency}` + (
+        effectiveCap < concurrency
+          ? ` (effective=${effectiveCap}, capped by storages=${parallelStorages.length})`
+          : ""
+      ));
       type St = "pending" | "running" | "done" | "failed";
       const state: St[] = planned.map(() => "pending");
+      const busyStorages = new Set<string>();
+      // Track scenarios already logged as "waiting for storage" so each
+      // gated scenario produces exactly one wait-line, not one per pump tick.
+      // Cleared on dispatch so a scenario that waits, dispatches, completes,
+      // and is later re-evaluated (shouldn't happen, but safe) re-logs.
+      const waitLogged = new Set<number>();
       let active = 0;
       let crashedErr: unknown = null;
       let aborted = false;
@@ -1899,27 +1940,56 @@ export async function executeScenarios(
             return;
           }
           for (const idx of ready) {
-            if (active >= concurrency) break;
+            if (active >= effectiveCap) break;
             if (state[idx] !== "pending") continue;
+            const reservedStorage = storageByIdx.get(idx);
+            const scenarioId = planned[idx]!.scenario.id;
+            // Worker-occupancy gate: skip if this scenario's storage is
+            // currently held by another running scenario. The next pump()
+            // call (triggered when a worker finishes) will pick it up.
+            if (reservedStorage && busyStorages.has(reservedStorage)) {
+              if (!waitLogged.has(idx)) {
+                logWorkerTimeline("wait", reservedStorage, scenarioId,
+                  "(storage busy)");
+                waitLogged.add(idx);
+              }
+              continue;
+            }
+            if (reservedStorage) busyStorages.add(reservedStorage);
+            if (waitLogged.has(idx)) {
+              logWorkerTimeline("resume", reservedStorage, scenarioId);
+              waitLogged.delete(idx);
+            }
+            logWorkerTimeline("start", reservedStorage, scenarioId,
+              `vm=${planned[idx]!.vmId}`);
+            const startTs = Date.now();
             state[idx] = "running";
             active++;
             void runStep(idx)
               .then((outcome) => {
                 active--;
+                if (reservedStorage) busyStorages.delete(reservedStorage);
+                const dur = ((Date.now() - startTs) / 1000).toFixed(1);
                 if (outcome.type === "crashed") {
                   state[idx] = "failed";
+                  logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s crashed`);
                   if (failFast) { crashedErr = outcome.err; aborted = true; }
                 } else if (outcome.type === "failed-partition") {
                   state[idx] = "failed";
+                  logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s failed`);
                   applyFailurePartition(outcome.scenarioId, idx, false);
                   if (failFast) aborted = true;
                 } else {
                   state[idx] = "done";
+                  logWorkerTimeline("done", reservedStorage, scenarioId, `${dur}s`);
                 }
                 pump();
               })
               .catch((err) => {
                 active--;
+                if (reservedStorage) busyStorages.delete(reservedStorage);
+                const dur = ((Date.now() - startTs) / 1000).toFixed(1);
+                logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s exception`);
                 state[idx] = "failed";
                 crashedErr = err;
                 aborted = true;
