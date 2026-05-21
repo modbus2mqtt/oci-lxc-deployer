@@ -1460,6 +1460,13 @@
       "type": "string",
       "internal": true
     },
+    "ZITADEL_URL": {
+      "name": "Zitadel Base URL",
+      "description": "Composed Zitadel base URL (proto://host:port). Provided by the oidc stack and consumed by the jwks-refresh on-start template (341-post-install-jwks-refresh-on-start) to fetch the OIDC JWKS endpoint.",
+      "type": "string",
+      "internal": true,
+      "required": false
+    },
     "ZITADEL_SSL_PORT": {
       "name": "Zitadel SSL Port",
       "description": "HTTPS port of the Zitadel container when addon-ssl is active (provided by oidc stack).",
