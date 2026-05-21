@@ -1,0 +1,19 @@
+{
+  "name": "Trigger postgrest reconfigure",
+  "description": "Calls the deployer's reconfigure endpoint for postgrest so its pre_start `conf-rebuild-schemas` re-discovers all *_api schemas (including this app's newly provisioned <slug>_api) and PGRST_DB_SCHEMAS picks them up. Best-effort: a failure logs a warning but does not fail the consumer install/upgrade.",
+  "execute_on": "ve",
+  "parameters": [
+    "deployer_base_url",
+    "ve_context_key",
+    "app_slug"
+  ],
+  "commands": [
+    {
+      "name": "Trigger postgrest reconfigure",
+      "script": "trigger-postgrest-reconfigure.sh",
+      "outputs": [
+        "postgrest_reconfigure_triggered"
+      ]
+    }
+  ]
+}

@@ -56,15 +56,20 @@
   ],
   "installation": {
     "pre_start": [
+      "conf-rebuild-schemas.json",
       "conf-fetch-jwks.json"
     ]
   },
   "reconfigure": {
     "pre_start": [
+      "conf-rebuild-schemas.json",
       "conf-fetch-jwks.json"
     ]
   },
-  "stacktype": "postgres",
+  "stacktype": [
+    "postgres",
+    "postgrest"
+  ],
   "stack_usage": [
     {
       "stacktype": "postgres",

@@ -30,11 +30,10 @@
   ],
   "dependencies": [
     { "application": "postgres" },
-    { "application": "postgrest" },
     { "application": "nginx" },
     { "application": "zitadel" }
   ],
-  "stacktype": ["postgres", "oidc"],
+  "stacktype": ["postgres", "oidc", "postgrest"],
   "stack_usage": [
     {
       "stacktype": "postgres",
@@ -58,8 +57,23 @@
       "260-generate-spa-config.json",
       "280-write-nginx-vhost.json",
       "300-seed-demo-data.json",
-      "320-assert-postgrest-schema.json",
-      "340-reload-nginx.json"
+      "340-reload-nginx.json",
+      "350-trigger-postgrest-reconfigure.json"
+    ],
+    "check": [
+      "910-check-spa-served.json",
+      "915-check-postgrest-schema.json"
+    ]
+  },
+  "reconfigure": {
+    "image": [],
+    "create_ct": [],
+    "pre_start": [],
+    "post_start": [
+      "330-provision-postgres-app.template.json",
+      "220-apply-sql-migrations.json",
+      "240-deploy-spa-to-nginx.json",
+      "350-trigger-postgrest-reconfigure.json"
     ],
     "check": [
       "910-check-spa-served.json",

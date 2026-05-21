@@ -1423,7 +1423,25 @@
       "name": "POSTGREST_HOST",
       "type": "string",
       "internal": true,
-      "description": "Hostname of the postgrest dependency container (resolved by 185-host-resolve-dependency-hosts)."
+      "description": "Hostname of the postgrest container (published by the postgrest stack provider)."
+    },
+    "POSTGREST_PORT": {
+      "name": "POSTGREST_PORT",
+      "type": "string",
+      "internal": true,
+      "description": "PostgREST listen port (published by the postgrest stack provider, default 3000)."
+    },
+    "POSTGREST_URL": {
+      "name": "POSTGREST_URL",
+      "type": "string",
+      "internal": true,
+      "description": "Full internal URL to PostgREST (published by the postgrest stack provider)."
+    },
+    "PGRST_DB_SCHEMAS": {
+      "name": "PGRST_DB_SCHEMAS",
+      "type": "string",
+      "internal": true,
+      "description": "Comma-separated list of schemas PostgREST currently exposes (published by the postgrest stack provider)."
     },
     "ZITADEL_HOST": {
       "name": "ZITADEL_HOST",

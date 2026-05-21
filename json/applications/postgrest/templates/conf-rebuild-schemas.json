@@ -1,0 +1,21 @@
+{
+  "name": "Rebuild PGRST_DB_SCHEMAS",
+  "description": "Queries the postgres LXC for all *_api schemas and rebuilds the db_schemas parameter so the postgrest compose env (PGRST_DB_SCHEMAS) reflects every consumer's schema. Idempotent — runs at every postgrest installation and reconfigure.",
+  "execute_on": "application:postgres",
+  "parameters": [
+    "hostname"
+  ],
+  "commands": [
+    {
+      "name": "Rebuild postgrest schemas",
+      "script": "conf-rebuild-schemas.sh",
+      "outputs": [
+        "db_schemas",
+        "provides_pgrst_db_schemas",
+        "provides_postgrest_host",
+        "provides_postgrest_port",
+        "provides_postgrest_url"
+      ]
+    }
+  ]
+}

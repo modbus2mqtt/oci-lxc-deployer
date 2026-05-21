@@ -1,6 +1,9 @@
 {
   "folders": [
     { "path": "." },
+      { "path": "../nebenkosten" },
+^    { "path": "../zitadel-pgrst-auth" },
+^
     { "path": "frontend" },
 ^
     { "path": "backend" }

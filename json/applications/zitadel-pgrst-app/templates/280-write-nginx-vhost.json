@@ -5,7 +5,8 @@
   "parameters": [
     "app_slug",
     "app_subdomain",
-    "POSTGREST_HOST"
+    "POSTGREST_HOST",
+    "POSTGREST_PORT"
   ],
   "commands": [
     {

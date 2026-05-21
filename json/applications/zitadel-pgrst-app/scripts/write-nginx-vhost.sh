@@ -4,18 +4,20 @@
 # Runs inside the nginx LXC. Adopts the production/setup-nginx.sh pattern:
 # SSL terminates on port 1443 with the addon-ssl cert bundle, SPA served
 # from /usr/share/nginx/html/<slug>/ with try_files fallback for client-side
-# routing, /api/ reverse-proxies to postgrest:3000.
+# routing, /api/ reverse-proxies to PostgREST.
 #
 # Template variables:
 #   app_slug        - vhost filename + html subdir
 #   app_subdomain   - server_name
-#   POSTGREST_HOST  - resolved from app_dependencies (185-host-resolve-dependency-hosts)
+#   POSTGREST_HOST  - published by the postgrest stack provider
+#   POSTGREST_PORT  - published by the postgrest stack provider (default 3000)
 
 set -eu
 
 APP_SLUG="{{ app_slug }}"
 APP_SUBDOMAIN="{{ app_subdomain }}"
 POSTGREST_HOST="{{ POSTGREST_HOST }}"
+POSTGREST_PORT="{{ POSTGREST_PORT }}"
 
 if [ -z "$APP_SLUG" ] || [ "$APP_SLUG" = "NOT_DEFINED" ]; then
   echo "ERROR: app_slug is required" >&2; exit 1
@@ -24,6 +26,7 @@ if [ -z "$APP_SUBDOMAIN" ] || [ "$APP_SUBDOMAIN" = "NOT_DEFINED" ]; then
   echo "ERROR: app_subdomain is required" >&2; exit 1
 fi
 case "$POSTGREST_HOST" in ""|NOT_DEFINED) POSTGREST_HOST="postgrest" ;; esac
+case "$POSTGREST_PORT" in ""|NOT_DEFINED) POSTGREST_PORT="3000" ;; esac
 
 CONF_DIR="/etc/nginx/conf.d"
 TARGET="$CONF_DIR/${APP_SLUG}.conf"
@@ -47,7 +50,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://${POSTGREST_HOST}:3000/;
+        proxy_pass http://${POSTGREST_HOST}:${POSTGREST_PORT}/;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header Authorization \$http_authorization;
