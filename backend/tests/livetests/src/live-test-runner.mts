@@ -472,6 +472,22 @@ async function main() {
   //   2. round-robin by index → spread cluster-roots evenly
   const volumeStorageOverride = popValueFlag(args, "--volume-storage");
 
+  // --cli-timeout N: override the per-scenario CLI timeout (default 600s in
+  // cli-executor.runCli). Useful when parallel runs push per-scenario duration
+  // past the default (apk install / image pull contention inside the nested
+  // VM). Per-scenario `cli_timeout` from test.json takes precedence; this
+  // flag only sets the fallback for scenarios that don't specify one.
+  const cliTimeoutOverride = popValueFlag(args, "--cli-timeout");
+  let cliTimeoutSec: number | undefined;
+  if (cliTimeoutOverride !== undefined) {
+    const n = Number.parseInt(cliTimeoutOverride, 10);
+    if (!Number.isFinite(n) || n < 30) {
+      console.error(`Invalid --cli-timeout "${cliTimeoutOverride}". Expected a positive integer (seconds, >= 30).`);
+      process.exit(2);
+    }
+    cliTimeoutSec = n;
+  }
+
   const positionalArgs = args.filter((a, i, arr) =>
     a !== "--fixtures" &&
     a !== "--queue" &&
@@ -881,6 +897,7 @@ async function main() {
   const commandLine = process.argv.join(" ");
   const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
   logInfo(`Results: ${resultWriter.getOutputDir()}`);
+  logInfo(`Live overview: ${resultWriter.getOutputDir()}/run-overview.md (updates after each scenario state transition)`);
   if (failFastFlag) logInfo("--fail-fast enabled: aborting on first scenario failure");
   let result;
   if (parallelEnabled) {
@@ -889,10 +906,10 @@ async function main() {
     result = await executeScenariosParallel(
       planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
       appStackIdsMap, resultWriter, fixtureBaseDir,
-      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) },
+      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) },
     );
   } else {
-    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) });
+    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
   }
   const allResults = [result];
 

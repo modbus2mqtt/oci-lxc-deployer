@@ -22,6 +22,7 @@ import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type Sce
 import { enumerateParallelStorages } from "./live-test-runner.mjs";
 import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
+import { writeRunOverview, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
@@ -68,6 +69,11 @@ export interface ExecuteScenariosOptions {
   /** Curated set of scenario ids whose CT + transitive dep CTs get a pct
    * snapshot after a successful test. Independent of `depSnapshotName`. */
   snapshotCatalog?: ReadonlySet<string>;
+  /** Fallback CLI-execute timeout (seconds) for scenarios that don't set
+   * `cli_timeout` in test.json. Per-scenario value still wins; this only
+   * shifts the default away from cli-executor's hardcoded 600 s. Useful
+   * when parallel runs push per-scenario duration past the default. */
+  cliTimeoutSec?: number;
 }
 
 /**
@@ -447,6 +453,46 @@ export async function executeScenarios(
   // scenario per storage runs concurrently → no `pve-storage-<name>`
   // lock contention.
   const storageByIdx = assignStoragePerScenario(planned, parallelStorages, volumeStorageOverride);
+
+  // Live overview: writes <outDir>/run-overview.md and refreshes it on each
+  // scenario state transition. Best-effort observability — never crashes
+  // the run if IO fails. The initial write happens before the driver
+  // starts so an operator can `tail -F` or render the file before any
+  // scenarios complete.
+  const overviewState: RunOverviewState | undefined = resultWriter ? {
+    outDir: resultWriter.getOutputDir(),
+    runId: resultWriter.getRunId(),
+    startedAt: new Date(),
+    commandLine: resultWriter.getCommandLine(),
+    planned,
+    status: new Map<string, ScenarioStatus>(),
+    startedAtMap: new Map<string, Date>(),
+    finishedAtMap: new Map<string, Date>(),
+    storage: new Map<string, string>(),
+    errorMessages: new Map<string, string>(),
+  } : undefined;
+  if (overviewState) {
+    // Seed storage assignments up front so they appear from the first render.
+    planned.forEach((p, i) => {
+      const s = storageByIdx.get(i);
+      if (s) overviewState.storage.set(p.scenario.id, s);
+    });
+    writeRunOverview(overviewState);
+  }
+  const markStatus = (idx: number, status: ScenarioStatus, err?: string): void => {
+    if (!overviewState) return;
+    const sid = planned[idx]?.scenario.id;
+    if (!sid) return;
+    overviewState.status.set(sid, status);
+    if (status === "running" && !overviewState.startedAtMap.has(sid)) {
+      overviewState.startedAtMap.set(sid, new Date());
+    }
+    if (status === "passed" || status === "failed") {
+      overviewState.finishedAtMap.set(sid, new Date());
+    }
+    if (err) overviewState.errorMessages.set(sid, err);
+    writeRunOverview(overviewState);
+  };
   if (concurrency > 1 && parallelStorages.length > 0 && !volumeStorageOverride) {
     const effective = Math.min(concurrency, parallelStorages.length);
     if (effective < concurrency) {
@@ -1132,7 +1178,7 @@ export async function executeScenarios(
       const useOidc = deployerOidcEnabled && oidcCredentials;
       const cliResult = await runCli(
         projectRoot, apiUrl, veHost,
-        paramsFile, allAddons, scenario.cli_timeout, scenarioFixtureDir,
+        paramsFile, allAddons, scenario.cli_timeout ?? options?.cliTimeoutSec, scenarioFixtureDir,
         useOidc ? oidcCredentials : undefined,
       );
       // restartKey is now known → bind it to this scenario's log context and
@@ -1932,6 +1978,7 @@ export async function executeScenarios(
                 logWarn(`Skipping ${p.scenario.id} (blocked by failed dependency)`);
                 p.skipExecution = true;
                 result.errors.push(`Skipped: ${p.scenario.id} (blocked dependency)`);
+                markStatus(idx, "skipped", "blocked by failed dependency");
               }
             }
           }
@@ -1962,6 +2009,7 @@ export async function executeScenarios(
             }
             logWorkerTimeline("start", reservedStorage, scenarioId,
               `vm=${planned[idx]!.vmId}`);
+            markStatus(idx, "running");
             const startTs = Date.now();
             state[idx] = "running";
             active++;
@@ -1973,15 +2021,18 @@ export async function executeScenarios(
                 if (outcome.type === "crashed") {
                   state[idx] = "failed";
                   logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s crashed`);
+                  markStatus(idx, "failed", `crashed after ${dur}s`);
                   if (failFast) { crashedErr = outcome.err; aborted = true; }
                 } else if (outcome.type === "failed-partition") {
                   state[idx] = "failed";
                   logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s failed`);
+                  markStatus(idx, "failed", `failed after ${dur}s`);
                   applyFailurePartition(outcome.scenarioId, idx, false);
                   if (failFast) aborted = true;
                 } else {
                   state[idx] = "done";
                   logWorkerTimeline("done", reservedStorage, scenarioId, `${dur}s`);
+                  markStatus(idx, "passed");
                 }
                 pump();
               })
@@ -1990,6 +2041,7 @@ export async function executeScenarios(
                 if (reservedStorage) busyStorages.delete(reservedStorage);
                 const dur = ((Date.now() - startTs) / 1000).toFixed(1);
                 logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s exception`);
+                markStatus(idx, "failed", `exception after ${dur}s`);
                 state[idx] = "failed";
                 crashedErr = err;
                 aborted = true;
@@ -2004,15 +2056,19 @@ export async function executeScenarios(
     } else {
       // ── Sequential driver (unchanged behaviour) ──────────────────────
       for (let i = 0; i < planned.length; i++) {
+        markStatus(i, "running");
         const outcome = await runStep(i);
         if (outcome.type === "crashed") {
+          markStatus(i, "failed", "crashed");
           if (failFast) throw outcome.err;
           continue;
         }
         if (outcome.type === "failed-partition") {
+          markStatus(i, "failed", `failed (cascade from ${outcome.scenarioId})`);
           applyFailurePartition(outcome.scenarioId, i, true);
           continue;
         }
+        markStatus(i, "passed");
       }
     }
   } finally {
