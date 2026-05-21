@@ -169,12 +169,41 @@ export async function ensureStacks(
 
     if (stacktypes.length === 0) continue;
 
+    // Honour explicit `depends_on: ["<app>/<variant>"]` entries from the test
+    // config: if the dep app provides a stacktype that the consumer also
+    // selects (via addon or own stacktype), point the consumer at the dep's
+    // variant of that stack rather than at the consumer's own variant.
+    //
+    // Example: modbus2mqtt/ssl uses addon-oidc (stacktype "oidc") and declares
+    // `depends_on: ["zitadel/default"]`. Without this map, the consumer would
+    // land on stack `oidc_ssl`, dragging in zitadel-ssl as its OIDC backend —
+    // but the test explicitly wants the plain-HTTP zitadel-default. With this
+    // map, stacktype "oidc" → variant "default" → stack `oidc_default`.
+    const depStacktypeVariants = new Map<string, string>();
+    for (const depId of (p.scenario.depends_on ?? [])) {
+      const slash = depId.indexOf("/");
+      if (slash <= 0) continue;
+      const depApp = depId.slice(0, slash);
+      const depVariant = depId.slice(slash + 1);
+      if (!depApp || !depVariant) continue;
+      const depRawStacktype = appStacktypes.get(depApp);
+      if (!depRawStacktype) continue;
+      const depSts = Array.isArray(depRawStacktype) ? depRawStacktype : [depRawStacktype];
+      for (const st of depSts) {
+        // First dep that provides this stacktype wins. Subsequent deps with
+        // the same stacktype are ignored — by convention each stacktype has
+        // exactly one provider per scenario chain.
+        if (!depStacktypeVariants.has(st)) depStacktypeVariants.set(st, depVariant);
+      }
+    }
+
     const ids: string[] = [];
     for (const st of stacktypes) {
-      const stackId = `${st}_${p.stackName}`;
+      const variant = depStacktypeVariants.get(st) ?? p.stackName;
+      const stackId = `${st}_${variant}`;
       ids.push(stackId);
       if (!stacksToCreate.has(stackId)) {
-        stacksToCreate.set(stackId, { name: p.stackName, type: st });
+        stacksToCreate.set(stackId, { name: variant, type: st });
       }
     }
     stackIdMap.set(p.stackName, ids[0]!);
