@@ -5,10 +5,9 @@ case "$0" in
   *)  _pvx_self="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")" || { echo "FATAL cwd-guard: cannot resolve $0" >&2; exit 2; } ;;
 esac
 _pvx_rr="$(cd "$(dirname "$_pvx_self")/.." 2>/dev/null && pwd)" || { echo "FATAL cwd-guard: cannot resolve repo root from $0" >&2; exit 2; }
-if [ -f "$_pvx_rr/package.json" ] && [ -d "$_pvx_rr/e2e" ] && [ -d "$_pvx_rr/production" ]; then
-  if [ "$0" != "$_pvx_self" ]; then cd "$_pvx_rr" && exec "$_pvx_self" "$@"; fi
-  cd "$_pvx_rr" || echo "WARN cwd-guard: cannot cd to '$_pvx_rr'; continuing in $(pwd)" >&2
-fi
+{ [ -f "$_pvx_rr/package.json" ] && [ -d "$_pvx_rr/e2e" ] && [ -d "$_pvx_rr/production" ]; } || { echo "FATAL cwd-guard: invalid repo root '$_pvx_rr' (from '$0')" >&2; exit 2; }
+if [ "$0" != "$_pvx_self" ]; then cd "$_pvx_rr" && exec "$_pvx_self" "$@"; fi
+cd "$_pvx_rr" || { echo "FATAL cwd-guard: cannot cd to '$_pvx_rr'" >&2; exit 2; }
 unset _pvx_self _pvx_rr
 # <<< proxvex-cwd-guard
 # Deploy one or more applications to a PVE host via the proxvex deployer.
@@ -83,17 +82,11 @@ EOF
   echo "$out"
 }
 
-# Optional per-call flags (any order, before the app/file args):
-#   --host|--ve <host>   target PVE host
-#   --replace            destroy an existing same-app container before install
-REPLACE=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --host|--ve) PVE_HOST="$2"; shift 2 ;;
-    --replace)   REPLACE=1; shift ;;
-    *) break ;;
-  esac
-done
+# Optional per-call host override
+if [ "$1" = "--host" ] || [ "$1" = "--ve" ]; then
+  PVE_HOST="$2"
+  shift 2
+fi
 
 # Auto-detect: HTTPS (port 3443) or HTTP (port 3080)
 if curl -sk --connect-timeout 3 "https://${DEPLOYER_HOST}:3443/api/applications" >/dev/null 2>&1; then
@@ -109,187 +102,6 @@ if command -v pct >/dev/null 2>&1; then
   DEPLOYER_VMID=$(pct list 2>/dev/null | awk -v h="$DEPLOYER_HOST" '$3 == h {print $1}')
 fi
 
-# Run the CLI in --json mode, mirroring livetest's cli-executor.mts pattern:
-#   - stdout = structured JSON lines (progress + a final {…,restartKey} line);
-#     captured to a file AND rendered human-readably via a jq passthrough
-#     (raw JSON fallback when jq is absent).
-#   - stderr = raw script output; captured to a file (surfaced on failure).
-# On a non-zero CLI exit, fetch the per-task debug bundle from
-#   GET /api/ve/debug/:restartKey            (manifest: { files: [...] })
-#   GET /api/ve/debug/:restartKey/<file>     (each file)
-# into production/diagnostics/<label>-<UTC>/, alongside the captured
-# stdout/stderr — the same endpoints test-result-writer.mts uses.
-# Returns the CLI exit code; never aborts before diagnostics are written.
-run_cli_capture() {
-  local label="$1"; shift
-  local ts out err rc dir
-  ts=$(date -u +%Y%m%dT%H%M%SZ)
-  out=$(mktemp); err=$(mktemp)
-
-  set +e
-  if command -v jq >/dev/null 2>&1; then
-    "$@" 2>"$err" | tee "$out" | jq -R --unbuffered -r '
-      fromjson? // empty
-      | select(type=="object" and (.command|type=="string"))
-      | "[\((.index // 0)+1)] \(.command) " +
-        (if ((.exitCode // 0) != 0) then "FAILED"
-         elif (.finished == true) then "OK" else "..." end)'
-    rc=${PIPESTATUS[0]}
-  else
-    echo "  (jq not found — raw JSON progress; install jq for readable output)" >&2
-    "$@" 2>"$err" | tee "$out"
-    rc=${PIPESTATUS[0]}
-  fi
-  # NB: stay under `set +e` through diagnostics so a non-zero grep/curl can't
-  # abort before the bundle is written; errexit is restored just before return.
-
-  local restart_key
-  restart_key=$(grep -o '"restartKey":"[^"]*"' "$out" 2>/dev/null \
-    | head -1 | sed 's/.*:"//; s/"$//')
-
-  if [ "$rc" -ne 0 ]; then
-    dir="$SCRIPT_DIR/diagnostics/${label}-${ts}"
-    mkdir -p "$dir"
-    cp "$out" "$dir/cli-stdout.jsonl" 2>/dev/null || true
-    cp "$err" "$dir/cli-stderr.log" 2>/dev/null || true
-    if [ -n "$restart_key" ]; then
-      local manifest
-      manifest=$(auth_curl -sk --max-time 30 \
-        "$SERVER/api/ve/debug/${restart_key}" 2>/dev/null || true)
-      local files
-      files=$(printf '%s' "$manifest" | python3 -c \
-        'import sys,json
-try: print("\n".join(json.load(sys.stdin).get("files",[])))
-except Exception: pass' 2>/dev/null || true)
-      if [ -n "$files" ]; then
-        local n=0
-        printf '%s\n' "$files" | while IFS= read -r f; do
-          [ -z "$f" ] && continue
-          mkdir -p "$dir/$(dirname "$f")"
-          auth_curl -sk --max-time 60 \
-            "$SERVER/api/ve/debug/${restart_key}/${f}" -o "$dir/$f" \
-            2>/dev/null || true
-        done
-        n=$(printf '%s\n' "$files" | grep -c .)
-        echo "  Debug bundle: ${n} file(s) → $dir" >&2
-      else
-        echo "  Debug bundle empty/unavailable (debug_level off or expired) — captured cli-stdout/stderr in $dir" >&2
-      fi
-    else
-      echo "  No restartKey in CLI output — captured cli-stdout/stderr in $dir" >&2
-    fi
-    echo "  Diagnostics: $dir" >&2
-  fi
-
-  # Always surface the completion banner (e.g. Zitadel admin login/password
-  # from template 380). In --json mode these are structured outputs on
-  # stdout; the jq passthrough only prints step status, and on success $out
-  # is discarded — so without this the credentials would be lost. Scan the
-  # captured stdout for the known completion output ids (schema-tolerant).
-  local banner
-  banner=$(python3 - "$out" <<'PY' 2>/dev/null || true
-import sys, json
-WANT = ("completion_header", "admin_loginname", "completion_details", "completion_url")
-found = {}
-def walk(o):
-    if isinstance(o, dict):
-        i, v = o.get("id"), o.get("value")
-        if isinstance(i, str) and i in WANT and i not in found and v is not None:
-            found[i] = v
-        for x in o.values():
-            walk(x)
-    elif isinstance(o, list):
-        for x in o:
-            walk(x)
-try:
-    for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
-        line = line.strip()
-        if not line or line[0] != "{":
-            continue
-        try:
-            walk(json.loads(line))
-        except Exception:
-            pass
-except Exception:
-    pass
-if found:
-    bar = "=" * 64
-    print(bar)
-    print(found.get("completion_header", "Completion"))
-    # completion_details already carries the Login+Password block; only fall
-    # back to admin_loginname when details is absent (avoids a double Login).
-    if "completion_details" in found:
-        print(str(found["completion_details"]))
-    elif "admin_loginname" in found:
-        print("Login: " + str(found["admin_loginname"]))
-    if "completion_url" in found:
-        print("URL:   " + str(found["completion_url"]))
-    print(bar)
-PY
-)
-  [ -n "$banner" ] && printf '%s\n' "$banner" >&2
-
-  rm -f "$out" "$err"
-  set -e
-  return "$rc"
-}
-
-# --- Duplicate-install guard ----------------------------------------------
-# Production runs exactly one managed container per application. A silent
-# second `install` (re-running a step without destroying first) is what
-# produced the 502/503 duplicate-postgres and orphaned-zitadel failures.
-# Before an install task, refuse if a managed container for the same
-# application already exists on the target VE; --replace destroys it first.
-# upgrade/reconfigure are exempt — they intentionally target the existing
-# container (resolve_previous_vmid handles those).
-_managed_vmids_for_app() {
-  local app="$1" body
-  body=$(auth_curl -sk --max-time 30 \
-    "$SERVER/api/ve_${PVE_HOST}/installations" 2>/dev/null || true)
-  [ -z "$body" ] && return 0
-  if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$body" | jq -r ".[]? | select(.application_id == \"$app\") | .vm_id" 2>/dev/null
-  else
-    printf '%s' "$body" | tr ',' '\n' | awk -v app="$app" '
-      /"vm_id":/ { gsub(/[^0-9]/, ""); cur=$0 }
-      /"application_id":/ { gsub(/"|application_id|:| /, ""); if ($0==app && cur!="") print cur; cur="" }'
-  fi
-}
-
-guard_no_existing_install() {
-  local params_file="$1" task app vmids v
-  task=$(grep -oE '"task"[[:space:]]*:[[:space:]]*"[^"]+"' "$params_file" 2>/dev/null \
-    | head -1 | sed -E 's/.*"task"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
-  case "$task" in
-    upgrade|reconfigure) return 0 ;;
-  esac
-  app=$(grep -oE '"application"[[:space:]]*:[[:space:]]*"[^"]+"' "$params_file" 2>/dev/null \
-    | head -1 | sed -E 's/.*"application"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
-  [ -z "$app" ] && return 0
-  vmids=$(_managed_vmids_for_app "$app" | grep -E '^[0-9]+$' | sort -u || true)
-  [ -z "$vmids" ] && return 0
-  if [ "${REPLACE:-0}" -eq 1 ]; then
-    echo "  --replace: destroying existing '$app' container(s) on ${PVE_HOST}: $(echo $vmids)" >&2
-    for v in $vmids; do
-      ssh -o StrictHostKeyChecking=no "root@${PVE_HOST}" \
-        "pct unlock $v 2>/dev/null; pct stop $v 2>/dev/null; pct destroy $v --purge --force" >&2 \
-        || { echo "ERROR: failed to destroy VM $v ($app) on ${PVE_HOST}" >&2; exit 1; }
-    done
-    return 0
-  fi
-  echo "" >&2
-  echo "ERROR: install of '$app' aborted — a managed container already exists on" >&2
-  echo "       ${PVE_HOST} (VMID: $(echo $vmids)). Production is exactly one" >&2
-  echo "       container per application; a silent second install is what caused" >&2
-  echo "       the duplicate-postgres / orphaned-zitadel failures." >&2
-  echo "" >&2
-  echo "  Choose one:" >&2
-  echo "    - Replace it:      $0 --replace --host ${PVE_HOST} <app|file.json>" >&2
-  echo "    - Update in place: set \"task\":\"upgrade\" in the params file" >&2
-  echo "    - Or destroy VMID $(echo $vmids) manually, then re-run." >&2
-  exit 1
-}
-
 if [ -n "$DEPLOYER_VMID" ]; then
   echo "Running on PVE host (deployer container: $DEPLOYER_VMID)"
   run_cli() {
@@ -299,30 +111,23 @@ if [ -n "$DEPLOYER_VMID" ]; then
     with_pat=$(augment_params_with_pat "$params_file")
     local effective_params
     effective_params=$(augment_params_with_previous_vmid "$with_pat") || true
-    local lbl _rc=0
-    lbl=$(basename "${params_file%.json}")
     # Push JSON file into container and run CLI from inside.
     # Use HTTPS — after Step 6 (ACME) the HTTP listener on :3080 only
     # serves a 301 to :3443, and the CLI's HTTP client does not follow
     # redirects on POST, so plain http://localhost:3080 returns
     # "Not found" instead of the expected route handler.
-    guard_no_existing_install "$params_file"
     pct push "$DEPLOYER_VMID" "$effective_params" /tmp/deploy-params.json
-    run_cli_capture "$lbl" \
-      pct exec "$DEPLOYER_VMID" -- oci-lxc-cli remote \
-        --server https://localhost:3443 --ve "$PVE_HOST" \
-        --insecure --json "$@" /tmp/deploy-params.json || _rc=$?
-    pct exec "$DEPLOYER_VMID" -- rm -f /tmp/deploy-params.json || true
+    pct exec "$DEPLOYER_VMID" -- oci-lxc-cli remote \
+      --server https://localhost:3443 --ve "$PVE_HOST" \
+      --insecure "$@" /tmp/deploy-params.json
+    pct exec "$DEPLOYER_VMID" -- rm -f /tmp/deploy-params.json
     [ "$effective_params" != "$with_pat" ] && rm -f "$effective_params"
     [ "$with_pat" != "$params_file" ] && rm -f "$with_pat"
-    return "$_rc"
   }
 else
   echo "Running on dev machine (using npx tsx)"
   PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-  # --yes: auto-install tsx without the interactive "Ok to proceed?" prompt,
-  # which would otherwise stall an unattended setup-production.sh --all run.
-  CLI="npx --yes tsx $PROJECT_ROOT/cli/src/oci-lxc-cli.mts"
+  CLI="npx tsx $PROJECT_ROOT/cli/src/oci-lxc-cli.mts"
 
   # Load OIDC credentials if available (optional — without .env, CLI runs without auth)
   ENV_FILE="$SCRIPT_DIR/.env"
@@ -344,18 +149,11 @@ else
     with_pat=$(augment_params_with_pat "$params_file")
     local effective_params
     effective_params=$(augment_params_with_previous_vmid "$with_pat") || true
-    local lbl _rc=0
-    lbl=$(basename "${params_file%.json}")
-    # Exported (not command-prefixed) so the CLI child spawned inside
-    # run_cli_capture reliably inherits it. Dev-mode only — insecure by design.
-    guard_no_existing_install "$params_file"
-    export NODE_TLS_REJECT_UNAUTHORIZED=0
-    run_cli_capture "$lbl" $CLI remote \
-      --server "$SERVER" --ve "$PVE_HOST" --insecure --json \
-      $OIDC_FLAGS "$@" "$effective_params" || _rc=$?
+    NODE_TLS_REJECT_UNAUTHORIZED=0 $CLI remote \
+      --server "$SERVER" --ve "$PVE_HOST" --insecure \
+      $OIDC_FLAGS "$@" "$effective_params"
     [ "$effective_params" != "$with_pat" ] && rm -f "$effective_params"
     [ "$with_pat" != "$params_file" ] && rm -f "$with_pat"
-    return "$_rc"
   }
 fi
 

@@ -15,9 +15,7 @@ import {
 describe("TemplateProcessor properties outputs generation", () => {
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
-  let contextManager: ReturnType<
-    typeof PersistenceManager.getInstance
-  >["getContextManager"];
+  let contextManager: ReturnType<ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]>;
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 
@@ -201,9 +199,7 @@ describe("TemplateProcessor properties outputs generation", () => {
 describe("TemplateProcessor properties.default feature", () => {
   let env: TestEnvironment;
   let persistenceHelper: TestPersistenceHelper;
-  let contextManager: ReturnType<
-    typeof PersistenceManager.getInstance
-  >["getContextManager"];
+  let contextManager: ReturnType<ReturnType<typeof PersistenceManager.getInstance>["getContextManager"]>;
   let tp: TemplateProcessor;
   const veContext = { host: "localhost", port: 22 } as any;
 

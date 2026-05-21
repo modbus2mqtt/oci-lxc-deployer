@@ -396,15 +396,83 @@ export class TemplateProcessor extends EventEmitter {
       opts.templateCategory!,
     );
     if (!resolvedTemplate) {
+      // Use the extracted templateName (always a string) instead of the raw
+      // `opts.template` (often `{name, library, …}` ⇒ `[object Object]` in
+      // a template literal — actively unhelpful for diagnosis).
+      const refDesc = typeof opts.template === "object" && opts.template !== null
+        ? JSON.stringify(opts.template)
+        : String(opts.template);
       const msg =
-        `Template file not found: ${opts.template}` +
+        `Template file not found: ${templateName} (ref ${refDesc}, app ${opts.application})` +
         ` (requested in: ${opts.requestedIn ?? "unknown"}${opts.parentTemplate ? ", parent template: " + opts.parentTemplate : ""})`;
       opts.errors.push(new JsonError(msg));
+      // Diagnostic dump (parallel-runner Overlay-Race): log the FULL resolution
+      // state so we can see whether the overlay was even considered. Without
+      // this the 422 response gives no clue *why* the overlay file wasn't
+      // visible at lookup time (cache vs path vs dir-entry race).
+      try {
+        const reposAny = this.repositories as any;
+        const pm = PersistenceManager.getInstance();
+        const livePathes = pm.getPathes();
+        const persistenceAny = pm.getPersistence() as any;
+        const appNames = typeof persistenceAny?.getAllAppNames === "function"
+          ? persistenceAny.getAllAppNames()
+          : null;
+        const appPathFromCache = appNames ? appNames.get(opts.application) : null;
+        const appPathsResolved =
+          typeof reposAny?.getApplicationPaths === "function"
+            ? reposAny.getApplicationPaths(opts.application)
+            : (typeof reposAny?.__diagnostic_getApplicationPaths === "function"
+              ? reposAny.__diagnostic_getApplicationPaths(opts.application)
+              : null);
+        const _fs = await import("node:fs");
+        const _path = await import("node:path");
+        const localCandidate = _path.join(
+          livePathes.localPath,
+          "applications",
+          opts.application,
+        );
+        const jsonCandidate = _path.join(
+          livePathes.jsonPath,
+          "applications",
+          opts.application,
+        );
+        const overlayHits: Array<{ candidate: string; exists: boolean; templateExists: boolean }> = [];
+        for (const cand of [localCandidate, jsonCandidate]) {
+          const appJsonExists = _fs.existsSync(_path.join(cand, "application.json"));
+          const tmpl = _path.join(cand, "templates", templateName.endsWith(".json") ? templateName : `${templateName}.json`);
+          overlayHits.push({
+            candidate: cand,
+            exists: appJsonExists,
+            templateExists: _fs.existsSync(tmpl),
+          });
+        }
+        const { createLogger } = await import("../logger/index.mjs");
+        const _logger = createLogger("template-not-found");
+        _logger.warn(`Template-not-found diagnostic: ${msg}`, {
+          pathes: {
+            localPath: livePathes.localPath,
+            jsonPath: livePathes.jsonPath,
+            hubPath: livePathes.hubPath,
+          },
+          appNameFromCache: appPathFromCache,
+          getApplicationPaths: appPathsResolved,
+          overlayHits,
+        });
+      } catch (diagErr) {
+        // Never let diagnostic logging break the error path itself.
+        try {
+          const { createLogger } = await import("../logger/index.mjs");
+          createLogger("template-not-found").warn(
+            `diagnostic logging failed: ${(diagErr as Error)?.message ?? diagErr}`,
+          );
+        } catch {}
+      }
       this.emit("message", {
         stderr: msg,
         result: null,
         exitCode: -1,
-        command: String(opts.templatename || opts.template),
+        command: String(opts.templatename || templateName),
         execute_on: undefined,
         index: 0,
       });

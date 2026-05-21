@@ -22,7 +22,7 @@ describe("ParameterValidator", () => {
       });
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].field).toBe("hostname");
+      expect(result.errors[0]!.field).toBe("hostname");
     });
 
     it("should fail when required param is empty string", () => {
@@ -58,7 +58,7 @@ describe("ParameterValidator", () => {
         parameterDefs: [makeDef({ id: "memory", type: "number" })],
       });
       expect(result.valid).toBe(false);
-      expect(result.errors[0].field).toBe("memory");
+      expect(result.errors[0]!.field).toBe("memory");
     });
 
     it("should accept numeric string for number param", () => {
@@ -134,8 +134,8 @@ describe("ParameterValidator", () => {
         parameterDefs: [enumDef],
       });
       expect(result.valid).toBe(false);
-      expect(result.errors[0].message).toContain("info");
-      expect(result.errors[0].message).toContain("debug");
+      expect(result.errors[0]!.message).toContain("info");
+      expect(result.errors[0]!.message).toContain("debug");
     });
 
     it("should handle string-only enum values", () => {
@@ -160,7 +160,7 @@ describe("ParameterValidator", () => {
       });
       expect(result.valid).toBe(true);
       expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0].field).toBe("unknown_param");
+      expect(result.warnings[0]!.field).toBe("unknown_param");
     });
   });
 
@@ -187,7 +187,7 @@ describe("ParameterValidator", () => {
         availableAddons: addons,
       });
       expect(result.valid).toBe(false);
-      expect(result.errors[0].field).toBe("addons");
+      expect(result.errors[0]!.field).toBe("addons");
     });
   });
 
@@ -228,9 +228,9 @@ describe("ParameterValidator", () => {
       });
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].field).toBe("addons");
-      expect(result.errors[0].message).toContain("ssl.mode");
-      expect(result.errors[0].message).toContain("ssl.addon_volumes");
+      expect(result.errors[0]!.field).toBe("addons");
+      expect(result.errors[0]!.message).toContain("ssl.mode");
+      expect(result.errors[0]!.message).toContain("ssl.addon_volumes");
     });
 
     it("should pass when addon has no required_parameters", () => {
@@ -278,7 +278,7 @@ describe("ParameterValidator", () => {
         availableStacks: stacks,
       });
       expect(result.valid).toBe(false);
-      expect(result.errors[0].field).toBe("stackId");
+      expect(result.errors[0]!.field).toBe("stackId");
     });
 
     it("should skip stack validation when no stacks provided", () => {
@@ -301,8 +301,8 @@ describe("ParameterValidator", () => {
         applicationPinnedIds: new Set(["oidc_redirect_uri", "oci_image"]),
       });
       expect(result.valid).toBe(false);
-      expect(result.errors[0].field).toBe("oidc_redirect_uri");
-      expect(result.errors[0].message).toMatch(/cannot be overridden/);
+      expect(result.errors[0]!.field).toBe("oidc_redirect_uri");
+      expect(result.errors[0]!.message).toMatch(/cannot be overridden/);
     });
 
     it("should accept params targeting a property with only default: set", () => {

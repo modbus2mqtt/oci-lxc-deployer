@@ -119,6 +119,13 @@ export interface ResolvedScenario extends TestScenario {
    * derived from app metadata and scenario configuration.
    */
   computedTags?: string[];
+  /**
+   * Filesystem directory of the application that defines this scenario,
+   * e.g. `json/applications/proxvex`. Used by the runtime spec-resolver to
+   * walk the `extends` chain when locating Playwright spec files. Set by the
+   * coverage analyzer / scenario loader; absent for API-delivered scenarios.
+   */
+  appDir?: string;
 }
 
 /** Planned scenario ready for execution */
@@ -186,6 +193,68 @@ export interface E2EConfig {
     deployer: number;
     deployerHttps: number;
   };
+}
+
+/**
+ * Run mode classification — determined by the positional test argument and
+ * snapshot flags. Drives qm-rollback, parallel default, pre-cleanup, and
+ * teardown semantics across the runner.
+ *
+ *  - `all`           — `livetest --all`: qm rollback to deployer-installed,
+ *                       parallel default, no teardown, per-catalog-member
+ *                       snapshot after success.
+ *  - `file`          — `livetest @<file.lst>`: same as `all`, scoped to the
+ *                       scenarios listed in the file (plus their deps).
+ *  - `snapshot-build`— legacy `livetest --snapshot <name> "<list>"` mode.
+ *                       Unchanged Phase-3b behaviour.
+ *  - `single`        — explicit single scenario or comma-list/regex selection.
+ *                       Always sequential. Pre-cleanup deletes non-snapshot,
+ *                       non-needed CTs. Per-catalog-member snapshot still runs.
+ */
+export type RunMode = "all" | "file" | "single" | "snapshot-build";
+
+/**
+ * Sanitize a scenario id (e.g. "zitadel/default") into a pct-snapshot-safe
+ * name (e.g. "zitadel-default"). pct snapshot names must be valid filesystem
+ * component characters — `/` is the only id-internal character that is not.
+ */
+export function sanitizeScenarioIdForSnapshot(id: string): string {
+  return id.replace(/\//g, "-");
+}
+
+/**
+ * Resolve the dependency-snapshot name for a run, or `null` when no
+ * dependency snapshot may be created/restored.
+ *
+ * Strategy (see plan residuum-separat-pre-existing-curried-leaf):
+ * the single global `dep-stacks-ready` snapshot is replaced by a
+ * per-target-application snapshot `<app>_deps`. It is only valid for an
+ * explicitly-selected single-application run — there the tested app is always
+ * a *target* (never a dependency), so its dependency state (e.g. postgres) is
+ * clean by construction at snapshot time. A `--all` run, or any run spanning
+ * more than one selected application, gets NO dependency snapshot (those go
+ * the parallelisation route instead) so a broad run can never bake a
+ * consumer's state into a snapshot a narrow run would later reuse.
+ *
+ * @param testArg     the positional test argument (e.g. "--all", "zitadel/default")
+ * @param planned     the planned scenarios
+ * @param selectedIds the set of explicitly-selected scenario ids (NOT the
+ *                    transitively-pulled dependencies)
+ */
+export function resolveDepSnapshotName(
+  testArg: string,
+  planned: PlannedScenario[],
+  selectedIds: Set<string>,
+): string | null {
+  if (testArg === "--all") return null;
+  const selectedApps = new Set(
+    planned
+      .filter((p) => selectedIds.has(p.scenario.id))
+      .map((p) => p.scenario.application),
+  );
+  if (selectedApps.size !== 1) return null;
+  const [app] = [...selectedApps];
+  return `${app}_deps`;
 }
 
 /** Param entry in a scenario params file */

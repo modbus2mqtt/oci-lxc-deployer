@@ -629,7 +629,7 @@ describe("VeExecution", () => {
         capturedCommand = input;
         return {
           command: tmplCommand.name,
-          execute_on: tmplCommand.execute_on ?? "",
+          execute_on: (typeof tmplCommand.execute_on === 'string' ? tmplCommand.execute_on : tmplCommand.execute_on?.where) ?? '',
           exitCode: 0,
           result: "OK",
           stderr: "",
@@ -680,7 +680,7 @@ volume2=/var/lib/myapp/logs`;
         capturedCommand = input;
         return {
           command: tmplCommand.name,
-          execute_on: tmplCommand.execute_on ?? "",
+          execute_on: (typeof tmplCommand.execute_on === 'string' ? tmplCommand.execute_on : tmplCommand.execute_on?.where) ?? '',
           exitCode: 0,
           result: "OK",
           stderr: "",
@@ -730,7 +730,7 @@ volume2=/var/lib/myapp/logs`;
       ): Promise<IVeExecuteMessage> {
         return {
           command: tmplCommand.name,
-          execute_on: tmplCommand.execute_on!,
+          execute_on: (typeof tmplCommand.execute_on === 'string' ? tmplCommand.execute_on : tmplCommand.execute_on!.where),
           exitCode: 0,
           result: "OK",
           stderr: "",

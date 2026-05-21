@@ -237,7 +237,10 @@ export class WebAppVE {
       }
 
       const since = req.query.since !== undefined ? Number(req.query.since) : undefined;
-      const messages = this.routeHandlers.handleGetMessages(veContext, since);
+      const restartKey = typeof req.query.restartKey === "string" && req.query.restartKey.length > 0
+        ? req.query.restartKey
+        : undefined;
+      const messages = this.routeHandlers.handleGetMessages(veContext, since, restartKey);
       this.returnResponse<IVeExecuteMessagesResponse>(res, messages);
     });
 
@@ -284,6 +287,45 @@ export class WebAppVE {
         this.messageManager.removeListener(listener);
       });
     });
+
+    // POST /api/ve/debug/:restartKey/external-events — accept a batch of
+    // runner-side events (livetest runner, AsyncLocalStorage-tagged). Pushed
+    // into the collector's per-restartKey trace so the unified bundle
+    // timeline interleaves runner + backend events. Body:
+    //   { events: [{ ts, level, msg }], final?: bool }
+    // `final` is currently informational; the bundle is sealed by the
+    // deploy's own finalizeBundle path. Idempotent: out-of-order ts is fine
+    // (events sort at render time).
+    this.app.post<{ restartKey: string }>(
+      "/api/ve/debug/:restartKey/external-events",
+      express.json({ limit: "2mb" }),
+      (req, res) => {
+        const restartKey = req.params.restartKey;
+        if (!this.debugCollector.has(restartKey)) {
+          res.status(404).json({ error: "Debug bundle not found" });
+          return;
+        }
+        const body = req.body as {
+          events?: Array<{ ts?: number; level?: string; msg?: string }>;
+        };
+        const events = Array.isArray(body?.events) ? body.events : [];
+        let stored = 0;
+        for (const e of events) {
+          if (typeof e?.ts !== "number" || typeof e?.msg !== "string") continue;
+          const level = (typeof e.level === "string" ? e.level : "info") as
+            "info" | "ok" | "warn" | "fail" | "step" | "debug";
+          this.debugCollector.attachRunnerEvent(restartKey, {
+            ts: e.ts,
+            level: ["info", "ok", "warn", "fail", "step", "debug"].includes(level)
+              ? level
+              : "info",
+            msg: e.msg,
+          });
+          stored++;
+        }
+        res.json({ stored });
+      },
+    );
 
     // GET /api/ve/debug/:restartKey — manifest of the debug bundle.
     // Returns 404 when debug_level was off for the originating task or the

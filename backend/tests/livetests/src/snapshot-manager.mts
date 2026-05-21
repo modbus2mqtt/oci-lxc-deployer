@@ -1,58 +1,140 @@
 /**
- * Single-snapshot manager for live integration tests.
+ * Per-Container snapshot manager for live integration tests (pct-only).
  *
- * Creates a single whole-nested-VM snapshot via `qm snapshot` on the outer
- * PVE host (not pct snapshot inside the nested VM). This guarantees an
- * atomic ZFS snapshot of vm-9002-disk-N, which captures all LXC rootfs,
- * all managed volumes, AND the storagecontext-backup on the nested-VM
- * host filesystem in one consistent state.
+ * Schritt 3b der konvergierten Snapshot-Architektur: Whole-VM-Snapshots via
+ * `qm snapshot` sind raus — sie stoppen die gesamte nested-VM und sind damit
+ * unvereinbar mit Parallelisierung. Stattdessen verwaltet diese Klasse
+ * **Per-CT-Snapshots** via `pct snapshot`/`pct rollback`/`pct listsnapshot`.
+ * `pct rollback <vmid>` ist container-lokal; andere Cluster (andere vmids)
+ * bleiben unberührt → restore ist parallel-sicher.
  *
- * Naming: `dep-stacks-ready` — created once after all stack-provider
- * scenarios (postgres/*, zitadel/*, nginx/*, etc.) have been installed,
- * reused as the rollback target for failed consumer tests.
+ * Selbstbeschreibende Description-Format:
+ *   build:<hash>;timestamp:<iso>;snap:<name>;members:postgres/default,zitadel/default[;desc:…]
  *
- * For dev instances (deployer runs locally on macOS), the local context
- * files (storagecontext.json, secret.txt) are copied to the nested VM
- * before snapshot creation and restored after rollback so the local
- * deployer's view stays consistent with the snapshot state.
+ * Build-Hash steht nur als **Information** in der Description — `coversRun`/
+ * `findCoveringSnapshot` lehnen einen Snapshot nicht mehr wegen Build-Hash-
+ * Mismatch ab; der Entwickler entscheidet über Refresh via erneutem
+ * `livetest --snapshot <name> …`.
+ *
+ * Infra-Snapshots (`baseline`, `mirrors-ready`, `deployer-installed`) sind
+ * step1/step2-script-verwaltet, NICHT durch diese Klasse — Baseline-Reset
+ * läuft über das `--fresh`-Skill (direkt via ssh+`qm rollback`, außerhalb
+ * des Runners).
  */
-import { execSync } from "node:child_process";
 import { existsSync, copyFileSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { nestedSshAsync, nestedSshStrictAsync } from "./ssh-helpers.mjs";
 
 export interface SnapshotConfig {
   enabled: boolean;
 }
 
-const CONTEXT_BACKUP_DIR = "/root/.deployer-context-backup";
-
 /**
- * Parse the `deps:a,b,c` segment from a snapshot description, returning a
- * set of captured application names. Returns an empty set for legacy
- * snapshots that pre-date the deps encoding.
+ * Parse the `members:a,b,c` segment from a snapshot description, returning a
+ * set of declared member scenario ids (e.g. `postgres/default`,
+ * `zitadel/default`). Returns an empty set for descriptions without `members:`.
+ *
+ * Backwards-compat: legacy descriptions used `deps:` for application names —
+ * also accepted as a fallback, treated as scenario-name-less hints.
  */
-function parseDepsFromSnapshotDescription(desc: string): Set<string> {
+function parseMembersFromSnapshotDescription(desc: string): Set<string> {
   for (const segment of desc.split(";")) {
-    const m = /^\s*deps:(.*)$/.exec(segment);
+    let m = /^\s*members:(.*)$/.exec(segment);
+    if (m) return new Set(m[1]!.split(",").map((s) => s.trim()).filter(Boolean));
+    m = /^\s*deps:(.*)$/.exec(segment);
     if (m) return new Set(m[1]!.split(",").map((s) => s.trim()).filter(Boolean));
   }
   return new Set();
 }
 
+function parseBuildHashFromSnapshotDescription(desc: string): string | undefined {
+  for (const segment of desc.split(";")) {
+    const m = /^\s*build:(.*)$/.exec(segment);
+    if (m) return m[1]!.trim();
+  }
+  return undefined;
+}
+
+function parseTimestampFromSnapshotDescription(desc: string): string | undefined {
+  for (const segment of desc.split(";")) {
+    const m = /^\s*timestamp:(.*)$/.exec(segment);
+    if (m) return m[1]!.trim();
+  }
+  return undefined;
+}
+
+export interface CtSnapshotInfo {
+  name: string;
+  description: string;
+  members: Set<string>;
+  buildHash: string | undefined;
+  timestamp: string | undefined;
+}
+
+/**
+ * Find a snapshot name that exists on EVERY required vmid AND whose declared
+ * members (taken as the union across the vmids) covers `requiredMembers`.
+ * Returns the chosen snapshot name plus per-vmid info, or null when nothing
+ * covers the run.
+ *
+ * Build-Hash-Mismatch wird hier **nicht** abgelehnt — die Caller soll bei
+ * Bedarf warnen (siehe SnapshotManager.findCoveringSnapshot).
+ */
+function selectCoveringSnapshot(
+  perVm: { vmid: number; snapshots: CtSnapshotInfo[] }[],
+  requiredMembers: ReadonlyArray<string>,
+): { name: string; perVmDesc: Map<number, CtSnapshotInfo> } | null {
+  if (perVm.length === 0) return null;
+  // Names present on every vmid.
+  const firstNames = new Set(perVm[0]!.snapshots.map((s) => s.name));
+  const candidateNames: string[] = [];
+  for (const n of firstNames) {
+    if (n === "current") continue;
+    if (perVm.every((p) => p.snapshots.some((s) => s.name === n))) {
+      candidateNames.push(n);
+    }
+  }
+  // Filter: union of declared members must cover required.
+  const required = new Set(requiredMembers);
+  let best: { name: string; perVmDesc: Map<number, CtSnapshotInfo>; ts: string } | null = null;
+  for (const name of candidateNames) {
+    const union = new Set<string>();
+    const perVmDesc = new Map<number, CtSnapshotInfo>();
+    for (const p of perVm) {
+      const snap = p.snapshots.find((s) => s.name === name)!;
+      perVmDesc.set(p.vmid, snap);
+      for (const m of snap.members) union.add(m);
+    }
+    const covers = [...required].every((m) => union.has(m));
+    if (!covers) continue;
+    // Prefer the most recent (timestamp).
+    const ts = [...perVmDesc.values()]
+      .map((s) => s.timestamp ?? "")
+      .sort()
+      .at(-1)!;
+    if (best === null || ts > best.ts) {
+      best = { name, perVmDesc, ts };
+    }
+  }
+  return best === null ? null : { name: best.name, perVmDesc: best.perVmDesc };
+}
+
+export { selectCoveringSnapshot, parseMembersFromSnapshotDescription };
+
 export class SnapshotManager {
   private debugIndex = 0;
 
   constructor(
-    private outerPveHost: string,
-    private nestedVmId: number,
+    private pveHost: string,
     private nestedSshPort: number,
     private log: (msg: string) => void = console.log,
     private localContextPath?: string,
   ) {}
 
   /**
-   * Save a copy of the storagecontext for debugging.
-   * Only active when DEPLOYER_PLAINTEXT_CONTEXT=1.
+   * Optional debug helper: save a copy of the local storagecontext for
+   * inspection. Only active when DEPLOYER_PLAINTEXT_CONTEXT=1; harmless
+   * otherwise.
    */
   private saveContextSnapshot(label: string): void {
     if (!this.localContextPath) return;
@@ -70,324 +152,166 @@ export class SnapshotManager {
     } catch { /* ignore */ }
   }
 
-  /** SSH to the outer PVE host (port 22) for qm commands */
-  private outerSsh(cmd: string, timeout = 60000): string {
-    const user = process.env.PVE_SSH_USER || "root";
-    return execSync(
-      `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 ${user}@${this.outerPveHost} ${JSON.stringify(cmd)}`,
-      { timeout, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
+  /**
+   * Build the self-describing snapshot description.
+   * Format: `build:<hash>;timestamp:<iso>;snap:<name>;members:<csv>[;desc:<text>]`
+   */
+  static buildDescription(opts: {
+    name: string;
+    members: ReadonlyArray<string>;
+    buildHash?: string;
+    desc?: string;
+  }): string {
+    const parts: string[] = [];
+    if (opts.buildHash) parts.push(`build:${opts.buildHash}`);
+    parts.push(`timestamp:${new Date().toISOString()}`);
+    parts.push(`snap:${opts.name}`);
+    const sortedMembers = [...new Set(opts.members)].sort();
+    if (sortedMembers.length > 0) parts.push(`members:${sortedMembers.join(",")}`);
+    if (opts.desc) parts.push(`desc:${opts.desc.replace(/[;]/g, ",")}`);
+    return parts.join(";");
   }
 
-  /** Whether to drive qm via the PVE REST API (Phase A1) instead of SSH. */
-  private get useApi(): boolean {
-    return process.env.PVE_USE_API === "1"
-      && !!process.env.PVE_API_TOKEN_ID
-      && !!process.env.PVE_API_TOKEN_SECRET;
-  }
+  /**
+   * Create a per-CT snapshot. Idempotent: if a snapshot with the same name
+   * already exists on this CT, it is dropped first, then re-created — that
+   * way an explicit `livetest --snapshot <name> …` rebuild overwrites the
+   * stale snapshot deterministically.
+   */
+  async createCtSnapshot(
+    vmid: number,
+    name: string,
+    description: string,
+  ): Promise<void> {
+    this.saveContextSnapshot(`before-create-${name}-${vmid}`);
+    // Sync filesystem inside the CT for a consistent snapshot.
+    try {
+      await nestedSshAsync(
+        this.pveHost, this.nestedSshPort,
+        `pct exec ${vmid} -- sync 2>/dev/null; true`,
+        15000,
+      );
+    } catch { /* ignore */ }
 
-  private apiNode(): string {
-    return process.env.PVE_NODE || this.outerPveHost;
-  }
-
-  /** Authenticated curl against the PVE REST API. Returns stdout text. */
-  private apiCurl(args: string[], timeout = 60000): string {
-    const ca = process.env.PVE_API_CA || "/etc/pve/pve-root-ca.pem";
-    const tokenHeader = `Authorization: PVEAPIToken=${process.env.PVE_API_TOKEN_ID}=${process.env.PVE_API_TOKEN_SECRET}`;
-    const caArg = ca === "-" ? ["-k"] : ["--cacert", ca];
-    const argv = ["curl", "-fsS", ...caArg, "-H", tokenHeader, ...args]
-      .map((a) => JSON.stringify(a)).join(" ");
-    return execSync(argv, { timeout, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
-  }
-
-  /** Poll task status until stopped; throws on failure or timeout (s). */
-  private apiWaitTask(upid: string, timeoutS = 300): void {
-    const url = `https://${this.outerPveHost}:8006/api2/json/nodes/${this.apiNode()}/tasks/${encodeURIComponent(upid)}/status`;
-    const end = Date.now() + timeoutS * 1000;
-    while (Date.now() < end) {
-      try {
-        const body = this.apiCurl([url], 10000);
-        const parsed = JSON.parse(body) as { data?: { status?: string; exitstatus?: string } };
-        if (parsed.data?.status === "stopped") {
-          const exitstatus = parsed.data.exitstatus ?? "OK";
-          // OK and WARNINGS: ... are both successful task completions in PVE.
-          if (exitstatus !== "OK" && !exitstatus.startsWith("WARNINGS:")) {
-            throw new Error(`PVE task ${upid} failed: ${exitstatus}`);
-          }
-          return;
-        }
-      } catch (err) {
-        if (err instanceof Error && err.message.includes("PVE task")) throw err;
-        // transient curl/parse error — retry
+    // Idempotent: drop existing snapshot with same name.
+    try {
+      const existing = await this.listCtSnapshots(vmid);
+      if (existing.some((s) => s.name === name)) {
+        this.log(`Dropping existing pct snapshot @${name} on VM ${vmid} (rebuild)`);
+        await nestedSshAsync(
+          this.pveHost, this.nestedSshPort,
+          `pct delsnapshot ${vmid} ${name}`,
+          60000,
+        );
       }
-      execSync("sleep 1");
-    }
-    throw new Error(`PVE task ${upid} timeout after ${timeoutS}s`);
+    } catch { /* best-effort */ }
+
+    this.log(`Creating pct snapshot @${name} on VM ${vmid}...`);
+    // pct snapshot description: pipe via stdin to avoid quoting headaches.
+    await nestedSshStrictAsync(
+      this.pveHost, this.nestedSshPort,
+      `pct snapshot ${vmid} ${name} --description "$(cat)"`,
+      120000,
+      description,
+    );
+    this.saveContextSnapshot(`after-create-${name}-${vmid}`);
+    this.log(`pct snapshot @${name} on VM ${vmid} created`);
   }
 
-  /** List snapshots (API or SSH). Returns `{name, description}` per entry. */
-  private listSnapshots(): { name: string; description: string }[] {
-    if (this.useApi) {
-      const url = `https://${this.outerPveHost}:8006/api2/json/nodes/${this.apiNode()}/qemu/${this.nestedVmId}/snapshot`;
-      const body = this.apiCurl([url]);
-      const parsed = JSON.parse(body) as { data: { name: string; description?: string }[] };
-      return parsed.data.map((s) => ({ name: s.name, description: s.description ?? "" }));
-    }
-    const out = this.outerSsh(`qm listsnapshot ${this.nestedVmId}`, 15000);
-    const result: { name: string; description: string }[] = [];
+  /**
+   * Roll a CT back to a named pct snapshot. The CT is stopped, rolled back,
+   * and restarted. Container-local — does not affect other CTs.
+   */
+  async rollbackCtSnapshot(vmid: number, name: string): Promise<void> {
+    this.log(`Rolling VM ${vmid} back to pct snapshot @${name}...`);
+    try {
+      await nestedSshAsync(
+        this.pveHost, this.nestedSshPort,
+        `pct stop ${vmid} 2>/dev/null; true`,
+        30000,
+      );
+    } catch { /* best-effort */ }
+    await nestedSshStrictAsync(
+      this.pveHost, this.nestedSshPort,
+      `pct rollback ${vmid} ${name}`,
+      120000,
+    );
+    await nestedSshStrictAsync(
+      this.pveHost, this.nestedSshPort,
+      `pct start ${vmid}`,
+      30000,
+    );
+    this.log(`pct rollback of VM ${vmid} to @${name} complete`);
+  }
+
+  /**
+   * List pct snapshots of a single CT. Output of `pct listsnapshot <vmid>`:
+   *
+   *   `-> snapname               <date>            <description>
+   *    `-> current                                  You are here!
+   *
+   * Returns parsed entries; the `current` entry is filtered out. Empty array
+   * when the CT does not exist.
+   */
+  async listCtSnapshots(vmid: number): Promise<CtSnapshotInfo[]> {
+    let out: string;
+    try {
+      out = await nestedSshAsync(
+        this.pveHost, this.nestedSshPort,
+        `pct listsnapshot ${vmid} 2>/dev/null`,
+        15000,
+      );
+    } catch { return []; }
+    if (!out) return [];
+    const result: CtSnapshotInfo[] = [];
     for (const line of out.split("\n")) {
       const m = line.match(/[`|]\->\s+(\S+)\s+\S+\s+\S+(?:\s+(.+))?$/);
-      if (m && m[1] !== "current") {
-        result.push({ name: m[1], description: (m[2] ?? "").trim() });
-      }
+      if (!m) continue;
+      const name = m[1]!;
+      if (name === "current") continue;
+      const description = (m[2] ?? "").trim();
+      result.push({
+        name,
+        description,
+        members: parseMembersFromSnapshotDescription(description),
+        buildHash: parseBuildHashFromSnapshotDescription(description),
+        timestamp: parseTimestampFromSnapshotDescription(description),
+      });
     }
     return result;
   }
 
-  /** SSH to the nested PVE VM (via port-forwarded port) */
-  private nestedSsh(cmd: string, timeout = 15000): string {
-    return execSync(
-      `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -p ${this.nestedSshPort} root@${this.outerPveHost} ${JSON.stringify(cmd)}`,
-      { timeout, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-  }
-
-  /** SCP files to the nested VM */
-  private scpToNested(localFile: string, remotePath: string): void {
-    execSync(
-      `scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -P ${this.nestedSshPort} ${JSON.stringify(localFile)} root@${this.outerPveHost}:${JSON.stringify(remotePath)}`,
-      { timeout: 15000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-    );
-  }
-
-  /** SCP files from the nested VM */
-  private scpFromNested(remotePath: string, localFile: string): void {
-    execSync(
-      `scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -P ${this.nestedSshPort} root@${this.outerPveHost}:${JSON.stringify(remotePath)} ${JSON.stringify(localFile)}`,
-      { timeout: 15000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-    );
-  }
-
-  /** Check if a host-PVE qm snapshot with this name exists for the nested VM */
-  exists(name: string): boolean {
-    try {
-      return this.listSnapshots().some((s) => s.name === name);
-    } catch {
-      return false;
-    }
-  }
-
   /**
-   * Backup local deployer context files to the nested VM.
-   * Called before snapshot creation so the snapshot embeds the latest
-   * passwords/secrets generated by the local deployer.
+   * Scan the listed CTs and find a snapshot name that exists on EVERY vmid
+   * with declared members ⊇ requiredMembers. The chosen name is returned
+   * together with per-vmid `CtSnapshotInfo` (so the caller can warn on
+   * build-hash mismatch). `null` when nothing covers the run.
    */
-  private backupContext(): void {
-    if (!this.localContextPath) return;
-
-    const ctxFile = `${this.localContextPath}/storagecontext.json`;
-    const secretFile = `${this.localContextPath}/secret.txt`;
-
-    if (!existsSync(ctxFile) && !existsSync(secretFile)) return;
-
-    try {
-      this.nestedSsh(`mkdir -p ${CONTEXT_BACKUP_DIR}`);
-      if (existsSync(ctxFile)) {
-        this.scpToNested(ctxFile, `${CONTEXT_BACKUP_DIR}/storagecontext.json`);
-      }
-      if (existsSync(secretFile)) {
-        this.scpToNested(secretFile, `${CONTEXT_BACKUP_DIR}/secret.txt`);
-      }
-      this.nestedSsh("sync");
-      const verify = this.nestedSsh(`ls ${CONTEXT_BACKUP_DIR}/ 2>&1`);
-      this.log(`Local context backed up to nested VM (${verify.replace(/\n/g, ", ")})`);
-    } catch (err) {
-      this.log(`Warning: context backup failed (non-fatal): ${err}`);
-    }
-  }
-
-  /** Public wrapper for restoreContext (used for retry after failed reload) */
-  restoreContextPublic(): void { this.restoreContext(); }
-
-  private restoreContext(): void {
-    if (!this.localContextPath) return;
-
-    try {
-      this.scpFromNested(
-        `${CONTEXT_BACKUP_DIR}/storagecontext.json`,
-        `${this.localContextPath}/storagecontext.json`,
-      );
-      this.scpFromNested(
-        `${CONTEXT_BACKUP_DIR}/secret.txt`,
-        `${this.localContextPath}/secret.txt`,
-      );
-      this.log("Local context restored from snapshot");
-    } catch (err) {
-      this.log(`Warning: context restore failed (non-fatal): ${err}`);
-    }
-  }
-
-  /**
-   * Create a whole-nested-VM snapshot on the outer PVE host.
-   * Captures all LXC rootfs, managed volumes, and the nested-VM host FS
-   * (including the storagecontext-backup dir) in one atomic ZFS snapshot.
-   */
-  createHostSnapshot(name: string, buildHash?: string, deps?: readonly string[]): void {
-    this.log(`Creating snapshot @${name}...`);
-
-    this.saveContextSnapshot(`before-create-${name}`);
-    this.backupContext();
-
-    // Sync nested VM filesystem so the snapshot is consistent
-    try { this.nestedSsh("sync", 10000); } catch { /* ignore */ }
-
-    // Idempotent: drop existing snapshot with same name
-    try {
-      if (this.exists(name)) {
-        if (this.useApi) {
-          const url = `https://${this.outerPveHost}:8006/api2/json/nodes/${this.apiNode()}/qemu/${this.nestedVmId}/snapshot/${name}`;
-          const upid = JSON.parse(this.apiCurl(["-X", "DELETE", url], 30000)).data;
-          this.apiWaitTask(upid, 60);
-        } else {
-          this.outerSsh(`qm delsnapshot ${this.nestedVmId} ${name}`, 30000);
+  async findCoveringSnapshot(
+    vmids: ReadonlyArray<number>,
+    requiredMembers: ReadonlyArray<string>,
+    currentBuildHash?: string,
+  ): Promise<{ name: string; perVmDesc: Map<number, CtSnapshotInfo> } | null> {
+    if (vmids.length === 0 || requiredMembers.length === 0) return null;
+    const perVm = await Promise.all(
+      vmids.map(async (vmid) => ({
+        vmid,
+        snapshots: await this.listCtSnapshots(vmid),
+      })),
+    );
+    const chosen = selectCoveringSnapshot(perVm, requiredMembers);
+    if (chosen && currentBuildHash) {
+      // Warn-log on build-hash mismatch (no reject — snapshots live until
+      // explicit refresh).
+      for (const [vmid, info] of chosen.perVmDesc.entries()) {
+        if (info.buildHash && info.buildHash !== currentBuildHash) {
+          this.log(
+            `Note: snapshot @${chosen.name} on VM ${vmid} built at ${info.buildHash} (now ${currentBuildHash})` +
+            `${info.timestamp ? `, taken ${info.timestamp}` : ""} — rebuild via 'livetest --snapshot ${chosen.name} …' when needed`,
+          );
         }
       }
-    } catch { /* ignore */ }
-
-    const parts: string[] = [];
-    if (buildHash) parts.push(`build:${buildHash}`);
-    if (deps && deps.length > 0) {
-      const sorted = [...new Set(deps)].sort();
-      parts.push(`deps:${sorted.join(",")}`);
     }
-    const desc = parts.length > 0 ? parts.join(";") : "livetest";
-    if (this.useApi) {
-      const url = `https://${this.outerPveHost}:8006/api2/json/nodes/${this.apiNode()}/qemu/${this.nestedVmId}/snapshot`;
-      const upid = JSON.parse(this.apiCurl([
-        "-X", "POST",
-        "--data-urlencode", `snapname=${name}`,
-        "--data-urlencode", "vmstate=0",
-        "--data-urlencode", `description=${desc}`,
-        url,
-      ], 60000)).data;
-      this.apiWaitTask(upid, 600);
-    } else {
-      this.outerSsh(
-        `qm snapshot ${this.nestedVmId} ${name} --vmstate 0 --description ${JSON.stringify(desc)}`,
-        60000,
-      );
-    }
-
-    this.saveContextSnapshot(`after-create-${name}`);
-    this.log(`Snapshot @${name} created`);
-  }
-
-  /**
-   * Rollback to a whole-nested-VM snapshot on the outer PVE host.
-   * Deletes any newer snapshots first (qm requires the target to be the most
-   * recent), stops the VM, rolls back, restarts, waits for SSH, and restores
-   * the local deployer context from the now-current snapshot state.
-   */
-  rollbackHostSnapshot(name: string): void {
-    this.log(`Rolling back to @${name}...`);
-    this.saveContextSnapshot(`before-rollback-${name}`);
-
-    // Delete snapshots newer than target — qm rollback requires the target
-    // snapshot to be the most recent one in the chain.
-    try {
-      const allNames = this.listSnapshots().map((s) => s.name);
-      const targetIdx = allNames.indexOf(name);
-      if (targetIdx >= 0) {
-        for (let i = allNames.length - 1; i > targetIdx; i--) {
-          this.log(`Deleting newer snapshot @${allNames[i]}`);
-          try {
-            if (this.useApi) {
-              const url = `https://${this.outerPveHost}:8006/api2/json/nodes/${this.apiNode()}/qemu/${this.nestedVmId}/snapshot/${allNames[i]}`;
-              const upid = JSON.parse(this.apiCurl(["-X", "DELETE", url], 30000)).data;
-              this.apiWaitTask(upid, 60);
-            } else {
-              this.outerSsh(`qm delsnapshot ${this.nestedVmId} ${allNames[i]}`, 30000);
-            }
-          } catch { /* ignore */ }
-        }
-      }
-    } catch {
-      this.log("Warning: could not enumerate snapshots before rollback");
-    }
-
-    try {
-      if (this.useApi) {
-        const url = `https://${this.outerPveHost}:8006/api2/json/nodes/${this.apiNode()}/qemu/${this.nestedVmId}/status/stop`;
-        const upid = JSON.parse(this.apiCurl(["-X", "POST", url], 60000)).data;
-        this.apiWaitTask(upid, 60);
-      } else {
-        this.outerSsh(`qm stop ${this.nestedVmId}`, 60000);
-      }
-    } catch {
-      this.log("Warning: qm stop failed (may already be stopped)");
-    }
-
-    if (this.useApi) {
-      const baseUrl = `https://${this.outerPveHost}:8006/api2/json/nodes/${this.apiNode()}/qemu/${this.nestedVmId}`;
-      const rollbackUpid = JSON.parse(this.apiCurl(["-X", "POST", `${baseUrl}/snapshot/${name}/rollback`], 120000)).data;
-      this.apiWaitTask(rollbackUpid, 180);
-      const startUpid = JSON.parse(this.apiCurl(["-X", "POST", `${baseUrl}/status/start`], 30000)).data;
-      this.apiWaitTask(startUpid, 60);
-    } else {
-      this.outerSsh(`qm rollback ${this.nestedVmId} ${name}`, 120000);
-      this.outerSsh(`qm start ${this.nestedVmId}`, 30000);
-    }
-    this.waitForNestedVm();
-
-    this.restoreContext();
-    this.saveContextSnapshot(`after-rollback-${name}`);
-    this.log(`Rollback to @${name} complete`);
-  }
-
-  /**
-   * Check whether a snapshot is safe to reuse for a run that needs the
-   * given build hash and dependency set.
-   *
-   * Snapshot description format (from createHostSnapshot):
-   *   build:<hash>;deps:a,b,c
-   *
-   * Reusable iff:
-   *  - buildHash matches (when given — deployer build invalidates otherwise)
-   *  - captured deps ⊇ requiredDeps (snapshot has every dep the run needs)
-   *
-   * Legacy snapshots without a `deps:` segment have an empty captured set,
-   * so any run that needs deps will fall back to a fresh install.
-   */
-  coversRun(name: string, buildHash: string | undefined, requiredDeps: readonly string[]): boolean {
-    let desc: string;
-    try {
-      const snap = this.listSnapshots().find((s) => s.name === name);
-      if (!snap) return false;
-      desc = snap.description;
-    } catch {
-      return false;
-    }
-    if (buildHash && !desc.includes(`build:${buildHash}`)) return false;
-    const captured = parseDepsFromSnapshotDescription(desc);
-    return requiredDeps.every((d) => captured.has(d));
-  }
-
-  /** Wait for the nested VM to become reachable via SSH after boot */
-  private waitForNestedVm(timeoutMs = 120000): void {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      try {
-        this.nestedSsh("echo ok", 5000);
-        this.sleep(5);
-        return;
-      } catch {
-        this.sleep(3);
-      }
-    }
-    throw new Error(`Nested VM not reachable via SSH after ${timeoutMs / 1000}s`);
-  }
-
-  private sleep(seconds: number): void {
-    execSync(`sleep ${seconds}`, { stdio: "ignore" });
+    return chosen;
   }
 }

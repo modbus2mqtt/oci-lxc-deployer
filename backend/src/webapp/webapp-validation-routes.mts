@@ -115,6 +115,34 @@ export function registerValidationRoutes(app: Application): void {
           ? stacktypes.flatMap((st) => stackProvider.listStacks(st))
           : [];
 
+        // If an explicit stackId was supplied, derive its stacktype from the
+        // `<stacktype>_<stackName>` prefix and pull in that stacktype's stacks
+        // too. Without this, scenarios that inherit a stackId from a
+        // dependency (e.g. proxmox/ssl depends_on zitadel/default → stackId
+        // oidc_default) fail validation because the consuming app+addons
+        // don't themselves declare the oidc stacktype. The dep-chain
+        // stack is still a legitimate value — the deployer needs it for
+        // dep-side stack lookups, even if the consumer doesn't list oidc as
+        // its own stacktype.
+        if (body.stackId) {
+          const firstUnderscore = body.stackId.indexOf("_");
+          if (firstUnderscore > 0) {
+            const stackIdType = body.stackId.slice(0, firstUnderscore);
+            if (!stacktypes.includes(stackIdType)) {
+              try {
+                for (const s of stackProvider.listStacks(stackIdType)) {
+                  if (!availableStacks.some((x) => x.id === s.id)) {
+                    availableStacks.push(s);
+                  }
+                }
+              } catch {
+                // Hub call failed — leave availableStacks as-is so the
+                // existing "Unknown stack" path reports a clear error.
+              }
+            }
+          }
+        }
+
         // Build application parameter/property ID set for addon requirements check
         const applicationParamIds = new Set<string>();
         for (const p of appObj.parameters ?? []) applicationParamIds.add(p.id);

@@ -1241,7 +1241,8 @@
       "default": "local-zfs",
       "required": false,
       "enumValuesTemplate": "list-available-pve-rootdir-storage.json",
-      "internal": true
+      "group": "Storage",
+      "advanced": true
     },
     "volumes": {
       "name": "Volumes",

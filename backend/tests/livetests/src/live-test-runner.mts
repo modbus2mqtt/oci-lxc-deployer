@@ -28,15 +28,22 @@
  */
 
 import { nestedSsh, nestedSshStrict } from "./ssh-helpers.mjs";
-import { collectWithDeps, selectScenarios, planScenarios, applyTagFilter } from "./scenario-planner.mjs";
+import {
+  collectWithDeps, selectScenarios, planScenarios, applyTagFilter,
+  classifyRunMode, loadSnapshotCatalog, loadScenarioListFromFile,
+} from "./scenario-planner.mjs";
 import { TestResultWriter } from "./test-result-writer.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { ResolvedScenario, PlannedScenario } from "./livetest-types.mjs";
+import type { ResolvedScenario, PlannedScenario, E2EConfig, ParamEntry, RunMode } from "./livetest-types.mjs";
+import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
-import { rollbackToBaseline, restoreBestSnapshot, prepareVms } from "./vm-lifecycle.mjs";
+import {
+  restoreBestSnapshot, prepareVms, rollbackToBaseline,
+  preCleanupNonSnapshotConsumers, rollbackOrDestroyDepsFromSnapshot,
+} from "./vm-lifecycle.mjs";
 import { executeScenarios } from "./scenario-executor.mjs";
 import { RED, GREEN, NC, logOk, logFail, logWarn, logInfo } from "./log-helpers.mjs";
 import { analyzeCoverage } from "./coverage-analyzer.mjs";
@@ -45,6 +52,7 @@ import { buildAdHocFilter, buildFilter, loadTestSets, resolvePreset, type Resolv
 
 // Re-export types so existing imports from this module continue to work
 export type { TestScenario, ResolvedScenario, PlannedScenario, StepResult, TestResult, E2EConfig, ParamEntry } from "./livetest-types.mjs";
+export { resolveDepSnapshotName } from "./livetest-types.mjs";
 export { collectWithDeps, selectScenarios, buildParams, planScenarios, partitionAfterFailure, type BuildParamsResult } from "./scenario-planner.mjs";
 export { runCli, type CliJsonResult, type CliMessage } from "./cli-executor.mjs";
 
@@ -83,11 +91,11 @@ function loadConfig(instanceName?: string): {
   veHost: string;
   veSshPort: number;
   vmId: number;
-  snapshot: { enabled: boolean } | undefined;
-  registryMirror: { dnsForwarder: string } | undefined;
+  snapshot?: { enabled: boolean };
+  registryMirror?: { dnsForwarder: string };
   portForwarding: Array<{ port: number; hostname: string; ip: string; containerPort: number }>;
   nestedVmIp: string;
-  zitadelPat: string | undefined;
+  zitadelPat?: string;
 } {
   const projectRoot = path.resolve(import.meta.dirname, "../../../..");
   const configPath = path.join(projectRoot, "e2e/config.json");
@@ -148,6 +156,9 @@ function loadConfig(instanceName?: string): {
   // org permissions. Resolved like other strings (env var interpolation).
   const zitadelPat = inst.zitadelPat ? resolveEnv(inst.zitadelPat) : undefined;
 
+  // exactOptionalPropertyTypes treats `T | undefined` differently from `T?` —
+  // optional fields must be OMITTED when absent, not assigned `undefined`. Hence
+  // the conditional spreads for snapshot/registryMirror/zitadelPat.
   return {
     instance,
     pveHost,
@@ -163,45 +174,41 @@ function loadConfig(instanceName?: string): {
     veHost,
     veSshPort,
     vmId: inst.vmId,
-    snapshot,
-    registryMirror,
+    ...(snapshot ? { snapshot } : {}),
+    ...(registryMirror ? { registryMirror } : {}),
     portForwarding,
     // Nested VM static IP (always .10 in step1's subnet allocation). Used by
     // outer-host iptables DNAT rules so port-forwards reach the right nested VM.
     nestedVmIp: `${inst.subnet}.10`,
-    zitadelPat,
+    ...(zitadelPat ? { zitadelPat } : {}),
   };
 }
 
 /**
- * Resolve volume_storage parameter by querying PVE rootdir storages via SSH.
- * Prioritizes zfspool > dir > any other type.
+ * Enumerate all `zfspool` rootdir storages on the PVE host via SSH.
+ * Returns names in `pvesm status` order, or `[]` when SSH fails or no
+ * zfspool storage exists. Callers use this list to spread parallel
+ * scenarios across separate ZFS pools (separate datasets = separate
+ * locks, so `pct create`/`zfs snapshot` don't queue on `rpool/data`).
+ * Empty list → callers leave `volume_storage` unset, default from
+ * `parameter-definitions.json` kicks in.
  */
-export function resolveVolumeStorage(
+export function enumerateZfsPoolStorages(
   pveHost: string,
   sshPort: number,
-  existingParams: { name: string; value: string }[],
-): void {
-  if (existingParams.some((p) => p.name === "volume_storage")) return;
+): string[] {
   try {
     const raw = nestedSshStrict(pveHost, sshPort,
       "pvesm status --content rootdir 2>/dev/null | tail -n +2", 10000);
-    const storages = raw.trim().split("\n")
+    return raw.trim().split("\n")
       .map((line) => {
         const [name, type] = line.trim().split(/\s+/);
         return { name: name || "", type: type || "" };
       })
-      .filter((s) => s.name);
-    if (storages.length === 0) return;
-    // Prioritize: zfspool > dir > first available
-    const preferred =
-      storages.find((s) => s.type === "zfspool") ??
-      storages.find((s) => s.type === "dir") ??
-      storages[0];
-    existingParams.push({ name: "volume_storage", value: preferred.name });
-    logInfo(`Auto-resolved volume_storage=${preferred.name} (${preferred.type})`);
+      .filter((s) => s.name && s.type === "zfspool")
+      .map((s) => s.name);
   } catch {
-    // SSH failed — continue without, CLI will validate
+    return [];
   }
 }
 
@@ -331,10 +338,18 @@ function cleanupVms(
   pveHost: string,
   sshPort: number,
   keepVm: boolean,
+  snapshotCatalog: ReadonlySet<string>,
 ) {
   for (const p of [...planned].reverse()) {
     if (p.isDependency) {
       logWarn(`Keeping dependency VM ${p.vmId} (${p.scenario.id})`);
+      console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
+    } else if (snapshotCatalog.has(p.scenario.id)) {
+      // Catalog members own pct snapshots created by the per-member-snapshot
+      // path in scenario-executor; destroying the CT here would wipe that
+      // snapshot. Keep the CT running so the next `--from-snapshot` run can
+      // roll it back instead of reinstalling.
+      logWarn(`Keeping snapshot-catalog member VM ${p.vmId} (${p.scenario.id})`);
       console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
     } else if (keepVm) {
       logWarn(`KEEP_VM set - VM ${p.vmId} not destroyed`);
@@ -358,6 +373,57 @@ async function main() {
   const failFastFlag = args.includes("--fail-fast");
   const includeUntestable = args.includes("--include-untestable");
   const depsOnlyFlag = args.includes("--deps-only");
+
+  // Schritt 3b: `--snapshot <name>` build mode. Listed scenarios are
+  // installed as a normal livetest (full debug bundle, bootstrap diagnosis)
+  // and at the end of each iteration their CTs are pct-snapshotted with
+  // `<name>` (selbstbeschreibende description). Sole writer of dep
+  // snapshots; regular livetest runs only restore them.
+  const snapshotIdx = args.indexOf("--snapshot");
+  let snapshotMode: string | null = null;
+  if (snapshotIdx >= 0) {
+    const next = args[snapshotIdx + 1];
+    if (!next || next.startsWith("--")) {
+      console.error("--snapshot requires a name, e.g. `--snapshot oidc-base \"postgres/default,zitadel/default\"`.");
+      process.exit(2);
+    }
+    snapshotMode = next;
+    // Remove the flag + its value so the positional parser doesn't see them.
+    args.splice(snapshotIdx, 2);
+  }
+
+  // Phase 1 (opt-in for single scenarios, default-on for `--all`/`@file`):
+  // `--parallel` or `--parallel=N` switches the scenario loop to a bounded
+  // async scheduler. Without the flag the runner takes the unchanged
+  // sequential path → near-zero regression risk for single-scenario runs.
+  //
+  // `--no-parallel` forces serial even when a default-on mode would otherwise
+  // enable it. `--parallel=1` is also accepted and treated as serial.
+  const parallelArg = args.find(
+    (a) => a === "--parallel" || a.startsWith("--parallel="),
+  );
+  const noParallelIdx = args.indexOf("--no-parallel");
+  if (noParallelIdx >= 0) args.splice(noParallelIdx, 1);
+  const explicitParallel = !!parallelArg;
+  const explicitNoParallel = noParallelIdx >= 0;
+  let parallelLimit = 4;
+  if (parallelArg && parallelArg.includes("=")) {
+    const n = Number.parseInt(parallelArg.split("=")[1] ?? "", 10);
+    if (!Number.isFinite(n) || n < 1) {
+      console.error(
+        `Invalid --parallel value "${parallelArg.split("=")[1]}". Expected a positive integer.`,
+      );
+      process.exit(2);
+    }
+    parallelLimit = n;
+  }
+
+  // `--from-snapshot`: single-scenario mode → roll back transitive dep CTs
+  // from their pct snapshots before the test (and destroy any dep CT that
+  // does not have a snapshot, so prepareVms reinstalls it fresh).
+  const fromSnapshotIdx = args.indexOf("--from-snapshot");
+  const fromSnapshot = fromSnapshotIdx >= 0;
+  if (fromSnapshot) args.splice(fromSnapshotIdx, 1);
 
   // Coverage-report short-circuits before any deployer interaction.
   if (args.includes("--coverage-report")) {
@@ -391,6 +457,16 @@ async function main() {
   // always carry a debug bundle. Suppress with --debug off.
   if (!debugLevel) debugLevel = "extLog";
 
+  // --volume-storage <name>: pin every scenario in this run to one zfspool
+  // storage. step3 uses this to spread cluster-builds across local-zfs/2/3/4
+  // (one cluster per storage → all CTs of one cluster on the same pool, so
+  // `pct clone`/`pct rollback` inside the chain stays ZFS-CoW-fast and the
+  // distribution across clusters keeps parallel snapshot-restores lock-free).
+  // Without the flag, scenarios pick their storage hierarchically:
+  //   1. dependency inheritance (same storage as existing dep CT) → CoW
+  //   2. round-robin by index → spread cluster-roots evenly
+  const volumeStorageOverride = popValueFlag(args, "--volume-storage");
+
   const positionalArgs = args.filter((a, i, arr) =>
     a !== "--fixtures" &&
     a !== "--queue" &&
@@ -399,10 +475,56 @@ async function main() {
     a !== "--coverage-report" &&
     a !== "--gaps-only" &&
     a !== "--deps-only" &&
+    !a.startsWith("--parallel") &&
     !(arr[i - 1] === "--format")
   );
   const instance = positionalArgs[0] || undefined;
-  const testArg = positionalArgs[1] || "--all";
+  let testArg = positionalArgs[1] || "--all";
+
+  // `@<file>` scenario list: expand into a comma-separated list and treat
+  // semantically like a `--all`-scoped run (qm rollback + parallel default +
+  // catalog snapshots after success). The expansion happens BEFORE
+  // classifyRunMode so selectScenarios can consume the resulting comma list
+  // unchanged; the run mode is captured separately for downstream gating.
+  const projectRootForListFile = path.resolve(import.meta.dirname, "../../../..");
+  const runMode: RunMode = classifyRunMode(testArg, snapshotMode);
+  if (runMode === "file") {
+    const filePathArg = testArg.slice(1);
+    const filePath = path.isAbsolute(filePathArg)
+      ? filePathArg
+      : path.resolve(projectRootForListFile, filePathArg);
+    try {
+      testArg = loadScenarioListFromFile(filePath);
+      logInfo(`@file: loaded ${testArg.split(",").length} scenario(s) from ${filePath}`);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(2);
+    }
+  }
+
+  // Snapshot catalog: which scenarios get a (re-)snapshot after a successful
+  // test. Read once here so all downstream gates see the same set. Missing
+  // file → empty set, no snapshots created (operator can add it later).
+  const snapshotCatalog = loadSnapshotCatalog(projectRootForListFile);
+  if (snapshotCatalog.size > 0) {
+    logInfo(`Snapshot catalog: ${snapshotCatalog.size} member(s) — ${[...snapshotCatalog].join(", ")}`);
+  } else if (runMode === "all" || runMode === "file") {
+    logWarn("Snapshot catalog is empty (e2e/snapshot-catalog.json missing or empty) — no snapshots will be created during this run");
+  }
+
+  // Parallel default decision: opt-in for single, default-on for all/file.
+  // `--no-parallel` and `--parallel=1` both force serial. `snapshot-build`
+  // mode is always serial (unchanged Phase-3b semantics).
+  const parallelDefaultedOn = (runMode === "all" || runMode === "file");
+  const parallelEnabled =
+    runMode === "snapshot-build"
+      ? false
+      : explicitParallel
+        ? parallelLimit > 1
+        : (parallelDefaultedOn && !explicitNoParallel);
+  if (runMode === "single" && fromSnapshot && parallelEnabled) {
+    logWarn("--from-snapshot is a single-scenario flag; parallelism is ignored");
+  }
 
   const config = loadConfig(instance);
   const projectRoot = path.resolve(import.meta.dirname, "../../../..");
@@ -560,7 +682,7 @@ async function main() {
   // Queue worker mode — delegate all scenario management to the queue API
   if (queueFlag) {
     const { runQueueWorker: runQueue } = await import("./queue-worker.mjs");
-    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, resolveVolumeStorage);
+    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, enumerateZfsPoolStorages);
     return;
   }
 
@@ -661,9 +783,15 @@ async function main() {
     p.isDependency =
       !selectedIdSet.has(p.scenario.id) || dependedOn.has(p.scenario.id);
   }
+  // In `--snapshot <name>` build mode every listed scenario is a provider
+  // whose CT we want to pct-snapshot at the end — none of them should be
+  // torn down. Forcing isDependency=true reuses the existing exemption.
+  if (snapshotMode) {
+    for (const p of planned) p.isDependency = true;
+  }
 
   // --deps-only: drop non-dependency steps so we install all providers, create
-  // the dep-stacks-ready snapshot, and skip the target tests. Iteration loop
+  // the per-application `<app>_deps` snapshot, and skip the target tests. Iteration loop
   // for the target test (e.g. tweaking a Playwright spec or a single template)
   // can then re-run without paying the dep-install cost.
   if (depsOnlyFlag) {
@@ -689,13 +817,50 @@ async function main() {
   }
   console.log("");
 
-  // VM preparation: snapshot restore → pre-cleanup
-  if (testArg === "--all") rollbackToBaseline(config, projectRoot);
-  await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot);
+  // Phase 0: resolve the per-application dependency-snapshot name for this
+  // run scope. `null` for `--all` / multi-application subsets → no dep
+  // snapshot is created or restored (those go the parallelisation route).
+  // In `--snapshot <name>` mode the cluster name is given on the CLI;
+  // otherwise apply the per-application heuristic from Phase 0.
+  const depSnapshotName = snapshotMode ?? resolveDepSnapshotName(testArg, planned, selectedIdSet);
+  if (snapshotMode) {
+    logInfo(`Building snapshot @${snapshotMode} from listed providers`);
+  } else if (depSnapshotName) {
+    logInfo(`Dependency snapshot for this run: @${depSnapshotName}`);
+  } else {
+    logInfo("No dependency snapshot for this run scope (--all / multi-app)");
+  }
+
+  // VM preparation — gated by run mode:
+  //   - all/file: qm rollback to deployer-installed baseline → setupPortForwarding
+  //   - single + --from-snapshot: per-dep pct rollback or destroy
+  //   - single (default): pre-cleanup of non-snapshot, non-needed CTs
+  //   - snapshot-build: legacy path (no qm rollback, no pre-cleanup)
+  // pct restore of dep-CTs runs *additionally* across all modes when a
+  // covering snapshot exists (cheap, idempotent).
+  if (runMode === "all" || runMode === "file") {
+    await rollbackToBaseline(config.pveHost, config.portPveSsh, config.vmId);
+  }
+  // Skip the legacy per-dep restore in --from-snapshot mode:
+  // rollbackOrDestroyDepsFromSnapshot below does the same `pct rollback`
+  // and additionally destroys snapshotless deps, so running both would
+  // pct-rollback every dep CT twice. In all other modes restoreBestSnapshot
+  // stays — it's a cheap no-op when no covering snapshot exists (and a
+  // welcome speedup when one does).
+  if (!(runMode === "single" && fromSnapshot)) {
+    await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
+  }
   // qm rollback wipes the nested-VM iptables + dnsmasq state, so reapply
   // port forwarding (idempotent) so Playwright specs and OIDC redirect URIs
   // still reach the right inner containers.
   setupPortForwarding(config);
+  if (runMode === "single" && fromSnapshot) {
+    await rollbackOrDestroyDepsFromSnapshot(planned, config.pveHost, config.portPveSsh, projectRoot);
+  }
+  if (runMode === "single") {
+    const neededVmIds = new Set(planned.map((p) => p.vmId));
+    await preCleanupNonSnapshotConsumers(config.pveHost, config.portPveSsh, neededVmIds);
+  }
   prepareVms(planned, config, appStacktypes);
 
   // Stack management: cleanup SQL, stale VM detection, stack creation
@@ -712,11 +877,22 @@ async function main() {
   const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
   logInfo(`Results: ${resultWriter.getOutputDir()}`);
   if (failFastFlag) logInfo("--fail-fast enabled: aborting on first scenario failure");
-  const result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel });
+  let result;
+  if (parallelEnabled) {
+    logInfo(`--parallel enabled: concurrency limit ${parallelLimit}`);
+    const { executeScenariosParallel } = await import("./scenario-executor.mjs");
+    result = await executeScenariosParallel(
+      planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
+      appStackIdsMap, resultWriter, fixtureBaseDir,
+      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) },
+    );
+  } else {
+    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) });
+  }
   const allResults = [result];
 
   // Cleanup
-  cleanupVms(planned, config.pveHost, config.portPveSsh, keepVm);
+  cleanupVms(planned, config.pveHost, config.portPveSsh, keepVm, snapshotCatalog);
 
   // Summary
   const totalPassed = allResults.reduce((s, r) => s + r.passed, 0);
@@ -803,11 +979,15 @@ async function ensureSpokeMatchesBuild(
     dirty?: boolean;
   };
 
-  let spokeVersion: { gitHash?: string; dirty?: boolean; buildTime?: string; startTime?: string } | null = null;
+  type SpokeVersion = { gitHash?: string; dirty?: boolean; buildTime?: string; startTime?: string };
+  let spokeVersion: SpokeVersion | null = null;
   try {
     const resp = await fetch(`${apiUrl}/api/version`, { signal: AbortSignal.timeout(5000) });
     if (resp.ok) {
-      spokeVersion = (await resp.json()) as typeof spokeVersion;
+      // Naming the type rather than `typeof spokeVersion` avoids a tsc edge
+      // case where the self-referential `typeof` narrows the cast target to
+      // `never` after the initial `= null` flow analysis.
+      spokeVersion = (await resp.json()) as SpokeVersion;
     }
   } catch {
     // pre-flight endpoint may not exist on older spokes — treat as mismatch

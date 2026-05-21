@@ -1,0 +1,8 @@
+{
+  "members": [
+    "zitadel/default",
+    "zitadel/ssl",
+    "zitadel/mtls",
+    "zitadel/mtls-certonly"
+  ]
+}

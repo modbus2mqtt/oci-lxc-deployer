@@ -6,7 +6,7 @@ import path from "node:path";
 import {
   createTestEnvironment,
   type TestEnvironment,
-} from "../helper/test-environment.mts";
+} from "../helper/test-environment.mjs";
 import {
   CertificateAuthorityService,
   normalizeExtraSans,

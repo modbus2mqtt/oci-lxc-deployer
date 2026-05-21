@@ -7,23 +7,40 @@
 
 import { runCli, type CliJsonResult } from "./cli-executor.mjs";
 import { SnapshotManager } from "./snapshot-manager.mjs";
-import { nestedSsh, nestedSshStrict, waitForServices, waitForContainerStable, waitForLxcInit } from "./ssh-helpers.mjs";
-import { buildParams, partitionAfterFailure } from "./scenario-planner.mjs";
+import { nestedSsh, nestedSshAsync, nestedSshStrictAsync, waitForServices, waitForContainerStable, waitForLxcInit } from "./ssh-helpers.mjs";
+import { buildParams, partitionAfterFailure, classifyParallel } from "./scenario-planner.mjs";
 import { TestResultWriter, type TestResultDependency } from "./test-result-writer.mjs";
 import { collectFailureLogs } from "./diagnostics.mjs";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ResolvedScenario, PlannedScenario, TestResult } from "./livetest-types.mjs";
+import type { ResolvedScenario, PlannedScenario, TestResult, RunMode } from "./livetest-types.mjs";
+import { sanitizeScenarioIdForSnapshot } from "./livetest-types.mjs";
 import { Verifier, buildDefaultVerify, type AppMeta } from "./verifier.mjs";
-import { logOk, logFail, logWarn, logInfo, logStep } from "./log-helpers.mjs";
-import { resolveVolumeStorage } from "./live-test-runner.mjs";
+import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type ScenarioLogContext } from "./log-helpers.mjs";
+import { enumerateZfsPoolStorages } from "./live-test-runner.mjs";
 import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
+
+/** Options accepted by both executor drivers (sequential + parallel). */
+export interface ExecuteScenariosOptions {
+  failFast?: boolean;
+  debugLevel?: string;
+  depSnapshotName?: string | null;
+  concurrency?: number;
+  snapshotMode?: string | null;
+  volumeStorageOverride?: string;
+  /** New run-mode classification — drives teardown-skip and per-member
+   * snapshot semantics. Undefined treated as `single` for legacy callers. */
+  runMode?: RunMode;
+  /** Curated set of scenario ids whose CT + transitive dep CTs get a pct
+   * snapshot after a successful test. Independent of `depSnapshotName`. */
+  snapshotCatalog?: ReadonlySet<string>;
+}
 
 /**
  * Evaluate expect2fail + allowed2fail expectations against per-template results.
@@ -90,6 +107,9 @@ function evaluateExpect2Fail(
         : finals.length > 0
           ? finals[finals.length - 1]
           : msgs[msgs.length - 1];
+    // msgs is non-empty here (filter step kept us in the loop), so lastMsg is
+    // defined — the explicit guard exists to satisfy noUncheckedIndexedAccess.
+    if (!lastMsg) continue;
     if (lastMsg.exitCode !== expectedCode) {
       mismatches.push(
         `${tmpl}: expected exit ${expectedCode}, got ${lastMsg.exitCode}`,
@@ -185,10 +205,12 @@ async function findExistingVm(
         const addons = [...addonMatches].map(m => m[1]!).filter(Boolean);
         const hostMatch = conf.match(/^hostname:\s*(\S+)/m);
         const hostname = hostMatch?.[1];
-        const result = {
+        // exactOptionalPropertyTypes forbids `addons: undefined` on `addons?: string[]`;
+        // spread the field conditionally so it's omitted when absent.
+        const result: { vm_id: number; addons?: string[]; hostname?: string } = {
           vm_id: vmId,
-          addons: addons.length > 0 ? addons : undefined,
-          hostname,
+          ...(addons.length > 0 ? { addons } : {}),
+          ...(hostname ? { hostname } : {}),
         };
         if (expectedHostname) {
           if (hostname === expectedHostname) return result;
@@ -265,32 +287,9 @@ function allocateCloneVmId(
   return null;
 }
 
-/** Round-trip a Spoke→Hub call to verify the Hub is reachable.
- *
- * After `qm rollback` the nested VM and the Hub LXC inside it are restarting.
- * `waitForNestedVm` only checks SSH, but the Hub HTTP API needs additional
- * seconds before it accepts requests. The Spoke proxies stack and CA-sign
- * calls to the Hub via curl with a 15s timeout — if the next scenario starts
- * before the Hub is listening, those calls fail with curl rc=7. This helper
- * polls the Spoke's /api/applications endpoint, which (in Spoke mode) forces
- * a Hub round-trip, until it succeeds or the timeout elapses. */
-async function waitForHubViaSpoke(apiUrl: string, timeoutMs: number): Promise<void> {
-  const start = Date.now();
-  let lastError = "";
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const resp = await fetch(`${apiUrl}/api/applications`, {
-        signal: AbortSignal.timeout(8000),
-      });
-      if (resp.ok) return;
-      lastError = `HTTP ${resp.status}`;
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  logInfo(`Warning: Hub did not respond via Spoke within ${timeoutMs / 1000}s (last: ${lastError}) — continuing anyway`);
-}
+// `waitForHubViaSpoke` removed in Schritt 3b: it was only needed because
+// `qm rollback` restarted the entire nested VM (including the Hub). pct
+// rollback is container-local; the Hub is never touched.
 
 /** Return VMIDs (other than `excludeVmId`) whose hostname matches `hostname`.
  *
@@ -356,8 +355,26 @@ export async function executeScenarios(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string },
+  options?: ExecuteScenariosOptions,
 ): Promise<TestResult> {
+  // Phase 0: per-application dependency-snapshot name (`<app>_deps`), or
+  // `null` for `--all` / multi-app subsets where no dep snapshot is taken.
+  const depSnapshotName: string | null = options?.depSnapshotName ?? null;
+  // Schritt 3b: `--snapshot <name>` mode (Build mode). Wenn gesetzt, werden
+  // alle erfolgreich installierten Provider-Szenarien am Iterations-Ende
+  // pct-snapshottet (statt Teardown), und der Cluster-Name ist genau dieser.
+  const snapshotMode: string | null = options?.snapshotMode ?? null;
+  // Per-member-snapshot path (mode-independent): every successful catalog
+  // member produces a sanitized-id pct snapshot on its CT + all transitive
+  // dep CTs. Independent of depSnapshotName / snapshotMode. The runMode is
+  // accepted for forward-compat / observability but does not gate behaviour
+  // here — gating happens before the executor (in live-test-runner.mts).
+  void options?.runMode;
+  const snapshotCatalog: ReadonlySet<string> = options?.snapshotCatalog ?? new Set<string>();
+  // Phase 1: bounded-concurrency driver when concurrency > 1 (`--parallel`).
+  // Default 1 → the unchanged sequential driver.
+  const concurrency = Math.max(1, options?.concurrency ?? 1);
+  const failFast = !!options?.failFast;
   const result: TestResult = {
     name: planned.map((p) => p.scenario.id).join(", "),
     description: planned.map((p) => p.scenario.description).join("; "),
@@ -369,6 +386,64 @@ export async function executeScenarios(
 
   const verifier = new Verifier(config.pveHost, config.portPveSsh, apiUrl, veHost);
   const tmpDir = mkdtempSync(path.join(tmpdir(), "livetest-"));
+
+  // Enumerate ZFS pool storages once. Each scenario picks one of these for
+  // its volumes via the hierarchy below (see `volume_storage` push in runStep):
+  //
+  //   1. --volume-storage CLI override (step3 mode: pin every CT of one
+  //      cluster build to one storage so chain-internal pct clone stays
+  //      ZFS-CoW-fast).
+  //   2. Dependency inheritance: if the scenario's deps already live on a
+  //      storage (looked up via `vmidToStorage`), inherit that storage so
+  //      the consumer's CT lands next to its source → CoW clones, ZFS-local
+  //      ops.
+  //   3. Index round-robin: cluster roots (no deps) spread evenly across the
+  //      storages, so parallel rollbacks of independent chains don't all
+  //      contend on the same `rpool/data` lock.
+  //
+  // Empty list (legacy single-storage cluster, SSH failure) → callers leave
+  // volume_storage unset and the deployer's default takes over.
+  const zfsPoolStorages = enumerateZfsPoolStorages(config.pveHost, config.portPveSsh);
+  const volumeStorageOverride = options?.volumeStorageOverride;
+  if (volumeStorageOverride) {
+    logInfo(`--volume-storage=${volumeStorageOverride}: every scenario in this run pinned to this pool`);
+  } else if (zfsPoolStorages.length > 0) {
+    logInfo(`zfspool storages available for distribution: ${zfsPoolStorages.join(", ")}`);
+    if (concurrency > zfsPoolStorages.length) {
+      logWarn(`--parallel=${concurrency} > storages=${zfsPoolStorages.length} — multiple scenarios will share a storage, lock contention possible`);
+    }
+  }
+
+  // Cache `VMID → storage`. Pre-populated from existing CTs (snapshot-restore
+  // case: dep CTs already exist when this run starts), and live-updated as
+  // each scenario picks a storage for its own CT. Consumed by the dep-
+  // inheritance step in the storage-pick hierarchy.
+  const vmidToStorage = new Map<number, string>();
+  try {
+    const out = await nestedSshStrictAsync(
+      config.pveHost, config.portPveSsh,
+      // `pct config <v> | grep rootfs: | awk` extracts the storage name from
+      // the `rootfs: storage:subvol-…` line. Single multi-line SSH avoids
+      // N×SSH-handshake overhead for clusters with many existing CTs.
+      "for v in $(pct list 2>/dev/null | awk 'NR>1{print $1}'); do " +
+      "s=$(pct config \"$v\" 2>/dev/null | awk '/^rootfs:/{split($2,a,\":\"); print a[1]; exit}'); " +
+      "[ -n \"$s\" ] && echo \"$v $s\"; " +
+      "done",
+      30000,
+    );
+    for (const line of out.split("\n")) {
+      const [vmidStr, storage] = line.trim().split(/\s+/);
+      if (vmidStr && storage) {
+        const vmid = Number.parseInt(vmidStr, 10);
+        if (Number.isFinite(vmid)) vmidToStorage.set(vmid, storage);
+      }
+    }
+    if (vmidToStorage.size > 0) {
+      logInfo(`Seeded VMID→storage cache with ${vmidToStorage.size} existing CT(s) for dep inheritance`);
+    }
+  } catch {
+    // Best-effort: an empty cache just means everyone falls back to round-robin.
+  }
 
   // Phase: pre-test proxvex rebuild.
   //
@@ -439,7 +514,7 @@ export async function executeScenarios(
     buildHash = buildInfo.dirty ? `${buildInfo.gitHash}-dirty` : buildInfo.gitHash;
   } catch { /* ignore */ }
 
-  // Snapshot manager for the single dep-stacks-ready snapshot.
+  // Snapshot manager for the per-application `<app>_deps` snapshot.
   // Provider/consumer distinction comes from `step.isDependency` set by the
   // planner (planned[].isDependency = true if not in selectedIdSet).
   const isLocalDeployer = config.deployerUrl.includes("localhost");
@@ -448,7 +523,7 @@ export async function executeScenarios(
     : undefined;
 
   const snapMgr = config.snapshot?.enabled
-    ? new SnapshotManager(config.pveHost, config.vmId, config.portPveSsh, (msg) => logInfo(msg), localContextPath)
+    ? new SnapshotManager(config.pveHost, config.portPveSsh, (msg) => logInfo(msg), localContextPath)
     : null;
 
   // OIDC credentials for delegated access (loaded after Zitadel installation)
@@ -501,8 +576,38 @@ export async function executeScenarios(
     }
   } catch { /* deployer has no OIDC */ }
 
-  try {
-    for (let i = 0; i < planned.length; i++) {
+  // Outcome of one scenario step, driving the sequential / parallel driver.
+  type StepOutcome =
+    | { type: "done" }
+    | { type: "failed-partition"; scenarioId: string }
+    | { type: "crashed"; err: unknown };
+
+  // Per-scenario unit of work. Byte-identical to the original loop body
+  // except control flow: `continue` → `return {type:"done"}`, the inline
+  // partition block → `return {type:"failed-partition"}`, and the crash
+  // fail-fast decision is deferred to the driver via `{type:"crashed"}`.
+  // The self-contained try/catch/finally (crash safety + source-clone
+  // cleanup) is preserved exactly.
+  // Best-effort POST of buffered runner events into the per-restartKey
+  // debug bundle. Drains the context buffer on each call. Silent on
+  // network errors — these events are diagnostic-only.
+  const flushRunnerEvents = async (ctx: ScenarioLogContext): Promise<void> => {
+    if (!ctx.restartKey || ctx.buffer.length === 0) return;
+    const events = ctx.buffer.splice(0);
+    try {
+      await fetch(`${apiUrl}/api/ve/debug/${ctx.restartKey}/external-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch { /* best-effort */ }
+  };
+
+  const runStep = async (i: number): Promise<StepOutcome> => {
+    const step0 = planned[i]!;
+    const ctx: ScenarioLogContext = { scenarioId: step0.scenario.id, buffer: [] };
+    return scenarioLogContext.run(ctx, async (): Promise<StepOutcome> => {
       const step = planned[i]!;
       const scenario = step.scenario;
       const task = scenario.task || "installation";
@@ -545,7 +650,7 @@ export async function executeScenarios(
             logOk(`Test OIDC deployer credentials loaded from oidc_${step.stackName} stack (skipped Zitadel)`);
           }
         }
-        continue;
+        return { type: "done" };
       }
 
       // Build params.
@@ -563,11 +668,11 @@ export async function executeScenarios(
       let effectiveHostname = step.hostname;
       if (isHiddenApp) {
         try {
-          effectiveHostname = nestedSsh(
+          effectiveHostname = (await nestedSshAsync(
             config.pveHost, config.portPveSsh,
             "uname -n | cut -d. -f1",
             5000,
-          ).trim() || step.hostname;
+          )).trim() || step.hostname;
         } catch { /* fall back to step.hostname */ }
       }
       const isReplaceCt = REPLACE_CT_TASKS.includes(task);
@@ -591,7 +696,7 @@ export async function executeScenarios(
             vmId: step.vmId, hostname: effectiveHostname,
             application: scenario.application, scenarioId: scenario.id,
           });
-          continue;
+          return { type: "done" };
         }
       }
 
@@ -605,6 +710,22 @@ export async function executeScenarios(
         // dependencies (e.g. postgres for a zitadel test) stay quiet so the
         // result directory only carries the artefact for the test the user
         // actually asked for.
+        //
+        // Under `--parallel` (concurrency > 1) the bundle still runs:
+        // - Runner events flow into the correct bundle via the restartKey-
+        //   tagged endpoint `POST /api/ve/debug/:restartKey/external-events`
+        //   (see log-helpers AsyncLocalStorage). Cross-bundle isolation: ✓.
+        // - Backend stderr / script events route through messageManager,
+        //   which is already restartKey-keyed (since the recent
+        //   `getExecuteMessages` filter): ✓.
+        // - The deployer-side `Logger.setDebugSink` is the lone process-
+        //   global state ("single concurrent task is the current assumption"
+        //   in webapp-ve-execution-setup.mts). Lines tagged with the
+        //   currently-active restartKey may leak across bundles. Accepted
+        //   trade-off for now: three of four event sources are clean per
+        //   bundle, which is a net win over the previous "no bundle at all
+        //   under --parallel". Tightening the Logger sink to per-deploy
+        //   AsyncLocalStorage is a separate, optional follow-up.
         ...(options?.debugLevel
           && options.debugLevel !== "off"
           && !step.isDependency
@@ -701,7 +822,7 @@ export async function executeScenarios(
           // Aborting here (via `break`) hid many passable scenarios whenever
           // a reconfigure/upgrade task's live dependency VM had already been
           // torn down by a previous scenario's cleanup.
-          continue;
+          return { type: "done" };
         }
         // From here on existingVm is guaranteed non-null. Bind into a typed
         // local so TS keeps the narrowing across the reassignment below
@@ -736,13 +857,13 @@ export async function executeScenarios(
             const snapName = `iso-clone-${cloneVmId}`;
             let snapTaken = false;
             try {
-              nestedSsh(
+              await nestedSshAsync(
                 config.pveHost, config.portPveSsh,
                 `pct snapshot ${sourceVm.vm_id} ${snapName}`,
                 120000,
               );
               snapTaken = true;
-              nestedSsh(
+              await nestedSshAsync(
                 config.pveHost, config.portPveSsh,
                 `pct clone ${sourceVm.vm_id} ${cloneVmId} --snapname ${snapName} --full 1`,
                 300000,
@@ -773,7 +894,7 @@ export async function executeScenarios(
                 `{ awk '/^[^#]/ {exit} {print}' '${SRC_CONF}'; cat "$T"; } > '${DST_CONF}'\n` +
                 `rm -f "$T"\n`;
               try {
-                nestedSshStrict(
+                await nestedSshStrictAsync(
                   config.pveHost, config.portPveSsh,
                   "sh -s",
                   30000,
@@ -784,7 +905,7 @@ export async function executeScenarios(
               }
               // Delete the source-side snapshot — we don't need it again.
               try {
-                nestedSsh(
+                await nestedSshAsync(
                   config.pveHost, config.portPveSsh,
                   `pct delsnapshot ${sourceVm.vm_id} ${snapName}`,
                   60000,
@@ -799,7 +920,7 @@ export async function executeScenarios(
               // Start the clone so downstream `pct exec` works (the clone is
               // stopped by default).
               try {
-                nestedSsh(
+                await nestedSshAsync(
                   config.pveHost, config.portPveSsh,
                   `pct start ${cloneVmId} 2>&1 || true`,
                   60000,
@@ -810,7 +931,7 @@ export async function executeScenarios(
                 const deadline = Date.now() + 30000;
                 while (Date.now() < deadline) {
                   try {
-                    nestedSshStrict(
+                    await nestedSshStrictAsync(
                       config.pveHost, config.portPveSsh,
                       `pct exec ${cloneVmId} -- /bin/true 2>/dev/null`,
                       5000,
@@ -834,7 +955,7 @@ export async function executeScenarios(
               // Best-effort cleanup of a snapshot we may have created.
               if (snapTaken) {
                 try {
-                  nestedSsh(
+                  await nestedSshAsync(
                     config.pveHost, config.portPveSsh,
                     `pct delsnapshot ${sourceVm.vm_id} ${snapName} 2>/dev/null || true`,
                     60000,
@@ -874,7 +995,52 @@ export async function executeScenarios(
         }
       }
 
-      resolveVolumeStorage(config.pveHost, config.portPveSsh, buildResult.params);
+      // Pick storage hierarchically and set BOTH `rootfs_storage` and
+      // `volume_storage` to the same pool. Without `rootfs_storage` the
+      // container itself always lands on `local-zfs` (default in
+      // conf-create-lxc-container.sh) — the parallelization would only spread
+      // data-volumes, while `pct create`/`pct restore` would still serialize on
+      // `rpool/data`. Same pool for both keeps the whole CT on one storage.
+      //
+      // Hierarchy: operator override > CLI override > inherit-from-dep >
+      // index round-robin. Explicit operator overrides (either param set
+      // earlier in buildParams) bypass everything.
+      const hasOperatorOverride =
+        buildResult.params.some((p) => p.name === "volume_storage") ||
+        buildResult.params.some((p) => p.name === "rootfs_storage");
+      if (!hasOperatorOverride) {
+        let picked: string | undefined;
+        let pickReason = "";
+        if (volumeStorageOverride) {
+          picked = volumeStorageOverride;
+          pickReason = "--volume-storage override";
+        } else {
+          // Walk the scenario's deps looking for an already-known storage.
+          // First hit wins — by convention deps within one chain all live on
+          // the same storage (cluster-root sets it, downstream inherits).
+          for (const depId of scenario.depends_on ?? []) {
+            const depStep = planned.find((p) => p.scenario.id === depId);
+            const depStorage = depStep ? vmidToStorage.get(depStep.vmId) : undefined;
+            if (depStorage) {
+              picked = depStorage;
+              pickReason = `inherited from dep ${depId} (VM ${depStep!.vmId})`;
+              break;
+            }
+          }
+          if (!picked && zfsPoolStorages.length > 0) {
+            picked = zfsPoolStorages[i % zfsPoolStorages.length]!;
+            pickReason = `round-robin i=${i} mod ${zfsPoolStorages.length}`;
+          }
+        }
+        if (picked) {
+          buildResult.params.push({ name: "rootfs_storage", value: picked });
+          buildResult.params.push({ name: "volume_storage", value: picked });
+          // Record our pick so any downstream scenario depending on us
+          // inherits the same storage (CoW clones for the whole chain).
+          vmidToStorage.set(step.vmId, picked);
+          logInfo(`storage=${picked} for ${scenario.id} [VM ${step.vmId}] (${pickReason})`);
+        }
+      }
 
       const allAddons = buildResult.selectedAddons ?? [];
 
@@ -919,17 +1085,24 @@ export async function executeScenarios(
 
       if (allAddons.length > 0) logInfo(`Addons: ${allAddons.join(", ")}`);
 
-      // Reload deployer
-      try {
-        const reloadResp = await fetch(`${apiUrl}/api/reload`, { method: "POST" });
-        if (reloadResp.ok) logInfo("Deployer reloaded");
-        else logInfo(`Deployer reload returned ${reloadResp.status} (continuing)`);
-      } catch {
-        logInfo("Deployer reload not available (continuing)");
+      // Reload deployer. Under --parallel (concurrency > 1) the reload is
+      // skipped: PersistenceManager.reload() swaps the singleton instance and
+      // re-reads storagecontext from disk — mid-pool that races peer deploys
+      // (see plan: read-only deployer ⇒ reload is unnecessary in a non-editing
+      // measurement run anyway). Sequenzpfad bleibt unverändert.
+      if (concurrency <= 1) {
+        try {
+          const reloadResp = await fetch(`${apiUrl}/api/reload`, { method: "POST" });
+          if (reloadResp.ok) logInfo("Deployer reloaded");
+          else logInfo(`Deployer reload returned ${reloadResp.status} (continuing)`);
+        } catch {
+          logInfo("Deployer reload not available (continuing)");
+        }
       }
 
-      // No pre-test snapshot — failure rollback uses the single
-      // dep-stacks-ready host snapshot (created once after all providers).
+      // No pre-test snapshot — failure rollback uses the per-application
+      // `<app>_deps` host snapshot (created once after all providers, only
+      // for single-application run scopes).
 
       // Run CLI
       logInfo(`Running: ${scenario.application} ${task}...`);
@@ -943,6 +1116,13 @@ export async function executeScenarios(
         paramsFile, allAddons, scenario.cli_timeout, scenarioFixtureDir,
         useOidc ? oidcCredentials : undefined,
       );
+      // restartKey is now known → bind it to this scenario's log context and
+      // ship the buffered pre-CLI events into the bundle right away. The
+      // final flush at iteration-end picks up everything after.
+      if (cliResult.restartKey) {
+        ctx.restartKey = cliResult.restartKey;
+        await flushRunnerEvents(ctx);
+      }
 
       // expect2fail: if the scenario declares specific templates expected
       // to fail with specific exit codes, evaluate those expectations against
@@ -1031,6 +1211,19 @@ export async function executeScenarios(
       if (cliResult.exitCode !== 0) {
         const errMsg = `Scenario failed: ${scenario.id} (${task})`;
         logFail(errMsg);
+        // Surface the CLI's actual output (Backend-Antwort + stderr) so the
+        // runner log doesn't just say "Execution failed at step 'Failed'".
+        // Tagged with the scenario id so log readers can correlate under
+        // --parallel where lines interleave.
+        if (cliResult.output && cliResult.output.trim()) {
+          const tag = `[${scenario.id}]`;
+          for (const line of cliResult.output.trimEnd().split("\n")) {
+            logInfo(`${tag} ${line}`);
+          }
+        }
+        if (cliResult.restartKey) {
+          logInfo(`[${scenario.id}] restartKey=${cliResult.restartKey}`);
+        }
 
         // Collect failure logs BEFORE rollback (VM still in broken state)
         const failureLogs = collectFailureLogs(
@@ -1038,31 +1231,36 @@ export async function executeScenarios(
           step.vmId, step.hostname, cliResult.output,
         );
 
-        // Rollback to dep-stacks-ready (atomic whole-VM snapshot on host PVE)
-        // to restore consistent state across all stack-provider LXCs and the
-        // nested-VM host FS (storagecontext-backup, deployer-context, etc.).
-        // Skipped if no providers were planned (no dep-stacks-ready snapshot).
+        // Rollback to the per-application `<app>_deps` snapshot (atomic
+        // whole-VM snapshot on host PVE) to restore consistent state across
+        // all stack-provider LXCs and the nested-VM host FS. Skipped when
+        // this run has no dependency-snapshot scope (--all / multi-app) or no
+        // providers were planned.
         // KEEP_VM also skips the rollback so the failed LXC stays available
         // for inspection (rollback would destroy it atomically).
         const keepForDebug = !!process.env.KEEP_VM;
         if (keepForDebug) {
-          logInfo(`KEEP_VM set — skipping rollback to dep-stacks-ready (failed VM ${step.vmId} preserved for inspection)`);
+          logInfo(`KEEP_VM set — skipping rollback to @${depSnapshotName ?? "dep-snapshot"} (failed VM ${step.vmId} preserved for inspection)`);
         }
-        if (snapMgr && !step.isDependency && !keepForDebug && snapMgr.exists("dep-stacks-ready")) {
+        // Failure-rollback per Dep-CT (pct rollback). Container-lokal —
+        // beeinflusst andere Cluster nicht. Trotzdem nur im sequentiellen
+        // Driver (concurrency<=1) ausführen: ein mid-pool Rollback eines
+        // Dep-CTs würde gleichzeitig laufende Consumer kaputt machen, die
+        // genau auf diesem Dep-CT installieren/verifizieren. Im
+        // Parallel-Pfad fällt ein gescheitertes Szenario stattdessen einfach
+        // durch (und blockiert via classifyParallel seine Dependents).
+        if (concurrency <= 1 && snapMgr && depSnapshotName && !step.isDependency && !keepForDebug) {
           try {
-            snapMgr.rollbackHostSnapshot("dep-stacks-ready");
-            // After qm rollback the nested VM (and Hub LXC inside it) is
-            // restarting. The Spoke proxies all stack/CA-sign requests to the
-            // Hub, so the next scenario's POST /api/stacks or /api/hub/ca/sign
-            // will fail with curl rc=7 if Hub isn't listening yet. Round-trip
-            // a Spoke→Hub call here to wait until the Hub answers.
-            await waitForHubViaSpoke(apiUrl, 60000);
+            const depVmids = planned.filter((p) => p.isDependency).map((p) => p.vmId);
+            await Promise.all(depVmids.map((v) => snapMgr.rollbackCtSnapshot(v, depSnapshotName)));
+            // After the rollback the Hub LXC has not been touched (it is
+            // read-only / not snapshotted); Spoke-Hub-Calls bleiben verfügbar.
             checkVolumeConsistency(
               config.pveHost, config.portPveSsh, projectRoot,
-              `rollback to dep-stacks-ready`,
+              `pct rollback to ${depSnapshotName}`,
             );
           } catch (err) {
-            logInfo(`Warning: rollback to dep-stacks-ready failed: ${err}`);
+            logInfo(`Warning: pct rollback to @${depSnapshotName} failed: ${err}`);
           }
         }
 
@@ -1089,28 +1287,10 @@ export async function executeScenarios(
           }));
         }
 
-        // Partition remaining tests: skip those that depend on the failed scenario
-        const remaining = planned.slice(i + 1);
-        const allTestsMap = new Map(planned.map((p) => [p.scenario.id, p.scenario]));
-        const { unaffected, blocked } = partitionAfterFailure(scenario.id, remaining, allTestsMap);
-
-        if (unaffected.length > 0 && blocked.length > 0) {
-          logInfo(`${scenario.id} failed — running ${unaffected.length} unaffected test(s), skipping ${blocked.length} blocked`);
-          for (let u = 0; u < unaffected.length; u++) {
-            planned[i + 1 + u] = unaffected[u]!;
-          }
-          for (let b = 0; b < blocked.length; b++) {
-            planned[i + 1 + unaffected.length + b] = blocked[b]!;
-          }
-        }
-
-        for (const b of blocked) {
-          logWarn(`Skipping ${b.scenario.id} (blocked by failed dependency ${scenario.id})`);
-          b.skipExecution = true;
-          result.errors.push(`Skipped: ${b.scenario.id} (dependency ${scenario.id} failed)`);
-        }
-
-        continue;
+        // Failure → let the driver partition remaining tests (sequential)
+        // or block dependents (parallel). Keeps the orchestration that needs
+        // the plan index / scheduling state out of the per-step unit.
+        return { type: "failed-partition", scenarioId: scenario.id };
       }
 
       // For replace_ct: discover new VM ID. Pass step.hostname so the lookup
@@ -1268,7 +1448,7 @@ export async function executeScenarios(
               logInfo(
                 `Granting test-deployer all project roles on ${zitadelDep.scenario.id} (CT ${zitadelDep.vmId})...`,
               );
-              nestedSshStrict(
+              await nestedSshStrictAsync(
                 config.pveHost,
                 config.portPveSsh,
                 `pct exec ${zitadelDep.vmId} -- sh -s`,
@@ -1414,18 +1594,18 @@ export async function executeScenarios(
           logOk(`Playwright passed: ${specPath}`);
         }
       }
-      if (playwrightFailed) continue;
+      if (playwrightFailed) return { type: "done" };
 
       // Write test result
       if (resultWriter) {
-        const depInfos: TestResultDependency[] = (scenario.depends_on ?? []).map((depId) => {
+        const depInfos: TestResultDependency[] = await Promise.all((scenario.depends_on ?? []).map(async (depId) => {
           const depStep = planned.find((p) => p.scenario.id === depId);
           const depApp = depId.split("/")[0] ?? "";
           const prefix = depApp.toUpperCase().replace(/-/g, "_");
           let version = cliResult.resolvedVersions.get(prefix) ?? "";
           if (!version && depStep) {
             try {
-              const raw = nestedSsh(config.pveHost, config.portPveSsh,
+              const raw = await nestedSshAsync(config.pveHost, config.portPveSsh,
                 `sed -n 's/.*proxvex%3Aversion \\([^ <]*\\).*/\\1/p' /etc/pve/lxc/${depStep.vmId}.conf 2>/dev/null | head -1`,
                 5000);
               version = decodeURIComponent(raw.trim());
@@ -1434,10 +1614,10 @@ export async function executeScenarios(
           return {
             scenario_id: depId, vm_id: depStep?.vmId ?? 0,
             status: "passed" as const, version,
-            snapshot_used: snapMgr ? "dep-stacks-ready" : null,
+            snapshot_used: snapMgr && depSnapshotName ? depSnapshotName : null,
             snapshot_date: null,
           };
-        });
+        }));
         await resultWriter.write(TestResultWriter.buildResult({
           runId: resultWriter.getRunId(),
           scenarioId: scenario.id, application: scenario.application, task,
@@ -1454,45 +1634,126 @@ export async function executeScenarios(
         }));
       }
 
-      // Consumer-test success: destroy the consumer LXC. Provider LXCs stay
-      // alive for subsequent consumer tests. Test-level cleanup (e.g. dropping
-      // a database in postgres) is handled separately via test.json `cleanup`.
-      //
-      // Phase 2 caveat: docker-compose in-place upgrade reassigns step.vmId
-      // to the source's VMID (see in-place block above). If the source is a
-      // dependency for downstream consumers (e.g. postgrest/reconf-ssl also
-      // depends on postgrest/ssl), destroying step.vmId here tears down the
-      // shared source. Skip cleanup when step.vmId matches any planned-dep's
-      // vmId — the dep cleanup at end-of-run handles those CTs.
-      const isSharedSourceVm = planned.some(
-        (p) => p.scenario.id !== scenario.id && p.vmId === step.vmId,
-      );
-      if (snapMgr && !step.isDependency && !step.skipExecution && !isSharedSourceVm) {
-        try {
-          nestedSsh(config.pveHost, config.portPveSsh,
-            `pct stop ${step.vmId} 2>/dev/null; pct destroy ${step.vmId} --force --purge 2>/dev/null; true`,
-            30000);
-        } catch { /* ignore */ }
-      } else if (isSharedSourceVm) {
-        logInfo(`Skipping cleanup of VM ${step.vmId} — shared with another planned scenario (in-place upgrade source)`);
-      }
+      // No end-of-run consumer teardown: the next run's pre-cleanup step
+      // (single-scenario mode in vm-lifecycle.mts:preCleanupNonSnapshotConsumers)
+      // disposes of non-snapshot, non-needed CTs at the start. Keeping
+      // consumer CTs running between runs means a follow-up `livetest
+      // <same-app>` finds them, the pre-cleanup leaves them alone if needed,
+      // or destroys them otherwise — all in one place.
 
-      // After the LAST stack-provider step, create the single dep-stacks-ready
-      // snapshot on the host PVE. All subsequent consumer tests use this as
-      // their failure-rollback target. Encode the full captured dep set in the
-      // description so the next run can verify the snapshot covers its needs
-      // (see SnapshotManager.coversRun).
-      if (snapMgr && step.isDependency && !step.skipExecution
+      // After the LAST stack-provider step, create the per-application
+      // `<app>_deps` snapshot on the host PVE. Subsequent runs of the SAME
+      // single application reuse it as a clean dependency baseline (and as
+      // the failure-rollback target). Only created when this run has a
+      // dependency-snapshot scope (single selected application, not `--all`);
+      // a broad/`--all` run never snapshots, so a consumer's state can never
+      // be baked into a snapshot a later narrow run would reuse. The captured
+      // dep set is encoded in the description (see SnapshotManager.coversRun).
+      //
+      // Skipped under --parallel: a mid-pool `qm snapshot` would capture an
+      // inconsistent state (peer scenarios in flight). Dependency snapshots
+      // are produced only by the sequential driver or a dedicated, exclusive
+      // build pass — never from inside the concurrent pool.
+      if (concurrency <= 1 && snapMgr && depSnapshotName && step.isDependency && !step.skipExecution
           && planned.slice(i + 1).every((p) => !p.isDependency)) {
         try {
-          const capturedDeps = planned
-            .filter((p) => p.isDependency)
-            .map((p) => p.scenario.application);
-          snapMgr.createHostSnapshot("dep-stacks-ready", buildHash, capturedDeps);
+          // One pct snapshot per dep CT with the same logical name; the
+          // declared members enumerate ALL participating dep scenario IDs.
+          // Build-Hash steht zur Information in der Description (siehe
+          // Lebensdauer-Policy: bei Mismatch nur warnen, nicht ablehnen).
+          const depSteps = planned.filter((p) => p.isDependency);
+          const memberIds = depSteps.map((p) => p.scenario.id);
+          const description = SnapshotManager.buildDescription({
+            name: depSnapshotName,
+            members: memberIds,
+            ...(buildHash !== undefined ? { buildHash } : {}),
+          });
+          await Promise.all(depSteps.map((dep) =>
+            snapMgr.createCtSnapshot(dep.vmId, depSnapshotName, description),
+          ));
         } catch (err) {
           logInfo(`Snapshot creation failed (non-fatal): ${err}`);
         }
       }
+
+      // Per-catalog-member snapshot (mode-independent): after a scenario
+      // listed in the snapshot catalog finishes successfully, create one pct
+      // snapshot per CT in its transitive dep closure (itself + all deps the
+      // member declared via depends_on), all carrying the same sanitized id
+      // as the snapshot name. Runs in EVERY mode (single, all, file, even
+      // --from-snapshot) so a snapshot lost during the run's prepareVms
+      // destroy of the target is restored to disk on success.
+      //
+      // Idempotent: SnapshotManager.createCtSnapshot drops a pre-existing
+      // same-name snapshot before creating, so re-snapshotting always wins.
+      // Parallel-safe per CT (`pct snapshot` is container-local). The
+      // catalog is curated so members have disjoint dep CTs.
+      if (snapMgr && !step.skipExecution && snapshotCatalog.has(scenario.id)) {
+        try {
+          const snapshotName = sanitizeScenarioIdForSnapshot(scenario.id);
+          // Build the transitive dep id closure for this scenario via allTests
+          // (planned only carries scenarios that were also selected as deps of
+          // some other planned scenario, but the closure we want is exactly
+          // what `depends_on` defines).
+          const memberClosure = new Set<string>([scenario.id]);
+          const walk = (id: string): void => {
+            const s = allTests.get(id);
+            if (!s) return;
+            for (const dep of s.depends_on ?? []) {
+              if (memberClosure.has(dep)) continue;
+              memberClosure.add(dep);
+              walk(dep);
+            }
+          };
+          walk(scenario.id);
+          // Map closure ids to VMIDs via the planned-set; ids that are not
+          // in the planned-set (e.g. catalog member with deps the runner
+          // dropped due to env-filter) are silently skipped.
+          const closureVmids = new Map<number, string>();
+          closureVmids.set(step.vmId, scenario.id);
+          for (const id of memberClosure) {
+            if (id === scenario.id) continue;
+            const dep = planned.find((p) => p.scenario.id === id);
+            if (dep) closureVmids.set(dep.vmId, id);
+          }
+          const description = SnapshotManager.buildDescription({
+            name: snapshotName,
+            members: [...memberClosure],
+            ...(buildHash !== undefined ? { buildHash } : {}),
+          });
+          await Promise.all([...closureVmids.keys()].map((vmid) =>
+            snapMgr.createCtSnapshot(vmid, snapshotName, description),
+          ));
+          logOk(`Catalog snapshot @${snapshotName} created on VM(s) ${[...closureVmids.keys()].join(", ")}`);
+        } catch (err) {
+          logInfo(`Per-member snapshot failed (non-fatal): ${err}`);
+        }
+      }
+
+      // `--snapshot <name>` build mode: after the LAST listed scenario
+      // (= the last entry in `planned`) installed successfully, write one
+      // pct snapshot per planned CT with the explicit cluster name. All
+      // listed members were marked isDependency by the runner, so they are
+      // already exempt from teardown above. The build itself ran with the
+      // normal livetest pipeline → full debug bundle + bootstrap diagnosis.
+      if (concurrency <= 1 && snapMgr && snapshotMode && !step.skipExecution && i === planned.length - 1) {
+        try {
+          const memberIds = planned.map((p) => p.scenario.id);
+          const description = SnapshotManager.buildDescription({
+            name: snapshotMode,
+            members: memberIds,
+            ...(buildHash !== undefined ? { buildHash } : {}),
+          });
+          await Promise.all(planned.map((p) =>
+            snapMgr.createCtSnapshot(p.vmId, snapshotMode, description),
+          ));
+          logOk(`pct snapshots @${snapshotMode} created on VMs ${planned.map((p) => p.vmId).join(", ")}`);
+        } catch (err) {
+          logInfo(`--snapshot build failed (non-fatal): ${err}`);
+        }
+      }
+
+      return { type: "done" };
       } catch (iterErr) {
         // Uncaught exception during this scenario — turn it into a "failed"
         // result so the run continues with the remaining scenarios. The
@@ -1526,9 +1787,9 @@ export async function executeScenarios(
             }));
           } catch { /* result write failure — already logging the throw above */ }
         }
-        if (options?.failFast) {
-          throw iterErr;
-        }
+        // Fail-fast decision is deferred to the driver (the `finally` clone
+        // cleanup below still runs before the driver sees this outcome).
+        return { type: "crashed", err: iterErr };
       } finally {
         // Phase 2: destroy any source clones we made for this scenario.
         // Runs on pass, fail AND crash so isolated clones never leak across
@@ -1541,7 +1802,7 @@ export async function executeScenarios(
         } else {
           for (const cloneVmId of sourceCloneVmIds) {
             try {
-              nestedSsh(
+              await nestedSshAsync(
                 config.pveHost, config.portPveSsh,
                 `pct stop ${cloneVmId} 2>/dev/null; pct unlock ${cloneVmId} 2>/dev/null; pct destroy ${cloneVmId} --force --purge 2>/dev/null; true`,
                 30000,
@@ -1549,6 +1810,138 @@ export async function executeScenarios(
               logInfo(`Destroyed source clone VM ${cloneVmId}`);
             } catch { /* best-effort */ }
           }
+        }
+        // Final flush: send any remaining buffered runner events to the
+        // bundle before runStep returns. restartKey may be unset (deploy
+        // didn't reach the CLI summary line); in that case the events stay
+        // in console output only.
+        await flushRunnerEvents(ctx);
+      }
+    });
+  };
+
+  // Apply the partition-after-failure bookkeeping for a failed scenario:
+  // skip every still-pending scenario that (transitively) depends on it.
+  // Shared by both drivers (the sequential one also reorders `planned` so
+  // unaffected siblings keep running before the blocked ones).
+  const applyFailurePartition = (
+    failedId: string,
+    fromIndex: number,
+    reorder: boolean,
+  ): void => {
+    const remaining = planned.slice(fromIndex + 1);
+    const allTestsMap = new Map(planned.map((p) => [p.scenario.id, p.scenario]));
+    const { unaffected, blocked } = partitionAfterFailure(
+      failedId, remaining, allTestsMap,
+    );
+    if (reorder && unaffected.length > 0 && blocked.length > 0) {
+      logInfo(`${failedId} failed — running ${unaffected.length} unaffected test(s), skipping ${blocked.length} blocked`);
+      for (let u = 0; u < unaffected.length; u++) {
+        planned[fromIndex + 1 + u] = unaffected[u]!;
+      }
+      for (let b = 0; b < blocked.length; b++) {
+        planned[fromIndex + 1 + unaffected.length + b] = blocked[b]!;
+      }
+    }
+    for (const b of blocked) {
+      if (b.skipExecution) continue;
+      logWarn(`Skipping ${b.scenario.id} (blocked by failed dependency ${failedId})`);
+      b.skipExecution = true;
+      result.errors.push(`Skipped: ${b.scenario.id} (dependency ${failedId} failed)`);
+    }
+  };
+
+  try {
+    if (concurrency > 1) {
+      // ── Parallel driver ──────────────────────────────────────────────
+      // Bounded async pool in the single Node process. A scenario starts
+      // only when every depends_on entry that is part of this plan has
+      // finished successfully; a failed/crashed scenario blocks its
+      // dependents (same semantics as the sequential partition). The
+      // performance win is purely from overlapping the long idle waits
+      // (container create, package install, docker compose up,
+      // wait_seconds, Playwright) — the deployer/API stay single.
+      logInfo(`Parallel scenario execution: concurrency=${concurrency}`);
+      type St = "pending" | "running" | "done" | "failed";
+      const state: St[] = planned.map(() => "pending");
+      let active = 0;
+      let crashedErr: unknown = null;
+      let aborted = false;
+      await new Promise<void>((resolve) => {
+        const pump = (): void => {
+          if (aborted) {
+            if (active === 0) resolve();
+            return;
+          }
+          if (state.every((s) => s === "done" || s === "failed")) {
+            resolve();
+            return;
+          }
+          // Cascade blocked scenarios to a fixpoint (a failed dep blocks its
+          // dependents, which transitively block theirs) before scheduling.
+          let ready: number[] = [];
+          for (;;) {
+            const c = classifyParallel(planned, state);
+            ready = c.ready;
+            if (c.blocked.length === 0) break;
+            for (const idx of c.blocked) {
+              state[idx] = "failed";
+              const p = planned[idx]!;
+              if (!p.skipExecution) {
+                logWarn(`Skipping ${p.scenario.id} (blocked by failed dependency)`);
+                p.skipExecution = true;
+                result.errors.push(`Skipped: ${p.scenario.id} (blocked dependency)`);
+              }
+            }
+          }
+          if (state.every((s) => s === "done" || s === "failed")) {
+            resolve();
+            return;
+          }
+          for (const idx of ready) {
+            if (active >= concurrency) break;
+            if (state[idx] !== "pending") continue;
+            state[idx] = "running";
+            active++;
+            void runStep(idx)
+              .then((outcome) => {
+                active--;
+                if (outcome.type === "crashed") {
+                  state[idx] = "failed";
+                  if (failFast) { crashedErr = outcome.err; aborted = true; }
+                } else if (outcome.type === "failed-partition") {
+                  state[idx] = "failed";
+                  applyFailurePartition(outcome.scenarioId, idx, false);
+                  if (failFast) aborted = true;
+                } else {
+                  state[idx] = "done";
+                }
+                pump();
+              })
+              .catch((err) => {
+                active--;
+                state[idx] = "failed";
+                crashedErr = err;
+                aborted = true;
+                pump();
+              });
+          }
+          if (active === 0 && state.every((s) => s !== "pending")) resolve();
+        };
+        pump();
+      });
+      if (crashedErr) throw crashedErr;
+    } else {
+      // ── Sequential driver (unchanged behaviour) ──────────────────────
+      for (let i = 0; i < planned.length; i++) {
+        const outcome = await runStep(i);
+        if (outcome.type === "crashed") {
+          if (failFast) throw outcome.err;
+          continue;
+        }
+        if (outcome.type === "failed-partition") {
+          applyFailurePartition(outcome.scenarioId, i, true);
+          continue;
         }
       }
     }
@@ -1559,4 +1952,30 @@ export async function executeScenarios(
   result.passed = verifier.passed;
   result.failed += verifier.failed;
   return result;
+}
+
+/**
+ * Phase 1 (`--parallel`): bounded-concurrency variant of
+ * {@link executeScenarios}. Same per-scenario unit of work (shared
+ * `runStep`), only the driver differs. The deployer/API and the single
+ * nested VM are untouched; the gain is overlapping idle waits.
+ */
+export async function executeScenariosParallel(
+  planned: PlannedScenario[],
+  config: Parameters<typeof executeScenarios>[1],
+  apiUrl: string,
+  veHost: string,
+  projectRoot: string,
+  appMetaMap: Map<string, AppMeta>,
+  allTests: Map<string, ResolvedScenario>,
+  stackIdMap: Map<string, string[]>,
+  resultWriter?: TestResultWriter,
+  fixtureBaseDir?: string,
+  options?: ExecuteScenariosOptions,
+): Promise<TestResult> {
+  return executeScenarios(
+    planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
+    stackIdMap, resultWriter, fixtureBaseDir,
+    { ...(options ?? {}), concurrency: Math.max(2, options?.concurrency ?? 4) },
+  );
 }

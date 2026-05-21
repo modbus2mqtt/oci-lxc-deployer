@@ -320,6 +320,14 @@ while [ $attempts -lt 3 ] && [ $flags_ok -eq 0 ]; do
   PUT_RESP=$(zitadel_api PUT "$APP_CONFIG_PATH" "$APP_CONFIG_BODY")
   case "$PUT_RESP" in
     *'"sequence"'*|*'"changeDate"'*)
+      # Success markers present — proceed to GET verification.
+      ;;
+    *'"COMMAND-1m88i"'*|*'No changes'*)
+      # Idempotent response: Zitadel signals the config already matches the
+      # desired state, so there's nothing to update. This is a SUCCESS path
+      # (common on re-runs where the prior PUT already set the flags). Fall
+      # through to GET verification so we still confirm the flags persisted.
+      echo "  PUT idempotent (No changes) — config already matches, verifying via GET" >&2
       ;;
     *)
       echo "WARN: UpdateOIDCAppConfig response missing success markers: ${PUT_RESP}" >&2

@@ -758,6 +758,47 @@ else
     info "proxvex CA not found at $PVE_HOST:$CA_HOST_PATH — skipping (mirror trust will not work; run production/setup-pve-host.sh to provision)"
 fi
 
+# Step 12c: Create 3 additional zfspool storages for parallel-livetest isolation.
+# Separate datasets under the same physical rpool give each storage its own ZFS
+# lock, so concurrent `pct create` / `pct restore` / `zfs snapshot` calls from
+# parallel scenarios don't serialize on `rpool/data`. The livetest runner picks
+# one storage per scenario via round-robin
+# (backend/tests/livetests/src/scenario-executor.mts → zfsPoolStorages).
+# `pvesm add` is the same CLI Proxmox UI calls internally — it validates pool
+# existence + syntax, writes atomically to /etc/pve/storage.cfg, and triggers
+# the daemon reload. Idempotent: `zfs list` / `pvesm status` checks skip when
+# the dataset / storage already exists.
+header "Creating additional zfspool storages for parallel-livetest isolation"
+for i in 2 3 4; do
+    info "  rpool/data-$i + local-zfs-$i ..."
+    nested_ssh "
+        set -e
+        if ! zfs list rpool/data-$i >/dev/null 2>&1; then
+            # Mountpoint MUST be set (not 'none'): proxmox subvols inherit it
+            # and pct needs a usable mountpoint to mount the rootfs. With
+            # 'none', \`pct create\` fails with 'zfs error: cannot mount
+            # rpool/data-N/subvol-X-disk-0: no mountpoint set'.
+            zfs create -o mountpoint=/rpool/data-$i rpool/data-$i
+        fi
+        # Fix legacy datasets that were created with mountpoint=none.
+        if [ \"\$(zfs get -H -o value mountpoint rpool/data-$i)\" = 'none' ]; then
+            zfs set mountpoint=/rpool/data-$i rpool/data-$i
+        fi
+        pvesm status 2>/dev/null | awk '{print \$1}' | grep -qx 'local-zfs-$i' \
+          || pvesm add zfspool 'local-zfs-$i' \
+               --pool rpool/data-$i \
+               --content images,rootdir \
+               --sparse 1
+    " || error "Failed to create rpool/data-$i / local-zfs-$i"
+done
+# Verify all 4 zfspool storages (local-zfs + local-zfs-2/3/4) are registered
+# before baking the baseline. \s in extended-regex matches the column gap;
+# the anchored alternation prevents stray storage names from inflating the count.
+ZFS_COUNT=$(nested_ssh "pvesm status --content rootdir | awk '/^local-zfs(-[234])?[[:space:]]/' | wc -l") \
+    || error "Failed to enumerate zfspool storages"
+[ "$ZFS_COUNT" = "4" ] || error "Expected 4 zfspool storages (local-zfs + local-zfs-2/3/4), found $ZFS_COUNT"
+success "4 zfspool storages registered (local-zfs, local-zfs-2, local-zfs-3, local-zfs-4)"
+
 # Step 13: Create baseline snapshot (VM must be stopped for clean snapshot)
 header "Creating Baseline Snapshot"
 info "Stopping VM $TEST_VMID for clean snapshot..."

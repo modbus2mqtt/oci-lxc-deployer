@@ -251,7 +251,7 @@ export class AddonService {
   mergeAddonTemplates(
     baseTemplates: AddonTemplateReference[],
     addon: IAddon,
-    taskKey: "installation" | "reconfigure" | "upgrade",
+    taskKey: "installation" | "reconfigure" | "upgrade" | "disable",
     phase?: "pre_start" | "post_start",
   ): AddonTemplateReference[] {
     let addonTemplates: AddonTemplateReference[] | undefined;

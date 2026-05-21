@@ -810,10 +810,23 @@ export class WebAppVeRouteHandlers {
 
   /**
    * Handles GET /api/ve/execute/:veContext
+   *
+   * `restartKey` (when provided) filters to the single message-group that
+   * belongs to this CLI invocation. Without it, parallel CLI processes (one
+   * per livetest scenario under `--parallel`) all see the union of every
+   * deploy's messages on the same VE host → each one sees foreign errors,
+   * reports `Execution failed at step 'Failed' (exit 1)`, and the run gets
+   * phantom failures. (Confirmed via livetest β: postgres/mtls,
+   * postgrest/default, zitadel/default, test-proxvex-deployer/default all
+   * reported byte-identical stderr containing zitadel-login compose-up logs.)
    */
-  handleGetMessages(veContext: IVEContext, since?: number): IVeExecuteMessagesResponse {
+  handleGetMessages(veContext: IVEContext, since?: number, restartKey?: string): IVeExecuteMessagesResponse {
+    // Filter by restartKey first (per-CLI isolation under --parallel).
+    const baseGroups = restartKey
+      ? this.messageManager.messages.filter((g) => g.restartKey === restartKey)
+      : this.messageManager.messages;
     // Add vmInstallKey to each message group if it exists
-    const messages = this.messageManager.messages.map((group) => {
+    const messages = baseGroups.map((group) => {
       // If vmInstallKey is already set, keep it
       if (group.vmInstallKey) {
         return group;

@@ -69,15 +69,11 @@ function extractVersions(messages: CliMessage[]): Map<string, string> {
         const outputs: unknown = JSON.parse(msg.result);
         if (Array.isArray(outputs)) {
           for (const o of outputs) {
-            if (
-              typeof o === "object" && o !== null &&
-              typeof (o as Record<string, unknown>).id === "string" &&
-              (o as Record<string, string>).id.endsWith("_VERSION")
-            ) {
-              versions.set(
-                (o as Record<string, string>).id.replace(/_VERSION$/, ""),
-                String((o as Record<string, unknown>).value),
-              );
+            if (typeof o !== "object" || o === null) continue;
+            const rec = o as Record<string, unknown>;
+            const id = typeof rec.id === "string" ? rec.id : undefined;
+            if (id && id.endsWith("_VERSION")) {
+              versions.set(id.replace(/_VERSION$/, ""), String(rec.value));
             }
           }
         }
@@ -197,7 +193,7 @@ export function runCli(
       resolve({
         messages,
         exitCode,
-        vmId,
+        ...(vmId !== undefined ? { vmId } : {}),
         ...(restartKey ? { restartKey } : {}),
         output,
         resolvedVersions,

@@ -134,8 +134,10 @@ describe("host-extract-volumes-from-compose.py", () => {
     expect(r.status).toBe(0);
     // Both zitadel-api and zitadel-login mount /bootstrap; only one entry
     // is emitted because the dedup pass keeps the first occurrence by key.
+    // zitadel-api additionally mounts /config:/zitadel/config:ro.
     expect(r.volumes).toEqual({
       bootstrap: "zitadel/bootstrap",
+      config: "zitadel/config",
       compose: "opt/docker-compose",
       docker: "var/lib/docker",
     });

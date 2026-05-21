@@ -21,6 +21,8 @@ export interface IParameter {
   name: string;
   type: "enum" | "string" | "number" | "boolean";
   enumValues?: string[];
+  /** Reference to a list template that resolves enumValues at validation time. */
+  enumValuesTemplate?: string;
   description?: string;
   default?: string | number | boolean;
   required?: boolean;

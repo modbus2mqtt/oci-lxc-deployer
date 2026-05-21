@@ -5,12 +5,13 @@
  * building CLI parameters, and assigning VM IDs.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   VM_ID_START,
   type ResolvedScenario,
   type PlannedScenario,
+  type RunMode,
 } from "./livetest-types.mjs";
 import type { ResolvedFilter } from "./test-set-registry.mjs";
 
@@ -149,6 +150,44 @@ export function partitionAfterFailure(
 }
 
 /**
+ * Phase 1 (`--parallel`) scheduling primitive — pure & unit-tested.
+ *
+ * Given the plan and a per-index lifecycle state, classify the still-pending
+ * scenarios into:
+ *  - `ready`   — every in-plan `depends_on` is `done` → may start now
+ *  - `blocked` — at least one in-plan `depends_on` is `failed` → must skip
+ *
+ * `depends_on` entries that are not part of this plan are ignored (treated
+ * as satisfied — same convention as the sequential planner). The caller
+ * applies the concurrency cap and the running-count; this function only
+ * answers "what is eligible given current state".
+ */
+export function classifyParallel(
+  planned: PlannedScenario[],
+  state: ReadonlyArray<"pending" | "running" | "done" | "failed">,
+): { ready: number[]; blocked: number[] } {
+  const indexById = new Map<string, number>();
+  planned.forEach((p, idx) => indexById.set(p.scenario.id, idx));
+  const ready: number[] = [];
+  const blocked: number[] = [];
+  for (let idx = 0; idx < planned.length; idx++) {
+    if (state[idx] !== "pending") continue;
+    const deps = planned[idx]!.scenario.depends_on ?? [];
+    let depBlocked = false;
+    let allDone = true;
+    for (const depId of deps) {
+      const di = indexById.get(depId);
+      if (di === undefined) continue; // dep not in this plan → satisfied
+      if (state[di] === "failed") { depBlocked = true; break; }
+      if (state[di] !== "done") allDone = false;
+    }
+    if (depBlocked) blocked.push(idx);
+    else if (allDone) ready.push(idx);
+  }
+  return { ready, blocked };
+}
+
+/**
  * Select scenarios based on CLI argument.
  * - "app" → all scenarios under app/*
  * - "app/scenario" → exact match
@@ -257,6 +296,82 @@ function isRegexLiteral(s: string): boolean {
   const trimmed = s.trim();
   const stripped = trimmed.startsWith("!") ? trimmed.slice(1) : trimmed;
   return stripped.startsWith("/") && stripped.endsWith("/");
+}
+
+/**
+ * Classify the run mode based on the positional test argument and an explicit
+ * `--snapshot <name>` flag. Pure function — does not touch the filesystem.
+ *
+ *  - `"--all"`            → `all`
+ *  - argument starts `@`  → `file`
+ *  - `snapshotName` set   → `snapshot-build`
+ *  - anything else        → `single` (comma-list, app/scenario, regex, app)
+ */
+export function classifyRunMode(
+  testArg: string,
+  snapshotName: string | null,
+): RunMode {
+  if (snapshotName) return "snapshot-build";
+  if (testArg === "--all") return "all";
+  if (testArg.startsWith("@")) return "file";
+  return "single";
+}
+
+/**
+ * Load the curated snapshot catalog from disk. Members are top-level scenario
+ * ids whose pct-snapshot is (re-)created after each successful test run.
+ * Transitive deps inherit the snapshot via the per-member snapshot pass.
+ *
+ * Returns an empty set + warn-log when the file is missing, so the runner can
+ * still operate (no snapshots created); existence is therefore optional.
+ */
+export function loadSnapshotCatalog(projectRoot: string): Set<string> {
+  const file = path.join(projectRoot, "e2e", "snapshot-catalog.json");
+  if (!existsSync(file)) {
+    return new Set();
+  }
+  const raw = readFileSync(file, "utf-8");
+  const parsed: unknown = JSON.parse(raw);
+  if (
+    typeof parsed !== "object" || parsed === null ||
+    !Array.isArray((parsed as { members?: unknown }).members)
+  ) {
+    throw new Error(
+      `Invalid snapshot catalog ${file}: expected { members: string[] }`,
+    );
+  }
+  const members = (parsed as { members: unknown[] }).members;
+  const out = new Set<string>();
+  for (const m of members) {
+    if (typeof m !== "string" || m.trim() === "") {
+      throw new Error(`Invalid snapshot catalog entry in ${file}: ${String(m)}`);
+    }
+    out.add(m.trim());
+  }
+  return out;
+}
+
+/**
+ * Parse a `.lst` scenario-list file. One scenario id per line; `#` introduces
+ * a comment to end-of-line; blank lines are ignored. Returns the order-
+ * preserving comma-separated string the existing `selectScenarios()` parser
+ * already consumes, so `@<file>` plugs in without a new selection path.
+ */
+export function loadScenarioListFromFile(filePath: string): string {
+  if (!existsSync(filePath)) {
+    throw new Error(`Scenario list file not found: ${filePath}`);
+  }
+  const raw = readFileSync(filePath, "utf-8");
+  const ids: string[] = [];
+  for (const line of raw.split("\n")) {
+    const noComment = line.replace(/#.*$/, "").trim();
+    if (noComment === "") continue;
+    ids.push(noComment);
+  }
+  if (ids.length === 0) {
+    throw new Error(`Scenario list file is empty: ${filePath}`);
+  }
+  return ids.join(",");
 }
 
 /**

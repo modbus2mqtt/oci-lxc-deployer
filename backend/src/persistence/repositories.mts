@@ -763,6 +763,16 @@ export class FileSystemRepositories
    * to the shared no-op — symptom: OIDC env vars never landed on the
    * deployed container.
    */
+  /**
+   * Diagnostic accessor — same return as the private resolution, exposed so the
+   * Template-not-found error path in TemplateProcessor can log the candidate
+   * set it actually saw. Use only from logging/diagnostics, never as the
+   * primary lookup API.
+   */
+  __diagnostic_getApplicationPaths(applicationId?: string): string[] {
+    return this.getApplicationPaths(applicationId);
+  }
+
   private getApplicationPaths(applicationId?: string): string[] {
     if (!applicationId) return [];
 

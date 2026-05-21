@@ -67,7 +67,7 @@ describe("FileWatcherManager", () => {
    * Helper to manually trigger watch callbacks by simulating fs.watch events
    * This tests the callback logic deterministically without relying on actual fs.watch
    */
-  function triggerApplicationWatch(filename: string): void {
+  function triggerApplicationWatch(filename: string, _eventType?: "change" | "rename"): void {
     // Access private method isApplicationChange via reflection
     const watcherAny = watcher as any;
     if (
