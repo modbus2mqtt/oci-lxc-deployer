@@ -97,13 +97,7 @@ export class App implements OnInit, OnDestroy {
   
   updateCurrentHost(): void {
     const current = this.sshConfigs.find(ssh => ssh.current === true);
-    if (current) {
-      this.currentHost = current.host;
-    } else if (this.sshConfigs.length > 0) {
-      this.currentHost = this.sshConfigs[0].host;
-    } else {
-      this.currentHost = '';
-    }
+    this.currentHost = current ? current.host : '';
     this.refreshSpokeStatus();
   }
 

@@ -39,29 +39,53 @@ export class VeConfigurationService {
     this.router.navigate(['/']);
     return throwError(() => err);
   }
-  // Stack VE context key returned by backend so we can append it to future calls when required
+  // Stack VE context key returned by backend so we can append it to future calls when required.
+  // Clear the cached key when the response explicitly carries an empty/missing key —
+  // otherwise a previously selected host stays "live" on the frontend after the
+  // backend has dropped its current selection, and subsequent calls go to a stale ve_*.
   private setVeContextKeyFrom(response: unknown) {
-    if (response && typeof response === 'object') {
-      const obj = response as Record<string, unknown>;
-      const keyVal = obj['key'];
-      if (typeof keyVal === 'string' && keyVal.length > 0) {
-        this.veContextKey = keyVal;
-      }
+    if (!response || typeof response !== 'object') return;
+    const obj = response as Record<string, unknown>;
+    if (!('key' in obj)) return;
+    const keyVal = obj['key'];
+    if (typeof keyVal === 'string' && keyVal.length > 0) {
+      this.veContextKey = keyVal;
+    } else {
+      this.veContextKey = undefined;
     }
   }
+  /**
+   * Replace the `:veContext` placeholder. Throws if the URL needs a VE context
+   * but none is selected — surfaces a clear error instead of letting the
+   * request go out with a literal `:veContext` in the path (which would 404
+   * on the backend with an opaque message).
+   */
+  private resolveVeContext(url: string): string {
+    if (!url.includes(':veContext')) return url;
+    if (!this.veContextKey) {
+      throw new Error('Kein aktiver Proxmox-Host ausgewählt. Bitte oben in der Kopfzeile einen Host wählen.');
+    }
+    return url.replace(':veContext', this.veContextKey);
+  }
   post <T, U>(url:string, body:U):Observable<T> {
-    return this.http.post<T>(this.veContextKey? url.replace(":veContext", this.veContextKey) : url, body).pipe(
+    let resolved: string;
+    try { resolved = this.resolveVeContext(url); } catch (err) { return throwError(() => err); }
+    return this.http.post<T>(resolved, body).pipe(
       catchError((err) => this.handleError(err))
     )
   }
 
   // Post without global error handling - caller must handle errors
   postWithoutGlobalErrorHandler<T, U>(url:string, body:U):Observable<T> {
-    return this.http.post<T>(this.veContextKey? url.replace(":veContext", this.veContextKey) : url, body);
+    let resolved: string;
+    try { resolved = this.resolveVeContext(url); } catch (err) { return throwError(() => err); }
+    return this.http.post<T>(resolved, body);
   }
 
   get<T>(url:string):Observable<T> {
-    return this.http.get<T>(this.veContextKey? url.replace(":veContext", this.veContextKey) : url).pipe(
+    let resolved: string;
+    try { resolved = this.resolveVeContext(url); } catch (err) { return throwError(() => err); }
+    return this.http.get<T>(resolved).pipe(
       catchError((err) => this.handleError(err))
     )
   }
@@ -88,9 +112,9 @@ export class VeConfigurationService {
   getUnresolvedParameters(application: string, task: string): Observable<IUnresolvedParametersResponse> {
     const base = ApiUri.UnresolvedParameters
       .replace(":application", encodeURIComponent(application));
-    const url = (this.veContextKey ? base.replace(":veContext", this.veContextKey) : base)
-      + `?task=${encodeURIComponent(task)}`;
-    return this.http.get<IUnresolvedParametersResponse>(url);
+    let resolved: string;
+    try { resolved = this.resolveVeContext(base); } catch (err) { return throwError(() => err); }
+    return this.http.get<IUnresolvedParametersResponse>(resolved + `?task=${encodeURIComponent(task)}`);
   }
 
   getApplicationOverview(applicationId: string, task: string, vmId?: number, veContextKey?: string): Observable<IApplicationOverviewResponse> {
@@ -106,8 +130,9 @@ export class VeConfigurationService {
     const base = ApiUri.TemplateDetailsForApplication
       .replace(":application", encodeURIComponent(application))
       .replace(":task", encodeURIComponent(task));
-    const url = this.veContextKey ? base.replace(":veContext", this.veContextKey) : base;
-    return this.http.get<ITemplateProcessorLoadResult>(url);
+    let resolved: string;
+    try { resolved = this.resolveVeContext(base); } catch (err) { return throwError(() => err); }
+    return this.http.get<ITemplateProcessorLoadResult>(resolved);
   }
 
   postEnumValues(application: string, task: string, params?: { id: string; value: IParameterValue }[], refresh?: boolean): Observable<IEnumValuesResponse> {
@@ -246,9 +271,9 @@ export class VeConfigurationService {
     | { type: 'message'; data: { application: string; task: string; message: IVeExecuteMessage } }
   > {
     return new Observable(subscriber => {
-      const baseUrl = this.veContextKey
-        ? ApiUri.VeExecuteStream.replace(':veContext', this.veContextKey)
-        : ApiUri.VeExecuteStream;
+      let baseUrl: string;
+      try { baseUrl = this.resolveVeContext(ApiUri.VeExecuteStream); }
+      catch (err) { subscriber.error(err); return; }
       const eventSource = new EventSource(baseUrl);
 
       eventSource.addEventListener('snapshot', (event: MessageEvent) => {
@@ -308,9 +333,9 @@ export class VeConfigurationService {
   createApplicationFromFramework(body: IPostFrameworkCreateApplicationBody): Observable<IPostFrameworkCreateApplicationResponse> {
     // Use http.post directly to avoid catchError in post() method
     // This allows the component to handle errors itself
-    const url = this.veContextKey
-      ? ApiUri.FrameworkCreateApplication.replace(":veContext", this.veContextKey)
-      : ApiUri.FrameworkCreateApplication;
+    let url: string;
+    try { url = this.resolveVeContext(ApiUri.FrameworkCreateApplication); }
+    catch (err) { return throwError(() => err); }
     return this.http.post<IPostFrameworkCreateApplicationResponse>(url, body);
   }
 
