@@ -415,20 +415,29 @@ success "Helper scripts installed (pct-cleanup)"
 # write-on-read amplification. lz4 is a near-free CPU/IO trade-off for
 # layer pulls. The host-side scsi0 already runs cache=writeback,iothread=1
 # so we also benefit from host-page-cache batching.
-info "Tuning nested rpool ZFS settings..."
-nested_ssh "
-    set -e
-    zfs set sync=disabled rpool 2>/dev/null || true
-    zfs set atime=off rpool 2>/dev/null || true
-    if [ \"\$(zfs get -H -o value compression rpool)\" = 'off' ]; then
-        zfs set compression=lz4 rpool
-    fi
-    # 1 GiB write coalescing buffer (default ~256 MiB) — survives reboots
-    # via /etc/modprobe.d only matters for module reload; for now apply
-    # at runtime, step1 reruns happen rarely.
-    echo 1073741824 > /sys/module/zfs/parameters/zfs_dirty_data_max 2>/dev/null || true
-"
-success "rpool tuned (sync=disabled, atime=off, lz4)"
+#
+# ZFS-only. ext4 nested VMs (e.g. github-action instance) skip this block;
+# fsync-bypass on ext4 needs different mount-time options (barrier=0,
+# data=writeback) that we don't apply here — the github-action runner is
+# disposable per-job, so the throughput hit is acceptable.
+if [ "${FILESYSTEM:-zfs}" = "zfs" ]; then
+    info "Tuning nested rpool ZFS settings..."
+    nested_ssh "
+        set -e
+        zfs set sync=disabled rpool 2>/dev/null || true
+        zfs set atime=off rpool 2>/dev/null || true
+        if [ \"\$(zfs get -H -o value compression rpool 2>/dev/null)\" = 'off' ]; then
+            zfs set compression=lz4 rpool
+        fi
+        # 1 GiB write coalescing buffer (default ~256 MiB) — survives reboots
+        # via /etc/modprobe.d only matters for module reload; for now apply
+        # at runtime, step1 reruns happen rarely.
+        echo 1073741824 > /sys/module/zfs/parameters/zfs_dirty_data_max 2>/dev/null || true
+    "
+    success "rpool tuned (sync=disabled, atime=off, lz4)"
+else
+    info "Skipping ZFS rpool tuning (FILESYSTEM=$FILESYSTEM)"
+fi
 
 # Step 10b: Configure kernel modules for Docker-in-LXC
 header "Configuring Kernel Modules for Docker-in-LXC"
