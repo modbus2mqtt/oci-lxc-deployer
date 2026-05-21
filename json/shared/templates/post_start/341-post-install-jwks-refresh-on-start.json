@@ -1,0 +1,17 @@
+{
+  "execute_on": "lxc",
+  "name": "Install JWKS Refresh On-Start",
+  "description": "Installs an on-start drop-in that fetches the Zitadel JWKS (RS256) to /jwks/jwks.json for PostgREST (PGRST_JWT_SECRET=@/jwks/jwks.json) and signals a config reload on key rotation. Runtime half of the zitadel-pgrst-auth integration; pairs with 331-provision-auth-rls. Optional: skipped unless the oidc stacktype provides ZITADEL_URL.",
+  "skip_if_all_missing": [
+    "ZITADEL_URL"
+  ],
+  "parameters": [
+    "ZITADEL_URL"
+  ],
+  "commands": [
+    {
+      "script": "post-install-jwks-refresh-on-start.sh",
+      "description": "Create JWKS refresh on-start drop-in script"
+    }
+  ]
+}

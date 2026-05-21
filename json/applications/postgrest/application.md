@@ -77,6 +77,45 @@ PostgREST has no built-in user authentication; it delegates to PostgreSQL roles 
    PGRST_JWT_ROLE_CLAIM_KEY: ".role"
    ```
 
+## zitadel-pgrst-auth integration (Zitadel JWT + tenant RLS)
+
+Generic, reusable recipe: Zitadel login → PostgREST verifies the JWT directly
+via **JWKS/RS256** → tenant isolation + roles enforced purely in the DB. No
+Zitadel action, no nginx-Lua, no HMAC, no shared secret. An app opts in; the
+generic PostgREST app is unchanged for non-auth use.
+
+To enable it for a consuming app (see `auth-rls-example`):
+
+1. **Stacktypes** `postgres` **and** `oidc` (the `oidc` stacktype provides
+   `ZITADEL_URL`), dependency on `postgres` (and `zitadel`).
+2. **DB core** — the shared post_start templates run, in order:
+   - `330-provision-postgres-app` (roles/schemas, as usual)
+   - `331-provision-auth-rls` (installs the generic `auth` schema:
+     `auth.organizations/users/user_roles`, JIT `auth.ensure_principal`,
+     STABLE accessors, `whoami`; grants to `<app>_anon`/`<app>_user`/
+     `db_anon_role`). Roles are assigned app-side in `auth.user_roles`
+     (role-name-agnostic) — the core assigns none → safe default-deny.
+3. **JWKS at runtime** — include `341-post-install-jwks-refresh-on-start`
+   (writes `/etc/proxvex/on_start.d/jwks-refresh.sh`: fetches
+   `${ZITADEL_URL}/oauth/v2/keys` → `/jwks/jwks.json` on every start, reloads
+   PostgREST config on key rotation).
+4. **PostgREST compose env** (set by the consuming app):
+
+   ```yaml
+   PGRST_DB_ANON_ROLE:  "{{ db_anon_role }}"   # parameter; role exists (331/330)
+   PGRST_DB_PRE_REQUEST: "auth.ensure_principal"
+   PGRST_JWT_SECRET:     "@/jwks/jwks.json"
+   # production: also PGRST_JWT_AUD: "<aud>"
+   ```
+
+   plus a `jwks` volume mounted read-only at `/jwks`.
+
+Authorization is 100% RLS via `auth.*`: org-scoped tables use
+`org_id uuid NOT NULL DEFAULT auth.org_id()` and policies
+`USING (org_id = auth.org_id() AND auth.has_role('<app-role>'))`. Full
+contract and a runnable reference: the `zitadel-pgrst-auth` base
+(`EXTENDING.md`) and the `auth-rls-example` application.
+
 ## SSL
 
 PostgREST uses `ssl_mode: proxy` — the addon-ssl reverse proxy handles HTTPS termination of the **API**. This is independent of the **database** connection; for mutual TLS to PostgreSQL see [addon-mtls](#addon-mtls).
