@@ -47,6 +47,12 @@ export class WebAppVeExecutionSetup {
     debugCollector?: WebAppDebugCollector,
     appLogMonitor?: AppLogMonitor,
   ): { exec: VeExecution; restartKey: string } {
+    const restartKey = this.generateRestartKey();
+    // Stamp every command with the task's restartKey so MessageEmitter +
+    // SshExecutor can thread it into every emitted event. Replaces the
+    // legacy global `activeRestartKey` singleton — events now dispatch to
+    // the right per-task DebugCollector entry under concurrent execution.
+    for (const cmd of commands) cmd.restartKey = restartKey;
     const exec = new VeExecution(
       commands,
       inputs,
@@ -54,7 +60,6 @@ export class WebAppVeExecutionSetup {
       defaults,
       sshCommand,
     );
-    const restartKey = this.generateRestartKey();
 
     // Clear old messages for this application/task before starting
     messageManager.clearMessagesForApplication(application, task);
@@ -64,15 +69,15 @@ export class WebAppVeExecutionSetup {
     const group = messageManager.findOrCreateMessageGroup(application, task, restartKey);
     group.plannedSteps = this.buildPlannedSteps(commands, processedTemplates);
 
-    // Debug bundle wiring — only attached when debug_level != "off". The
-    // logger sink is global state (single concurrent task is the current
-    // assumption); a future multi-task setup needs AsyncLocalStorage.
+    // Debug bundle wiring — only attached when debug_level != "off". Now
+    // per-task safe under concurrent execution: every emitted event carries
+    // its own restartKey (stamped on ICommand at task start, threaded by
+    // MessageEmitter). The legacy global `Logger.setDebugSink` singleton is
+    // gone; library-level Logger.debug calls outside VeExecution no longer
+    // reach bundles — that was already noise under concurrency anyway.
     const debugLevel = readDebugLevelFromInputs(inputs, defaults);
     if (debugCollector && debugLevel !== "off") {
       debugCollector.start(restartKey, application, task, debugLevel);
-      Logger.setDebugSink((entry) =>
-        debugCollector.attachLogLine(restartKey, entry),
-      );
       exec.on("debug", (event: IVeDebugEvent) => {
         debugCollector.handleDebugEvent(restartKey, event);
       });
@@ -104,7 +109,6 @@ export class WebAppVeExecutionSetup {
           defaults,
         ).finally(() => {
           debugCollector.finish(restartKey);
-          Logger.setDebugSink(null);
         });
       }
     };

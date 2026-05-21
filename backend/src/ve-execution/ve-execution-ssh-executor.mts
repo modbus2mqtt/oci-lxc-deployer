@@ -393,6 +393,9 @@ export class VeExecutionSshExecutor {
     if (sourceTemplate) {
       message.template = sourceTemplate;
     }
+    if (tmplCommand.restartKey) {
+      message.restartKey = tmplCommand.restartKey;
+    }
     return message;
   }
 

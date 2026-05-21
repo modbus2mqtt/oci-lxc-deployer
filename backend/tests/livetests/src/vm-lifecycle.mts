@@ -387,6 +387,107 @@ export async function rollbackOrDestroyDepsFromSnapshot(
 }
 
 /**
+ * Threshold above which `--all`/`@file` runs prefer a single `qm rollback`
+ * over N parallel `pct destroy` calls. Below the threshold per-CT destroys
+ * (each finishes in ~1-2 s with `pct stop --timeout 1`) are faster than the
+ * ~30 s qm-rollback round-trip. Tuned for the typical "many leftovers from
+ * an aborted full-suite run" case.
+ */
+const ROLLBACK_THRESHOLD = 20;
+
+/**
+ * Enumerate the VMIDs of all managed CTs currently in the nested VM in ONE
+ * SSH round-trip. Excludes the proxvex-deployer Hub-LXC (application-id =
+ * "proxvex") — it must never be wiped. Result is the canonical "what's
+ * already on disk" view consumed by both the smart-cleanup branch
+ * (rollback-vs-destroy decision) and `prepareVms` (skip no-op destroys for
+ * CTs that don't exist).
+ */
+export async function listExistingTestCts(
+  pveHost: string,
+  sshPort: number,
+): Promise<Set<number>> {
+  try {
+    const out = await nestedSshAsync(
+      pveHost, sshPort,
+      `for f in /etc/pve/lxc/*.conf; do ` +
+      `  [ -f "$f" ] || continue; ` +
+      `  vmid=$(basename "$f" .conf); ` +
+      `  grep -q 'proxvex%3Amanaged\\|proxvex:managed' "$f" 2>/dev/null || continue; ` +
+      `  grep -q 'proxvex%3Adeployer-instance\\|proxvex:deployer-instance' "$f" 2>/dev/null && continue; ` +
+      `  echo "$vmid"; ` +
+      `done`,
+      15000,
+    );
+    const set = new Set<number>();
+    for (const line of out.split("\n")) {
+      const vmid = Number.parseInt(line.trim(), 10);
+      if (Number.isFinite(vmid)) set.add(vmid);
+    }
+    return set;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Smart pre-run cleanup for `--all` / `@file` modes: enumerate existing
+ * managed CTs once, then either
+ *   - **rollback** the whole nested VM to `deployer-installed` (1 op, ~30 s)
+ *     when many CTs need to go (count >= ROLLBACK_THRESHOLD). For `--all` the
+ *     CTs get reinstalled from scratch anyway, so wiping pct snapshots is
+ *     acceptable — they're disposable artifacts of the previous run.
+ *   - **per-CT destroy** in parallel (each ~1-2 s with `pct stop --timeout 1`)
+ *     when few CTs exist. Faster than a 30 s rollback for the small-cleanup
+ *     case (catalog-only @file rerun, light leftovers).
+ *
+ * Returns the set of VMIDs that REMAIN after cleanup, so `prepareVms` can
+ * skip its (now-redundant) per-CT existence probe.
+ */
+export async function smartCleanupBeforeRun(
+  pveHost: string,
+  pveSshPort: number,
+  vmId: number,
+  plannedVmIds: ReadonlySet<number>,
+): Promise<Set<number>> {
+  const existing = await listExistingTestCts(pveHost, pveSshPort);
+  // CTs to remove = existing minus those the run will reuse (planned). The
+  // planned-set check matters for @file: catalog dep CTs from a prior run
+  // should be REUSED, not destroyed, so they're excluded from the count.
+  const toRemove: number[] = [];
+  for (const vmid of existing) {
+    if (!plannedVmIds.has(vmid)) toRemove.push(vmid);
+  }
+  if (toRemove.length === 0) {
+    logInfo(`Smart cleanup: 0 leftover CTs, nothing to do`);
+    return existing;
+  }
+  if (toRemove.length >= ROLLBACK_THRESHOLD) {
+    logInfo(`Smart cleanup: ${toRemove.length} leftover CTs ≥ ${ROLLBACK_THRESHOLD} threshold → qm rollback (faster than per-CT)`);
+    await rollbackToBaseline(pveHost, pveSshPort, vmId);
+    return new Set(); // rollback wipes all test CTs
+  }
+  logInfo(`Smart cleanup: ${toRemove.length} leftover CTs < ${ROLLBACK_THRESHOLD} threshold → parallel per-CT destroy`);
+  await Promise.all(toRemove.map(async (id) => {
+    try {
+      await nestedSshAsync(
+        pveHost, pveSshPort,
+        `pct stop ${id} --timeout 1 2>/dev/null; pct destroy ${id} --force --purge 2>/dev/null; true`,
+        60000,
+      );
+    } catch (err) {
+      logWarn(`Smart cleanup: destroy ${id} failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }));
+  // After destroy: surviving CTs are those in `existing` AND `plannedVmIds`.
+  const remaining = new Set<number>();
+  for (const id of existing) {
+    if (plannedVmIds.has(id)) remaining.add(id);
+  }
+  return remaining;
+}
+
+/**
  * Compute the catalog member name that owns the snapshot for a given dep
  * VM-id in the planned set. Used by the per-member-snapshot path in the
  * executor to derive the snapshot name from the scenario id. Returns null

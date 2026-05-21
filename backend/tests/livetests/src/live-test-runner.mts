@@ -41,7 +41,7 @@ import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
 import {
-  restoreBestSnapshot, prepareVms, rollbackToBaseline,
+  restoreBestSnapshot, prepareVms, smartCleanupBeforeRun,
   preCleanupNonSnapshotConsumers, rollbackOrDestroyDepsFromSnapshot,
 } from "./vm-lifecycle.mjs";
 import { executeScenarios } from "./scenario-executor.mjs";
@@ -860,7 +860,12 @@ async function main() {
   // pct restore of dep-CTs runs *additionally* across all modes when a
   // covering snapshot exists (cheap, idempotent).
   if (runMode === "all" || runMode === "file") {
-    await rollbackToBaseline(config.pveHost, config.portPveSsh, config.vmId);
+    // Smart cleanup: `pct list` once, then either qm rollback (>=20 leftover
+    // CTs → 1 op faster than N parallel destroys) or parallel per-CT
+    // destroy. Planned CTs are reused, not destroyed, so the catalog from
+    // a prior @file run survives a follow-up small `@file` invocation.
+    const plannedVmIdSet = new Set(planned.map((p) => p.vmId));
+    await smartCleanupBeforeRun(config.pveHost, config.portPveSsh, config.vmId, plannedVmIdSet);
   }
   // Skip the legacy per-dep restore in --from-snapshot mode:
   // rollbackOrDestroyDepsFromSnapshot below does the same `pct rollback`
