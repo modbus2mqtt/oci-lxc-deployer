@@ -1,0 +1,10 @@
+# Minimal-Cluster for fast single-test iteration.
+# Only top-level scenarios; postgres is snapshotted automatically as a
+# transient dep CT for each variant (default/ssl/mtls).
+#
+# Usage:
+#   pnpm tsx backend/tests/livetests/src/live-test-runner.mts yellow @e2e/snapshot-baseline.lst
+zitadel/default
+zitadel/ssl
+zitadel/mtls
+zitadel/mtls-certonly

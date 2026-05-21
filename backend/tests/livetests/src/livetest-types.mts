@@ -196,6 +196,33 @@ export interface E2EConfig {
 }
 
 /**
+ * Run mode classification — determined by the positional test argument and
+ * snapshot flags. Drives qm-rollback, parallel default, pre-cleanup, and
+ * teardown semantics across the runner.
+ *
+ *  - `all`           — `livetest --all`: qm rollback to deployer-installed,
+ *                       parallel default, no teardown, per-catalog-member
+ *                       snapshot after success.
+ *  - `file`          — `livetest @<file.lst>`: same as `all`, scoped to the
+ *                       scenarios listed in the file (plus their deps).
+ *  - `snapshot-build`— legacy `livetest --snapshot <name> "<list>"` mode.
+ *                       Unchanged Phase-3b behaviour.
+ *  - `single`        — explicit single scenario or comma-list/regex selection.
+ *                       Always sequential. Pre-cleanup deletes non-snapshot,
+ *                       non-needed CTs. Per-catalog-member snapshot still runs.
+ */
+export type RunMode = "all" | "file" | "single" | "snapshot-build";
+
+/**
+ * Sanitize a scenario id (e.g. "zitadel/default") into a pct-snapshot-safe
+ * name (e.g. "zitadel-default"). pct snapshot names must be valid filesystem
+ * component characters — `/` is the only id-internal character that is not.
+ */
+export function sanitizeScenarioIdForSnapshot(id: string): string {
+  return id.replace(/\//g, "-");
+}
+
+/**
  * Resolve the dependency-snapshot name for a run, or `null` when no
  * dependency snapshot may be created/restored.
  *

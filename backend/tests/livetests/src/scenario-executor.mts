@@ -15,7 +15,8 @@ import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "no
 import { execSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ResolvedScenario, PlannedScenario, TestResult } from "./livetest-types.mjs";
+import type { ResolvedScenario, PlannedScenario, TestResult, RunMode } from "./livetest-types.mjs";
+import { sanitizeScenarioIdForSnapshot } from "./livetest-types.mjs";
 import { Verifier, buildDefaultVerify, type AppMeta } from "./verifier.mjs";
 import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type ScenarioLogContext } from "./log-helpers.mjs";
 import { enumerateZfsPoolStorages } from "./live-test-runner.mjs";
@@ -24,6 +25,22 @@ import { collectScenarioEnv } from "./scenario-env.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
+
+/** Options accepted by both executor drivers (sequential + parallel). */
+export interface ExecuteScenariosOptions {
+  failFast?: boolean;
+  debugLevel?: string;
+  depSnapshotName?: string | null;
+  concurrency?: number;
+  snapshotMode?: string | null;
+  volumeStorageOverride?: string;
+  /** New run-mode classification — drives teardown-skip and per-member
+   * snapshot semantics. Undefined treated as `single` for legacy callers. */
+  runMode?: RunMode;
+  /** Curated set of scenario ids whose CT + transitive dep CTs get a pct
+   * snapshot after a successful test. Independent of `depSnapshotName`. */
+  snapshotCatalog?: ReadonlySet<string>;
+}
 
 /**
  * Evaluate expect2fail + allowed2fail expectations against per-template results.
@@ -338,7 +355,7 @@ export async function executeScenarios(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null; volumeStorageOverride?: string },
+  options?: ExecuteScenariosOptions,
 ): Promise<TestResult> {
   // Phase 0: per-application dependency-snapshot name (`<app>_deps`), or
   // `null` for `--all` / multi-app subsets where no dep snapshot is taken.
@@ -347,6 +364,13 @@ export async function executeScenarios(
   // alle erfolgreich installierten Provider-Szenarien am Iterations-Ende
   // pct-snapshottet (statt Teardown), und der Cluster-Name ist genau dieser.
   const snapshotMode: string | null = options?.snapshotMode ?? null;
+  // Per-member-snapshot path (mode-independent): every successful catalog
+  // member produces a sanitized-id pct snapshot on its CT + all transitive
+  // dep CTs. Independent of depSnapshotName / snapshotMode. The runMode is
+  // accepted for forward-compat / observability but does not gate behaviour
+  // here — gating happens before the executor (in live-test-runner.mts).
+  void options?.runMode;
+  const snapshotCatalog: ReadonlySet<string> = options?.snapshotCatalog ?? new Set<string>();
   // Phase 1: bounded-concurrency driver when concurrency > 1 (`--parallel`).
   // Default 1 → the unchanged sequential driver.
   const concurrency = Math.max(1, options?.concurrency ?? 1);
@@ -1610,37 +1634,12 @@ export async function executeScenarios(
         }));
       }
 
-      // Consumer-test success: destroy the consumer LXC. Provider LXCs stay
-      // alive for subsequent consumer tests. Test-level cleanup (e.g. dropping
-      // a database in postgres) is handled separately via test.json `cleanup`.
-      //
-      // Phase 2 caveat: docker-compose in-place upgrade reassigns step.vmId
-      // to the source's VMID (see in-place block above). If the source is a
-      // dependency for downstream consumers (e.g. postgrest/reconf-ssl also
-      // depends on postgrest/ssl), destroying step.vmId here tears down the
-      // shared source. Skip cleanup when step.vmId matches any planned-dep's
-      // vmId — the dep cleanup at end-of-run handles those CTs.
-      const isSharedSourceVm = planned.some(
-        (p) => p.scenario.id !== scenario.id && p.vmId === step.vmId,
-      );
-      // Consumer-Teardown: `pct stop` (kein destroy) — Forensik im
-      // Ausnahmefall möglich, schneller. Pre-Run-prepareVms räumt CTs > 1 h
-      // asynchron weg (Janitor-Pass) und destroyt liegen­gebliebene
-      // Non-Dependency-CTs am nächsten Lauf-Start ohnehin (running ODER
-      // stopped) — kein VMID-Slot-Konflikt.
-      //
-      // In `--snapshot <name>` mode skip teardown entirely: every listed
-      // scenario is a *provider* whose CT we want to snapshot (below) and
-      // keep running as the cluster baseline.
-      if (snapMgr && !snapshotMode && !step.isDependency && !step.skipExecution && !isSharedSourceVm) {
-        try {
-          await nestedSshAsync(config.pveHost, config.portPveSsh,
-            `pct stop ${step.vmId} 2>/dev/null; true`,
-            30000);
-        } catch { /* ignore */ }
-      } else if (isSharedSourceVm) {
-        logInfo(`Skipping cleanup of VM ${step.vmId} — shared with another planned scenario (in-place upgrade source)`);
-      }
+      // No end-of-run consumer teardown: the next run's pre-cleanup step
+      // (single-scenario mode in vm-lifecycle.mts:preCleanupNonSnapshotConsumers)
+      // disposes of non-snapshot, non-needed CTs at the start. Keeping
+      // consumer CTs running between runs means a follow-up `livetest
+      // <same-app>` finds them, the pre-cleanup leaves them alone if needed,
+      // or destroys them otherwise — all in one place.
 
       // After the LAST stack-provider step, create the per-application
       // `<app>_deps` snapshot on the host PVE. Subsequent runs of the SAME
@@ -1674,6 +1673,60 @@ export async function executeScenarios(
           ));
         } catch (err) {
           logInfo(`Snapshot creation failed (non-fatal): ${err}`);
+        }
+      }
+
+      // Per-catalog-member snapshot (mode-independent): after a scenario
+      // listed in the snapshot catalog finishes successfully, create one pct
+      // snapshot per CT in its transitive dep closure (itself + all deps the
+      // member declared via depends_on), all carrying the same sanitized id
+      // as the snapshot name. Runs in EVERY mode (single, all, file, even
+      // --from-snapshot) so a snapshot lost during the run's prepareVms
+      // destroy of the target is restored to disk on success.
+      //
+      // Idempotent: SnapshotManager.createCtSnapshot drops a pre-existing
+      // same-name snapshot before creating, so re-snapshotting always wins.
+      // Parallel-safe per CT (`pct snapshot` is container-local). The
+      // catalog is curated so members have disjoint dep CTs.
+      if (snapMgr && !step.skipExecution && snapshotCatalog.has(scenario.id)) {
+        try {
+          const snapshotName = sanitizeScenarioIdForSnapshot(scenario.id);
+          // Build the transitive dep id closure for this scenario via allTests
+          // (planned only carries scenarios that were also selected as deps of
+          // some other planned scenario, but the closure we want is exactly
+          // what `depends_on` defines).
+          const memberClosure = new Set<string>([scenario.id]);
+          const walk = (id: string): void => {
+            const s = allTests.get(id);
+            if (!s) return;
+            for (const dep of s.depends_on ?? []) {
+              if (memberClosure.has(dep)) continue;
+              memberClosure.add(dep);
+              walk(dep);
+            }
+          };
+          walk(scenario.id);
+          // Map closure ids to VMIDs via the planned-set; ids that are not
+          // in the planned-set (e.g. catalog member with deps the runner
+          // dropped due to env-filter) are silently skipped.
+          const closureVmids = new Map<number, string>();
+          closureVmids.set(step.vmId, scenario.id);
+          for (const id of memberClosure) {
+            if (id === scenario.id) continue;
+            const dep = planned.find((p) => p.scenario.id === id);
+            if (dep) closureVmids.set(dep.vmId, id);
+          }
+          const description = SnapshotManager.buildDescription({
+            name: snapshotName,
+            members: [...memberClosure],
+            ...(buildHash !== undefined ? { buildHash } : {}),
+          });
+          await Promise.all([...closureVmids.keys()].map((vmid) =>
+            snapMgr.createCtSnapshot(vmid, snapshotName, description),
+          ));
+          logOk(`Catalog snapshot @${snapshotName} created on VM(s) ${[...closureVmids.keys()].join(", ")}`);
+        } catch (err) {
+          logInfo(`Per-member snapshot failed (non-fatal): ${err}`);
         }
       }
 
@@ -1918,7 +1971,7 @@ export async function executeScenariosParallel(
   stackIdMap: Map<string, string[]>,
   resultWriter?: TestResultWriter,
   fixtureBaseDir?: string,
-  options?: { failFast?: boolean; debugLevel?: string; depSnapshotName?: string | null; concurrency?: number; snapshotMode?: string | null; volumeStorageOverride?: string },
+  options?: ExecuteScenariosOptions,
 ): Promise<TestResult> {
   return executeScenarios(
     planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,

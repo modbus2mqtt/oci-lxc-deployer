@@ -11,24 +11,38 @@ Format: `[--fresh] [--fix] [--debug <level>] [--config <instance>] [test-filter]
 Help text to print:
 
 ```
-Usage: /livetest [--fresh] [--fix] [--debug <level>] [--config <instance>] [test-filter]
+Usage: /livetest [--fresh] [--fix] [--from-snapshot] [--no-parallel]
+                 [--debug <level>] [--config <instance>] [test-filter]
 
-Test filter   Application name (eclipse-mosquitto), scenario (zitadel/default),
-              "--all" for the full suite, or any tag selector.
---debug LV    off | extLog (default) | script. Sets debug_level on the target
-              scenario; bundle lands in livetest-results/<runId>/<scenarioId>/.
-              "script" adds set -x to every shell script.
---fresh       Wipe .livetest-data and roll back the nested VM to deployer-installed
-              before starting. Use after suspected dependency corruption.
---fix         Autonomously analyse failures (via the debug bundle) and retry
-              until all tests pass or you give up.
---config INST Target the nested-VM deployer of <inst> instead of the local
-              backend. Runs step2b first (~2 min).
+Test filter      Application (eclipse-mosquitto), scenario (zitadel/default),
+                 "--all" for the full suite, "@<file.lst>" for a curated
+                 multi-scenario list, or any tag selector.
+@<file.lst>      Read a list of scenarios from a file (one per line, `#`
+                 comments). Treated like --all but scoped to the listed
+                 scenarios + their deps. Same snapshot semantics as --all.
+                 Example: @e2e/snapshot-baseline.lst replaces step3.
+--all / @file    Runner rolls the nested VM back to qm @deployer-installed
+                 first; parallel default; catalog members get a pct snapshot
+                 on success (CT + transitive deps). Use --no-parallel /
+                 --parallel=1 to force serial.
+--from-snapshot  Single-scenario only: roll back each transitive dep CT
+                 from its existing pct snapshot (and destroy deps that have
+                 none, so they reinstall fresh). Default for single is to
+                 reuse running deps without rolling back.
+--no-parallel    Force serial execution even when the mode default is
+                 parallel (i.e. --all / @file).
+--debug LV       off | extLog (default) | script.
+--fresh          Wipe .livetest-data; --all already does qm rollback, so
+                 --fresh is mainly for non-all runs that want a hard reset.
+--fix            Autonomously analyse failures and retry.
+--config INST    Target the nested-VM deployer of <inst>. Runs step2b first.
 
 Examples:
   /livetest eclipse-mosquitto
   /livetest --debug script zitadel/default
-  /livetest --fresh --all
+  /livetest --all                            # qm rollback + parallel + snapshots
+  /livetest @e2e/snapshot-baseline.lst       # fast baseline build (replaces step3)
+  /livetest --from-snapshot zitadel/default  # quick rerun from snapshot
   /livetest --fix pgadmin
   /livetest --config github-action --all
 ```
@@ -38,10 +52,10 @@ Then ask via `AskUserQuestion`:
 - **Question**: "Welcher Test soll ausgeführt werden?"
 - **Header**: `Test`
 - **Options** (single-select, last is Other-auto):
-  - `eclipse-mosquitto/default` — single scenario, ~1 min, no dependencies (Recommended)
-  - `--all` — full suite, ~30+ min, all 43 scenarios
-  - `zitadel/default` — docker-compose app with postgres dependency
-  - `pgadmin` — quick docker-compose test with postgres dependency
+  - `@e2e/snapshot-baseline.lst` — fast baseline build (replaces step3, ~20 min) (Recommended)
+  - `eclipse-mosquitto/default` — single scenario, ~1 min, no dependencies
+  - `--all` — full suite (qm rollback + parallel + snapshots), ~30+ min
+  - `--from-snapshot zitadel/default` — rerun zitadel/default off existing snapshot
 
 When the user picks an option, also ask in a second question whether to enable `--debug` (single-select):
 - **Question**: "Debug-Level?"

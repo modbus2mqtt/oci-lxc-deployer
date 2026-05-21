@@ -28,16 +28,22 @@
  */
 
 import { nestedSsh, nestedSshStrict } from "./ssh-helpers.mjs";
-import { collectWithDeps, selectScenarios, planScenarios, applyTagFilter } from "./scenario-planner.mjs";
+import {
+  collectWithDeps, selectScenarios, planScenarios, applyTagFilter,
+  classifyRunMode, loadSnapshotCatalog, loadScenarioListFromFile,
+} from "./scenario-planner.mjs";
 import { TestResultWriter } from "./test-result-writer.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { ResolvedScenario, PlannedScenario, E2EConfig, ParamEntry } from "./livetest-types.mjs";
+import type { ResolvedScenario, PlannedScenario, E2EConfig, ParamEntry, RunMode } from "./livetest-types.mjs";
 import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
-import { restoreBestSnapshot, prepareVms } from "./vm-lifecycle.mjs";
+import {
+  restoreBestSnapshot, prepareVms, rollbackToBaseline,
+  preCleanupNonSnapshotConsumers, rollbackOrDestroyDepsFromSnapshot,
+} from "./vm-lifecycle.mjs";
 import { executeScenarios } from "./scenario-executor.mjs";
 import { RED, GREEN, NC, logOk, logFail, logWarn, logInfo } from "./log-helpers.mjs";
 import { analyzeCoverage } from "./coverage-analyzer.mjs";
@@ -332,10 +338,18 @@ function cleanupVms(
   pveHost: string,
   sshPort: number,
   keepVm: boolean,
+  snapshotCatalog: ReadonlySet<string>,
 ) {
   for (const p of [...planned].reverse()) {
     if (p.isDependency) {
       logWarn(`Keeping dependency VM ${p.vmId} (${p.scenario.id})`);
+      console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
+    } else if (snapshotCatalog.has(p.scenario.id)) {
+      // Catalog members own pct snapshots created by the per-member-snapshot
+      // path in scenario-executor; destroying the CT here would wipe that
+      // snapshot. Keep the CT running so the next `--from-snapshot` run can
+      // roll it back instead of reinstalling.
+      logWarn(`Keeping snapshot-catalog member VM ${p.vmId} (${p.scenario.id})`);
       console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
     } else if (keepVm) {
       logWarn(`KEEP_VM set - VM ${p.vmId} not destroyed`);
@@ -378,13 +392,20 @@ async function main() {
     args.splice(snapshotIdx, 2);
   }
 
-  // Phase 1 (opt-in): `--parallel` or `--parallel=N` switches the scenario
-  // loop to a bounded async scheduler. Without the flag the runner takes the
-  // unchanged sequential path → near-zero regression risk.
+  // Phase 1 (opt-in for single scenarios, default-on for `--all`/`@file`):
+  // `--parallel` or `--parallel=N` switches the scenario loop to a bounded
+  // async scheduler. Without the flag the runner takes the unchanged
+  // sequential path → near-zero regression risk for single-scenario runs.
+  //
+  // `--no-parallel` forces serial even when a default-on mode would otherwise
+  // enable it. `--parallel=1` is also accepted and treated as serial.
   const parallelArg = args.find(
     (a) => a === "--parallel" || a.startsWith("--parallel="),
   );
-  const parallelEnabled = !!parallelArg;
+  const noParallelIdx = args.indexOf("--no-parallel");
+  if (noParallelIdx >= 0) args.splice(noParallelIdx, 1);
+  const explicitParallel = !!parallelArg;
+  const explicitNoParallel = noParallelIdx >= 0;
   let parallelLimit = 4;
   if (parallelArg && parallelArg.includes("=")) {
     const n = Number.parseInt(parallelArg.split("=")[1] ?? "", 10);
@@ -396,6 +417,13 @@ async function main() {
     }
     parallelLimit = n;
   }
+
+  // `--from-snapshot`: single-scenario mode → roll back transitive dep CTs
+  // from their pct snapshots before the test (and destroy any dep CT that
+  // does not have a snapshot, so prepareVms reinstalls it fresh).
+  const fromSnapshotIdx = args.indexOf("--from-snapshot");
+  const fromSnapshot = fromSnapshotIdx >= 0;
+  if (fromSnapshot) args.splice(fromSnapshotIdx, 1);
 
   // Coverage-report short-circuits before any deployer interaction.
   if (args.includes("--coverage-report")) {
@@ -451,7 +479,52 @@ async function main() {
     !(arr[i - 1] === "--format")
   );
   const instance = positionalArgs[0] || undefined;
-  const testArg = positionalArgs[1] || "--all";
+  let testArg = positionalArgs[1] || "--all";
+
+  // `@<file>` scenario list: expand into a comma-separated list and treat
+  // semantically like a `--all`-scoped run (qm rollback + parallel default +
+  // catalog snapshots after success). The expansion happens BEFORE
+  // classifyRunMode so selectScenarios can consume the resulting comma list
+  // unchanged; the run mode is captured separately for downstream gating.
+  const projectRootForListFile = path.resolve(import.meta.dirname, "../../../..");
+  const runMode: RunMode = classifyRunMode(testArg, snapshotMode);
+  if (runMode === "file") {
+    const filePathArg = testArg.slice(1);
+    const filePath = path.isAbsolute(filePathArg)
+      ? filePathArg
+      : path.resolve(projectRootForListFile, filePathArg);
+    try {
+      testArg = loadScenarioListFromFile(filePath);
+      logInfo(`@file: loaded ${testArg.split(",").length} scenario(s) from ${filePath}`);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(2);
+    }
+  }
+
+  // Snapshot catalog: which scenarios get a (re-)snapshot after a successful
+  // test. Read once here so all downstream gates see the same set. Missing
+  // file → empty set, no snapshots created (operator can add it later).
+  const snapshotCatalog = loadSnapshotCatalog(projectRootForListFile);
+  if (snapshotCatalog.size > 0) {
+    logInfo(`Snapshot catalog: ${snapshotCatalog.size} member(s) — ${[...snapshotCatalog].join(", ")}`);
+  } else if (runMode === "all" || runMode === "file") {
+    logWarn("Snapshot catalog is empty (e2e/snapshot-catalog.json missing or empty) — no snapshots will be created during this run");
+  }
+
+  // Parallel default decision: opt-in for single, default-on for all/file.
+  // `--no-parallel` and `--parallel=1` both force serial. `snapshot-build`
+  // mode is always serial (unchanged Phase-3b semantics).
+  const parallelDefaultedOn = (runMode === "all" || runMode === "file");
+  const parallelEnabled =
+    runMode === "snapshot-build"
+      ? false
+      : explicitParallel
+        ? parallelLimit > 1
+        : (parallelDefaultedOn && !explicitNoParallel);
+  if (runMode === "single" && fromSnapshot && parallelEnabled) {
+    logWarn("--from-snapshot is a single-scenario flag; parallelism is ignored");
+  }
 
   const config = loadConfig(instance);
   const projectRoot = path.resolve(import.meta.dirname, "../../../..");
@@ -758,15 +831,36 @@ async function main() {
     logInfo("No dependency snapshot for this run scope (--all / multi-app)");
   }
 
-  // VM preparation: snapshot restore → pre-cleanup
-  // Baseline-Reset (qm rollback auf deployer-installed) ist Aufgabe des
-  // `--fresh`-Skills außerhalb des Runners; pct-Restore der Dep-CTs läuft
-  // hier pre-pool, container-lokal.
-  await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
+  // VM preparation — gated by run mode:
+  //   - all/file: qm rollback to deployer-installed baseline → setupPortForwarding
+  //   - single + --from-snapshot: per-dep pct rollback or destroy
+  //   - single (default): pre-cleanup of non-snapshot, non-needed CTs
+  //   - snapshot-build: legacy path (no qm rollback, no pre-cleanup)
+  // pct restore of dep-CTs runs *additionally* across all modes when a
+  // covering snapshot exists (cheap, idempotent).
+  if (runMode === "all" || runMode === "file") {
+    await rollbackToBaseline(config.pveHost, config.portPveSsh, config.vmId);
+  }
+  // Skip the legacy per-dep restore in --from-snapshot mode:
+  // rollbackOrDestroyDepsFromSnapshot below does the same `pct rollback`
+  // and additionally destroys snapshotless deps, so running both would
+  // pct-rollback every dep CT twice. In all other modes restoreBestSnapshot
+  // stays — it's a cheap no-op when no covering snapshot exists (and a
+  // welcome speedup when one does).
+  if (!(runMode === "single" && fromSnapshot)) {
+    await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
+  }
   // qm rollback wipes the nested-VM iptables + dnsmasq state, so reapply
   // port forwarding (idempotent) so Playwright specs and OIDC redirect URIs
   // still reach the right inner containers.
   setupPortForwarding(config);
+  if (runMode === "single" && fromSnapshot) {
+    await rollbackOrDestroyDepsFromSnapshot(planned, config.pveHost, config.portPveSsh, projectRoot);
+  }
+  if (runMode === "single") {
+    const neededVmIds = new Set(planned.map((p) => p.vmId));
+    await preCleanupNonSnapshotConsumers(config.pveHost, config.portPveSsh, neededVmIds);
+  }
   prepareVms(planned, config, appStacktypes);
 
   // Stack management: cleanup SQL, stale VM detection, stack creation
@@ -790,15 +884,15 @@ async function main() {
     result = await executeScenariosParallel(
       planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
       appStackIdsMap, resultWriter, fixtureBaseDir,
-      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) },
+      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) },
     );
   } else {
-    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) });
+    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) });
   }
   const allResults = [result];
 
   // Cleanup
-  cleanupVms(planned, config.pveHost, config.portPveSsh, keepVm);
+  cleanupVms(planned, config.pveHost, config.portPveSsh, keepVm, snapshotCatalog);
 
   // Summary
   const totalPassed = allResults.reduce((s, r) => s + r.passed, 0);
