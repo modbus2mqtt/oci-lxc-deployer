@@ -18,6 +18,16 @@ import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 
 const BASELINE_QM_SNAPSHOT = "deployer-installed";
 
+/**
+ * SSH port on the OUTER PVE host. `qm` commands target the outer host where
+ * the nested VM lives as a qemu guest; the runner's regular `pveSshPort` is
+ * a port-forward INTO the nested VM (used for `pct` against inner LXCs).
+ * Using the inner port for `qm <outer-vmid>` returns "Configuration file
+ * 'nodes/pve-e2e-nested/qemu-server/<vmid>.conf' does not exist" because
+ * the inner Proxmox has no record of the outer VM.
+ */
+const OUTER_PVE_SSH_PORT = 22;
+
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
 
@@ -132,11 +142,13 @@ export async function rollbackToBaseline(
   logStep("Baseline", `Rolling nested VM ${vmId} back to qm snapshot @${BASELINE_QM_SNAPSHOT}`);
 
   // Check that the snapshot exists; refuse to attempt a rollback if it doesn't
-  // (otherwise qm rollback wipes the VM with no recovery path).
+  // (otherwise qm rollback wipes the VM with no recovery path). `qm
+  // listsnapshot` runs on the OUTER PVE host (port 22) where the nested VM
+  // lives as a qemu guest.
   let listOut = "";
   try {
     listOut = await nestedSshAsync(
-      pveHost, pveSshPort,
+      pveHost, OUTER_PVE_SSH_PORT,
       `qm listsnapshot ${vmId} 2>/dev/null || true`,
       15000,
     );
@@ -148,23 +160,23 @@ export async function rollbackToBaseline(
 
   // qm rollback stops + rolls + (depending on PVE version) optionally restarts.
   // We always issue an explicit `qm start` afterwards to make the post-state
-  // deterministic across PVE versions, and then poll the deployer-port until
-  // it accepts SSH (proxy for "the inner OS is ready").
+  // deterministic across PVE versions, and then poll via the inner port-
+  // forward until it accepts SSH (proxy for "the inner OS is ready").
   await nestedSshAsync(
-    pveHost, pveSshPort,
+    pveHost, OUTER_PVE_SSH_PORT,
     `qm rollback ${vmId} ${BASELINE_QM_SNAPSHOT}`,
     600000,
   );
   await nestedSshAsync(
-    pveHost, pveSshPort,
+    pveHost, OUTER_PVE_SSH_PORT,
     `qm start ${vmId} 2>/dev/null; true`,
     60000,
   );
 
-  // Wait up to 90 s for SSH to come back inside the nested VM. We use the
-  // outer PVE-SSH connection to probe the inner-VM's `pct status` listing —
-  // once the inner pvedaemon answers, the VM is far enough up for the runner
-  // to continue. Loop in 3 s steps to bound the worst case.
+  // Wait up to 90 s for SSH to come back inside the nested VM. The readiness
+  // probe runs against the INNER port-forward (`pveSshPort`) — pct list inside
+  // the nested VM answers as soon as the inner pvedaemon is up. Loop in 3 s
+  // steps to bound the worst case.
   const deadline = Date.now() + 90_000;
   let ready = false;
   while (Date.now() < deadline) {
