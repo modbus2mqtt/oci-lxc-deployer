@@ -1,12 +1,13 @@
 {
   "execute_on": "application:postgres",
   "name": "Provision Postgres App",
-  "description": "Creates PostgreSQL schemas and roles for an application. Creates data schema (<app>_data) and app user (<app>_app). With PostgREST option, also creates API schema (<app>_api) and roles (<app>_anon, <app>_user). The shared api_login role is created once and reused across apps.",
+  "description": "Creates PostgreSQL schemas and roles for an application. Creates data schema (<app>_data) and app user (<app>_app). With PostgREST option, also creates API schema (<app>_api), app-specific roles (<app>_anon, <app>_user), and a shared authenticator role (default name api_login, overridable via db_login_role).",
   "parameters": [
     "app_name",
     "app_password",
     "with_postgrest",
     "api_login_password",
+    "db_login_role",
     "database"
   ],
   "commands": [

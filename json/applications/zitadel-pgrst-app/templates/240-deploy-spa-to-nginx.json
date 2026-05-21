@@ -1,0 +1,18 @@
+{
+  "name": "Deploy SPA to Nginx",
+  "description": "Decodes the uploaded tgz inside the nginx LXC and extracts web/* into /usr/share/nginx/html/<slug>/. Requires the nginx application to be installed with the `html=/usr/share/nginx/html` volume (production pattern).",
+  "execute_on": "application:nginx",
+  "parameters": [
+    "app_slug",
+    "app_tgz_content"
+  ],
+  "commands": [
+    {
+      "name": "Deploy SPA",
+      "script": "deploy-spa-to-nginx.sh",
+      "outputs": [
+        "web_target_path"
+      ]
+    }
+  ]
+}

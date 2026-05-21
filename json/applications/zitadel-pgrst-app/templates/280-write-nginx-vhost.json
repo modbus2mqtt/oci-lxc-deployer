@@ -1,0 +1,20 @@
+{
+  "name": "Write Nginx VHost",
+  "description": "Writes /etc/nginx/conf.d/<slug>.conf inside the nginx LXC: SSL-terminated subdomain serving the SPA + reverse-proxy /api/ to postgrest. Reload happens in 340-reload-nginx.",
+  "execute_on": "application:nginx",
+  "parameters": [
+    "app_slug",
+    "app_subdomain",
+    "POSTGREST_HOST",
+    "POSTGREST_PORT"
+  ],
+  "commands": [
+    {
+      "name": "Write vhost",
+      "script": "write-nginx-vhost.sh",
+      "outputs": [
+        "vhost_path"
+      ]
+    }
+  ]
+}

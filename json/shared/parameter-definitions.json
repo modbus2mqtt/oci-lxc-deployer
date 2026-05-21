@@ -113,6 +113,15 @@
       "type": "string",
       "internal": true
     },
+    "app_json_content": {
+      "name": "Application Config Overlay (app.json)",
+      "type": "string",
+      "upload": true,
+      "required": false,
+      "group": "Application",
+      "advanced": true,
+      "description": "Optional base64-encoded app.json that overlays the auto-generated config.json with app-specific runtime values the deployer cannot derive."
+    },
     "app_name": {
       "name": "Application Name",
       "type": "string",
@@ -126,6 +135,28 @@
       "secure": true,
       "group": "Authentication",
       "advanced": true
+    },
+    "app_slug": {
+      "name": "Application Slug",
+      "type": "string",
+      "required": true,
+      "group": "Application",
+      "description": "Short lowercase slug used as database name (or schema prefix when sharing a DB), vhost-config filename, and Zitadel project label. Must match ^[a-z][a-z0-9_]{1,30}$."
+    },
+    "app_subdomain": {
+      "name": "Application Subdomain",
+      "type": "string",
+      "required": true,
+      "group": "Application",
+      "description": "Fully qualified hostname the SPA is served on (e.g. products.example.com). Must be covered by the nginx wildcard cert."
+    },
+    "app_tgz_content": {
+      "name": "Application Bundle (*.tgz)",
+      "type": "string",
+      "upload": true,
+      "required": true,
+      "group": "Application",
+      "description": "Base64-encoded tgz produced by zitadel-pgrst-auth/examples/packaging/pack-for-proxvex.sh. Contains web/ and bootstrap/{bootstrap.sh,db/*.sql}. Scripts decode + tar -xzf inline at their execute_on target."
     },
     "application_id": {
       "name": "Application ID",
@@ -300,6 +331,24 @@
       "group": "Authentication",
       "description": "PGRST_DB_ANON_ROLE — PostgreSQL role for unauthenticated PostgREST requests. Must exist in the database (operator-created); see the Database setup section in the application docs."
     },
+    "db_login_role": {
+      "name": "DB Login Role (authenticator)",
+      "type": "string",
+      "required": false,
+      "default": "api_login",
+      "group": "Authentication",
+      "advanced": true,
+      "description": "Authenticator role PostgREST connects as. Switches into per-app roles via SET ROLE. With addon-mtls, the client-cert CN must equal this value (PostgreSQL cert-hba auth)."
+    },
+    "db_migrations_table": {
+      "name": "DB Migrations Bookkeeping Table",
+      "type": "string",
+      "required": false,
+      "default": "_proxvex_migrations",
+      "group": "Application",
+      "advanced": true,
+      "description": "Table (in the app's data schema) that tracks applied SQL migrations by filename + sha256. Read at install/upgrade to skip already-applied files."
+    },
     "db_schemas": {
       "name": "Exposed DB Schemas",
       "type": "string",
@@ -360,25 +409,30 @@
       "name": "Deployer OIDC Machine Client ID",
       "type": "string",
       "required": false,
-      "internal": true
+      "internal": true,
+      "description": "Client ID of the deployer's machine-user in Zitadel. Used to mint a Bearer token via client_credentials grant for calls to the Zitadel Management API. Provided by the oidc stack output of the zitadel application's setup-deployer step."
     },
     "DEPLOYER_OIDC_MACHINE_CLIENT_SECRET": {
       "name": "Deployer OIDC Machine Client Secret",
       "type": "string",
       "required": false,
-      "internal": true
+      "internal": true,
+      "secure": true,
+      "description": "Client secret of the deployer's machine-user. Paired with DEPLOYER_OIDC_MACHINE_CLIENT_ID for client_credentials grant. Stored in the oidc stack."
     },
     "DEPLOYER_OIDC_ISSUER_URL": {
       "name": "Deployer OIDC Issuer URL",
       "type": "string",
       "required": false,
-      "internal": true
+      "internal": true,
+      "description": "Issuer URL of the Zitadel instance the deployer authenticates against (e.g. https://zitadel.example.com). Used as the OAuth token endpoint base."
     },
     "DEPLOYER_OIDC_PROJECT_ID": {
       "name": "Deployer OIDC Project ID",
       "type": "string",
       "required": false,
-      "internal": true
+      "internal": true,
+      "description": "Zitadel project ID the deployer's machine-user belongs to. Used to request project-scoped tokens with role assertion."
     },
     "disk_size": {
       "name": "Disk size",
@@ -732,6 +786,32 @@
       "advanced": true,
       "description": "Base64 of the rendered pg_hba.conf (from file:pg_hba.conf.tmpl). Only applied when pg_client_cert=true; written verbatim to <pgdata>/pg_hba.conf, replacing the managed default. Supply custom content for cert+password (clientcert=verify-ca / verify-full) or mixed policies."
     },
+    "pgrst_jwks_url": {
+      "name": "PostgREST JWKS URL",
+      "type": "string",
+      "required": false,
+      "group": "Authentication",
+      "advanced": true,
+      "description": "JWKS endpoint of the OIDC provider (e.g. Zitadel). Fetched once at install/reconfigure into the jwks volume because PostgREST cannot poll URLs itself. Default derived from ZITADEL_HOST + project_domain_suffix."
+    },
+    "pgrst_jwt_secret": {
+      "name": "PostgREST JWT Secret",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "group": "Authentication",
+      "advanced": true,
+      "description": "PGRST_JWT_SECRET — JWKS file path (@/path/jwks.json), URL (PostgREST >=12), or inline JWK literal. Empty disables JWT validation (PostgREST runs anonymous-only). For zitadel-pgrst-auth setups, set to @/etc/postgrest/jwks/jwks.json after the jwks volume is populated by conf-fetch-jwks."
+    },
+    "pgrst_pre_request": {
+      "name": "PostgREST DB Pre-Request",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "group": "Authentication",
+      "advanced": true,
+      "description": "PGRST_DB_PRE_REQUEST — schema-qualified function run before every query (e.g. auth.ensure_principal for JIT principal mirror). Empty disables. Set on the postgrest application when wired up to a zitadel-pgrst-auth-style auth schema."
+    },
     "platform": {
       "name": "Platform",
       "type": "string",
@@ -838,6 +918,15 @@
       "default": "",
       "internal": true,
       "project": true
+    },
+    "seed_demo_data": {
+      "name": "Seed Demo Data",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "group": "Application",
+      "advanced": true,
+      "description": "When true, runs bootstrap.sh from the uploaded tgz to create Zitadel demo orgs/users + seed demo data. NOT for production — requires upstream bootstrap.sh patches that gate instance-feature mutations behind a flag. Demo password is the bootstrap.sh env default, not a proxvex parameter."
     },
     "server_cert_b64": {
       "name": "Server Cert",
@@ -1311,6 +1400,49 @@
       "advanced": true,
       "tasks": ["installation"]
     },
+    "NGINX_HOST": {
+      "name": "NGINX_HOST",
+      "type": "string",
+      "internal": true,
+      "description": "Hostname of the nginx dependency container (resolved by 185-host-resolve-dependency-hosts)."
+    },
+    "POSTGRES_HOST": {
+      "name": "POSTGRES_HOST",
+      "type": "string",
+      "internal": true,
+      "description": "Hostname of the postgres dependency container (resolved by 185-host-resolve-dependency-hosts)."
+    },
+    "POSTGRES_PASSWORD": {
+      "name": "POSTGRES_PASSWORD",
+      "type": "string",
+      "secure": true,
+      "internal": true,
+      "description": "Postgres superuser password (provided by postgres stack)."
+    },
+    "POSTGREST_HOST": {
+      "name": "POSTGREST_HOST",
+      "type": "string",
+      "internal": true,
+      "description": "Hostname of the postgrest container (published by the postgrest stack provider)."
+    },
+    "POSTGREST_PORT": {
+      "name": "POSTGREST_PORT",
+      "type": "string",
+      "internal": true,
+      "description": "PostgREST listen port (published by the postgrest stack provider, default 3000)."
+    },
+    "POSTGREST_URL": {
+      "name": "POSTGREST_URL",
+      "type": "string",
+      "internal": true,
+      "description": "Full internal URL to PostgREST (published by the postgrest stack provider)."
+    },
+    "PGRST_DB_SCHEMAS": {
+      "name": "PGRST_DB_SCHEMAS",
+      "type": "string",
+      "internal": true,
+      "description": "Comma-separated list of schemas PostgREST currently exposes (published by the postgrest stack provider)."
+    },
     "ZITADEL_HOST": {
       "name": "ZITADEL_HOST",
       "type": "string",
@@ -1325,6 +1457,18 @@
     "ZITADEL_PROTO": {
       "name": "Zitadel Protocol",
       "description": "Protocol for Zitadel API: http or https (provided by oidc stack).",
+      "type": "string",
+      "internal": true
+    },
+    "ZITADEL_SSL_PORT": {
+      "name": "Zitadel SSL Port",
+      "description": "HTTPS port of the Zitadel container when addon-ssl is active (provided by oidc stack).",
+      "type": "string",
+      "internal": true
+    },
+    "ZITADEL_SSL_PROTO": {
+      "name": "Zitadel SSL Protocol",
+      "description": "HTTPS protocol marker for Zitadel API (provided by oidc stack when addon-ssl is active).",
       "type": "string",
       "internal": true
     },

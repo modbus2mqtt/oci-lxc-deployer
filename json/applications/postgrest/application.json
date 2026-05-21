@@ -11,7 +11,10 @@
     "http_port",
     "local_https_port",
     "db_schemas",
-    "db_anon_role"
+    "db_anon_role",
+    "pgrst_jwt_secret",
+    "pgrst_pre_request",
+    "pgrst_jwks_url"
   ],
   "supported_addons": [
     "addon-mtls"
@@ -27,11 +30,11 @@
     },
     {
       "id": "volumes",
-      "default": "certs=certs,0755,0:0"
+      "default": "certs=certs,0755,0:0\njwks=/etc/postgrest/jwks,0755,0:0"
     },
     {
       "id": "compose_file",
-      "value": "c2VydmljZXM6CiAgcG9zdGdyZXN0OgogICAgaW1hZ2U6IHBvc3RncmVzdC9wb3N0Z3Jlc3Q6JHtET0NLRVJfcG9zdGdyZXN0X1RBR30KICAgIHJlc3RhcnQ6IHVubGVzcy1zdG9wcGVkCiAgICBlbnZpcm9ubWVudDoKICAgICAgUEdSU1RfREJfVVJJOiAicG9zdGdyZXM6Ly8ke1BPU1RHUkVTX1VTRVI6LXBvc3RncmVzfTp7eyBQT1NUR1JFU19QQVNTV09SRCB9fUB7eyBQT1NUR1JFU19IT1NUIH19OiR7UE9TVEdSRVNfUE9SVDotNTQzMn0vJHtQT1NUR1JFU19EQjotcG9zdGdyZXN9IgogICAgICBQR1JTVF9EQl9TQ0hFTUFTOiAie3sgZGJfc2NoZW1hcyB9fSIKICAgICAgUEdSU1RfREJfQU5PTl9ST0xFOiAie3sgZGJfYW5vbl9yb2xlIH19IgogICAgICBQR1JTVF9TRVJWRVJfUE9SVDogMzAwMAogICAgcG9ydHM6CiAgICAgIC0gIjMwMDA6MzAwMCIK"
+      "value": "c2VydmljZXM6CiAgcG9zdGdyZXN0OgogICAgaW1hZ2U6IHBvc3RncmVzdC9wb3N0Z3Jlc3Q6JHtET0NLRVJfcG9zdGdyZXN0X1RBR30KICAgIHJlc3RhcnQ6IHVubGVzcy1zdG9wcGVkCiAgICBlbnZpcm9ubWVudDoKICAgICAgUEdSU1RfREJfVVJJOiAicG9zdGdyZXM6Ly8ke1BPU1RHUkVTVF9VU0VSOi1wb3N0Z3Jlc306e3sgUE9TVEdSRVNfUEFTU1dPUkQgfX1Ae3sgUE9TVEdSRVNfSE9TVCB9fToke1BPU1RHUkVTX1BPUlQ6LTU0MzJ9LyR7UE9TVEdSRVNfREI6LXBvc3RncmVzfSIKICAgICAgUEdSU1RfREJfU0NIRU1BUzogInt7IGRiX3NjaGVtYXMgfX0iCiAgICAgIFBHUlNUX0RCX0FOT05fUk9MRTogInt7IGRiX2Fub25fcm9sZSB9fSIKICAgICAgUEdSU1RfSldUX1NFQ1JFVDogInt7IHBncnN0X2p3dF9zZWNyZXQgfX0iCiAgICAgIFBHUlNUX0RCX1BSRV9SRVFVRVNUOiAie3sgcGdyc3RfcHJlX3JlcXVlc3QgfX0iCiAgICAgIFBHUlNUX1NFUlZFUl9QT1JUOiAzMDAwCiAgICBwb3J0czoKICAgICAgLSAiMzAwMDozMDAwIgo="
     },
     {
       "id": "ssl_mode",
@@ -51,8 +54,22 @@
       "application": "postgres"
     }
   ],
-  "installation": {},
-  "stacktype": "postgres",
+  "installation": {
+    "pre_start": [
+      "conf-rebuild-schemas.json",
+      "conf-fetch-jwks.json"
+    ]
+  },
+  "reconfigure": {
+    "pre_start": [
+      "conf-rebuild-schemas.json",
+      "conf-fetch-jwks.json"
+    ]
+  },
+  "stacktype": [
+    "postgres",
+    "postgrest"
+  ],
   "stack_usage": [
     {
       "stacktype": "postgres",

@@ -1,0 +1,19 @@
+{
+  "name": "Fetch JWKS for PostgREST",
+  "description": "Fetches the OIDC JWKS document (Zitadel /oauth/v2/keys by default) and writes it to the postgrest `jwks` volume. PostgREST reads this file at startup via PGRST_JWT_SECRET=@/etc/postgrest/jwks/jwks.json. Skipped when pgrst_jwks_url is empty (PostgREST then runs without JWT validation). Re-runs on reconfigure to pick up Zitadel key rotation.",
+  "execute_on": "ve",
+  "skip_if_all_missing": [
+    "pgrst_jwks_url"
+  ],
+  "parameters": [
+    "pgrst_jwks_url",
+    "hostname",
+    "vm_id"
+  ],
+  "commands": [
+    {
+      "name": "Fetch JWKS",
+      "script": "conf-fetch-jwks.sh"
+    }
+  ]
+}

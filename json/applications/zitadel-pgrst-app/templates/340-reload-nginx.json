@@ -1,0 +1,12 @@
+{
+  "name": "Reload Nginx",
+  "description": "Triggers `nginx -s reload` inside the nginx LXC so the new vhost (from 280-write-nginx-vhost) becomes active without a hard restart.",
+  "execute_on": "application:nginx",
+  "parameters": [],
+  "commands": [
+    {
+      "name": "Reload",
+      "script": "reload-nginx.sh"
+    }
+  ]
+}

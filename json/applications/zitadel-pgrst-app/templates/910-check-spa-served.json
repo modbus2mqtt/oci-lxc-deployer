@@ -1,0 +1,14 @@
+{
+  "name": "Check SPA served",
+  "description": "Smoke check: curl https://<subdomain>/ and verify the response contains the SPA's <app-root> element. Runs in the check phase, after all other templates.",
+  "execute_on": "ve",
+  "parameters": [
+    "app_subdomain"
+  ],
+  "commands": [
+    {
+      "name": "Check SPA",
+      "script": "check-spa-served.sh"
+    }
+  ]
+}

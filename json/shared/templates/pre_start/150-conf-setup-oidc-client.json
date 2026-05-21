@@ -4,6 +4,10 @@
   "execute_on": "ve",
   "parameters": [
     "ZITADEL_HOST",
+    "ZITADEL_PROTO",
+    "ZITADEL_PORT",
+    "ZITADEL_SSL_PROTO",
+    "ZITADEL_SSL_PORT",
     "hostname",
     "oidc_app_name",
     "oidc_redirect_uri",

@@ -1,0 +1,14 @@
+{
+  "name": "PostgREST",
+  "description": "Connection info published by a PostgREST API server for consumer applications (Angular SPAs and other clients that call PostgREST). Carries URL and currently-served schemas — no secrets.",
+  "variables": [],
+  "provides": [
+    { "name": "POSTGREST_HOST", "description": "Hostname of the PostgREST container" },
+    { "name": "POSTGREST_PORT", "description": "PostgREST listen port (default: 3000)" },
+    { "name": "POSTGREST_URL", "description": "Full internal URL to PostgREST (e.g. http://postgrest:3000)" },
+    { "name": "PGRST_DB_SCHEMAS", "description": "Comma-separated list of schemas PostgREST currently exposes (auto-discovered from postgres at every postgrest install/reconfigure)" }
+  ],
+  "dependencies": [
+    { "application": "postgrest" }
+  ]
+}

@@ -92,7 +92,7 @@ export class WebAppVE {
       res: express.Response,
     ) => void | Promise<unknown>,
   ): void {
-    this.app.post(path, express.json(), handler as unknown as RequestHandler);
+    this.app.post(path, express.json({ limit: "50mb" }), handler as unknown as RequestHandler);
   }
 
   init(): void {

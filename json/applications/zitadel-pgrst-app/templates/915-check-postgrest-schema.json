@@ -1,0 +1,15 @@
+{
+  "name": "Check app schema in PgREST",
+  "description": "Smoke check: GET https://<subdomain>/api/ and verify the OpenAPI doc lists <slug>_api schema definitions.",
+  "execute_on": "ve",
+  "parameters": [
+    "app_slug",
+    "app_subdomain"
+  ],
+  "commands": [
+    {
+      "name": "Check PostgREST",
+      "script": "check-postgrest-schema.sh"
+    }
+  ]
+}

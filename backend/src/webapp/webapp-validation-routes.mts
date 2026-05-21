@@ -26,7 +26,7 @@ export function registerValidationRoutes(app: Application): void {
 
   app.post(
     "/api/:veContext/validate-parameters/:application",
-    express.json(),
+    express.json({ limit: "50mb" }),
     async (req, res) => {
       try {
         const { application } = req.params;

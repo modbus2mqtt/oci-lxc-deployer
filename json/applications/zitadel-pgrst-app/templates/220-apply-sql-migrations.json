@@ -1,0 +1,22 @@
+{
+  "name": "Apply SQL Migrations",
+  "description": "Decodes the uploaded tgz inside the postgres LXC, applies the bootstrap/db/*.sql files to the app's database. Uses a per-app bookkeeping table <slug>_data._proxvex_migrations (filename PK, sha256) so re-runs and upgrades only apply pending files. Framework-core SQL (00_roles, 01_auth_schema, 02_provisioning) is auto-skipped when the auth schema already exists, so multi-app installations share one auth setup.",
+  "execute_on": "application:postgres",
+  "parameters": [
+    "app_slug",
+    "app_tgz_content",
+    "db_migrations_table",
+    "database",
+    "api_login_password"
+  ],
+  "commands": [
+    {
+      "name": "Apply SQL Migrations",
+      "script": "apply-sql-migrations.sh",
+      "outputs": [
+        "migrations_applied",
+        "migrations_skipped"
+      ]
+    }
+  ]
+}
