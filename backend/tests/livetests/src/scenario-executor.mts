@@ -971,12 +971,20 @@ export async function executeScenarios(
         }
       }
 
-      // Pick `volume_storage` hierarchically: operator override > CLI override
-      // > inherit-from-dep > index round-robin. The order matters — explicit
-      // wins, then sticky-with-deps (CoW clones), then spread for cluster
-      // roots. Operator overrides (volume_storage set in scenario.json or
+      // Pick storage hierarchically and set BOTH `rootfs_storage` and
+      // `volume_storage` to the same pool. Without `rootfs_storage` the
+      // container itself always lands on `local-zfs` (default in
+      // conf-create-lxc-container.sh) — the parallelization would only spread
+      // data-volumes, while `pct create`/`pct restore` would still serialize on
+      // `rpool/data`. Same pool for both keeps the whole CT on one storage.
+      //
+      // Hierarchy: operator override > CLI override > inherit-from-dep >
+      // index round-robin. Explicit operator overrides (either param set
       // earlier in buildParams) bypass everything.
-      if (!buildResult.params.some((p) => p.name === "volume_storage")) {
+      const hasOperatorOverride =
+        buildResult.params.some((p) => p.name === "volume_storage") ||
+        buildResult.params.some((p) => p.name === "rootfs_storage");
+      if (!hasOperatorOverride) {
         let picked: string | undefined;
         let pickReason = "";
         if (volumeStorageOverride) {
@@ -1001,11 +1009,12 @@ export async function executeScenarios(
           }
         }
         if (picked) {
+          buildResult.params.push({ name: "rootfs_storage", value: picked });
           buildResult.params.push({ name: "volume_storage", value: picked });
           // Record our pick so any downstream scenario depending on us
           // inherits the same storage (CoW clones for the whole chain).
           vmidToStorage.set(step.vmId, picked);
-          logInfo(`volume_storage=${picked} for ${scenario.id} [VM ${step.vmId}] (${pickReason})`);
+          logInfo(`storage=${picked} for ${scenario.id} [VM ${step.vmId}] (${pickReason})`);
         }
       }
 

@@ -773,8 +773,17 @@ for i in 2 3 4; do
     info "  rpool/data-$i + local-zfs-$i ..."
     nested_ssh "
         set -e
-        zfs list rpool/data-$i >/dev/null 2>&1 \
-          || zfs create -o mountpoint=none rpool/data-$i
+        if ! zfs list rpool/data-$i >/dev/null 2>&1; then
+            # Mountpoint MUST be set (not 'none'): proxmox subvols inherit it
+            # and pct needs a usable mountpoint to mount the rootfs. With
+            # 'none', \`pct create\` fails with 'zfs error: cannot mount
+            # rpool/data-N/subvol-X-disk-0: no mountpoint set'.
+            zfs create -o mountpoint=/rpool/data-$i rpool/data-$i
+        fi
+        # Fix legacy datasets that were created with mountpoint=none.
+        if [ \"\$(zfs get -H -o value mountpoint rpool/data-$i)\" = 'none' ]; then
+            zfs set mountpoint=/rpool/data-$i rpool/data-$i
+        fi
         pvesm status 2>/dev/null | awk '{print \$1}' | grep -qx 'local-zfs-$i' \
           || pvesm add zfspool 'local-zfs-$i' \
                --pool rpool/data-$i \

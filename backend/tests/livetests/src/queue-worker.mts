@@ -147,15 +147,19 @@ export async function runQueueWorker(
       const buildResult = buildParams(scenario, baseParams, templateVars, tmpDir);
 
       // Spread scenarios across zfspool storages (round-robin by scenario
-      // index within this worker). Skipped if operator already pinned
-      // volume_storage via scenario.json or buildParams, or if no zfspool
-      // exists (legacy single-storage cluster).
-      if (!buildResult.params.some((p) => p.name === "volume_storage")) {
-        if (zfsPoolStorages.length > 0) {
-          const picked = zfsPoolStorages[(scenarioCount - 1) % zfsPoolStorages.length]!;
-          buildResult.params.push({ name: "volume_storage", value: picked });
-          logInfo(`Round-robin volume_storage=${picked} for scenario ${scenarioId}`);
-        }
+      // index within this worker). Set BOTH rootfs_storage and volume_storage
+      // — without rootfs_storage the CT itself lands on local-zfs (default in
+      // conf-create-lxc-container.sh) and parallel `pct create`/`pct restore`
+      // still serialize on `rpool/data`. Skipped if operator already pinned
+      // either, or if no zfspool exists (legacy single-storage cluster).
+      const hasOperatorOverride =
+        buildResult.params.some((p) => p.name === "volume_storage") ||
+        buildResult.params.some((p) => p.name === "rootfs_storage");
+      if (!hasOperatorOverride && zfsPoolStorages.length > 0) {
+        const picked = zfsPoolStorages[(scenarioCount - 1) % zfsPoolStorages.length]!;
+        buildResult.params.push({ name: "rootfs_storage", value: picked });
+        buildResult.params.push({ name: "volume_storage", value: picked });
+        logInfo(`Round-robin storage=${picked} for scenario ${scenarioId}`);
       }
 
       const allAddons = buildResult.selectedAddons ?? [];
