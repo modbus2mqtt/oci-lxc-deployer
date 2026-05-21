@@ -67,12 +67,12 @@ export class WebAppVeRouteHandlers {
   /**
    * Collect provides_* outputs from a completed execution and store them in the stack.
    */
-  private collectAndStoreProvides(
+  private async collectAndStoreProvides(
     exec: VeExecution,
     stackIds: string[],
     applicationId: string,
     _storageContext: ContextManager,
-  ): void {
+  ): Promise<void> {
     const provides: Array<{ name: string; value: string }> = [];
     for (const [key, value] of exec.outputs) {
       if (key.startsWith("provides_") && value !== undefined && value !== null && String(value) !== "NOT_DEFINED") {
@@ -102,10 +102,14 @@ export class WebAppVeRouteHandlers {
     //   resolution find them. Without this, Tier 2 silently sees NOT_DEFINED
     //   and falls through to (now-defunct) Tier 3 (admin-client.pat).
     const firstStackId = stackIds[0]!;
-    const oidcStackId = stackIds.find((id) => {
-      const s = stackProvider.getStack(id);
-      return s?.stacktype === "oidc";
-    });
+    let oidcStackId: string | undefined;
+    for (const id of stackIds) {
+      const s = await stackProvider.getStack(id);
+      if (s?.stacktype === "oidc") {
+        oidcStackId = id;
+        break;
+      }
+    }
 
     const routeFor = (name: string): string =>
       (name.startsWith("DEPLOYER_OIDC_") || name.startsWith("TEST_DEPLOYER_OIDC_"))
@@ -122,7 +126,7 @@ export class WebAppVeRouteHandlers {
     }
 
     for (const [stackId, group] of grouped) {
-      const stack = stackProvider.getStack(stackId);
+      const stack = await stackProvider.getStack(stackId);
       if (!stack) continue;
 
       // Remove stale provides from this application — but only for keys we're
@@ -152,7 +156,7 @@ export class WebAppVeRouteHandlers {
       if (changed) {
         stack.provides = existingProvides;
         // Persist via StackProvider so Spoke pushes the update to the Hub.
-        stackProvider.addStack(stack);
+        await stackProvider.addStack(stack);
         this.logger.info("Stack provides updated", { stack: stackId, provides: group.map((p) => p.name) });
       }
     }
@@ -456,7 +460,7 @@ export class WebAppVeRouteHandlers {
           const preferredStackNames = new Set<string>();
           const stackProviderForLookup = this.pm.getStackProvider();
           for (const sid of allStackIds) {
-            const stack = stackProviderForLookup.getStack(sid);
+            const stack = await stackProviderForLookup.getStack(sid);
             if (stack?.stacktype) {
               const stTypes = Array.isArray(stack.stacktype)
                 ? stack.stacktype
@@ -476,7 +480,7 @@ export class WebAppVeRouteHandlers {
                 const addonTypes = Array.isArray(addon.stacktype) ? addon.stacktype : [addon.stacktype];
                 for (const st of addonTypes) {
                   if (coveredStacktypes.has(st)) continue;
-                  const stacks = stackProviderForLookup.listStacks(st);
+                  const stacks = await stackProviderForLookup.listStacks(st);
                   // Prefer same-variant; fall back to any if no match.
                   const matching = stacks.filter((s) =>
                     preferredStackNames.has(s.name),
@@ -544,8 +548,9 @@ export class WebAppVeRouteHandlers {
       try {
         appConfig = this.pm.getRepositories().getApplication(application);
       } catch { /* getApplication may fail for some apps */ }
-      const allDeps = this.pm
-        .getApplicationDependencyResolver()
+      const allDeps = (
+        await this.pm.getApplicationDependencyResolverForStacks(allStackIds)
+      )
         .resolve(
           application,
           body.selectedAddons ?? [],
@@ -660,7 +665,7 @@ export class WebAppVeRouteHandlers {
       // local in-memory storageContext is empty.
       const stackProviderForEntries = this.pm.getStackProvider();
       for (const sid of allStackIds) {
-        const stack = stackProviderForEntries.getStack(sid);
+        const stack = await stackProviderForEntries.getStack(sid);
         if (stack) {
           if (stack.entries) {
             for (const entry of stack.entries) {
@@ -683,7 +688,7 @@ export class WebAppVeRouteHandlers {
       {
         const secretPairs: string[] = [];
         for (const sid of allStackIds) {
-          const stack = stackProviderForEntries.getStack(sid);
+          const stack = await stackProviderForEntries.getStack(sid);
           if (stack?.entries) {
             for (const entry of stack.entries) {
               if (entry.value !== undefined && entry.value !== "") {
@@ -701,8 +706,9 @@ export class WebAppVeRouteHandlers {
       // script. Same source-of-truth as the preview-task path above and the
       // /api/dependency-check route — see ApplicationDependencyResolver.
       {
-        const allDeps = this.pm
-          .getApplicationDependencyResolver()
+        const allDeps = (
+          await this.pm.getApplicationDependencyResolverForStacks(allStackIds)
+        )
           .resolve(application, selectedAddons, allStackIds)
           .map((d) => ({ application: d.application }));
         if (allDeps.length > 0) {
@@ -823,7 +829,7 @@ export class WebAppVeRouteHandlers {
       // Hub mode → CertificateAuthorityService (signs locally with on-disk CA key).
       // Spoke mode → RemoteCaProvider (delegates signing to Hub via /api/hub/ca/*).
       const caProvider = this.pm.getCaProvider();
-      this.certificateInjector.injectCertificateRequests(
+      await this.certificateInjector.injectCertificateRequests(
         processedParams,
         allCertParameters,
         caProvider,
@@ -832,7 +838,7 @@ export class WebAppVeRouteHandlers {
       );
       // mTLS client certs (addon-mtls). Independent of SSL — only fires when a
       // certtype="client" param is present, i.e. addon-mtls is selected.
-      this.certificateInjector.injectClientCertificateRequests(
+      await this.certificateInjector.injectClientCertificateRequests(
         processedParams,
         allCertParameters,
         caProvider,
@@ -894,8 +900,8 @@ export class WebAppVeRouteHandlers {
         this.restartManager,
         fallbackRestartInfo,
         // Collect provides_* outputs and write to stack after execution
-        (completedExec) => {
-          this.collectAndStoreProvides(completedExec, allStackIds, application, storageContext);
+        async (completedExec) => {
+          await this.collectAndStoreProvides(completedExec, allStackIds, application, storageContext);
         },
       );
 

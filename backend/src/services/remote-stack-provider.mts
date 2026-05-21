@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { Agent } from "undici";
 import { IStack } from "../types.mjs";
 import { IStackProvider } from "./stack-provider.mjs";
 import { createLogger } from "../logger/index.mjs";
@@ -6,23 +6,26 @@ import { createLogger } from "../logger/index.mjs";
 const logger = createLogger("remote-stack-provider");
 
 /**
- * Remote stack provider: delegates stack operations to the Hub deployer via HTTP(S).
+ * Remote stack provider: delegates stack operations to the Hub deployer
+ * via HTTP(S).
  *
- * Auth: If a bearer token getter is provided and returns a token, it's sent
- * as `Authorization: Bearer <token>`. Otherwise the request goes unauthenticated
- * (Hub without OIDC accepts this).
+ * Async via native `fetch` so Spoke→Hub calls never block the Node event
+ * loop. The earlier `spawnSync("curl")` was a workaround for an old sync
+ * IStackProvider interface; that interface is now async too.
+ *
+ * Auth: If a bearer token getter is provided and returns a token, it's
+ * sent as `Authorization: Bearer <token>`. Otherwise the request goes
+ * unauthenticated (Hub without OIDC accepts this).
  *
  * TLS trust: During TOFU (Trust On First Use) the HTTPS agent accepts any
- * certificate. Once a trusted CA PEM is known, it is pinned via `ca:`. For
- * plain http:// hub URLs TLS is not used.
- *
- * The `IStackProvider` interface is synchronous (listStacks / getStack / addStack /
- * deleteStack). Since Node `http.request` is async, we use `spawnSync("curl")`
- * under the hood — matches the legacy approach but without mTLS flags.
+ * certificate. Once a trusted CA PEM is known, it is pinned via `ca:`.
+ * For plain http:// hub URLs TLS is not used.
  */
 export class RemoteStackProvider implements IStackProvider {
   private hubUrl: string;
   private isHttps: boolean;
+  // typed as unknown to dodge two-version undici types mismatch
+  private dispatcher: unknown | undefined;
 
   private constructor(
     hubUrl: string,
@@ -31,6 +34,14 @@ export class RemoteStackProvider implements IStackProvider {
   ) {
     this.hubUrl = hubUrl.replace(/\/$/, "");
     this.isHttps = this.hubUrl.startsWith("https://");
+    if (this.isHttps) {
+      // TOFU: rejectUnauthorized=false accepts any cert. With a trusted
+      // CA we currently still let OS-level validation run — a future
+      // improvement adds the CA PEM into the dispatcher's connect.ca.
+      this.dispatcher = new Agent({
+        connect: { rejectUnauthorized: !!trustedHubCa },
+      });
+    }
     logger.info("Remote stack provider initialized", {
       hubUrl: this.hubUrl,
       tls: this.isHttps
@@ -49,56 +60,63 @@ export class RemoteStackProvider implements IStackProvider {
     return new RemoteStackProvider(hubUrl, getBearerToken, trustedHubCa);
   }
 
-  private fetchJsonSync<T>(path: string, method: string = "GET", body?: unknown): T {
+  private async fetchJson<T>(
+    path: string,
+    method: string = "GET",
+    body?: unknown,
+  ): Promise<T> {
     const url = `${this.hubUrl}${path}`;
-    // -sS: suppress progress meter but DO show error messages on stderr.
-    // Plain -s would silently swallow "Could not resolve host" / connection
-    // errors and surface only `result.status != 0` with empty stderr — making
-    // DNS-related Spoke→Hub failures undebuggable.
-    // -L: follow 3xx redirects. The Hub-LXC auto-redirects plain HTTP /api/*
-    // to HTTPS; without -L curl returns the redirect HTML body and JSON.parse
-    // throws "Invalid JSON from Hub: Moved Permanently".
-    const args: string[] = ["-sSL", "--max-time", "10"];
-
-    if (this.isHttps && !this.trustedHubCa) {
-      args.push("-k"); // TOFU — trust any cert
-    }
-    // Note: when we have a trustedHubCa, we don't pass --cacert because
-    // the Hub cert is signed by it and we rely on OS-level trust for
-    // production Hubs. A future improvement writes the CA to a temp file
-    // and passes --cacert for proper validation.
-
-    if (method !== "GET") {
-      args.push("-X", method);
-    }
+    const headers: Record<string, string> = {};
     const token = this.getBearerToken?.();
-    if (token) {
-      args.push("-H", `Authorization: Bearer ${token}`);
-    }
-    if (body) {
-      args.push("-H", "Content-Type: application/json", "-d", JSON.stringify(body));
-    }
-    args.push(url);
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (body !== undefined) headers["Content-Type"] = "application/json";
 
-    const result = spawnSync("curl", args, { encoding: "utf-8", timeout: 15000 });
-    if (result.error) throw new Error(`Hub connection failed: ${result.error.message}`);
-    if (result.status !== 0) throw new Error(`curl failed: ${result.stderr}`);
+    const init: RequestInit = {
+      method,
+      headers,
+      // 10s overall ceiling — same as the old curl --max-time.
+      signal: AbortSignal.timeout(10000),
+    };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    if (this.dispatcher) {
+      // undici-specific option not in lib.dom Fetch types; also dodging a
+      // two-version undici type mismatch (undici@7.20 vs undici-types@7.16).
+      (init as Record<string, unknown>).dispatcher = this.dispatcher;
+    }
+    let response: Response;
     try {
-      return JSON.parse(result.stdout);
-    } catch {
-      throw new Error(`Invalid JSON from Hub: ${result.stdout}`);
+      response = await fetch(url, init);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Hub connection failed: ${msg}`);
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Hub returned ${response.status}: ${text.slice(0, 500)}`,
+      );
+    }
+    try {
+      return (await response.json()) as T;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Invalid JSON from Hub: ${msg}`);
     }
   }
 
-  listStacks(stacktype?: string): IStack[] {
+  async listStacks(stacktype?: string): Promise<IStack[]> {
     const query = stacktype ? `?stacktype=${encodeURIComponent(stacktype)}` : "";
-    const response = this.fetchJsonSync<{ stacks: IStack[] }>(`/api/hub/stacks${query}`);
+    const response = await this.fetchJson<{ stacks: IStack[] }>(
+      `/api/hub/stacks${query}`,
+    );
     return response.stacks;
   }
 
-  getStack(id: string): IStack | null {
+  async getStack(id: string): Promise<IStack | null> {
     try {
-      const response = this.fetchJsonSync<{ stack: IStack }>(`/api/hub/stack/${encodeURIComponent(id)}`);
+      const response = await this.fetchJson<{ stack: IStack }>(
+        `/api/hub/stack/${encodeURIComponent(id)}`,
+      );
       return response.stack;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -107,14 +125,21 @@ export class RemoteStackProvider implements IStackProvider {
     }
   }
 
-  addStack(stack: IStack): string {
-    const response = this.fetchJsonSync<{ key: string }>("/api/hub/stacks", "POST", stack);
+  async addStack(stack: IStack): Promise<string> {
+    const response = await this.fetchJson<{ key: string }>(
+      "/api/hub/stacks",
+      "POST",
+      stack,
+    );
     logger.info("Stack created on Hub", { key: response.key });
     return response.key;
   }
 
-  deleteStack(id: string): boolean {
-    const response = this.fetchJsonSync<{ deleted: boolean }>(`/api/hub/stack/${encodeURIComponent(id)}`, "DELETE");
+  async deleteStack(id: string): Promise<boolean> {
+    const response = await this.fetchJson<{ deleted: boolean }>(
+      `/api/hub/stack/${encodeURIComponent(id)}`,
+      "DELETE",
+    );
     if (response.deleted) logger.info("Stack deleted on Hub", { id });
     return response.deleted;
   }

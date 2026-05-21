@@ -61,8 +61,12 @@ export class WebAppVeExecutionSetup {
       sshCommand,
     );
 
-    // Clear old messages for this application/task before starting
-    messageManager.clearMessagesForApplication(application, task);
+    // Only run the retention sweep here — do NOT wipe sibling (app, task)
+    // groups. Under livetest `--all` four postgres scenarios run in
+    // parallel with identical (application=postgres, task=installation),
+    // and clearMessagesForApplication() would wipe each new sibling's
+    // future messages just as the previous one was being polled, leaving
+    // the CLI to time out on a task that had already succeeded.
     messageManager.cleanupOldMessages();
 
     // Pre-populate planned steps so the frontend can show all steps immediately

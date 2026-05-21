@@ -3,15 +3,19 @@
     "addon-ssl",
     "addon-mtls"
   ],
-  "depends_on": ["postgres/ssl"],
-  "stack_name": "ssl",
+  "depends_on": [
+    "postgres/mtls-zitadel"
+  ],
+  "stack_name": "mtls-zitadel",
   "params": [
-    { "name": "mtls_cns", "value": "zitadel\npostgres" }
+    {
+      "name": "mtls_cns",
+      "value": "zitadel\npostgres"
+    }
   ],
   "cleanup": {
-    "postgres": "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='zitadel' AND pid<>pg_backend_pid(); DROP DATABASE IF EXISTS zitadel; DROP USER IF EXISTS zitadel;"
+    "postgres": "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='zitadel' AND pid<>pg_backend_pid(); DROP DATABASE IF EXISTS zitadel; DROP ROLE IF EXISTS zitadel;"
   },
-  "cli_timeout": 480,
   "wait_seconds": 90,
-  "description": "addon-ssl + addon-mtls: Zitadel presents its addon-mtls client certs over a verify-ca TLS connection. mtls_cns=zitadel\\npostgres (= the DB roles, hostname-independent), so addon-mtls issues two certs: User.SSL -> /certs/mtls/zitadel/, Admin.SSL -> /certs/mtls/postgres/. Client-side only — depends on postgres/ssl (server SSL + password auth from the same root CA that verify-ca trusts); postgres-side client-cert verification is the separate postgres/mtls plan and out of scope here. conf-enable-mtls-app.sh splits zitadel.yaml Database User/Admin SSL to verify-ca + per-CN Cert/Key/RootCert, binds the certs volume into the zitadel-api service, and relaxes the mtls cert perms for the non-root zitadel-api user. stack_name='ssl' shares the postgres_ssl stack so the DB password matches the postgres/ssl dependency (cf. zitadel/reconf-ssl)."
+  "description": "addon-ssl + addon-mtls, pure cert auth (no password) — Zitadel presents its addon-mtls client certs to postgres/mtls-zitadel, which enforces 'hostssl ... cert' in pg_hba.conf. mtls_cns=zitadel\\npostgres issues two client certs (CN=zitadel for the login role, CN=postgres for the bootstrap superuser). conf-enable-mtls-app.sh splits zitadel.yaml Database User.SSL -> /certs/mtls/zitadel/ and Admin.SSL -> /certs/mtls/postgres/. Distinct from zitadel/mtls-certonly: this variant has its OWN postgres/mtls-zitadel backing (stack_name='mtls-zitadel'), so its persistent volumes (zitadel.yaml, masterkey) never share storage with another zitadel variant. The previous shared-stack-name='ssl' design caused volume-suffix collisions: zfs-cloned a partially-mutated yaml from zitadel/ssl's slot and 155-conf-write-zitadel-yaml's 'skip if exists' kept the stale mtls config."
 }

@@ -1,0 +1,8 @@
+{
+  "selectedAddons": ["addon-ssl"],
+  "params": [
+    { "name": "pg_client_cert", "value": "true" }
+  ],
+  "wait_seconds": 30,
+  "description": "Dedicated cert-only PostgreSQL backing for zitadel/mtls (pure cert auth, no password). Same engine config as postgres/mtls (hostssl ... cert via managed pg_hba.conf, ssl_ca_file=/certs/chain.pem) but its own stack/CT/volumes — keeps zitadel/mtls's persistent state (zitadel.yaml, masterkey) isolated from zitadel/mtls-certonly and zitadel/ssl, which the previous shared-stack-name design did not."
+}

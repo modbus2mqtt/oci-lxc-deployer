@@ -791,30 +791,14 @@ export async function executeScenarios(
         { name: "bridge", value: "vmbr1" },
         ...(!isReplaceCt ? [{ name: "vm_id", value: String(step.vmId) }] : []),
         ...(isReplaceCt ? [{ name: "vm_id_start", value: String(step.vmId) }] : []),
-        // Enable per-task debug bundle on the backend when --debug was passed
-        // to the livetest. Only the user-requested scenario gets the bundle —
-        // dependencies (e.g. postgres for a zitadel test) stay quiet so the
-        // result directory only carries the artefact for the test the user
-        // actually asked for.
-        //
-        // Under `--parallel` (concurrency > 1) the bundle still runs:
-        // - Runner events flow into the correct bundle via the restartKey-
-        //   tagged endpoint `POST /api/ve/debug/:restartKey/external-events`
-        //   (see log-helpers AsyncLocalStorage). Cross-bundle isolation: ✓.
-        // - Backend stderr / script events route through messageManager,
-        //   which is already restartKey-keyed (since the recent
-        //   `getExecuteMessages` filter): ✓.
-        // - The deployer-side `Logger.setDebugSink` is the lone process-
-        //   global state ("single concurrent task is the current assumption"
-        //   in webapp-ve-execution-setup.mts). Lines tagged with the
-        //   currently-active restartKey may leak across bundles. Accepted
-        //   trade-off for now: three of four event sources are clean per
-        //   bundle, which is a net win over the previous "no bundle at all
-        //   under --parallel". Tightening the Logger sink to per-deploy
-        //   AsyncLocalStorage is a separate, optional follow-up.
-        ...(options?.debugLevel
-          && options.debugLevel !== "off"
-          && !step.isDependency
+        // Enable per-task debug bundle on the backend when --debug was
+        // passed. Routed via the per-key event pipeline (`ICommand.restartKey`
+        // threaded through MessageEmitter), so concurrent tasks each own
+        // their bundle — both targets AND dependencies now get full
+        // bundles, which makes `--all` failure analysis feasible. The
+        // legacy `!step.isDependency` suppression was the workaround for
+        // the deleted `Logger.setDebugSink` singleton and is gone.
+        ...(options?.debugLevel && options.debugLevel !== "off"
           ? [{ name: "debug_level", value: options.debugLevel }]
           : []),
       ];
@@ -1818,6 +1802,15 @@ export async function executeScenarios(
         }
       }
 
+      // Consumer-stop (`pct stop` after !isDependency steps) was attempted
+      // here to free nested-VM RAM during `--all` but reverted on
+      // 2026-05-21: zitadel/ssl (and similar) use postgres-ssl via stack-
+      // name match without an explicit `depends_on: ["postgres/ssl"]`, so
+      // `dependedOn` misses them. The result was postgres/ssl getting
+      // stopped before zitadel/ssl read its CA cert. Once we have a
+      // stack/cert-aware "still-needed" predicate the stop can come back;
+      // until then 4c/8G nested VM defaults absorb the load.
+
       return { type: "done" };
       } catch (iterErr) {
         // Uncaught exception during this scenario — turn it into a "failed"
@@ -1951,6 +1944,15 @@ export async function executeScenarios(
       // Cleared on dispatch so a scenario that waits, dispatches, completes,
       // and is later re-evaluated (shouldn't happen, but safe) re-logs.
       const waitLogged = new Set<number>();
+      // Catalog-phase indices for the fail-fast gate: if any catalog member
+      // fails, everything downstream is wasted work (the run can't produce
+      // valid snapshots, and OIDC consumers depend on a healthy Zitadel
+      // anyway). Empty when no catalog → gate disabled.
+      const catalogIdx = new Set<number>();
+      planned.forEach((p, i) => {
+        if (snapshotCatalog.has(p.scenario.id)) catalogIdx.add(i);
+      });
+      let catalogAbortLogged = false;
       let active = 0;
       let crashedErr: unknown = null;
       let aborted = false;
@@ -1962,6 +1964,45 @@ export async function executeScenarios(
           }
           if (state.every((s) => s === "done" || s === "failed")) {
             resolve();
+            return;
+          }
+          // Catalog-phase fail-fast: once every catalog member has reached
+          // a terminal state, abort the run if any of them failed. The
+          // remaining scenarios (typically 50+ OIDC consumers) depend on a
+          // healthy snapshot chain, so continuing is wasted minutes.
+          if (catalogIdx.size > 0 && !catalogAbortLogged) {
+            let allTerminal = true;
+            let anyFailed = false;
+            for (const i of catalogIdx) {
+              const s = state[i];
+              if (s === "pending" || s === "running") { allTerminal = false; break; }
+              if (s === "failed") anyFailed = true;
+            }
+            if (allTerminal && anyFailed) {
+              const failedNames = [...catalogIdx]
+                .filter((i) => state[i] === "failed")
+                .map((i) => planned[i]!.scenario.id);
+              logFail(`Catalog phase failed (${failedNames.length}/${catalogIdx.size}: ${failedNames.join(", ")}) — aborting remaining scenarios.`);
+              catalogAbortLogged = true;
+              aborted = true;
+              // Mark every still-pending scenario as skipped with the
+              // catalog reason so the overview/result writer reports a
+              // clear cause instead of a missing-data void.
+              for (let i = 0; i < planned.length; i++) {
+                if (state[i] === "pending") {
+                  state[i] = "failed";
+                  const p = planned[i]!;
+                  if (!p.skipExecution) {
+                    p.skipExecution = true;
+                    result.errors.push(`Skipped: ${p.scenario.id} (catalog phase failed)`);
+                    markStatus(i, "skipped", "catalog phase failed");
+                  }
+                }
+              }
+            }
+          }
+          if (aborted) {
+            if (active === 0) resolve();
             return;
           }
           // Cascade blocked scenarios to a fixpoint (a failed dep blocks its
@@ -2009,7 +2050,21 @@ export async function executeScenarios(
             }
             logWorkerTimeline("start", reservedStorage, scenarioId,
               `vm=${planned[idx]!.vmId}`);
-            markStatus(idx, "running");
+            // skipExecution=true scenarios (restored from snapshot, or
+            // already-matching managed dep CTs) take an early-exit inside
+            // runStep — they don't really run. Use a dedicated status so
+            // the overview shows "restored" / "skipped" instead of a
+            // misleading "running → passed" (which would imply real work).
+            const earlyExitStatus: "restored" | "skipped" | undefined =
+              planned[idx]!.skipExecution
+                ? (planned[idx]!.isDependency ? "restored" : "skipped")
+                : undefined;
+            if (earlyExitStatus) {
+              markStatus(idx, earlyExitStatus, earlyExitStatus === "restored"
+                ? "from covering pct snapshot" : "managed CT already running");
+            } else {
+              markStatus(idx, "running");
+            }
             const startTs = Date.now();
             state[idx] = "running";
             active++;
@@ -2032,7 +2087,10 @@ export async function executeScenarios(
                 } else {
                   state[idx] = "done";
                   logWorkerTimeline("done", reservedStorage, scenarioId, `${dur}s`);
-                  markStatus(idx, "passed");
+                  // Preserve restored/skipped status set at dispatch — those
+                  // are early-exit scenarios that didn't really run. Only
+                  // promote to "passed" when actual work happened.
+                  if (!earlyExitStatus) markStatus(idx, "passed");
                 }
                 pump();
               })
@@ -2055,20 +2113,73 @@ export async function executeScenarios(
       if (crashedErr) throw crashedErr;
     } else {
       // ── Sequential driver (unchanged behaviour) ──────────────────────
+      const catalogIdxSeq = new Set<number>();
+      planned.forEach((p, i) => {
+        if (snapshotCatalog.has(p.scenario.id)) catalogIdxSeq.add(i);
+      });
+      // Per-scenario terminal state for the catalog-phase gate. Only the
+      // "failed" vs "anything else" distinction matters; we collapse
+      // passed / skipped / restored into "done" since none of them block
+      // downstream consumers in the catalog sense.
+      const seqState: ("pending" | "done" | "failed")[] = planned.map(() => "pending");
+      let abortedSeq = false;
       for (let i = 0; i < planned.length; i++) {
-        markStatus(i, "running");
+        if (abortedSeq) {
+          // Catalog-phase already failed — mark remaining as skipped.
+          if (!planned[i]!.skipExecution) {
+            planned[i]!.skipExecution = true;
+            result.errors.push(`Skipped: ${planned[i]!.scenario.id} (catalog phase failed)`);
+            markStatus(i, "skipped", "catalog phase failed");
+          }
+          seqState[i] = "done";
+          continue;
+        }
+        // Match the parallel driver: scenarios with skipExecution=true
+        // (snapshot-restored or already-running matching) get an explicit
+        // restored/skipped status, not "running → passed".
+        const earlyExit: "restored" | "skipped" | undefined =
+          planned[i]!.skipExecution
+            ? (planned[i]!.isDependency ? "restored" : "skipped")
+            : undefined;
+        if (earlyExit) {
+          markStatus(i, earlyExit, earlyExit === "restored"
+            ? "from covering pct snapshot" : "managed CT already running");
+        } else {
+          markStatus(i, "running");
+        }
         const outcome = await runStep(i);
         if (outcome.type === "crashed") {
           markStatus(i, "failed", "crashed");
+          seqState[i] = "failed";
           if (failFast) throw outcome.err;
-          continue;
-        }
-        if (outcome.type === "failed-partition") {
+        } else if (outcome.type === "failed-partition") {
           markStatus(i, "failed", `failed (cascade from ${outcome.scenarioId})`);
+          seqState[i] = "failed";
           applyFailurePartition(outcome.scenarioId, i, true);
-          continue;
+        } else {
+          if (!earlyExit) markStatus(i, "passed");
+          // All three terminal-success states (passed / restored / skipped)
+          // collapse to "done" — only "failed" matters for the gate.
+          seqState[i] = "done";
         }
-        markStatus(i, "passed");
+        // Catalog-phase fail-fast check, identical semantics to the
+        // parallel driver's pump-time gate.
+        if (catalogIdxSeq.size > 0 && !abortedSeq) {
+          let allTerminal = true;
+          let anyFailed = false;
+          for (const ci of catalogIdxSeq) {
+            const s = seqState[ci];
+            if (s === "pending") { allTerminal = false; break; }
+            if (s === "failed") anyFailed = true;
+          }
+          if (allTerminal && anyFailed) {
+            const failedNames = [...catalogIdxSeq]
+              .filter((ci) => seqState[ci] === "failed")
+              .map((ci) => planned[ci]!.scenario.id);
+            logFail(`Catalog phase failed (${failedNames.length}/${catalogIdxSeq.size}: ${failedNames.join(", ")}) — aborting remaining scenarios.`);
+            abortedSeq = true;
+          }
+        }
       }
     }
   } finally {

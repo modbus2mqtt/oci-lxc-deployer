@@ -1,7 +1,10 @@
 {
-  "selectedAddons": ["addon-mtls"],
-  "depends_on": ["postgres/mtls"],
+  "selectedAddons": [
+    "addon-mtls"
+  ],
+  "depends_on": [
+    "postgres/mtls"
+  ],
   "wait_seconds": 60,
-  "cli_timeout": 360,
   "description": "PostgREST connects to postgres over mutual TLS. addon-mtls issues client cert CN=postgrest into the certs volume (mtls/postgrest/); conf-enable-mtls-app.sh swaps the DB role to postgrest, binds /certs into the postgrest service and appends sslmode=verify-ca + sslcert/sslkey/sslrootcert to PGRST_DB_URI; postgres/mtls (addon-ssl + pg_client_cert=true) enforces hostssl ... cert. The livetest-local overlay seeds the postgrest/web_anon roles + a sample table (production proxvex creates no DB SQL — operator's job), and the post_start query check proves the full PostgREST -> PostgreSQL mTLS path end-to-end."
 }

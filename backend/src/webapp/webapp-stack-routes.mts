@@ -29,9 +29,9 @@ export class WebAppStack {
     });
 
     // GET /api/stacks?stacktype=xxx - List all stacks (optionally filtered by stacktype)
-    this.app.get(ApiUri.Stacks, (req, res) => {
+    this.app.get(ApiUri.Stacks, async (req, res) => {
       const stacktype = req.query.stacktype as string | undefined;
-      const stacks = this.stackProvider.listStacks(stacktype);
+      const stacks = await this.stackProvider.listStacks(stacktype);
       res.json({ stacks });
     });
 
@@ -39,8 +39,8 @@ export class WebAppStack {
     // Merges the stack's entries with the stacktype definition so external
     // (user-provided) variables always appear — even for stacks created
     // before those variables were added to the stacktype.
-    this.app.get(ApiUri.Stack, (req, res) => {
-      const stack = this.stackProvider.getStack(req.params.id);
+    this.app.get(ApiUri.Stack, async (req, res) => {
+      const stack = await this.stackProvider.getStack(req.params.id);
       if (!stack) {
         res.status(404).json({ error: "Stack not found" });
         return;
@@ -65,7 +65,7 @@ export class WebAppStack {
     });
 
     // POST /api/stacks - Create stack
-    this.app.post(ApiUri.Stacks, express.json(), (req, res) => {
+    this.app.post(ApiUri.Stacks, express.json(), async (req, res) => {
       const body = req.body as IStack;
       if (!body.name || !body.stacktype) {
         res
@@ -88,15 +88,15 @@ export class WebAppStack {
       // rename path below still resolves the old record. Must happen BEFORE
       // the rename/delete, otherwise we lose the old state.
       const preUpdate =
-        this.stackProvider.getStack(newId) ??
-        (incomingId ? this.stackProvider.getStack(incomingId) : null);
+        (await this.stackProvider.getStack(newId)) ??
+        (incomingId ? await this.stackProvider.getStack(incomingId) : null);
 
       // Rename / stacktype change: drop the old entry so we don't leave a
       // duplicate under the previous id.
       if (incomingId && incomingId !== newId) {
-        const existing = this.stackProvider.getStack(incomingId);
+        const existing = await this.stackProvider.getStack(incomingId);
         if (existing) {
-          this.stackProvider.deleteStack(incomingId);
+          await this.stackProvider.deleteStack(incomingId);
         }
       }
 
@@ -170,13 +170,13 @@ export class WebAppStack {
         body.dirty = false;
       }
 
-      const key = this.stackProvider.addStack(body);
+      const key = await this.stackProvider.addStack(body);
       res.json({ success: true, key });
     });
 
     // DELETE /api/stack/:id - Delete stack
-    this.app.delete(ApiUri.Stack, (req, res) => {
-      const deleted = this.stackProvider.deleteStack(req.params.id);
+    this.app.delete(ApiUri.Stack, async (req, res) => {
+      const deleted = await this.stackProvider.deleteStack(req.params.id);
       res.json({ success: deleted, deleted });
     });
 

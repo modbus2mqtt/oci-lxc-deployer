@@ -31,6 +31,7 @@ import { nestedSsh, nestedSshStrict } from "./ssh-helpers.mjs";
 import {
   collectWithDeps, selectScenarios, planScenarios, applyTagFilter,
   classifyRunMode, loadSnapshotCatalog, loadScenarioListFromFile,
+  expandToPriorityClosure,
 } from "./scenario-planner.mjs";
 import { TestResultWriter } from "./test-result-writer.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
@@ -41,7 +42,7 @@ import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
 import {
-  restoreBestSnapshot, prepareVms, smartCleanupBeforeRun,
+  restoreBestSnapshot, prepareVms, smartCleanupBeforeRun, rollbackToBaseline,
   preCleanupNonSnapshotConsumers, rollbackOrDestroyDepsFromSnapshot,
 } from "./vm-lifecycle.mjs";
 import { executeScenarios } from "./scenario-executor.mjs";
@@ -772,9 +773,22 @@ async function main() {
     process.exit(1);
   }
 
+  // Build the priority closure: catalog members + transitive deps. Drives
+  // the snapshot-first topological order in collectWithDeps so the runner
+  // builds the snapshot infrastructure (postgres → zitadel → catalog
+  // member) before fanning out to leaf consumers. Empty set (no catalog
+  // or no catalog-related scenarios in selection) leaves the legacy
+  // task-priority + alphabetical sort intact.
+  const priorityIds = snapshotCatalog.size > 0
+    ? expandToPriorityClosure(snapshotCatalog, allTests)
+    : new Set<string>();
+  if (priorityIds.size > 0) {
+    logInfo(`Priority set (catalog ∪ deps): ${priorityIds.size} scenario(s) — ${[...priorityIds].sort().join(", ")}`);
+  }
+
   let scenariosToRun: ResolvedScenario[];
   try {
-    scenariosToRun = collectWithDeps(selectedIds, allTests);
+    scenariosToRun = collectWithDeps(selectedIds, allTests, priorityIds);
   } catch (err: any) {
     logFail(err.message);
     process.exit(1);
@@ -853,27 +867,29 @@ async function main() {
   }
 
   // VM preparation — gated by run mode:
-  //   - all/file: qm rollback to deployer-installed baseline → setupPortForwarding
-  //   - single + --from-snapshot: per-dep pct rollback or destroy
-  //   - single (default): pre-cleanup of non-snapshot, non-needed CTs
-  //   - snapshot-build: legacy path (no qm rollback, no pre-cleanup)
-  // pct restore of dep-CTs runs *additionally* across all modes when a
-  // covering snapshot exists (cheap, idempotent).
-  if (runMode === "all" || runMode === "file") {
-    // Smart cleanup: `pct list` once, then either qm rollback (>=20 leftover
-    // CTs → 1 op faster than N parallel destroys) or parallel per-CT
-    // destroy. Planned CTs are reused, not destroyed, so the catalog from
-    // a prior @file run survives a follow-up small `@file` invocation.
+  //   - all:    ALWAYS qm rollback to deployer-installed baseline. No
+  //             dep-snapshot restore (would reuse stale state from prior
+  //             runs and silently skip the full-suite validation `--all`
+  //             is supposed to perform). Everything re-installs from
+  //             scratch — that's the point.
+  //   - file:   smartCleanup (threshold-based rollback OR per-CT destroy)
+  //             + restoreBestSnapshot. Catalog snapshots from prior @file
+  //             runs survive and accelerate re-runs.
+  //   - single + --from-snapshot: per-dep pct rollback or destroy.
+  //   - single (default): pre-cleanup of non-snapshot, non-needed CTs.
+  //   - snapshot-build: legacy path (no qm rollback, no pre-cleanup).
+  if (runMode === "all") {
+    await rollbackToBaseline(config.pveHost, config.portPveSsh, config.vmId);
+  } else if (runMode === "file") {
     const plannedVmIdSet = new Set(planned.map((p) => p.vmId));
     await smartCleanupBeforeRun(config.pveHost, config.portPveSsh, config.vmId, plannedVmIdSet);
   }
-  // Skip the legacy per-dep restore in --from-snapshot mode:
-  // rollbackOrDestroyDepsFromSnapshot below does the same `pct rollback`
-  // and additionally destroys snapshotless deps, so running both would
-  // pct-rollback every dep CT twice. In all other modes restoreBestSnapshot
-  // stays — it's a cheap no-op when no covering snapshot exists (and a
-  // welcome speedup when one does).
-  if (!(runMode === "single" && fromSnapshot)) {
+  // restoreBestSnapshot is the dep-snapshot fast-path. Skipped for:
+  //   - --all: full-suite test must validate everything from scratch.
+  //   - single + --from-snapshot: rollbackOrDestroyDepsFromSnapshot does
+  //     the same work plus destroys snapshotless deps; running both would
+  //     pct-rollback every dep CT twice.
+  if (runMode !== "all" && !(runMode === "single" && fromSnapshot)) {
     await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
   }
   // qm rollback wipes the nested-VM iptables + dnsmasq state, so reapply

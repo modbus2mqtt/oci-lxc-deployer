@@ -13,7 +13,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { PlannedScenario } from "./livetest-types.mjs";
 
-export type ScenarioStatus = "pending" | "running" | "passed" | "failed" | "skipped";
+export type ScenarioStatus = "pending" | "running" | "passed" | "failed" | "skipped" | "restored";
 
 export interface RunOverviewState {
   outDir: string;
@@ -57,6 +57,7 @@ function statusBadge(s: ScenarioStatus): string {
     case "passed": return "&#10004; passed";    // check
     case "failed": return "&#10008; failed";    // x
     case "skipped": return "&#8856; skipped";   // circled dash
+    case "restored": return "&#8634; restored"; // anticlockwise arrow
   }
 }
 
@@ -81,17 +82,18 @@ export function renderRunOverview(state: RunOverviewState): string {
     rows.push(`| ${app} | ${variantLink} | ${f.ssl ? "✓" : "—"} | ${f.oidc ? "✓" : "—"} | ${f.mtls ? "✓" : "—"} | ${storage || "—"} | ${statusBadge(status)} | ${dur} |`);
   }
 
-  let passed = 0, failed = 0, skipped = 0, running = 0, pending = 0;
+  let passed = 0, failed = 0, skipped = 0, restored = 0, running = 0, pending = 0;
   for (const s of state.status.values()) {
     if (s === "passed") passed++;
     else if (s === "failed") failed++;
     else if (s === "skipped") skipped++;
+    else if (s === "restored") restored++;
     else if (s === "running") running++;
     else pending++;
   }
   // status map only carries entries for scenarios that have transitioned; the
   // remainder count as pending.
-  pending = state.planned.length - passed - failed - skipped - running;
+  pending = state.planned.length - passed - failed - skipped - restored - running;
 
   const elapsedSec = Math.floor((Date.now() - state.startedAt.getTime()) / 1000);
   const elapsed = elapsedSec >= 60
@@ -108,7 +110,7 @@ export function renderRunOverview(state: RunOverviewState): string {
 
 **Run ID**: \`${state.runId}\`
 **Started**: ${state.startedAt.toISOString()} · **Elapsed**: ${elapsed}
-**Status**: ✓ ${passed} passed · ✗ ${failed} failed · ⊘ ${skipped} skipped · ▶ ${running} running · ⏳ ${pending} pending (of ${state.planned.length})
+**Status**: ✓ ${passed} passed · ✗ ${failed} failed · ⊘ ${skipped} skipped · ↺ ${restored} restored · ▶ ${running} running · ⏳ ${pending} pending (of ${state.planned.length})
 
 **Command**:
 \`\`\`

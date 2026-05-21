@@ -47,17 +47,17 @@ export class CertificateAuthorityService implements ICaProvider {
     return "ca_global";
   }
 
-  getCA(veContextKey: string): { key: string; cert: string } | null {
+  async getCA(veContextKey: string): Promise<{ key: string; cert: string } | null> {
     const stored = this.contextManager.get<StoredCA>(this.contextKey(veContextKey));
     if (!stored || !stored.key || !stored.cert) return null;
     return { key: stored.key, cert: stored.cert };
   }
 
-  hasCA(veContextKey: string): boolean {
-    return this.getCA(veContextKey) !== null;
+  async hasCA(veContextKey: string): Promise<boolean> {
+    return (await this.getCA(veContextKey)) !== null;
   }
 
-  setCA(veContextKey: string, key: string, cert: string): void {
+  async setCA(veContextKey: string, key: string, cert: string): Promise<void> {
     const stored: StoredCA = {
       key,
       cert,
@@ -67,8 +67,8 @@ export class CertificateAuthorityService implements ICaProvider {
     logger.info("CA stored for context", { veContextKey });
   }
 
-  getCaInfo(veContextKey: string): ICaInfoResponse {
-    const ca = this.getCA(veContextKey);
+  async getCaInfo(veContextKey: string): Promise<ICaInfoResponse> {
+    const ca = await this.getCA(veContextKey);
     if (!ca) return { exists: false };
 
     const tmpDir = mkdtempSync(path.join(tmpdir(), "ca-info-"));
@@ -103,7 +103,7 @@ export class CertificateAuthorityService implements ICaProvider {
    * Generate a new self-signed CA locally (on the backend, NOT on PVE host).
    * CA validity: 3650 days (~10 years), RSA 2048-bit.
    */
-  generateCA(veContextKey: string): { key: string; cert: string } {
+  async generateCA(veContextKey: string): Promise<{ key: string; cert: string }> {
     const tmpDir = mkdtempSync(path.join(tmpdir(), "ca-gen-"));
     try {
       const keyPath = path.join(tmpDir, "ca.key");
@@ -121,7 +121,7 @@ export class CertificateAuthorityService implements ICaProvider {
       const keyB64 = Buffer.from(keyPem).toString("base64");
       const certB64 = Buffer.from(certPem).toString("base64");
 
-      this.setCA(veContextKey, keyB64, certB64);
+      await this.setCA(veContextKey, keyB64, certB64);
       logger.info("CA generated and stored", { veContextKey });
 
       return { key: keyB64, cert: certB64 };
@@ -133,8 +133,8 @@ export class CertificateAuthorityService implements ICaProvider {
   /**
    * Ensure CA exists: return existing or generate new one.
    */
-  ensureCA(veContextKey: string): { key: string; cert: string } {
-    const existing = this.getCA(veContextKey);
+  async ensureCA(veContextKey: string): Promise<{ key: string; cert: string }> {
+    const existing = await this.getCA(veContextKey);
     if (existing) return existing;
     return this.generateCA(veContextKey);
   }
@@ -145,12 +145,12 @@ export class CertificateAuthorityService implements ICaProvider {
     return `domain_suffix_${veContextKey}`;
   }
 
-  getDomainSuffix(veContextKey: string): string {
+  async getDomainSuffix(veContextKey: string): Promise<string> {
     const stored = this.contextManager.get<string>(this.domainSuffixKey(veContextKey));
     return stored || ".local";
   }
 
-  setDomainSuffix(veContextKey: string, suffix: string): void {
+  async setDomainSuffix(veContextKey: string, suffix: string): Promise<void> {
     this.contextManager.set(this.domainSuffixKey(veContextKey), suffix);
     logger.info("Domain suffix stored", { veContextKey, suffix });
   }
@@ -161,11 +161,11 @@ export class CertificateAuthorityService implements ICaProvider {
     return `shared_volpath_${veContextKey}`;
   }
 
-  getSharedVolpath(veContextKey: string): string | null {
+  async getSharedVolpath(veContextKey: string): Promise<string | null> {
     return this.contextManager.get<string>(this.sharedVolpathKey(veContextKey)) || null;
   }
 
-  setSharedVolpath(veContextKey: string, path: string): void {
+  async setSharedVolpath(veContextKey: string, path: string): Promise<void> {
     this.contextManager.set(this.sharedVolpathKey(veContextKey), path);
     logger.info("Shared volpath stored", { veContextKey, path });
   }
@@ -192,9 +192,9 @@ export class CertificateAuthorityService implements ICaProvider {
    * accessed as `registry-1.docker.io` via `/etc/hosts` rewriting, so the
    * cert must validate for that name too).
    */
-  generateSelfSignedCert(veContextKey: string, hostName?: string, extraSans?: string[]): { key: string; cert: string } {
+  async generateSelfSignedCert(veContextKey: string, hostName?: string, extraSans?: string[]): Promise<{ key: string; cert: string }> {
     const effectiveHostname = hostName || hostname();
-    const ca = this.ensureCA(veContextKey);
+    const ca = await this.ensureCA(veContextKey);
     const sans = normalizeExtraSans(extraSans);
 
     const tmpDir = mkdtempSync(path.join(tmpdir(), "srv-cert-gen-"));
@@ -284,7 +284,7 @@ export class CertificateAuthorityService implements ICaProvider {
    * legitimately differ (the Hub-fetch path uses an in-process cache to avoid
    * redundant network round-trips inside one Reconfigure flow).
    */
-  ensureServerCert(veContextKey: string, hostName?: string, extraSans?: string[]): { key: string; cert: string } {
+  async ensureServerCert(veContextKey: string, hostName?: string, extraSans?: string[]): Promise<{ key: string; cert: string }> {
     return this.generateSelfSignedCert(veContextKey, hostName, extraSans);
   }
 
@@ -297,11 +297,11 @@ export class CertificateAuthorityService implements ICaProvider {
    * so it is strictly validated against `[A-Za-z0-9._-]+` to prevent subject
    * injection / shell breakout. Invalid names throw.
    */
-  signClientCert(veContextKey: string, cn: string): { key: string; cert: string } {
+  async signClientCert(veContextKey: string, cn: string): Promise<{ key: string; cert: string }> {
     if (!/^[A-Za-z0-9._-]+$/.test(cn)) {
       throw new Error(`Invalid client certificate CN: ${JSON.stringify(cn)}`);
     }
-    const ca = this.ensureCA(veContextKey);
+    const ca = await this.ensureCA(veContextKey);
 
     const tmpDir = mkdtempSync(path.join(tmpdir(), "cli-cert-gen-"));
     try {
@@ -349,7 +349,7 @@ export class CertificateAuthorityService implements ICaProvider {
   /**
    * Validate PEM format and check that key matches cert.
    */
-  validateCaPem(key: string, cert: string): { valid: boolean; subject?: string; error?: string } {
+  async validateCaPem(key: string, cert: string): Promise<{ valid: boolean; subject?: string; error?: string }> {
     const tmpDir = mkdtempSync(path.join(tmpdir(), "ca-val-"));
     try {
       const keyPath = path.join(tmpDir, "ca.key");

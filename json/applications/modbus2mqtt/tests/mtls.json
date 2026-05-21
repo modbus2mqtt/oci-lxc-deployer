@@ -4,15 +4,26 @@
     "addon-mtls"
   ],
   "params": [
-    { "name": "oci_image_tag", "value": "latest" },
-    { "name": "upload_modbus2mqtt_config_content", "value": "file:config.zip" },
-    { "name": "mtls_cns", "value": "modbus2mqtt" },
-    { "name": "ssl.needs_server_cert", "value": "false" }
+    {
+      "name": "oci_image_tag",
+      "value": "latest"
+    },
+    {
+      "name": "upload_modbus2mqtt_config_content",
+      "value": "file:config.zip"
+    },
+    {
+      "name": "mtls_cns",
+      "value": "modbus2mqtt"
+    },
+    {
+      "name": "ssl.needs_server_cert",
+      "value": "false"
+    }
   ],
   "depends_on": [
     "eclipse-mosquitto/ssl"
   ],
   "wait_seconds": 60,
-  "cli_timeout": 360,
   "description": "modbus2mqtt connects to eclipse-mosquitto on port 8883 via mTLS using the addon-mtls default client certificate (CN = hostname) from /ssl/mtls/modbus2mqtt/"
 }

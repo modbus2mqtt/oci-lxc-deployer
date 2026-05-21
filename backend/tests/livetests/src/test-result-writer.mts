@@ -152,9 +152,17 @@ export class TestResultWriter {
   ): Promise<string[]> {
     if (!this.apiUrl) return [];
     try {
+      // Manifest endpoint waits for the bundle's finishedAt to be set
+      // (backend's `waitForFinish`, now 90 s ceiling) before responding.
+      // Worst case is the post-install-crash path: host-side wait_seconds
+      // catches a stopped CT before the backend's install task has even
+      // completed naturally, so the backend hasn't yet started its own
+      // captureLxcDiagnostics. Observed gap up to ~91 s between host-side
+      // failure detection and backend `finish()`. 120 s on the HTTP side
+      // leaves a small margin above the backend's 90 s waitForFinish.
       const manifestResp = await fetch(
         `${this.apiUrl}/api/ve/debug/${encodeURIComponent(restartKey)}`,
-        { signal: AbortSignal.timeout(10000) },
+        { signal: AbortSignal.timeout(120000) },
       );
       if (!manifestResp.ok) return [];
       const manifest = (await manifestResp.json()) as { files?: string[] };

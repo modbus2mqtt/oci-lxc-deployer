@@ -167,6 +167,23 @@ export async function rollbackToBaseline(
     `qm rollback ${vmId} ${BASELINE_QM_SNAPSHOT}`,
     600000,
   );
+
+  // qm rollback restores the snapshot's saved hardware config too — including
+  // any cores/memory values frozen when the snapshot was taken. Snapshots
+  // from older step2b runs were created with the default 2c/4G; under
+  // `--all` parallel load those numbers caused softdog kernel-watchdog
+  // resets, leaving SSH corrupt for ~5 min. Re-apply the current
+  // config.json defaults (4c/8G) AFTER rollback, BEFORE start, so every
+  // run gets the headroom we configured even when the snapshot is stale.
+  // qm set on a stopped VM is cheap and idempotent.
+  try {
+    await nestedSshAsync(
+      pveHost, OUTER_PVE_SSH_PORT,
+      `qm set ${vmId} --cores 4 --memory 8192 2>/dev/null; true`,
+      30000,
+    );
+  } catch { /* best-effort */ }
+
   await nestedSshAsync(
     pveHost, OUTER_PVE_SSH_PORT,
     `qm start ${vmId} 2>/dev/null; true`,
@@ -195,6 +212,21 @@ export async function rollbackToBaseline(
   } else {
     logOk(`Nested VM ${vmId} rolled back to @${BASELINE_QM_SNAPSHOT} and responsive`);
   }
+
+  // First `pct list` succeeded but subsequent SSH commands can still ETIMEDOUT
+  // right after boot — sshd's first accept() works but the second connection
+  // hits a slow path while pveproxy/pvedaemon finish initialising. Observed
+  // in the runner's sync prepareVms loop (~60 pct-status calls back-to-back)
+  // dying with `spawnSync /bin/sh ETIMEDOUT` on the second call. A short
+  // settle period + a warmup pct list keeps the connection pool primed.
+  await new Promise((r) => setTimeout(r, 5000));
+  try {
+    await nestedSshAsync(
+      pveHost, pveSshPort,
+      `pct list 2>/dev/null | wc -l`,
+      15000,
+    );
+  } catch { /* warmup is best-effort */ }
 }
 
 /**
@@ -618,13 +650,13 @@ export function prepareVms(
     // Clear stale locks from aborted runs
     try {
       nestedSsh(config.pveHost, config.portPveSsh,
-        `pct unlock ${p.vmId} 2>/dev/null; true`, 5000);
+        `pct unlock ${p.vmId} 2>/dev/null; true`, 15000);
     } catch { /* ignore */ }
 
     let status: string;
     try {
       status = nestedSshStrict(config.pveHost, config.portPveSsh,
-        `pct status ${p.vmId} 2>/dev/null || echo "not found"`, 10000);
+        `pct status ${p.vmId} 2>/dev/null || echo "not found"`, 30000);
     } catch (err: any) {
       logFail(`SSH connection failed during pre-cleanup: ${err.message}`);
       process.exit(1);
@@ -672,7 +704,13 @@ export function prepareVms(
       }
     } else if (REPLACE_CT_TASKS.includes(task) && status.includes("running")) {
       logOk(`VM ${p.vmId} (${p.scenario.id}) running — ${task} in place`);
-    } else if (!p.isDependency || status.includes("status:")) {
+    } else if (status.includes("status:")) {
+      // Only destroy when the CT actually exists (pct status reports
+      // "status: running|stopped"). After a `qm rollback` to baseline, all
+      // test CT configs are gone, so `pct status` returns "not found" —
+      // calling `pct destroy` then is a 30 s SSH no-op per scenario
+      // (60+ for `--all`). Skip the entire block when there's nothing to
+      // destroy; the scenario will create the CT fresh during install.
       logInfo(`Destroying VM ${p.vmId} (${p.scenario.id})...`);
       // Release any leftover host-side LV mounts first — vol_mount
       // (used on LVM/LVM-thin storage) leaves /var/lib/pve-vol-mounts/<volname>

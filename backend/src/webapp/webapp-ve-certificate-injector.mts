@@ -17,13 +17,13 @@ export class WebAppVeCertificateInjector {
    * set. The hostname for the server cert comes from the existing `hostname`
    * parameter (added by the runner / cli before validation).
    */
-  injectCertificateRequests(
+  async injectCertificateRequests(
     processedParams: Array<{ id: string; value: string | number | boolean }>,
     loadedParameters: IParameter[],
     caProvider: ICaProvider,
     veContextKey: string,
     applicationProperties?: Array<{ id: string; value?: unknown; default?: unknown }>,
-  ): void {
+  ): Promise<void> {
     // Detect SSL addon via certtype marker on ssl.mode parameter
     const sslParam = loadedParameters.find((p) => p.certtype === "server");
     if (!sslParam) return;
@@ -37,11 +37,11 @@ export class WebAppVeCertificateInjector {
     const hostnameRaw = processedParams.find((p) => p.id === "hostname")?.value;
     const hostname = typeof hostnameRaw === "string" && hostnameRaw.length > 0
       ? hostnameRaw : "localhost";
-    const projectDomainSuffix = caProvider.getDomainSuffix(veContextKey) || ".local";
+    const projectDomainSuffix = (await caProvider.getDomainSuffix(veContextKey)) || ".local";
     const fqdn = hostname.includes(".") ? hostname : `${hostname}${projectDomainSuffix}`;
 
     // Public CA cert — for trust store inside the container.
-    const ca = caProvider.getCA(veContextKey);
+    const ca = await caProvider.getCA(veContextKey);
     if (!ca) {
       // No CA available (e.g. Hub unreachable). Don't inject anything; template
       // 156 will skip via skip_if_all_missing on server_cert_b64.
@@ -67,7 +67,7 @@ export class WebAppVeCertificateInjector {
 
     // Server cert + key — signed by the CA (locally in Hub mode, via Hub API
     // in Spoke mode — both implemented inside ICaProvider.ensureServerCert).
-    const server = caProvider.ensureServerCert(veContextKey, fqdn, extraSans);
+    const server = await caProvider.ensureServerCert(veContextKey, fqdn, extraSans);
 
     processedParams.push({ id: "server_key_b64", value: server.key });
     processedParams.push({ id: "server_cert_b64", value: server.cert });
@@ -91,12 +91,12 @@ export class WebAppVeCertificateInjector {
    * Kept separate from injectCertificateRequests because that method early-
    * returns when SSL is absent; mTLS must work independently of SSL.
    */
-  injectClientCertificateRequests(
+  async injectClientCertificateRequests(
     processedParams: Array<{ id: string; value: string | number | boolean }>,
     loadedParameters: IParameter[],
     caProvider: ICaProvider,
     veContextKey: string,
-  ): void {
+  ): Promise<void> {
     const mtlsParam = loadedParameters.find((p) => p.certtype === "client");
     if (!mtlsParam) return;
 
@@ -113,7 +113,7 @@ export class WebAppVeCertificateInjector {
     ];
     if (cns.length === 0) return;
 
-    const ca = caProvider.getCA(veContextKey);
+    const ca = await caProvider.getCA(veContextKey);
     if (!ca) {
       // No CA available (e.g. Hub unreachable). Inject nothing; template 161
       // skips via skip_if_all_missing on mtls_client_certs_b64.
@@ -122,7 +122,7 @@ export class WebAppVeCertificateInjector {
 
     const bundle: Record<string, { key: string; cert: string }> = {};
     for (const cn of cns) {
-      const signed = caProvider.signClientCert(veContextKey, cn);
+      const signed = await caProvider.signClientCert(veContextKey, cn);
       bundle[cn] = { key: signed.key, cert: signed.cert };
     }
 

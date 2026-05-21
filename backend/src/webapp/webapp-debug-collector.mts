@@ -153,7 +153,13 @@ export class WebAppDebugCollector {
    * Bundle consumers (test runners) await this before reading the manifest
    * so they don't race with async post-task diagnostic capture.
    */
-  async waitForFinish(restartKey: string, timeoutMs = 30000): Promise<void> {
+  // 90s ceiling: the slowest observed post-install-crash path takes ~91s
+  // between the host-side runner declaring failure (via wait_seconds) and
+  // the backend's finalizeBundle firing — the backend may still be mid-
+  // install when the runner gives up, then runs captureLxcDiagnostics on
+  // a stopped CT. 30s was cutting that case short, leaving the bundle
+  // empty even though it would have been complete moments later.
+  async waitForFinish(restartKey: string, timeoutMs = 90000): Promise<void> {
     const entry = this.entries.get(restartKey);
     if (!entry) return;
     if (entry.finishedAt !== undefined) return;

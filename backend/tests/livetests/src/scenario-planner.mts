@@ -50,13 +50,42 @@ function taskPriority(s: ResolvedScenario): number {
   return TASK_PRIORITY[s.task ?? "installation"] ?? 99;
 }
 
+/**
+ * Expand a set of scenario ids into the set of ids that should be treated
+ * as "priority" by `collectWithDeps`: the input ids plus all transitive
+ * `depends_on` ancestors found in `all`. Used to bias the topological
+ * ordering toward catalog members and their dependency chains, so the
+ * runner builds the snapshot infrastructure first (postgres → zitadel →
+ * catalog members) before fanning out to leaf consumers. Combined with
+ * the catalog-phase fail-fast gate, this also enables an early exit when
+ * any catalog member fails.
+ */
+export function expandToPriorityClosure(
+  ids: Iterable<string>,
+  all: Map<string, ResolvedScenario>,
+): Set<string> {
+  const closure = new Set<string>();
+  const walk = (id: string): void => {
+    if (closure.has(id)) return;
+    closure.add(id);
+    const s = all.get(id);
+    if (!s) return;
+    for (const dep of s.depends_on ?? []) walk(dep);
+  };
+  for (const id of ids) walk(id);
+  return closure;
+}
+
 export function collectWithDeps(
   selected: string[],
   all: Map<string, ResolvedScenario>,
+  priorityIds?: ReadonlySet<string>,
 ): ResolvedScenario[] {
   const visited = new Set<string>();
   const visiting = new Set<string>(); // for cycle detection
   const ordered: ResolvedScenario[] = [];
+
+  const priorityRank = (id: string): number => (priorityIds?.has(id) ? 0 : 1);
 
   function visit(id: string, chain: string[]) {
     if (visited.has(id)) return;
@@ -68,12 +97,14 @@ export function collectWithDeps(
     const s = all.get(id);
     if (!s) throw new Error(`Unknown test scenario: ${id}`);
 
-    // Visit deps in deterministic order — task priority first (install
-    // before upgrade before reconfigure), then alphabetical. With strict
-    // depends_on this is a no-op (only one dep per layer typically), but it
-    // becomes load-bearing in the top-level driver below where selected[]
-    // can carry multiple sibling consumers.
+    // Visit deps in deterministic order. Primary key: priority membership
+    // (catalog + transitive deps go first → unblock the snapshot phase
+    // before leaf consumers). Then task priority (install < upgrade <
+    // reconfigure). Then alphabetical for stability.
     const deps = [...(s.depends_on ?? [])].sort((a, b) => {
+      const pra = priorityRank(a);
+      const prb = priorityRank(b);
+      if (pra !== prb) return pra - prb;
       const sa = all.get(a);
       const sb = all.get(b);
       const pa = sa ? taskPriority(sa) : 99;
@@ -90,11 +121,14 @@ export function collectWithDeps(
     ordered.push(s);
   }
 
-  // Pre-sort the top-level selected[] by (task_priority, id) so siblings
-  // that share a source (e.g. `postgrest/upgrade-ssl`, `postgrest/reconf-ssl`)
-  // visit in the right order. Topological visit already preserves dep-chain
-  // ordering, so this only affects the layer where multiple roots are equal.
+  // Pre-sort selected[] — priority members first (catalog + their dep
+  // ancestors), then task_priority, then alphabetical. With `--all` this
+  // gives the snapshot phase a head start; with `@file` the listed
+  // scenarios are typically the catalog members themselves.
   const sortedSelected = [...selected].sort((a, b) => {
+    const pra = priorityRank(a);
+    const prb = priorityRank(b);
+    if (pra !== prb) return pra - prb;
     const sa = all.get(a);
     const sb = all.get(b);
     const pa = sa ? taskPriority(sa) : 99;

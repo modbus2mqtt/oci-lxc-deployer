@@ -35,7 +35,7 @@ describe("Certificate API routes", () => {
     it("should return CA info after generation", async () => {
       // Generate CA first
       const caService = new CertificateAuthorityService(setup.ctx);
-      caService.generateCA(veContextKey);
+      await caService.generateCA(veContextKey);
 
       const url = ApiUri.CertificateCa.replace(":veContext", veContextKey);
       const res = await request(app).get(url);
@@ -50,7 +50,7 @@ describe("Certificate API routes", () => {
     it("should import valid CA key+cert", async () => {
       // Generate a CA to get valid key+cert
       const caService = new CertificateAuthorityService(setup.ctx);
-      const ca = caService.generateCA("ve_temp");
+      const ca = await caService.generateCA("ve_temp");
 
       const url = ApiUri.CertificateCa.replace(":veContext", veContextKey);
       const res = await request(app).post(url).send({
@@ -72,8 +72,8 @@ describe("Certificate API routes", () => {
 
     it("should reject mismatched key+cert", async () => {
       const caService = new CertificateAuthorityService(setup.ctx);
-      const ca1 = caService.generateCA("ve_host1");
-      const ca2 = caService.generateCA("ve_host2");
+      const ca1 = await caService.generateCA("ve_host1");
+      const ca2 = await caService.generateCA("ve_host2");
 
       const url = ApiUri.CertificateCa.replace(":veContext", veContextKey);
       const res = await request(app).post(url).send({
@@ -95,13 +95,13 @@ describe("Certificate API routes", () => {
 
     it("should overwrite existing CA", async () => {
       const caService = new CertificateAuthorityService(setup.ctx);
-      const ca1 = caService.generateCA(veContextKey);
+      const ca1 = await caService.generateCA(veContextKey);
 
       const url = ApiUri.CertificateCaGenerate.replace(":veContext", veContextKey);
       const res = await request(app).post(url).send({});
       expect(res.status).toBe(200);
 
-      const ca2 = caService.getCA(veContextKey);
+      const ca2 = await caService.getCA(veContextKey);
       // New CA should have different key
       expect(ca2!.key).not.toBe(ca1.key);
     });

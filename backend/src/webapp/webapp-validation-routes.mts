@@ -112,7 +112,7 @@ export function registerValidationRoutes(app: Application): void {
         // in-memory storage, missing Hub-resident stacks in Spoke mode.
         const stackProvider = pm.getStackProvider();
         const availableStacks = stacktypes.length > 0
-          ? stacktypes.flatMap((st) => stackProvider.listStacks(st))
+          ? (await Promise.all(stacktypes.map((st) => stackProvider.listStacks(st)))).flat()
           : [];
 
         // If an explicit stackId was supplied, derive its stacktype from the
@@ -130,7 +130,7 @@ export function registerValidationRoutes(app: Application): void {
             const stackIdType = body.stackId.slice(0, firstUnderscore);
             if (!stacktypes.includes(stackIdType)) {
               try {
-                for (const s of stackProvider.listStacks(stackIdType)) {
+                for (const s of await stackProvider.listStacks(stackIdType)) {
                   if (!availableStacks.some((x) => x.id === s.id)) {
                     availableStacks.push(s);
                   }

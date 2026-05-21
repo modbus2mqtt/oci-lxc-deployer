@@ -30,7 +30,7 @@ export function registerHubRoutes(app: express.Application): void {
    *   mode omitted/"server" → server cert (backward compatible).
    * Response: { cert: string, key: string } (both base64 PEM)
    */
-  app.post(ApiUri.HubCaSign, express.json(), (req, res) => {
+  app.post(ApiUri.HubCaSign, express.json(), async (req, res) => {
     try {
       const { hostname, extraSans, mode } = req.body;
       if (!hostname) {
@@ -49,8 +49,8 @@ export function registerHubRoutes(app: express.Application): void {
       // Use the default VE context key for CA operations
       const veContextKey = "ca_global";
       const result = mode === "client"
-        ? caProvider.signClientCert(veContextKey, hostname)
-        : caProvider.generateSelfSignedCert(veContextKey, hostname, extraSans);
+        ? await caProvider.signClientCert(veContextKey, hostname)
+        : await caProvider.generateSelfSignedCert(veContextKey, hostname, extraSans);
       logger.info("CA signed certificate for spoke", { hostname, mode: mode ?? "server", extraSans: extraSans ?? [] });
       res.json({ cert: result.cert, key: result.key });
     } catch (err: any) {
@@ -62,10 +62,10 @@ export function registerHubRoutes(app: express.Application): void {
    * GET /api/hub/ca/cert — Get CA public certificate (no auth required).
    * Response: PEM-encoded CA certificate (base64).
    */
-  app.get(ApiUri.HubCaCert, (_req, res) => {
+  app.get(ApiUri.HubCaCert, async (_req, res) => {
     try {
       const caProvider = pm.getCaProvider();
-      const ca = caProvider.getCA("ca_global");
+      const ca = await caProvider.getCA("ca_global");
       if (!ca) {
         res.status(404).json({ error: "No CA configured" });
         return;
@@ -81,11 +81,11 @@ export function registerHubRoutes(app: express.Application): void {
   /**
    * GET /api/hub/stacks?stacktype=xxx — List stacks.
    */
-  app.get(ApiUri.HubStacks, (req, res) => {
+  app.get(ApiUri.HubStacks, async (req, res) => {
     try {
       const stacktype = req.query.stacktype as string | undefined;
       const stackProvider = pm.getStackProvider();
-      const stacks = stackProvider.listStacks(stacktype);
+      const stacks = await stackProvider.listStacks(stacktype);
       res.json({ stacks });
     } catch (err: any) {
       sendErrorResponse(res, err);
@@ -95,10 +95,10 @@ export function registerHubRoutes(app: express.Application): void {
   /**
    * GET /api/hub/stack/:id — Get single stack.
    */
-  app.get(ApiUri.HubStack, (req, res) => {
+  app.get(ApiUri.HubStack, async (req, res) => {
     try {
       const stackProvider = pm.getStackProvider();
-      const stack = stackProvider.getStack(req.params.id);
+      const stack = await stackProvider.getStack(req.params.id);
       if (!stack) {
         res.status(404).json({ error: "Stack not found" });
         return;
@@ -112,10 +112,10 @@ export function registerHubRoutes(app: express.Application): void {
   /**
    * POST /api/hub/stacks — Create stack.
    */
-  app.post(ApiUri.HubStacks, express.json(), (req, res) => {
+  app.post(ApiUri.HubStacks, express.json(), async (req, res) => {
     try {
       const stackProvider = pm.getStackProvider();
-      const key = stackProvider.addStack(req.body);
+      const key = await stackProvider.addStack(req.body);
       res.json({ success: true, key });
     } catch (err: any) {
       sendErrorResponse(res, err);
@@ -125,10 +125,10 @@ export function registerHubRoutes(app: express.Application): void {
   /**
    * DELETE /api/hub/stack/:id — Delete stack.
    */
-  app.delete(ApiUri.HubStack, (req, res) => {
+  app.delete(ApiUri.HubStack, async (req, res) => {
     try {
       const stackProvider = pm.getStackProvider();
-      const deleted = stackProvider.deleteStack(req.params.id);
+      const deleted = await stackProvider.deleteStack(req.params.id);
       res.json({ success: deleted, deleted });
     } catch (err: any) {
       sendErrorResponse(res, err);
