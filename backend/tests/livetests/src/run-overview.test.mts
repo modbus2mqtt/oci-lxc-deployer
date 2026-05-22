@@ -41,6 +41,7 @@ function state(plannedScenarios: PlannedScenario[], outDir = "/tmp/none"): RunOv
     finishedAtMap: new Map(),
     storage: new Map(),
     errorMessages: new Map(),
+    phase: "test",
   };
 }
 

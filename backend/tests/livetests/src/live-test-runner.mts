@@ -31,7 +31,7 @@ import { nestedSsh, nestedSshStrict } from "./ssh-helpers.mjs";
 import {
   collectWithDeps, selectScenarios, planScenarios, applyTagFilter,
   classifyRunMode, loadSnapshotCatalog, loadScenarioListFromFile,
-  expandToPriorityClosure,
+  expandToPriorityClosure, addImplicitDestructiveTaskDeps,
 } from "./scenario-planner.mjs";
 import { TestResultWriter } from "./test-result-writer.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
@@ -802,6 +802,13 @@ async function main() {
   // Plan: assign VM IDs and stack names
   const planned = planScenarios(scenariosToRun, appStacktypes, allTests);
 
+  // Implicit ordering: every upgrade/reconfigure waits for every same-tree
+  // installation. Compresses the late-run tail (long destructive tasks would
+  // otherwise become ready as soon as their direct source install finished
+  // and run in parallel with the remaining installs — sometimes touching
+  // shared external state like zitadel projects, producing late races).
+  addImplicitDestructiveTaskDeps(planned);
+
   // Mark dependencies vs explicitly selected targets.
   //
   // A scenario is treated as a dependency (provider) when EITHER it was only
@@ -872,6 +879,7 @@ async function main() {
     finishedAtMap: new Map<string, Date>(),
     storage: new Map<string, string>(),
     errorMessages: new Map<string, string>(),
+    phase: "planning",
   };
   const overviewServer: RunOverviewServer | null = await startRunOverviewServer(
     overviewState,
@@ -898,6 +906,13 @@ async function main() {
   } else {
     logInfo(`Live overview: file://${resultWriter.getOutputDir()}/run-overview.html (server port busy — JSON-only updates)`);
   }
+  // Coarse-grained phase labels for the HTML header. Setup phases can take
+  // minutes (qm rollback boot, smartCleanup of dozens of CTs, ensureStacks
+  // round-trips); knowing where the runner is helps an observer judge ETA.
+  const setPhase = (phase: string): void => {
+    overviewState.phase = phase;
+    overviewServer?.emit(overviewState);
+  };
 
   // Phase 0: resolve the per-application dependency-snapshot name for this
   // run scope. `null` for `--all` / multi-application subsets → no dep
@@ -926,8 +941,10 @@ async function main() {
   //   - single (default): pre-cleanup of non-snapshot, non-needed CTs.
   //   - snapshot-build: legacy path (no qm rollback, no pre-cleanup).
   if (runMode === "all") {
+    setPhase("rolling back nested VM to @deployer-installed");
     await rollbackToBaseline(config.pveHost, config.portPveSsh, config.vmId);
   } else if (runMode === "file") {
+    setPhase("smart-cleanup of pre-existing CTs");
     const plannedVmIdSet = new Set(planned.map((p) => p.vmId));
     await smartCleanupBeforeRun(config.pveHost, config.portPveSsh, config.vmId, plannedVmIdSet);
   }
@@ -937,22 +954,28 @@ async function main() {
   //     the same work plus destroys snapshotless deps; running both would
   //     pct-rollback every dep CT twice.
   if (runMode !== "all" && !(runMode === "single" && fromSnapshot)) {
+    setPhase("restoring snapshots for dep CTs");
     await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
   }
   // qm rollback wipes the nested-VM iptables + dnsmasq state, so reapply
   // port forwarding (idempotent) so Playwright specs and OIDC redirect URIs
   // still reach the right inner containers.
+  setPhase("setting up port forwarding");
   setupPortForwarding(config);
   if (runMode === "single" && fromSnapshot) {
+    setPhase("rolling back/destroying dep CTs from snapshot");
     await rollbackOrDestroyDepsFromSnapshot(planned, config.pveHost, config.portPveSsh, projectRoot);
   }
   if (runMode === "single") {
+    setPhase("pre-cleanup of non-snapshot consumers");
     const neededVmIds = new Set(planned.map((p) => p.vmId));
     await preCleanupNonSnapshotConsumers(config.pveHost, config.portPveSsh, neededVmIds);
   }
+  setPhase("preparing VMs");
   prepareVms(planned, config, appStacktypes);
 
   // Stack management: cleanup SQL, stale VM detection, stack creation
+  setPhase("cleaning up stale state + creating stacks");
   runCleanupSql(planned, config.pveHost, config.portPveSsh);
   await destroyStaleVms(planned, config.pveHost, config.portPveSsh, apiUrl, appStacktypes);
   const { appStackIdsMap } = await ensureStacks(planned, apiUrl, appStacktypes);
@@ -965,6 +988,7 @@ async function main() {
   if (failFastFlag) logInfo("--fail-fast enabled: aborting on first scenario failure");
   let result;
   const overviewOpts = { overview: { state: overviewState, server: overviewServer } };
+  setPhase("running scenarios");
   try {
     if (parallelEnabled) {
       logInfo(`--parallel enabled: concurrency limit ${parallelLimit}`);
@@ -979,6 +1003,7 @@ async function main() {
     }
   } finally {
     clearInterval(overviewJsonTimer);
+    setPhase("finished");
     // Final JSON snapshot is the post-mortem source of truth — viewers
     // opened after the runner exits read this file. Index is regenerated
     // so the runs listing shows this run's final counts + failed list.

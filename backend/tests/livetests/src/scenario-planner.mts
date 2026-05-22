@@ -255,10 +255,17 @@ export function classifyParallel(
   const blocked: number[] = [];
   for (let idx = 0; idx < planned.length; idx++) {
     if (state[idx] !== "pending") continue;
+    // Both real and implicit deps gate readiness: real deps express
+    // structural correctness; implicit deps compress the destructive-task
+    // tail (see addImplicitDestructiveTaskDeps). Failed real dep blocks
+    // (cascade); failed implicit dep also blocks because if a same-tree
+    // install failed, the destructive task would race against an
+    // incomplete tree.
     const deps = planned[idx]!.scenario.depends_on ?? [];
+    const implicit = planned[idx]!.implicitDeps ?? [];
     let depBlocked = false;
     let allDone = true;
-    for (const depId of deps) {
+    for (const depId of [...deps, ...implicit]) {
       const di = indexById.get(depId);
       if (di === undefined) continue; // dep not in this plan → satisfied
       if (state[di] === "failed") { depBlocked = true; break; }
@@ -268,6 +275,73 @@ export function classifyParallel(
     else if (allDone) ready.push(idx);
   }
   return { ready, blocked };
+}
+
+/**
+ * Augments `depends_on` of every upgrade/reconfigure scenario with the
+ * implicit "wait for all installs in my dependency tree" rule.
+ *
+ * Motivation: under `--all`, a reconfigure becomes ready as soon as its own
+ * source install finishes — even if other installs in the same dependency
+ * fan-out (siblings, cousins) are still running. Those installs may write
+ * shared external state (e.g. zitadel projects, OIDC clients) that the
+ * reconfigure also touches, producing late-run races and a long tail.
+ *
+ * Rule: a reconfigure/upgrade scenario R implicitly depends on every
+ * `installation`-task scenario I where R and I share at least one node in
+ * their transitive `depends_on` closure (i.e. they live in the same
+ * connected component of the dep graph). Unrelated trees are unaffected,
+ * so `--all` parallelism within independent fan-outs is preserved.
+ *
+ * Mutation: planned-scenario `depends_on` arrays are extended in place.
+ * That's safe because `planned[]` is per-run and not reused across runs.
+ */
+export function addImplicitDestructiveTaskDeps(planned: PlannedScenario[]): void {
+  const indexById = new Map<string, number>();
+  planned.forEach((p, i) => indexById.set(p.scenario.id, i));
+
+  // Closure cache: scenario id -> set of every id reachable through depends_on
+  // (including itself). Built once with memoisation.
+  const closure = new Map<string, Set<string>>();
+  const computeClosure = (id: string, visiting: Set<string> = new Set()): Set<string> => {
+    const cached = closure.get(id);
+    if (cached) return cached;
+    if (visiting.has(id)) return new Set([id]); // cycle guard; should not happen post-toposort
+    visiting.add(id);
+    const acc = new Set<string>([id]);
+    const idx = indexById.get(id);
+    if (idx !== undefined) {
+      for (const dep of planned[idx]!.scenario.depends_on ?? []) {
+        for (const x of computeClosure(dep, visiting)) acc.add(x);
+      }
+    }
+    visiting.delete(id);
+    closure.set(id, acc);
+    return acc;
+  };
+  for (const p of planned) computeClosure(p.scenario.id);
+
+  for (const p of planned) {
+    const task = p.scenario.task ?? "installation";
+    if (task !== "upgrade" && task !== "reconfigure") continue;
+    const myClosure = closure.get(p.scenario.id)!;
+    const existing = new Set(p.scenario.depends_on ?? []);
+    const added: string[] = [];
+    for (const other of planned) {
+      if (other.scenario.id === p.scenario.id) continue;
+      if ((other.scenario.task ?? "installation") !== "installation") continue;
+      if (existing.has(other.scenario.id)) continue;
+      const otherClosure = closure.get(other.scenario.id)!;
+      let shared = false;
+      for (const x of otherClosure) {
+        if (myClosure.has(x)) { shared = true; break; }
+      }
+      if (shared) added.push(other.scenario.id);
+    }
+    if (added.length > 0) {
+      p.implicitDeps = added;
+    }
+  }
 }
 
 /**

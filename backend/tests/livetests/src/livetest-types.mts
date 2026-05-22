@@ -137,6 +137,11 @@ export interface PlannedScenario {
   hasStacktype: boolean;
   isDependency: boolean;
   skipExecution: boolean;
+  /** Scenario ids added by `addImplicitDestructiveTaskDeps` to gate
+   *  upgrade/reconfigure on every same-tree installation. Kept separate
+   *  from `scenario.depends_on` so the UI / dependency analysis can show
+   *  only the test-authored relations. classifyParallel consults both. */
+  implicitDeps?: string[];
 }
 
 export interface StepResult {

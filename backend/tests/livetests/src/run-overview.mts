@@ -31,6 +31,11 @@ export interface RunOverviewState {
   finishedAtMap: Map<string, Date>;
   storage: Map<string, string>;
   errorMessages: Map<string, string>;
+  /** Free-form current-phase label shown in the HTML header — e.g.
+   *  "rolling back nested VM", "preparing VMs", "running scenarios".
+   *  Updated by the runner at coarse-grained transitions before/around
+   *  scenario execution. Best-effort observability only. */
+  phase: string;
 }
 
 export interface ScenarioSnapshot {
@@ -49,6 +54,13 @@ export interface ScenarioSnapshot {
   durationSec: number | null;
   error: string | null;
   indexPath: string;
+  /** Original test-authored `depends_on` (from test.json). */
+  dependsOn: string[];
+  /** Runner-added scheduling deps (same-tree installs before destructive
+   *  tasks; see addImplicitDestructiveTaskDeps). Combined with `dependsOn`,
+   *  this gives the *actual* serial-ordering constraint the parallel driver
+   *  enforces — what the tree-stats critical path needs. */
+  implicitDependsOn: string[];
 }
 
 export interface RunOverviewSnapshot {
@@ -57,6 +69,8 @@ export interface RunOverviewSnapshot {
   now: string;
   elapsedSec: number;
   commandLine: string;
+  /** Current high-level phase label — see RunOverviewState.phase. */
+  phase: string;
   totalPlanned: number;
   counts: {
     passed: number;
@@ -116,6 +130,8 @@ export function buildSnapshot(state: RunOverviewState, nowMs: number = Date.now(
       durationSec,
       error: state.errorMessages.get(sid) ?? null,
       indexPath: `${sanitizeScenarioId(sid)}/livetest-index.md`,
+      dependsOn: p.scenario.depends_on ?? [],
+      implicitDependsOn: p.implicitDeps ?? [],
     };
   });
 
@@ -135,6 +151,7 @@ export function buildSnapshot(state: RunOverviewState, nowMs: number = Date.now(
     now: new Date(nowMs).toISOString(),
     elapsedSec: Math.floor((nowMs - state.startedAt.getTime()) / 1000),
     commandLine: state.commandLine,
+    phase: state.phase,
     totalPlanned: state.planned.length,
     counts: { passed, failed, skipped, restored, running, pending },
     scenarios,
@@ -227,7 +244,7 @@ function renderHtml(runId: string, sseUrl: string | null): string {
 <body>
 <h1>Livetest Run Overview <span id="source" class="source">loading…</span></h1>
 <div class="meta">
-  <div>Run&nbsp;ID: <code id="runId">${escapeHtml(runId)}</code></div>
+  <div>Run&nbsp;ID: <code id="runId">${escapeHtml(runId)}</code> · Phase: <strong id="phase">—</strong></div>
   <div>Started: <span id="startedAt">—</span> · Elapsed: <span id="elapsed">—</span></div>
   <div>Status (click to hide):
     <span class="badge b-passed"   data-filter="passed"  title="Click to hide passed rows">✓ <span id="c-passed">0</span> passed</span>
@@ -273,6 +290,24 @@ function renderHtml(runId: string, sseUrl: string | null): string {
   <h2>Errors</h2>
   <ul id="errorsList"></ul>
 </div>
+<details id="treesBox" open style="margin-top:1.5rem">
+  <summary style="cursor:pointer; font-weight:600; user-select:none">Dependency trees</summary>
+  <div class="hint" style="color:#666;font-size:.85rem;margin:.3rem 0 .5rem">Connected components of the dep graph, sorted by critical path (longest single chain that no parallel worker can shorten). Move scenarios off the dominant tree to compress wall-clock.</div>
+  <table id="trees" style="margin-top:.3rem">
+    <thead>
+      <tr>
+        <th style="width:18ch">Tree</th>
+        <th style="width:5ch;text-align:center">#</th>
+        <th style="width:18ch">Storage</th>
+        <th style="width:9ch;text-align:center">&Sigma; Duration</th>
+        <th style="width:11ch;text-align:center">Critical&nbsp;path</th>
+        <th style="width:10ch;text-align:center">Wall&#x2011;clock</th>
+        <th>Longest chain</th>
+      </tr>
+    </thead>
+    <tbody id="treesBody"></tbody>
+  </table>
+</details>
 <script>
 const RUN_ID = ${runIdLiteral};
 const SSE_URL = ${sseLiteral};
@@ -355,6 +390,7 @@ function render(snapshot) {
   document.getElementById('elapsed').textContent =
     el >= 60 ? Math.floor(el / 60) + 'm ' + (el % 60) + 's' : el + 's';
   document.getElementById('cmd').textContent = snapshot.commandLine;
+  document.getElementById('phase').textContent = snapshot.phase || '—';
   const c = snapshot.counts;
   document.getElementById('c-passed').textContent = c.passed;
   document.getElementById('c-failed').textContent = c.failed;
@@ -400,6 +436,7 @@ function render(snapshot) {
     tbody.appendChild(tr);
   }
   updateSortIndicators();
+  renderTreeStats(snapshot);
 
   const errors = snapshot.scenarios.filter((s) => s.error);
   const box = document.getElementById('errorsBox');
@@ -417,6 +454,175 @@ function render(snapshot) {
       li.appendChild(document.createTextNode(': ' + s.error));
       list.appendChild(li);
     }
+  }
+}
+
+// Tree-stats: groups scenarios by connected component (using only the
+// authored depends_on edges, not implicit ones), computes the critical
+// path (longest weighted chain) per tree, and renders a sortable table
+// so the user can spot the tree dominating wall-clock and decide which
+// scenarios to move (e.g. shift an OIDC-touching test to a non-OIDC tree).
+function buildTreeStats(snapshot) {
+  const scenarios = (snapshot && snapshot.scenarios) || [];
+  if (scenarios.length === 0) return [];
+  const byId = new Map(scenarios.map((s) => [s.id, s]));
+  // Combine real + implicit deps into a single edge set. Implicit edges
+  // matter for two reasons:
+  //   1. They reflect the *actual* serial ordering the runner enforces
+  //      (reconfigures wait for every same-tree install), so the critical
+  //      path matches reality, not a theoretical best case.
+  //   2. They never cross trees, so component-bucketing is identical with
+  //      or without them — only the per-tree weight changes.
+  const depsFor = (s) => [...(s.dependsOn || []), ...(s.implicitDependsOn || [])];
+
+  // Union-Find for connected components.
+  const parent = new Map();
+  scenarios.forEach((s) => parent.set(s.id, s.id));
+  const find = (x) => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)));
+      x = parent.get(x);
+    }
+    return x;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  for (const s of scenarios) {
+    for (const dep of depsFor(s)) {
+      if (byId.has(dep)) union(s.id, dep);
+    }
+  }
+  const groups = new Map();
+  for (const s of scenarios) {
+    const r = find(s.id);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(s);
+  }
+
+  const result = [];
+  for (const [, list] of groups) {
+    const inIds = new Set(list.map((s) => s.id));
+    // Build per-component predecessors map up-front (cheaper than scanning
+    // for every node during DP). Each (u → v) edge means v depends on u,
+    // so u must run before v: u is a predecessor of v.
+    const predOf = new Map();
+    const inDeg = new Map();
+    list.forEach((s) => { predOf.set(s.id, []); inDeg.set(s.id, 0); });
+    for (const s of list) {
+      for (const dep of depsFor(s)) {
+        if (!inIds.has(dep)) continue;
+        predOf.get(s.id).push(dep);
+        inDeg.set(s.id, (inDeg.get(s.id) || 0) + 1);
+      }
+    }
+    // Topological order via Kahn's algorithm.
+    const tmpDeg = new Map(inDeg);
+    const queue = list.filter((s) => (tmpDeg.get(s.id) || 0) === 0).map((s) => s.id);
+    const order = [];
+    while (queue.length > 0) {
+      const v = queue.shift();
+      order.push(v);
+      // walk consumers — derive on the fly from list (rare path, O(n))
+      for (const c of list) {
+        if (!(predOf.get(c.id) || []).includes(v)) continue;
+        tmpDeg.set(c.id, tmpDeg.get(c.id) - 1);
+        if (tmpDeg.get(c.id) === 0) queue.push(c.id);
+      }
+    }
+    const w = (id) => Math.max(0, byId.get(id).durationSec || 0);
+    const dist = new Map();
+    const pred = new Map();
+    let best = { id: list[0].id, dist: 0 };
+    for (const v of order) {
+      let bestParent = null;
+      let bestParentDist = 0;
+      for (const u of predOf.get(v) || []) {
+        const d = dist.get(u) || 0;
+        if (d > bestParentDist) { bestParentDist = d; bestParent = u; }
+      }
+      const dv = bestParentDist + w(v);
+      dist.set(v, dv);
+      if (bestParent !== null) pred.set(v, bestParent);
+      if (dv > best.dist) best = { id: v, dist: dv };
+    }
+    const chain = [];
+    {
+      let cur = best.id;
+      while (cur != null) { chain.unshift(cur); cur = pred.get(cur) || null; }
+    }
+    const sumDuration = list.reduce((acc, s) => acc + w(s.id), 0);
+
+    // Wall-clock: actual elapsed time the tree occupied. Honest answer
+    // even mid-run — uses now() as the upper bound if any member is
+    // still running.
+    let minStart = null, maxEnd = null;
+    let anyRunning = false;
+    const nowMs = Date.now();
+    for (const s of list) {
+      if (s.startedAtMs != null) {
+        minStart = minStart == null ? s.startedAtMs : Math.min(minStart, s.startedAtMs);
+      }
+      if (s.finishedAtMs != null) {
+        maxEnd = maxEnd == null ? s.finishedAtMs : Math.max(maxEnd, s.finishedAtMs);
+      }
+      if (s.status === 'running') anyRunning = true;
+    }
+    let wallClock = null;
+    if (minStart != null) {
+      const end = anyRunning ? Math.max(maxEnd || 0, nowMs) : maxEnd;
+      if (end != null) wallClock = (end - minStart) / 1000;
+    }
+
+    const repApp = byId.get(chain[0] || list[0].id).app;
+    const storages = [...new Set(list.map((s) => s.storage).filter(Boolean))].sort();
+    result.push({
+      rep: repApp,
+      members: list,
+      storages,
+      sumDuration,
+      criticalDist: best.dist,
+      wallClock,
+      chain,
+    });
+  }
+  result.sort((a, b) => b.criticalDist - a.criticalDist);
+  return result;
+}
+
+function fmtDur(sec) {
+  if (sec == null || sec <= 0) return '—';
+  if (sec < 60) return sec.toFixed(1) + 's';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec - m * 60);
+  return m + 'm ' + s + 's';
+}
+
+function renderTreeStats(snapshot) {
+  const tbody = document.getElementById('treesBody');
+  if (!tbody) return;
+  const trees = buildTreeStats(snapshot);
+  tbody.replaceChildren();
+  for (const t of trees) {
+    const tr = document.createElement('tr');
+    const repTd = document.createElement('td'); repTd.textContent = t.rep; tr.appendChild(repTd);
+    const cntTd = document.createElement('td'); cntTd.className = 'num center'; cntTd.textContent = String(t.members.length); tr.appendChild(cntTd);
+    const stTd = document.createElement('td'); stTd.textContent = t.storages.length > 0 ? t.storages.join(', ') : '—'; tr.appendChild(stTd);
+    const sumTd = document.createElement('td'); sumTd.className = 'num center'; sumTd.textContent = fmtDur(t.sumDuration); tr.appendChild(sumTd);
+    const cpTd = document.createElement('td'); cpTd.className = 'num center'; cpTd.textContent = fmtDur(t.criticalDist); tr.appendChild(cpTd);
+    const wcTd = document.createElement('td'); wcTd.className = 'num center'; wcTd.textContent = fmtDur(t.wallClock); tr.appendChild(wcTd);
+    const chTd = document.createElement('td');
+    // Mehrzeilig: ein Szenario pro Zeile, mit Pfeil-Prefix; pre-line lässt
+    // die Zelle wrappen statt overflow:ellipsis (vom Tabellen-Default).
+    chTd.style.whiteSpace = 'pre-line';
+    chTd.style.fontSize = '.85rem';
+    chTd.style.lineHeight = '1.4';
+    chTd.textContent = t.chain.length > 0
+      ? t.chain.map((id, i) => (i === 0 ? '' : '↳ ') + id).join('\\n')
+      : '—';
+    tr.appendChild(chTd);
+    tbody.appendChild(tr);
   }
 }
 

@@ -10,5 +10,6 @@
       "value": "latest"
     }
   ],
-  "description": "Upgrade the test-proxvex-deployer container's OCI image. Overrides the inherited proxvex/upgrade depends_on so the source CT comes from the same-application install (test-proxvex-deployer/default), not from proxvex/default — which is a different application and isn't present when this scenario runs."
+  "untestable": "covered by test-proxvex-deployer/upgrade-via-ui (Playwright drives the same upgrade flow UI-side); a direct task=upgrade against the overlay hits a hostname/volume-resolution race in 991-host-test-deployer-ssh-setup that the *-via-ui variant avoids by running as task=installation",
+  "description": "Upgrade the test-proxvex-deployer container's OCI image. Overrides the inherited proxvex/upgrade depends_on so the source CT comes from the same-application install. Direct task=upgrade is marked untestable — see `untestable` field for details."
 }
