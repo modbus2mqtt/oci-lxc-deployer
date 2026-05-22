@@ -1,20 +1,15 @@
 {
   "task": "reconfigure",
-  "depends_on": [
-    "proxvex/plain"
-  ],
   "wait_seconds": 120,
   "cli_timeout": 900,
+  "consumes_source": "in-place",
+  "target_deployer_instance": true,
   "params": [
-    {
-      "name": "memory",
-      "value": "1024"
-    },
     {
       "name": "oci_image_tag",
       "value": "latest"
     }
   ],
   "expect_clone_lifecycle": true,
-  "description": "Self-upgrade via temporary clone-deployer: triggers reconfigure on the proxvex deployer-CT, which is detected as a self-upgrade and routed through the clone orchestrator. The clone runs the regular reconfigure pipeline against the source, producing a new CT that replaces the original. Validation: the new CT serves /api/version on the original IP, the orchestrator clone CT is auto-destroyed by clone-cleanup-service, the debug bundle is adopted under the same restart-key on the new CT."
+  "description": "TRUE self-upgrade: reconfigure on the Hub deployer-CT itself (no source isolation, no separate plain install). The Hub triggers the clone orchestrator on itself, the clone-CT runs the reconfigure against the Hub, and the Hub is replaced by a new CT that inherits its hostname/IP. Mirrors what a production operator triggers from the UI. Validation: post-replacement CT serves /api/version on the original Hub IP, the orchestrator clone CT is auto-destroyed by clone-cleanup-service, the debug bundle is adopted under the same restart-key on the new CT, and the new CT's Notes contain the original Hub URL in the proxvex:log-url marker (not the clone's URL)."
 }

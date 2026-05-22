@@ -101,6 +101,25 @@ export interface TestScenario {
    * Installation scenarios ignore this field.
    */
   consumes_source?: "isolate" | "in-place" | "shared";
+
+  /**
+   * When true, the runner resolves `previous_vm_id` by finding the CT on
+   * the PVE host that carries the `proxvex:deployer-instance` marker
+   * (i.e. the running deployer/Hub). Used for the self-upgrade test where
+   * the target is whatever CT is currently the deployer — vmid is not
+   * known statically. Skips the standard hostname-based existingVm
+   * discovery.
+   */
+  target_deployer_instance?: boolean;
+
+  /**
+   * When true, the runner expects this scenario to destroy the deployer-CT
+   * mid-run and have a new CT take over its IP+hostname (self-upgrade-via-
+   * clone). Used as documentation for now; future runner extensions may
+   * use it to trigger additional post-test verification (clone-bundle
+   * pull, etc.).
+   */
+  expect_clone_lifecycle?: boolean;
 }
 
 /** Discovered scenario with resolved identity */

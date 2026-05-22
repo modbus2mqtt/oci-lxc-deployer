@@ -917,8 +917,40 @@ export async function executeScenarios(
       //      errors into the post-rename log.
       let existingVm: { vm_id: number; addons?: string[]; hostname?: string } | null = null;
       if (isReplaceCt) {
+        // target_deployer_instance: scenario targets whatever CT carries
+        // the proxvex:deployer-instance marker on the PVE host. Used by
+        // the self-upgrade test — vmid varies (production: any; nested
+        // green: CT 300). Resolved once via `pct list` and a marker
+        // probe; existingVm.vm_id becomes the deployer's vmid and the
+        // standard hostname-based search is skipped.
+        if (scenario.target_deployer_instance) {
+          try {
+            const deployerVmidRaw = (await nestedSshAsync(
+              config.pveHost, config.portPveSsh,
+              "pct list | awk 'NR>1 {print $1}' | while read v; do " +
+                "pct config \"$v\" 2>/dev/null | grep -qa deployer-instance && echo \"$v\" && break; " +
+              "done",
+              15000,
+            )).trim();
+            if (!deployerVmidRaw || !/^\d+$/.test(deployerVmidRaw)) {
+              const errMsg = `target_deployer_instance: no CT with proxvex:deployer-instance marker found on ${config.pveHost} (raw=${JSON.stringify(deployerVmidRaw)})`;
+              logFail(errMsg);
+              result.errors.push(errMsg);
+              result.failed++;
+              return { type: "failed-partition", scenarioId: scenario.id };
+            }
+            existingVm = { vm_id: Number(deployerVmidRaw) };
+            logInfo(`target_deployer_instance: using CT ${existingVm.vm_id} (proxvex:deployer-instance marker) for ${task}`);
+          } catch (err: any) {
+            const errMsg = `target_deployer_instance: SSH probe failed: ${err?.message ?? String(err)}`;
+            logFail(errMsg);
+            result.errors.push(errMsg);
+            result.failed++;
+            return { type: "failed-partition", scenarioId: scenario.id };
+          }
+        }
         const explicitPrev = buildResult.params.find((p) => p.name === "previous_vm_id");
-        if (explicitPrev) {
+        if (!existingVm && explicitPrev) {
           existingVm = { vm_id: Number(explicitPrev.value) };
           logInfo(`Using explicit previous_vm_id=${explicitPrev.value} from scenario for ${task}`);
         }

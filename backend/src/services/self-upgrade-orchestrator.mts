@@ -91,6 +91,7 @@ export interface CloneCreationResult {
 export async function cloneSelfAsTempDeployer(
   selfVmid: string,
   preferredContextKey?: string,
+  deployerBaseUrl?: string,
 ): Promise<CloneCreationResult> {
   const pm = PersistenceManager.getInstance();
   const contextManager = pm.getContextManager();
@@ -132,6 +133,7 @@ export async function cloneSelfAsTempDeployer(
       { id: "previous_vm_id", value: String(selfVmid) },
       { id: "vm_id_start", value: "400" },
       { id: "searchdomain", value: "" },
+      { id: "deployer_base_url", value: deployerBaseUrl ?? "" },
     ],
     veContext,
     new Map(),

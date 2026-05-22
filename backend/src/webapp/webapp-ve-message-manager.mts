@@ -7,6 +7,16 @@ import {
 const MESSAGE_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
+ * Module-level reference set by the singleton constructor so services
+ * outside the webapp (clone-cleanup-service, etc.) can reach the live
+ * manager to inject messages adopted from another deployer.
+ */
+let activeManager: WebAppVeMessageManager | null = null;
+export function getActiveMessageManager(): WebAppVeMessageManager | null {
+  return activeManager;
+}
+
+/**
  * Manages execution messages, including partial and final message handling,
  * message grouping, and cleanup of old messages.
  */
@@ -20,6 +30,10 @@ export class WebAppVeMessageManager {
   messages: IVeExecuteMessagesResponse = [];
   private messageTimestamps: Map<string, number> = new Map(); // key: "app/task"
   private listeners: Set<MessageListener> = new Set();
+
+  constructor() {
+    activeManager = this;
+  }
 
   addListener(fn: MessageListener): void {
     this.listeners.add(fn);
@@ -257,6 +271,36 @@ export class WebAppVeMessageManager {
 
     // Notify all SSE listeners
     this.notifyListeners(msg, application, task);
+  }
+
+  /**
+   * Inject a batch of execution messages adopted from another deployer
+   * (clone-cleanup-service uses this after a self-upgrade-via-clone). The
+   * messages are placed into the group for (application, task, restartKey),
+   * dedup'd by `index`. Listeners are not notified — the messages are
+   * historical, already terminated when adopted. Used so that the new
+   * deployer-CT can serve `/api/ve/execute?restartKey=<key>` with the full
+   * task history from the clone, letting the test runner / UI see the
+   * finished message after the original deployer was replaced.
+   */
+  injectMessages(
+    application: string,
+    task: string,
+    restartKey: string,
+    messages: readonly IVeExecuteMessage[],
+  ): void {
+    const group = this.findOrCreateMessageGroup(application, task, restartKey);
+    const existingIndices = new Set<number>();
+    for (const m of group.messages) {
+      if (typeof m.index === "number") existingIndices.add(m.index);
+    }
+    for (const msg of messages) {
+      if (typeof msg.index === "number" && existingIndices.has(msg.index)) continue;
+      group.messages.push(msg);
+      if (typeof msg.index === "number") existingIndices.add(msg.index);
+    }
+    const messageKey = `${application}/${task}`;
+    this.messageTimestamps.set(messageKey, Date.now());
   }
 
   /**

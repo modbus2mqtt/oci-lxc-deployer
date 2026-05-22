@@ -327,7 +327,20 @@ export class WebAppVeRouteHandlers {
             previousVmid,
             veContextKey,
           });
-          const clone = await cloneSelfAsTempDeployer(previousVmid!, veContextKey);
+          // Resolve the URL the original Hub answers on (same fallback chain
+          // as the regular template-defaults path below). Passed into the
+          // clone via lxc.environment PROXVEX_URL so the clone's own template
+          // engine writes the ORIGINAL Hub URL into the new CT's Notes
+          // (proxvex:log-url marker) — otherwise Notes would point at the
+          // ephemeral clone IP and break log-viewer links after cleanup.
+          const deployerPort = process.env.DEPLOYER_PORT || process.env.PORT || "3080";
+          const deployerUrl = resolveDeployerBaseUrl({
+            envOverride: process.env.PROXVEX_URL,
+            hubUrl: this.pm.getActiveHubUrl(),
+            requestOrigin,
+            deployerPort,
+          });
+          const clone = await cloneSelfAsTempDeployer(previousVmid!, veContextKey, deployerUrl);
           await startClone(clone.cloneVmid, clone.veContextKey);
           // DHCP-mode clones return an empty cloneIp from the create
           // script — the IP is leased when the CT comes up. Discover it

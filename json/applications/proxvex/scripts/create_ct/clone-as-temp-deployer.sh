@@ -196,6 +196,22 @@ pct set "$TARGET_VMID" --onboot 0 >&2 || true
 # Strip OIDC env so the clone backend boots without OIDC enforcement.
 sed -i '/^lxc\.environment:[[:space:]]*OIDC_/d' "$TARGET_CONF"
 
+# Inject PROXVEX_URL pointing at the ORIGINAL hub's URL. The clone's backend
+# uses this when expanding template defaults for the new CT's Notes
+# (proxvex:log-url marker, Links section). Without it the clone uses its own
+# request-origin or hostname:port — and that URL points to the ephemeral clone
+# IP which gets destroyed right after the upgrade, leaving the new CT with a
+# broken log-viewer link.
+#
+# pct set has no flag for lxc.environment, so we append directly to the conf.
+# Strip any prior PROXVEX_URL line first for idempotency.
+DEPLOYER_BASE_URL="{{ deployer_base_url }}"
+if [ -n "$DEPLOYER_BASE_URL" ] && [ "$DEPLOYER_BASE_URL" != "NOT_DEFINED" ]; then
+  sed -i '/^lxc\.environment:[[:space:]]*PROXVEX_URL=/d' "$TARGET_CONF"
+  echo "lxc.environment: PROXVEX_URL=$DEPLOYER_BASE_URL" >> "$TARGET_CONF"
+  log "Set PROXVEX_URL=$DEPLOYER_BASE_URL on clone $TARGET_VMID (Notes will reference original hub)"
+fi
+
 # Strip SSL cert mountpoint so the clone backend falls back to HTTP-only.
 # proxvex.mts checks /etc/ssl/addon/{fullchain,privkey}.pem at startup; if
 # absent, only the HTTP server is started. Match any mp* that mounts into

@@ -66,6 +66,28 @@ export async function finalizeCloneCleanupIfPending(localPath: string): Promise<
         error: err?.message,
       });
     }
+    // Also pull the clone's execution messages and inject them into this
+    // CT's message-manager under the same restartKey. Without this the CLI
+    // / livetest runner polling /api/<ve>/ve/execute on this CT after the
+    // replacement would see an empty group and time out — even though the
+    // task itself completed on the clone.
+    //
+    // Critical: wait for the clone to mark the task `finished` BEFORE
+    // pulling. The clone's task finishes only after post_start on the new
+    // CT (us) is done — so when this code runs at boot, the clone may
+    // still be running. Polling for finished blocks until the clone
+    // reports completion, then captures the final messages including the
+    // exitCode that the CLI needs to decide success/failure.
+    try {
+      await waitForCloneTaskFinished(cloneIp, veKey, restartKey);
+      await pullAndAdoptMessages(cloneIp, veKey, restartKey);
+    } catch (err: any) {
+      logger.warn("Clone message pull failed — runner may not see finished status", {
+        cloneIp,
+        restartKey,
+        error: err?.message,
+      });
+    }
   }
 
   // 2. Stop + destroy the clone via the maintenance script.
@@ -125,6 +147,93 @@ async function pullAndAdoptBundle(cloneIp: string, restartKey: string): Promise<
     cloneIp,
     restartKey,
     fileCount: fileMap.size,
+  });
+}
+
+async function waitForCloneTaskFinished(
+  cloneIp: string,
+  veContextKey: string,
+  restartKey: string,
+  timeoutMs = 8 * 60_000,
+  pollIntervalMs = 3_000,
+): Promise<void> {
+  const port = 3080;
+  const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}`;
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveErrors = 0;
+  while (Date.now() < deadline) {
+    try {
+      const groups = await httpGetJson<Array<{
+        restartKey?: string;
+        messages?: Array<{ finished?: boolean }>;
+      }>>(url, 5_000);
+      const group = (groups ?? []).find((g) => g.restartKey === restartKey);
+      const lastMsg = group?.messages?.[group.messages.length - 1];
+      if (lastMsg?.finished === true) {
+        logger.info("Clone task reports finished — proceeding to message pull", {
+          cloneIp,
+          restartKey,
+          messageCount: group?.messages?.length ?? 0,
+        });
+        return;
+      }
+      consecutiveErrors = 0;
+    } catch (err: any) {
+      consecutiveErrors++;
+      // Tolerate transient errors — the clone may be busy on a long-running
+      // pct command, where the HTTP server briefly stops accepting new
+      // connections. Hard-fail only on sustained outages (assume clone
+      // crashed mid-task).
+      if (consecutiveErrors > 30) {
+        throw new Error(`Clone ${cloneIp} unreachable for ${consecutiveErrors * pollIntervalMs / 1000}s — giving up wait-for-finished (${err?.message ?? String(err)})`);
+      }
+    }
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+  }
+  throw new Error(`Clone task did not report finished within ${timeoutMs / 1000}s — pulling messages anyway may give partial results`);
+}
+
+async function pullAndAdoptMessages(
+  cloneIp: string,
+  veContextKey: string,
+  restartKey: string,
+): Promise<void> {
+  const port = 3080;
+  // GET /api/<veCtx>/ve/execute?restartKey=<key> returns an array of
+  // ISingleExecuteMessagesResponse groups. We filter to the matching key.
+  const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}`;
+  const groups = await httpGetJson<Array<{
+    application?: string;
+    task?: string;
+    restartKey?: string;
+    messages?: unknown[];
+  }>>(url, 10_000);
+  const group = (groups ?? []).find((g) => g.restartKey === restartKey);
+  if (!group || !group.application || !group.task || !Array.isArray(group.messages) || group.messages.length === 0) {
+    logger.info("Clone reports no messages for this restartKey — nothing to inject", {
+      cloneIp,
+      restartKey,
+      hasGroup: !!group,
+      messageCount: group?.messages?.length ?? 0,
+    });
+    return;
+  }
+  const { getActiveMessageManager } = await import("../webapp/webapp-ve-message-manager.mjs");
+  const mm = getActiveMessageManager();
+  if (!mm) {
+    logger.warn("Active message manager not available — messages pulled but not adopted; runner polling will see empty group", {
+      restartKey,
+      messageCount: group.messages.length,
+    });
+    return;
+  }
+  mm.injectMessages(group.application, group.task, restartKey, group.messages as never);
+  logger.info("Clone messages adopted into local manager", {
+    cloneIp,
+    restartKey,
+    application: group.application,
+    task: group.task,
+    messageCount: group.messages.length,
   });
 }
 
