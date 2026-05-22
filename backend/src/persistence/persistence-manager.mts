@@ -764,6 +764,7 @@ this._stackProvider = RemoteStackProvider.create(spoke.hubUrl, getBearerToken);
         if (data.consumes_source) scenario.consumes_source = data.consumes_source as "isolate" | "in-place" | "shared";
         if (data.target_deployer_instance) scenario.target_deployer_instance = data.target_deployer_instance as boolean;
         if (data.expect_clone_lifecycle) scenario.expect_clone_lifecycle = data.expect_clone_lifecycle as boolean;
+        if (data.run_in_ve) scenario.run_in_ve = data.run_in_ve as boolean;
         if (data.description) scenario.description = data.description as string;
 
         // Auto-generate description if not explicitly set

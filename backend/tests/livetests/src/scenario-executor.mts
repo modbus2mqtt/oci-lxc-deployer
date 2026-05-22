@@ -1794,6 +1794,7 @@ export async function executeScenarios(
             Object.entries(finalVerify).map(([k, v]) => [k, !!v]),
           ),
           ...(cliResult.restartKey ? { restartKey: cliResult.restartKey } : {}),
+          ...(scenario.expect_clone_lifecycle ? { expectCloneLifecycle: true } : {}),
         }));
       }
 

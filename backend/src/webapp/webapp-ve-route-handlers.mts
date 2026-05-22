@@ -11,7 +11,7 @@ import { WebAppVeMessageManager } from "./webapp-ve-message-manager.mjs";
 import { WebAppVeRestartManager } from "./webapp-ve-restart-manager.mjs";
 import { WebAppVeParameterProcessor } from "./webapp-ve-parameter-processor.mjs";
 import { WebAppVeExecutionSetup } from "./webapp-ve-execution-setup.mjs";
-import type { WebAppDebugCollector } from "./webapp-debug-collector.mjs";
+import type { WebAppDebugCollector, DebugLevel } from "./webapp-debug-collector.mjs";
 import type { AppLogMonitor } from "../ve-execution/app-log-monitor.mjs";
 import { WebAppVeAddonCommandBuilder } from "./webapp-ve-addon-command-builder.mjs";
 import { parseVersionsLib, getOciImageTag } from "@src/versions-parser.mjs";
@@ -317,10 +317,21 @@ export class WebAppVeRouteHandlers {
       // _orchestrated_via_clone flag on the request body).
       try {
         const prevParam = body.params?.find((p) => p.name === "previous_vm_id");
-        const previousVmid = prevParam?.value !== undefined ? String(prevParam.value) : undefined;
+        const previousVmidFromBody = prevParam?.value !== undefined ? String(prevParam.value) : undefined;
         const { shouldOrchestrateSelfUpgrade, cloneSelfAsTempDeployer, startClone, waitForCloneApi, triggerUpgradeViaClone, writeCleanupMarker, mirrorCloneTaskMessages, discoverCloneIp } =
           await import("../services/self-upgrade-orchestrator.mjs");
-        if (await shouldOrchestrateSelfUpgrade(application, task as TaskType, previousVmid, body, veContextKey)) {
+        const detect = await shouldOrchestrateSelfUpgrade(application, task as TaskType, previousVmidFromBody, body, veContextKey);
+        if (detect.orchestrate) {
+          // Autodetect may have filled this in when the caller didn't pass
+          // previous_vm_id (e.g. CLI POST without explicit vmid → cgroup-based
+          // self-detection). Use the resolved value throughout the branch.
+          const previousVmid = detect.resolvedPreviousVmid ?? previousVmidFromBody!;
+          // Ensure body.params carries the resolved vmid so the clone-side
+          // pipeline (when triggerUpgradeViaClone forwards body.params) finds
+          // it. Replace any leftover entry to keep it canonical.
+          const paramsWithPrev = (body.params ?? []).filter((p) => p.name !== "previous_vm_id");
+          paramsWithPrev.push({ name: "previous_vm_id", value: previousVmid });
+          body.params = paramsWithPrev;
           this.logger.info("Self-upgrade detected — delegating to clone orchestrator", {
             application,
             task,
@@ -340,13 +351,31 @@ export class WebAppVeRouteHandlers {
             requestOrigin,
             deployerPort,
           });
-          const clone = await cloneSelfAsTempDeployer(previousVmid!, veContextKey, deployerUrl);
-          await startClone(clone.cloneVmid, clone.veContextKey);
+          // Generate the outer restartKey BEFORE any orchestrator VeExecution.
+          // Every Hub-side ICommand gets stamped with this key (E.4) so the
+          // Hub-Phasen ("Clone self...", "Start clone", "Discover clone IP",
+          // "Authorize clone pubkey") appear under one outer-task bundle.
+          // The clone runs a separate reconfigure under its own clone-side
+          // restartKey; we adopt that under `${outerKey}__clone` later in
+          // clone-cleanup-service (E.6).
+          const outerRestartKey = this.executionSetup.generateRestartKey();
+          // Open a debug-collector entry for the outer task so the Hub-side
+          // VeExecutions (stamped with outerRestartKey) get bucketed here
+          // instead of dropped. debug_level from body.params controls
+          // verbosity; default `extLog` keeps the bundle non-trivial even
+          // without --debug script.
+          const debugLevelParam = body.params?.find((p) => p.name === "debug_level");
+          const outerDebugLevel = (debugLevelParam?.value as DebugLevel) ?? "extLog";
+          if (this.debugCollector) {
+            this.debugCollector.start(outerRestartKey, application, task, outerDebugLevel);
+          }
+          const clone = await cloneSelfAsTempDeployer(previousVmid, veContextKey, deployerUrl, outerRestartKey);
+          await startClone(clone.cloneVmid, clone.veContextKey, outerRestartKey);
           // DHCP-mode clones return an empty cloneIp from the create
           // script — the IP is leased when the CT comes up. Discover it
           // by reading /proc/net/fib_trie from inside the running clone.
           if (!clone.cloneIp) {
-            clone.cloneIp = await discoverCloneIp(clone.cloneVmid, clone.veContextKey);
+            clone.cloneIp = await discoverCloneIp(clone.cloneVmid, clone.veContextKey, 30_000, outerRestartKey);
           }
           await waitForCloneApi(clone.cloneIp);
           const result = await triggerUpgradeViaClone(
@@ -355,20 +384,32 @@ export class WebAppVeRouteHandlers {
             application,
             task as TaskType,
             body.params ?? [],
-            previousVmid!,
+            previousVmid,
             body.selectedAddons ?? [],
+            3080,
+            30_000,
+            outerRestartKey,
           );
+          // E.6: derived restartKey under which the clone's bundle + messages
+          // are adopted on the new CT. Keeps the outer Hub-task bundle clean
+          // (Hub-Phasen only) and gives the clone-side reconfigure its own
+          // sub-deployment view at `${outerKey}__clone`.
+          const cloneAdoptionKey = `${outerRestartKey}__clone`;
+
           // Write the cleanup marker into the source CT's /config volume.
           // When the clone reconfigures the source, the volume is cloned
           // into the new CT — the marker rides along. The new CT's
           // clone-cleanup-service reads it on first boot and destroys
-          // CT 400 + adopts its debug bundle.
+          // CT 400 + adopts its debug bundle + messages under the
+          // derived adoption key.
           try {
             const localPath = this.pm.getPathes().localPath;
             writeCleanupMarker(localPath, {
               cloneVmid: clone.cloneVmid,
               cloneIp: clone.cloneIp,
-              restartKey: result.restartKey,
+              cloneRestartKey: result.restartKey,
+              outerRestartKey,
+              cloneAdoptionKey,
               veContextKey,
             });
           } catch (markerErr: any) {
@@ -378,22 +419,56 @@ export class WebAppVeRouteHandlers {
           }
           this.logger.info("Clone-side upgrade dispatched", {
             cloneVmid: clone.cloneVmid,
+            outerRestartKey,
             cloneRestartKey: result.restartKey,
+            cloneAdoptionKey,
           });
 
+          // E.7: explicit handoff marker into the outer task stream.
+          // The CLI / livetest runner polls /api/<ve>/ve/execute under the
+          // outer key — this message tells the operator (and any future
+          // runner-side switchover-aware logic) that the Hub is about to
+          // be replaced and the diagnostics continue on the new CT under
+          // the same outer key + the `${outerKey}__clone` sub-deployment.
+          // Written BEFORE the actual switchover so it lands in the outer
+          // bundle even if the Hub gets killed mid-replace.
+          try {
+            this.messageManager.handleExecutionMessage(
+              {
+                command: "Self-upgrade handoff",
+                exitCode: 0,
+                stderr:
+                  `Hub will be replaced by clone-driven upgrade. ` +
+                  `Polling continues on the new CT (same hostname/IP) under restartKey=${outerRestartKey}. ` +
+                  `Clone-side reconfigure diagnostics under restartKey=${cloneAdoptionKey}.`,
+                result: null,
+                partial: false,
+                finished: false,
+                restartKey: outerRestartKey,
+              },
+              application,
+              task,
+              outerRestartKey,
+            );
+          } catch (handoffErr: any) {
+            this.logger.warn("Failed to write self-upgrade handoff marker — non-fatal", {
+              error: handoffErr?.message,
+            });
+          }
+
           // Stage E: mirror the clone's task messages into the local
-          // message manager so the UI's SSE/polling stream on the
-          // ORIGINAL deployer shows live progress during the upgrade.
-          // Fire-and-forget — losing the mirror only degrades UX, not
-          // the upgrade. The source CT will stop mid-mirror once the
-          // clone reaches the replace step; that's expected and the
-          // mirror exits cleanly.
+          // message manager under the cloneAdoptionKey so the UI's
+          // SSE/polling stream sees live progress on the clone-side
+          // sub-deployment. Fire-and-forget — losing the mirror only
+          // degrades UX. The source CT will stop mid-mirror once the
+          // clone reaches the replace step.
           void mirrorCloneTaskMessages({
             cloneIp: clone.cloneIp,
             veContextKey,
             application,
             task,
-            restartKey: result.restartKey,
+            cloneRestartKey: result.restartKey,
+            adoptionKey: cloneAdoptionKey,
             messageManager: this.messageManager,
           }).catch((err) => {
             this.logger.warn("Clone message mirror crashed", { error: err?.message });
@@ -401,7 +476,11 @@ export class WebAppVeRouteHandlers {
 
           return {
             success: true,
-            restartKey: result.restartKey,
+            // Return outer key (NOT clone key) — CLI polls /api/<ve>/ve/execute
+            // under this key for Hub-side orchestrator steps + adopted final
+            // status. Clone-side diagnostics are available under
+            // `${outerRestartKey}__clone` (cloneAdoptionKey).
+            restartKey: outerRestartKey,
           };
         }
       } catch (err: any) {

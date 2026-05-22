@@ -52,6 +52,30 @@ Examples:
   /livetest --config github-action --all
 ```
 
+### Self-upgrade tests run in a SECOND, separate call
+
+Scenarios marked `run_in_ve: true` in their JSON (currently only
+`proxvex/self-upgrade-via-clone`) destroy the deployer-CT mid-test and have
+a new CT take over its IP. They MUST run against the Hub-LXC inside the
+nested VM, not the local-backend Spoke. The runner auto-skips them in
+default mode with a hint message.
+
+Standard two-phase workflow:
+
+```
+# Phase 1: normal Spoke tests (parallel, default)
+/livetest --all                                       # skips run_in_ve scenarios
+
+# Phase 2: VE-mode tests (serial, --config)
+/livetest --config green proxvex/self-upgrade-via-clone
+```
+
+Phase 2 uses `--config <instance>` because each `run_in_ve` test
+mid-replaces the deployer; running anything else in parallel against the
+same Hub would observe random connection-refused errors. There are
+expected to be at most ~2 such scenarios (reconfigure + upgrade), so
+running them serially is acceptable.
+
 Then ask via `AskUserQuestion`:
 
 - **Question**: "Welcher Test soll ausgeführt werden?"

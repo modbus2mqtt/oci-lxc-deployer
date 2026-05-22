@@ -4,6 +4,7 @@
   "cli_timeout": 900,
   "consumes_source": "in-place",
   "target_deployer_instance": true,
+  "run_in_ve": true,
   "params": [
     {
       "name": "oci_image_tag",

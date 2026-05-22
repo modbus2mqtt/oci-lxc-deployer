@@ -120,6 +120,16 @@ export interface TestScenario {
    * pull, etc.).
    */
   expect_clone_lifecycle?: boolean;
+
+  /**
+   * When true, the scenario MUST run against the deployer-LXC inside the
+   * nested VM (nested-deployer mode, via `--config <instance>`), not
+   * against the local-backend Spoke. Used for self-upgrade tests where
+   * the local Node-process "Deployer" can't meaningfully clone itself.
+   * In default mode the runner skips the scenario with a hint to re-run
+   * via `--config <instance>`.
+   */
+  run_in_ve?: boolean;
 }
 
 /** Discovered scenario with resolved identity */

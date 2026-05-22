@@ -815,6 +815,37 @@ async function main() {
     logInfo(`requires_env filter dropped ${beforeEnvFilter - selectedIds.length} scenario(s)`);
   }
 
+  // Scenarios with `run_in_ve: true` cannot run in default (local-backend)
+  // mode — the deployer they target is a local Node process, not the
+  // Hub-LXC inside the nested VM. Skip them with a clear hint so a user
+  // running `/livetest --all` doesn't see the self-upgrade test fail in
+  // confusing ways. The `--config <instance>` path strips deployerHost/
+  // deployerPort and flips inNestedDeployerMode=true; there they run.
+  if (!config.inNestedDeployerMode) {
+    const beforeVeFilter = selectedIds.length;
+    const skippedRunInVe: string[] = [];
+    selectedIds = selectedIds.filter((id) => {
+      const sc = allTests.get(id);
+      if (sc?.run_in_ve) {
+        skippedRunInVe.push(id);
+        return false;
+      }
+      return true;
+    });
+    if (skippedRunInVe.length > 0) {
+      logWarn(
+        `Skipping ${skippedRunInVe.length} scenario(s) with run_in_ve=true: ${skippedRunInVe.join(", ")}`,
+      );
+      logInfo(
+        `Run them separately via: /livetest --config <instance> <scenario> ` +
+          `(self-upgrade tests destroy the deployer mid-run and must target the Hub-LXC directly)`,
+      );
+    }
+    if (selectedIds.length !== beforeVeFilter) {
+      logInfo(`run_in_ve filter dropped ${beforeVeFilter - selectedIds.length} scenario(s)`);
+    }
+  }
+
   if (selectedIds.length === 0) {
     logFail("No scenarios matched after filter — nothing to run.");
     process.exit(1);

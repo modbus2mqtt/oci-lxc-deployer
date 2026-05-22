@@ -36,7 +36,14 @@ export function writeCleanupMarker(
   marker: {
     cloneVmid: string;
     cloneIp: string;
-    restartKey: string;
+    /** Clone B's own task restartKey — used to PULL bundle/messages from B. */
+    cloneRestartKey: string;
+    /** Hub's outer task restartKey — used to build the adoption key. */
+    outerRestartKey: string;
+    /** Derived key (typically `${outerRestartKey}__clone`) under which clone
+     *  diagnostics are adopted on the new CT. Stored explicitly so the
+     *  cleanup service doesn't need to know the derivation rule. */
+    cloneAdoptionKey: string;
     veContextKey: string;
   },
 ): string {
@@ -44,7 +51,9 @@ export function writeCleanupMarker(
   const body = {
     clone_vmid: marker.cloneVmid,
     clone_ip: marker.cloneIp,
-    restart_key: marker.restartKey,
+    clone_restart_key: marker.cloneRestartKey,
+    outer_restart_key: marker.outerRestartKey,
+    clone_adoption_key: marker.cloneAdoptionKey,
     ve_context_key: marker.veContextKey,
     started_at: new Date().toISOString(),
   };
@@ -92,6 +101,7 @@ export async function cloneSelfAsTempDeployer(
   selfVmid: string,
   preferredContextKey?: string,
   deployerBaseUrl?: string,
+  outerRestartKey?: string,
 ): Promise<CloneCreationResult> {
   const pm = PersistenceManager.getInstance();
   const contextManager = pm.getContextManager();
@@ -125,6 +135,7 @@ export async function cloneSelfAsTempDeployer(
     scriptContent,
     libraryContent,
     outputs: [],
+    ...(outerRestartKey ? { restartKey: outerRestartKey } : {}),
   };
 
   const ve = new VeExecution(
@@ -173,6 +184,7 @@ export async function discoverCloneIp(
   cloneVmid: string,
   veContextKey: string,
   timeoutMs = 30_000,
+  outerRestartKey?: string,
 ): Promise<string> {
   const pm = PersistenceManager.getInstance();
   const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
@@ -209,6 +221,7 @@ exit 1
     script: "inline-discover-clone-ip.sh",
     scriptContent: inlineScript,
     outputs: [],
+    ...(outerRestartKey ? { restartKey: outerRestartKey } : {}),
   };
   const ve = new VeExecution(
     [cmd],
@@ -232,7 +245,7 @@ exit 1
  * Start the cloned CT on the PVE host (via `pct start`).
  * Idempotent: returns immediately if the CT is already running.
  */
-export async function startClone(cloneVmid: string, veContextKey: string): Promise<void> {
+export async function startClone(cloneVmid: string, veContextKey: string, outerRestartKey?: string): Promise<void> {
   const pm = PersistenceManager.getInstance();
   const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
   if (!veContext) throw new Error(`VE context ${veContextKey} not found`);
@@ -252,6 +265,7 @@ echo '[{"id":"started","value":"true"}]'
     script: "inline-pct-start.sh",
     scriptContent: inlineScript,
     outputs: [],
+    ...(outerRestartKey ? { restartKey: outerRestartKey } : {}),
   };
   const ve = new VeExecution(
     [cmd],
@@ -325,6 +339,7 @@ export async function triggerUpgradeViaClone(
   selectedAddons: string[],
   port = 3080,
   timeoutMs = 30_000,
+  outerRestartKey?: string,
 ): Promise<{ restartKey: string; cloneStatus: number }> {
   // Ensure the clone has the source's VE context configured. The clone
   // is a `pct clone` of the source CT, which carries over /config/
@@ -340,11 +355,14 @@ export async function triggerUpgradeViaClone(
   // via /api/sshconfig. The same endpoint the test runner uses to seed
   // a fresh Spoke; on the clone it's idempotent (existing configs by
   // host are kept).
-  await injectVeContextOnClone(cloneIp, port, veContextKey);
+  await injectVeContextOnClone(cloneIp, port, veContextKey, outerRestartKey);
 
   // Ensure previous_vm_id is in the params so the clone's pipeline knows
   // which CT to replace. The orchestrator's caller may or may not have
-  // included it — be defensive.
+  // included it — be defensive. (E.5) Pass `params` 1:1 otherwise — this
+  // forwards `debug_level` (from the livetest runner's --debug flag) and
+  // any other runner-supplied params to the clone-side reconfigure, so
+  // the clone's bundle has the same debug richness as a regular task.
   const paramsWithPrev = params.filter((p) => p.name !== "previous_vm_id");
   paramsWithPrev.push({ name: "previous_vm_id", value: String(previousVmid) });
 
@@ -384,18 +402,31 @@ export async function shouldOrchestrateSelfUpgrade(
   previousVmid: string | undefined,
   requestBody: any,
   veContextKey: string,
-): Promise<boolean> {
-  if (application !== "proxvex") return false;
-  if (task !== "upgrade" && task !== "reconfigure") return false;
-  if (!previousVmid) return false;
-  if (requestBody && requestBody[ORCHESTRATED_FLAG] === true) return false;
+): Promise<{ orchestrate: boolean; resolvedPreviousVmid?: string }> {
+  if (application !== "proxvex") return { orchestrate: false };
+  if (task !== "upgrade" && task !== "reconfigure") return { orchestrate: false };
+  if (requestBody && requestBody[ORCHESTRATED_FLAG] === true) return { orchestrate: false };
+  // If the caller didn't supply previous_vm_id, autodetect from /proc/1/cgroup.
+  // Lets a simple POST `/api/<ve>/ve-configuration/proxvex { task: reconfigure }`
+  // trigger self-upgrade without the caller having to know the Hub's vmid.
+  let resolvedPreviousVmid = previousVmid;
+  if (!resolvedPreviousVmid) {
+    const { getSelfVmid } = await import("./self-vmid-service.mjs");
+    const self = await getSelfVmid();
+    if (!self) {
+      logger.warn("shouldOrchestrateSelfUpgrade: no previous_vm_id supplied AND self-vmid autodetect failed — declining to orchestrate");
+      return { orchestrate: false };
+    }
+    resolvedPreviousVmid = self;
+    logger.info("previous_vm_id autodetected via self-vmid-service", { resolvedPreviousVmid });
+  }
 
   // Probe via SSH whether the previous CT has the deployer-instance marker.
   // Cheaper than a full VeExecution roundtrip; reuses the existing SSH
   // master connection that VeExecution would establish anyway.
   const pm = PersistenceManager.getInstance();
   const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
-  if (!veContext) return false;
+  if (!veContext) return { orchestrate: false };
 
   const inlineScript = `#!/bin/sh
 set -eu
@@ -415,7 +446,7 @@ fi
   };
   const ve = new VeExecution(
     [cmd],
-    [{ id: "previous_vm_id", value: String(previousVmid) }],
+    [{ id: "previous_vm_id", value: String(resolvedPreviousVmid) }],
     veContext,
     new Map(),
     undefined,
@@ -425,12 +456,14 @@ fi
     await ve.run(null);
   } catch (err: any) {
     logger.warn("Could not probe deployer marker — proceeding without orchestration", {
-      previousVmid,
+      previousVmid: resolvedPreviousVmid,
       error: err?.message,
     });
-    return false;
+    return { orchestrate: false };
   }
-  return String(ve.outputs.get("is_deployer") ?? "false") === "true";
+  const isDeployer = String(ve.outputs.get("is_deployer") ?? "false") === "true";
+  if (!isDeployer) return { orchestrate: false };
+  return { orchestrate: true, resolvedPreviousVmid };
 }
 
 /**
@@ -458,7 +491,12 @@ export async function mirrorCloneTaskMessages(opts: {
   veContextKey: string;
   application: string;
   task: string;
-  restartKey: string;
+  /** Restart key Clone B is running its task under — used to QUERY clone. */
+  cloneRestartKey: string;
+  /** Key under which the messages are INJECTED into the local MessageManager.
+   *  Typically `${outerRestartKey}__clone` so the clone-side stream is
+   *  exposed as a separate sub-deployment. */
+  adoptionKey: string;
   messageManager: WebAppVeMessageManager;
   maxDurationMs?: number;
   pollIntervalMs?: number;
@@ -469,7 +507,8 @@ export async function mirrorCloneTaskMessages(opts: {
     veContextKey,
     application,
     task,
-    restartKey,
+    cloneRestartKey,
+    adoptionKey,
     messageManager,
     maxDurationMs = 30 * 60_000,
     pollIntervalMs = 2_000,
@@ -479,7 +518,7 @@ export async function mirrorCloneTaskMessages(opts: {
   let seenIndices = new Set<number>();
   let consecutiveErrors = 0;
 
-  logger.info("Mirroring clone task messages", { cloneIp, veContextKey, application, task, restartKey });
+  logger.info("Mirroring clone task messages", { cloneIp, veContextKey, application, task, cloneRestartKey, adoptionKey });
 
   while (Date.now() - startedAt < maxDurationMs) {
     let groups: ISingleExecuteMessagesResponse[];
@@ -489,7 +528,7 @@ export async function mirrorCloneTaskMessages(opts: {
       // cutoff that excludes already-recorded messages with earlier ts,
       // which would silently drop the bulk of the clone's task output
       // after the first poll.
-      const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}`;
+      const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(cloneRestartKey)}`;
       groups = await httpGetJson<ISingleExecuteMessagesResponse[]>(url, 5_000);
       consecutiveErrors = 0;
     } catch (err: any) {
@@ -510,7 +549,7 @@ export async function mirrorCloneTaskMessages(opts: {
       continue;
     }
 
-    const group = groups.find((g) => g.restartKey === restartKey);
+    const group = groups.find((g) => g.restartKey === cloneRestartKey);
     if (group) {
       for (const msg of group.messages) {
         // Dedupe by index — re-polling returns already-seen messages.
@@ -524,7 +563,7 @@ export async function mirrorCloneTaskMessages(opts: {
             msg as IVeExecuteMessage,
             application,
             task,
-            restartKey,
+            adoptionKey,
           );
         } catch (err: any) {
           logger.warn("Failed to inject mirrored message into local manager", {
@@ -539,7 +578,8 @@ export async function mirrorCloneTaskMessages(opts: {
       const lastMsg = group.messages[group.messages.length - 1];
       if (lastMsg && (lastMsg as IVeExecuteMessage).finished) {
         logger.info("Clone task reported finished; mirroring stopped", {
-          restartKey,
+          cloneRestartKey,
+          adoptionKey,
           messageCount: group.messages.length,
           durationMs: Date.now() - startedAt,
         });
@@ -551,7 +591,8 @@ export async function mirrorCloneTaskMessages(opts: {
   }
 
   logger.warn("Mirror reached maxDurationMs without seeing 'finished' — exiting", {
-    restartKey,
+    cloneRestartKey,
+    adoptionKey,
     maxDurationMs,
   });
 }
@@ -568,6 +609,7 @@ async function injectVeContextOnClone(
   cloneIp: string,
   port: number,
   veContextKey: string,
+  outerRestartKey?: string,
 ): Promise<void> {
   const pm = PersistenceManager.getInstance();
   const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
@@ -608,7 +650,7 @@ async function injectVeContextOnClone(
         host,
       });
     } else {
-      await authorizeClonePubKeyOnVeHost(veContextKey, pkc);
+      await authorizeClonePubKeyOnVeHost(veContextKey, pkc, outerRestartKey);
       logger.info("Authorized clone's pubkey on PVE host", { cloneIp, veContextKey });
     }
   } catch (err: any) {
@@ -629,6 +671,7 @@ async function injectVeContextOnClone(
 async function authorizeClonePubKeyOnVeHost(
   veContextKey: string,
   publicKeyCommand: string,
+  outerRestartKey?: string,
 ): Promise<void> {
   const pm = PersistenceManager.getInstance();
   const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
@@ -652,6 +695,7 @@ printf '[{"id":"pubkey_authorized","value":"true"}]'
     script: "inline-authorize-clone-pubkey.sh",
     scriptContent: inlineScript,
     outputs: [],
+    ...(outerRestartKey ? { restartKey: outerRestartKey } : {}),
   };
   const ve = new VeExecution(
     [cmd],
