@@ -324,6 +324,22 @@ export async function triggerUpgradeViaClone(
   port = 3080,
   timeoutMs = 30_000,
 ): Promise<{ restartKey: string; cloneStatus: number }> {
+  // Ensure the clone has the source's VE context configured. The clone
+  // is a `pct clone` of the source CT, which carries over /config/
+  // storagecontext.json — for a fully provisioned source-deployer this
+  // already contains the right SSH config. But fresh-installed proxvex
+  // CTs (e.g. the test framework's `proxvex/plain` install) ship with an
+  // empty storagecontext: the source-deployer has no SSH config of its
+  // own, only the Hub that installed it does. Without injecting one,
+  // /api/<ve>/ve-configuration/... on the clone returns 404 "VE context
+  // not found" and the orchestrator can't dispatch.
+  //
+  // Inject the source-deployer's veContext (host + port) on the clone
+  // via /api/sshconfig. The same endpoint the test runner uses to seed
+  // a fresh Spoke; on the clone it's idempotent (existing configs by
+  // host are kept).
+  await injectVeContextOnClone(cloneIp, port, veContextKey);
+
   // Ensure previous_vm_id is in the params so the clone's pipeline knows
   // which CT to replace. The orchestrator's caller may or may not have
   // included it — be defensive.
@@ -458,7 +474,6 @@ export async function mirrorCloneTaskMessages(opts: {
   } = opts;
 
   const startedAt = Date.now();
-  let since = 0;
   let seenIndices = new Set<number>();
   let consecutiveErrors = 0;
 
@@ -467,7 +482,12 @@ export async function mirrorCloneTaskMessages(opts: {
   while (Date.now() - startedAt < maxDurationMs) {
     let groups: ISingleExecuteMessagesResponse[];
     try {
-      const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}&since=${since}`;
+      // Always fetch the entire group; dedup by msg.index. Don't use
+      // `?since=` — the proxvex backend treats since as a wall-clock
+      // cutoff that excludes already-recorded messages with earlier ts,
+      // which would silently drop the bulk of the clone's task output
+      // after the first poll.
+      const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}`;
       groups = await httpGetJson<ISingleExecuteMessagesResponse[]>(url, 5_000);
       consecutiveErrors = 0;
     } catch (err: any) {
@@ -511,11 +531,6 @@ export async function mirrorCloneTaskMessages(opts: {
           });
         }
       }
-      // Bump the since cursor past the last seen message so subsequent
-      // polls return only what's new.
-      if (group.messages.length > 0) {
-        since = Date.now();
-      }
       // If the most recent message reports finished, we're done.
       // (The group-level shape has no `finished` field; per-message
       // `finished: true` is the canonical end-of-task marker.)
@@ -537,6 +552,114 @@ export async function mirrorCloneTaskMessages(opts: {
     restartKey,
     maxDurationMs,
   });
+}
+
+/**
+ * POST the source-deployer's veContext (host + port from PersistenceManager)
+ * to the clone's /api/sshconfig endpoint so the clone has a VE context with
+ * the same key as the source (`ve_<host>`). Without this, the clone's
+ * /api/<veContextKey>/ve-configuration/... handler returns 404 "VE context
+ * not found" for fresh-installed clones that ship with an empty
+ * storagecontext.
+ */
+async function injectVeContextOnClone(
+  cloneIp: string,
+  port: number,
+  veContextKey: string,
+): Promise<void> {
+  const pm = PersistenceManager.getInstance();
+  const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
+  if (!veContext) {
+    throw new Error(`Cannot inject VE context on clone: ${veContextKey} not found in source PersistenceManager`);
+  }
+  const host = (veContext as { host: string }).host;
+  const sshPort = (veContext as { port?: number }).port ?? 22;
+  const url = `http://${cloneIp}:${port}/api/sshconfig`;
+  // 30s timeout: the clone's backend has just booted and is concurrently
+  // running its own background SSH probes (List VM IDs, List Storages,
+  // etc.) for the deployer UI. Those compete for the event loop on the
+  // first few seconds — the 5s default was sometimes not enough.
+  const response = await httpPostJson<unknown>(url, { host, port: sshPort, current: true }, 30_000);
+  logger.info("Injected VE context on clone", { cloneIp, veContextKey, host, sshPort, status: response.status });
+
+  // The clone's own SSH key must be authorized on the PVE host so the
+  // clone-driven reconfigure can SSH to run execute_on:ve templates. In
+  // production the parent deployer's key is already authorized and the
+  // clone inherits it via pct clone, so authorization is a no-op. In test
+  // setups (proxvex/plain installed by an existing deployer), the new
+  // CT's key was never trusted — without this step the clone's first SSH
+  // gets `Permission denied (publickey)`.
+  //
+  // Fetch the publicKeyCommand the clone exposes via GET /api/sshconfigs
+  // (the same descriptor the UI shows to the operator with a click-to-run
+  // command) and execute it on the PVE host. Idempotent: appending an
+  // already-authorized key is a no-op.
+  try {
+    const sshConfigs = await httpGetJson<{
+      sshs?: Array<{ host?: string; publicKeyCommand?: string }>;
+    }>(`http://${cloneIp}:${port}/api/sshconfigs`, 10_000);
+    const entry = sshConfigs.sshs?.find((s) => s.host === host) ?? sshConfigs.sshs?.[0];
+    const pkc = entry?.publicKeyCommand;
+    if (!pkc) {
+      logger.warn("Clone /api/sshconfigs returned no publicKeyCommand — clone SSH may be denied on PVE host", {
+        cloneIp,
+        host,
+      });
+    } else {
+      await authorizeClonePubKeyOnVeHost(veContextKey, pkc);
+      logger.info("Authorized clone's pubkey on PVE host", { cloneIp, veContextKey });
+    }
+  } catch (err: any) {
+    logger.warn("Failed to authorize clone pubkey on PVE host — clone-side reconfigure may fail with Permission denied", {
+      cloneIp,
+      error: err?.message,
+    });
+  }
+}
+
+/**
+ * Run the clone's `publicKeyCommand` (an `echo 'ssh-ed25519 …' >>~/.ssh/
+ * authorized_keys` snippet) on the PVE host via VeExecution. The clone's
+ * SSH key has to be trusted by the host before any of the clone's
+ * `execute_on:ve` templates can connect. Idempotent — running it twice
+ * leaves duplicate lines in authorized_keys but doesn't break anything.
+ */
+async function authorizeClonePubKeyOnVeHost(
+  veContextKey: string,
+  publicKeyCommand: string,
+): Promise<void> {
+  const pm = PersistenceManager.getInstance();
+  const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
+  if (!veContext) throw new Error(`VE context ${veContextKey} not found`);
+
+  // The publicKeyCommand is a literal shell snippet; embedding it directly
+  // is safe — the clone is trusted (we just spawned it). Wrap in `sh -c`
+  // so multi-statement commands work.
+  const inlineScript = `#!/bin/sh
+set -eu
+mkdir -p /root/.ssh
+touch /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+{{ public_key_command }}
+echo "authorized_keys updated" >&2
+printf '[{"id":"pubkey_authorized","value":"true"}]'
+`;
+  const cmd: ICommand = {
+    name: "Authorize clone pubkey on PVE host",
+    execute_on: "ve",
+    script: "inline-authorize-clone-pubkey.sh",
+    scriptContent: inlineScript,
+    outputs: [],
+  };
+  const ve = new VeExecution(
+    [cmd],
+    [{ id: "public_key_command", value: publicKeyCommand }],
+    veContext,
+    new Map(),
+    undefined,
+    determineExecutionMode(),
+  );
+  await ve.run(null);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────

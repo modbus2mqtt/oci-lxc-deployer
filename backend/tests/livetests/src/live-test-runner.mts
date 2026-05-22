@@ -94,6 +94,10 @@ function loadConfig(instanceName?: string): {
   bridge: string;
   veHost: string;
   veSshPort: number;
+  /** True when deployerHost/deployerPort are not configured — the test
+   *  runner talks directly to the Hub-LXC inside the nested VM (via
+   *  pveHost port-forward) rather than a local Spoke. Set per call. */
+  inNestedDeployerMode: boolean;
   vmId: number;
   snapshot?: { enabled: boolean };
   registryMirror?: { dnsForwarder: string };
@@ -112,10 +116,12 @@ function loadConfig(instanceName?: string): {
     process.exit(1);
   }
 
-  // Resolve ${VAR:-default} and ${VAR} in config values
+  // Resolve ${VAR:-default} and ${VAR} in config values. The default may
+  // be any hostname-like string (alphanumerics, dots, dashes), not just
+  // a single word — so we can fall back to e.g. "pve-e2e-nested.local".
   const resolveEnv = (val: string) =>
     val
-      .replace(/\$\{(\w+):-(\w+)\}/g, (_, varName, defaultVal) => process.env[varName] || defaultVal)
+      .replace(/\$\{(\w+):-([^}]+)\}/g, (_, varName, defaultVal) => process.env[varName] || defaultVal)
       .replace(/\$\{(\w+)\}/g, (_, varName) => process.env[varName] || "");
 
   const pveHost = resolveEnv(inst.pveHost);
@@ -139,11 +145,32 @@ function loadConfig(instanceName?: string): {
     deployerHttpsUrl = `https://${pveHost}:${portDeployerHttps}`;
   }
 
-  // veHost/veSshPort: how the deployer (inside the nested VM) reaches the PVE host.
-  // Defaults to pveHost:portPveSsh (same as external), but can be overridden
-  // for nested setups where the deployer uses a different hostname/port.
-  const veHost = inst.veHost ? resolveEnv(inst.veHost) : pveHost;
-  const veSshPort = inst.veSshPort ?? portPveSsh;
+  // veHost/veSshPort: how the deployer reaches the PVE host for
+  // execute_on:ve scripts. The reachable host depends on where the
+  // deployer runs:
+  //
+  // - Spoke mode (deployerHost+Port set, e.g. localhost:3201): deployer
+  //   is a local Node process on the dev machine. SSH from dev host to
+  //   `pveHost:portPveSsh` (e.g. ubuntupve:1022, the outer SSH port-
+  //   forward). This is the default.
+  //
+  // - Nested-deployer mode (deployerHost/deployerPort omitted, livetest.md
+  //   step 2a strips them): deployer is the Hub-LXC inside the nested
+  //   VM. `ubuntupve:1022` is NOT reachable from the Hub-LXC. The Hub
+  //   reaches its own PVE host via the bridge gateway — `pve-e2e-
+  //   nested.local:22` (resolved to 10.0.0.1 via dnsmasq expand-hosts
+  //   on vmbr1).
+  //
+  // The instance can override with `veHost`/`veSshPort` (e.g. github-
+  // action uses "10.0.0.1":22 because it only ever runs in nested-
+  // deployer mode in CI).
+  const inNestedDeployerMode = !inst.deployerHost && !inst.deployerPort;
+  const veHost = inst.veHost
+    ? resolveEnv(inst.veHost)
+    : inNestedDeployerMode
+      ? "pve-e2e-nested.local"
+      : pveHost;
+  const veSshPort = inst.veSshPort ?? (inNestedDeployerMode ? 22 : portPveSsh);
 
   // Snapshot config (for VM-level snapshots)
   const snapshot = inst.snapshot?.enabled ? { enabled: true } : undefined;
@@ -177,6 +204,7 @@ function loadConfig(instanceName?: string): {
     bridge: inst.lxcBridge || "vmbr1",
     veHost,
     veSshPort,
+    inNestedDeployerMode,
     vmId: inst.vmId,
     ...(snapshot ? { snapshot } : {}),
     ...(registryMirror ? { registryMirror } : {}),
@@ -619,7 +647,16 @@ async function main() {
   // not loaded JSON schemas — so a code/schema change made after the spoke
   // started leaves it serving stale validators. Compare gitHash; on mismatch,
   // restart via start-livetest-deployer.sh and rediscover the URL.
-  apiUrl = await ensureSpokeMatchesBuild(apiUrl, config, projectRoot);
+  //
+  // Skipped in nested-deployer mode: the apiUrl points at the Hub-LXC inside
+  // the nested VM (refreshed by step2b), not a local Spoke. The build-match
+  // check would compare against a Spoke gitHash that's irrelevant here and
+  // its restart path needs DEPLOYER_PORT which isn't set in this mode.
+  if (!config.inNestedDeployerMode) {
+    apiUrl = await ensureSpokeMatchesBuild(apiUrl, config, projectRoot);
+  } else {
+    logInfo("Nested-deployer mode: skipping Spoke build-match check (Hub-LXC refreshed via step2b)");
+  }
 
   // Ensure VE host SSH config exists on the deployer
   const veHost = config.veHost;

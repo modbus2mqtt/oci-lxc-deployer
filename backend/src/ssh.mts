@@ -334,6 +334,17 @@ export class Ssh {
       "UsePAM no\n" +
       "AuthorizedKeysFile .ssh/authorized_keys .ssh/authenticated_keys\n" +
       "AllowUsers root\n" +
+      // Raised so the PVE host can absorb the parallel SSH bursts a
+      // clone-driven self-upgrade produces (Hub-CT + Clone-CT both
+      // running execute_on:ve templates in lockstep). Default
+      // 10:30:100 rejected the second concurrent batch with "Not
+      // allowed at this time" pre-auth banner.
+      "MaxStartups 100:30:200\n" +
+      "PerSourceMaxStartups 50\n" +
+      // sshd 10+ anti-bruteforce penalties block legit repeated SSH
+      // from the same source after a few unauthenticated connections.
+      // Trips during clone-driven self-upgrade.
+      "PerSourcePenalties no\n" +
       "EOF\n" +
       // Enable and restart service (ssh or sshd)
       "(systemctl enable ssh || systemctl enable sshd || true); " +

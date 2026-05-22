@@ -1,0 +1,14 @@
+{
+  "execute_on": "ve",
+  "name": "Ensure deployer sshd config",
+  "description": "Idempotently writes /etc/ssh/sshd_config.d/proxvex.conf on the PVE host with relaxed MaxStartups so concurrent SSH from clone-driven self-upgrade doesn't trigger sshd's 'Not allowed at this time' rejection. Runs on every proxvex install/upgrade/reconfigure so existing deployments self-heal on the next life-cycle operation.",
+  "commands": [
+    {
+      "name": "Ensure deployer sshd config",
+      "script": "host-ensure-deployer-sshd-config.sh",
+      "outputs": [
+        "sshd_config_updated"
+      ]
+    }
+  ]
+}
