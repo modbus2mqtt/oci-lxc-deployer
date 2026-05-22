@@ -918,7 +918,7 @@ async function main() {
   const commandLine = process.argv.join(" ");
   const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
   logInfo(`Results: ${resultWriter.getOutputDir()}`);
-  logInfo(`Live overview: ${resultWriter.getOutputDir()}/run-overview.md (updates after each scenario state transition)`);
+  logInfo(`Live overview: ${resultWriter.getOutputDir()}/run-overview.html (live via SSE while runner is up; opens from filesystem for post-mortem view)`);
   if (failFastFlag) logInfo("--fail-fast enabled: aborting on first scenario failure");
   let result;
   if (parallelEnabled) {

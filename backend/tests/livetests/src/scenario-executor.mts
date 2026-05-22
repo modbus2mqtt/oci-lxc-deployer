@@ -22,7 +22,8 @@ import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type Sce
 import { enumerateParallelStorages } from "./live-test-runner.mjs";
 import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
-import { writeRunOverview, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
+import { writeRunOverviewHtml, writeRunOverviewJson, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
+import { overviewPortForDeployer, startRunOverviewServer, type RunOverviewServer } from "./run-overview-server.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
@@ -454,11 +455,11 @@ export async function executeScenarios(
   // lock contention.
   const storageByIdx = assignStoragePerScenario(planned, parallelStorages, volumeStorageOverride);
 
-  // Live overview: writes <outDir>/run-overview.md and refreshes it on each
-  // scenario state transition. Best-effort observability — never crashes
-  // the run if IO fails. The initial write happens before the driver
-  // starts so an operator can `tail -F` or render the file before any
-  // scenarios complete.
+  // Live overview: serves <outDir>/run-overview.html + an SSE stream from the
+  // run-overview server, and refreshes <outDir>/run-overview.json once per
+  // minute + at every state transition + on exit. The HTML page picks live
+  // (SSE) or post-mortem (JSON) automatically based on its own protocol.
+  // Best-effort observability — never crashes the run if IO/port-bind fails.
   const overviewState: RunOverviewState | undefined = resultWriter ? {
     outDir: resultWriter.getOutputDir(),
     runId: resultWriter.getRunId(),
@@ -471,13 +472,27 @@ export async function executeScenarios(
     storage: new Map<string, string>(),
     errorMessages: new Map<string, string>(),
   } : undefined;
+  let overviewServer: RunOverviewServer | null = null;
+  let overviewJsonTimer: NodeJS.Timeout | null = null;
   if (overviewState) {
     // Seed storage assignments up front so they appear from the first render.
     planned.forEach((p, i) => {
       const s = storageByIdx.get(i);
       if (s) overviewState.storage.set(p.scenario.id, s);
     });
-    writeRunOverview(overviewState);
+    overviewServer = await startRunOverviewServer(
+      overviewState,
+      overviewPortForDeployer(config.deployerUrl),
+    );
+    // HTML viewer goes to disk first so file:// can fall back even if the
+    // server failed to bind. The embedded SSE URL is null in that case, so
+    // the page skips the SSE attempt and reads JSON directly.
+    writeRunOverviewHtml(overviewState, overviewServer?.sseUrl ?? null);
+    writeRunOverviewJson(overviewState);
+    overviewJsonTimer = setInterval(() => {
+      if (overviewState) writeRunOverviewJson(overviewState);
+    }, 60_000);
+    overviewJsonTimer.unref();
   }
   const markStatus = (idx: number, status: ScenarioStatus, err?: string): void => {
     if (!overviewState) return;
@@ -491,7 +506,7 @@ export async function executeScenarios(
       overviewState.finishedAtMap.set(sid, new Date());
     }
     if (err) overviewState.errorMessages.set(sid, err);
-    writeRunOverview(overviewState);
+    overviewServer?.emit(overviewState);
   };
   if (concurrency > 1 && parallelStorages.length > 0 && !volumeStorageOverride) {
     const effective = Math.min(concurrency, parallelStorages.length);
@@ -2015,12 +2030,17 @@ export async function executeScenarios(
             for (const idx of c.blocked) {
               state[idx] = "failed";
               const p = planned[idx]!;
+              // markStatus must run for every blocked scenario, even when
+              // `skipExecution` was already set by applyFailurePartition
+              // earlier in this pump cycle — otherwise the overview shows
+              // them as "pending" forever. The skipExecution guard only
+              // dedupes the warn-log + result.errors push.
               if (!p.skipExecution) {
                 logWarn(`Skipping ${p.scenario.id} (blocked by failed dependency)`);
                 p.skipExecution = true;
                 result.errors.push(`Skipped: ${p.scenario.id} (blocked dependency)`);
-                markStatus(idx, "skipped", "blocked by failed dependency");
               }
+              markStatus(idx, "skipped", "blocked by failed dependency");
             }
           }
           if (state.every((s) => s === "done" || s === "failed")) {
@@ -2184,6 +2204,13 @@ export async function executeScenarios(
     }
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
+    if (overviewJsonTimer) clearInterval(overviewJsonTimer);
+    // Final JSON snapshot is the post-mortem source of truth — viewers
+    // opened after the runner exits read this file.
+    if (overviewState) writeRunOverviewJson(overviewState);
+    if (overviewServer) {
+      try { await overviewServer.stop(); } catch { /* best-effort */ }
+    }
   }
 
   result.passed = verifier.passed;

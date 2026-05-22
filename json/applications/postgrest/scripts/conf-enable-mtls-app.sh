@@ -59,8 +59,17 @@ else
   # the DB role to equal the client-cert CN, which is the container hostname
   # = mtls_cns default). Then append the libpq SSL query string before the
   # closing quote of the PGRST_DB_URI value. Only that line is touched.
+  #
+  # The username pattern intentionally matches ANY shell-var or literal
+  # token before the first `:` (the password separator). A previous
+  # regex `\${POSTGRES_USER:-postgres}` was brittle: in actual runs the
+  # rendered compose carries `${POSTGREST_USER:-postgres}` (extra T —
+  # likely an artefact of how the runner builds env-var defaults for
+  # the postgrest service) and the sed silently no-op'd, leaving the
+  # role as the empty-defaulted "postgres", which pg_hba `cert` then
+  # rejected with "certificate authentication failed for user postgres".
   SSL_QS="?sslmode=verify-ca\&sslrootcert=${MTLS_PATH}/chain.pem\&sslcert=${MTLS_PATH}/cert.pem\&sslkey=${MTLS_PATH}/privkey.pem"
-  sed -i -E "s#(PGRST_DB_URI: \"postgres://)\\\$\{POSTGRES_USER:-postgres\}:#\1${CN}:#" "$TMPFILE"
+  sed -i -E "s#(PGRST_DB_URI: \"postgres://)[^:]+:#\1${CN}:#" "$TMPFILE"
   sed -i -E "s#(PGRST_DB_URI: \"postgres://[^\"]*)\"#\1${SSL_QS}\"#" "$TMPFILE"
   echo "mtls: rewrote PGRST_DB_URI -> role ${CN} + verify-ca client cert ($MTLS_PATH)" >&2
 fi

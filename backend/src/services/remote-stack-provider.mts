@@ -1,4 +1,3 @@
-import { Agent } from "undici";
 import { IStack } from "../types.mjs";
 import { IStackProvider } from "./stack-provider.mjs";
 import { createLogger } from "../logger/index.mjs";
@@ -17,15 +16,17 @@ const logger = createLogger("remote-stack-provider");
  * sent as `Authorization: Bearer <token>`. Otherwise the request goes
  * unauthenticated (Hub without OIDC accepts this).
  *
- * TLS trust: During TOFU (Trust On First Use) the HTTPS agent accepts any
- * certificate. Once a trusted CA PEM is known, it is pinned via `ca:`.
- * For plain http:// hub URLs TLS is not used.
+ * TLS trust: TOFU is provided by the global `NODE_TLS_REJECT_UNAUTHORIZED=0`
+ * the runner sets (and that the deployer entrypoint sets in test mode).
+ * Using a per-request undici Agent here forced the proxvex production
+ * image to ship undici as an explicit dep — but `undici` is built into
+ * Node, only the JS module is not always installed in production images,
+ * so importing the package broke `proxvex/plain` with
+ * `Cannot find package 'undici'`. Native global `fetch` is enough.
  */
 export class RemoteStackProvider implements IStackProvider {
   private hubUrl: string;
   private isHttps: boolean;
-  // typed as unknown to dodge two-version undici types mismatch
-  private dispatcher: unknown | undefined;
 
   private constructor(
     hubUrl: string,
@@ -34,14 +35,6 @@ export class RemoteStackProvider implements IStackProvider {
   ) {
     this.hubUrl = hubUrl.replace(/\/$/, "");
     this.isHttps = this.hubUrl.startsWith("https://");
-    if (this.isHttps) {
-      // TOFU: rejectUnauthorized=false accepts any cert. With a trusted
-      // CA we currently still let OS-level validation run — a future
-      // improvement adds the CA PEM into the dispatcher's connect.ca.
-      this.dispatcher = new Agent({
-        connect: { rejectUnauthorized: !!trustedHubCa },
-      });
-    }
     logger.info("Remote stack provider initialized", {
       hubUrl: this.hubUrl,
       tls: this.isHttps
@@ -78,11 +71,6 @@ export class RemoteStackProvider implements IStackProvider {
       signal: AbortSignal.timeout(10000),
     };
     if (body !== undefined) init.body = JSON.stringify(body);
-    if (this.dispatcher) {
-      // undici-specific option not in lib.dom Fetch types; also dodging a
-      // two-version undici type mismatch (undici@7.20 vs undici-types@7.16).
-      (init as Record<string, unknown>).dispatcher = this.dispatcher;
-    }
     let response: Response;
     try {
       response = await fetch(url, init);

@@ -136,11 +136,15 @@ fi
 # - HTTP path (ssl_mode=none): Traefik in the Zitadel LXC binds 0.0.0.0:8080
 #   (matches ZITADEL_EXTERNALPORT=8080); without the explicit port, curl would
 #   try the protocol default (80) and fail with connection-refused.
-# - HTTPS path: Zitadel's TLS listener is on the default 443.
+# - HTTPS path: Traefik binds 0.0.0.0:1443 (port 443 needs CAP_NET_BIND_SERVICE
+#   which the container does not have). Earlier this slot left PORT_SUFFIX
+#   empty under the wrong assumption "default 443"; consumers (gitea-ssl etc.)
+#   then tried `https://zitadel-ssl/oauth/v2/token`, hit port 443, and got
+#   connection-refused — the empty `cc_response` Tier 2 then logged.
 if [ "$PROTOCOL" = "http" ]; then
   PORT_SUFFIX=":8080"
 else
-  PORT_SUFFIX=""
+  PORT_SUFFIX=":1443"
 fi
 if [ -n "$ZITADEL_EXTERNALDOMAIN" ]; then
   ZITADEL_HOST="$ZITADEL_EXTERNALDOMAIN"
