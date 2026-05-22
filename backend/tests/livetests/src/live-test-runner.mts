@@ -476,6 +476,15 @@ async function main() {
   const fromSnapshot = fromSnapshotIdx >= 0;
   if (fromSnapshot) args.splice(fromSnapshotIdx, 1);
 
+  // `--reuse-running`: skip the @file-mode pre-cleanup (smartCleanup +
+  // restoreBestSnapshot). Scenarios run against whatever CTs are currently
+  // alive — intended for iterating on a curated list of just-failed tests
+  // (`/livetest --reuse-running @failed.lst`) without paying the rollback
+  // cost when the deps are already in a known-good state from a prior run.
+  const reuseRunningIdx = args.indexOf("--reuse-running");
+  const reuseRunning = reuseRunningIdx >= 0;
+  if (reuseRunning) args.splice(reuseRunningIdx, 1);
+
   // Coverage-report short-circuits before any deployer interaction.
   if (args.includes("--coverage-report")) {
     const formatIdx = args.indexOf("--format");
@@ -1048,17 +1057,21 @@ async function main() {
   if (runMode === "all") {
     setPhase("rolling back nested VM to @deployer-installed");
     await rollbackToBaseline(config.pveHost, config.portPveSsh, config.vmId);
-  } else if (runMode === "file") {
+  } else if (runMode === "file" && !reuseRunning) {
     setPhase("smart-cleanup of pre-existing CTs");
     const plannedVmIdSet = new Set(planned.map((p) => p.vmId));
     await smartCleanupBeforeRun(config.pveHost, config.portPveSsh, config.vmId, plannedVmIdSet);
+  } else if (reuseRunning) {
+    logInfo("--reuse-running: skipping smart-cleanup; using whatever CTs are currently alive");
   }
   // restoreBestSnapshot is the dep-snapshot fast-path. Skipped for:
   //   - --all: full-suite test must validate everything from scratch.
   //   - single + --from-snapshot: rollbackOrDestroyDepsFromSnapshot does
   //     the same work plus destroys snapshotless deps; running both would
   //     pct-rollback every dep CT twice.
-  if (runMode !== "all" && !(runMode === "single" && fromSnapshot)) {
+  //   - --reuse-running: caller wants to use the currently-alive deps
+  //     untouched (post-failure iteration).
+  if (runMode !== "all" && !(runMode === "single" && fromSnapshot) && !reuseRunning) {
     setPhase("restoring snapshots for dep CTs");
     await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
   }
