@@ -381,6 +381,13 @@ function cleanupVms(
     if (p.isDependency) {
       logWarn(`Keeping dependency VM ${p.vmId} (${p.scenario.id})`);
       console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
+    } else if (p.scenario.expect_clone_lifecycle) {
+      // Self-upgrade test: the scenario VM IS the new deployer-CT after
+      // the replace took over the original Hub's hostname/IP. Destroying
+      // it leaves green with no deployer until step2b reinstalls. Always
+      // preserve.
+      logWarn(`Keeping deployer-replacement VM ${p.vmId} (${p.scenario.id}, expect_clone_lifecycle)`);
+      console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
     } else if (snapshotCatalog.has(p.scenario.id)) {
       // Catalog members own pct snapshots created by the per-member-snapshot
       // path in scenario-executor; destroying the CT here would wipe that
