@@ -788,23 +788,28 @@ export class VeExecution extends EventEmitter {
         // "Completed" message with the redirectUrl is emitted now and
         // the UI can start its switchover countdown.
         if (this.outputs.get("switchover_scheduled") === "true") {
-          // E.9: emit one synthetic "kind: skipped" message per remaining
-          // template so the debug bundle's Scripts table is honest about
-          // what didn't run. Without these the bundle just stops after
-          // lxc-start (or replace-ct), suggesting "task ended at step N"
-          // when actually step N+1..M were deliberately skipped because
-          // of the switchover. The debug-collector treats kind: "skipped"
-          // as a first-class row (separate from stderr attachment to the
-          // previous script).
+          // E.9: emit synthetic "skipped" entries for the remaining
+          // templates so both the debug bundle's Scripts table AND the
+          // MessageManager stream are honest about what didn't run.
+          // Without these the bundle just stops after lxc-start (or
+          // replace-ct), suggesting "task ended at step N" when actually
+          // step N+1..M were deliberately skipped because of the
+          // switchover. emitDebugScriptSkipped→DebugCollector adds rows
+          // to the scripts table; emit("message", kind: "skipped") feeds
+          // the MessageManager stream the CLI polls.
+          const skipReason =
+            "switchover_scheduled — deployer self-upgrade; new CT takes over. " +
+            "Post-switchover steps run via the new CT's boot path.";
           for (let j = i + 1; j < this.commands.length; j++) {
             const skippedCmd = this.commands[j];
             if (!skippedCmd) continue;
+            this.messageEmitter.emitDebugScriptSkipped(skippedCmd, skipReason);
             this.emit("message", {
               command: skippedCmd.name,
               execute_on: skippedCmd.execute_on ?? "ve",
               exitCode: 0,
               result: "switchover_scheduled",
-              stderr: "Skipped: deployer self-upgrade scheduled (new CT takes over). Post-switchover steps run via the new CT's boot path.",
+              stderr: skipReason,
               finished: false,
               index: getNextMessageIndex(),
               partial: false,
