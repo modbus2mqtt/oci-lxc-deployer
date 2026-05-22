@@ -117,7 +117,11 @@ EOF
   # so this brief extra dual-run is within the existing tradeoff window.
   STOP_LOG="/var/log/proxvex-self-upgrade-${PREV_VMID}-to-${VMID}.log"
   echo "Stopping $PREV_VMID (detached, +10s delay so the switchover result reaches the orchestrator first, log: $STOP_LOG)..." >&2
-  setsid sh -c "echo '=== $(date -u +%FT%TZ) scheduled stop of $PREV_VMID for upgrade to $VMID (10s delay) ===' > '$STOP_LOG'; sleep 10; pct stop '$PREV_VMID' --timeout 90 >> '$STOP_LOG' 2>&1; echo '=== $(date -u +%FT%TZ) pct stop exit=$?' >> '$STOP_LOG'" </dev/null >/dev/null 2>&1 &
+  # `pct stop` does not accept --timeout on this PVE (`pct stop` is the
+  # forceful path; only `pct shutdown` carries the timeout knob). Use
+  # `shutdown --timeout N --forceStop 1` (graceful with SIGKILL fallback
+  # after the timeout) with `pct stop` as a last-resort.
+  setsid sh -c "echo '=== $(date -u +%FT%TZ) scheduled stop of $PREV_VMID for upgrade to $VMID (10s delay) ===' > '$STOP_LOG'; sleep 10; (pct shutdown '$PREV_VMID' --timeout 90 --forceStop 1 || pct stop '$PREV_VMID') >> '$STOP_LOG' 2>&1; echo '=== $(date -u +%FT%TZ) pct shutdown/stop exit=$?' >> '$STOP_LOG'" </dev/null >/dev/null 2>&1 &
 
   echo "" >&2
   echo "=== Self-upgrade switchover initiated ===" >&2

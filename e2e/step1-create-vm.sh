@@ -498,6 +498,39 @@ EOF
     success "vmbr1 created with NAT (10.0.0.0/24)"
 fi
 
+# Step 10c2: Repoint nested-PVE's own hostname in /etc/hosts at a reachable IP.
+#
+# The Proxmox installer writes /etc/hosts during install based on the
+# DHCP-assigned IP at that moment (typically 192.168.100.2 from a
+# virtio-net link-local lease). After install we've reconfigured the
+# network (vmbr0 static + vmbr1 NAT), so that IP is no longer reachable
+# from anywhere — neither from the outer host (LAN is 192.168.4.x) nor
+# from CTs on vmbr1 (10.0.0.0/24).
+#
+# Without this fix, every `execute_on: ve` script run from inside a
+# CT — which uses the deployer's SSH context with host=pve-e2e-nested.local
+# (resolved via dnsmasq expand-hosts off /etc/hosts) — would try to
+# connect to 192.168.100.2 and time out with "No route to host". Self-
+# upgrade-via-clone is the most visible failure mode but the bug affects
+# any in-CT SSH-to-PVE-host operation.
+#
+# Fix: rewrite the FQDN entry to point at vmbr1's gateway IP (10.0.0.1).
+# CTs on vmbr1 reach the PVE host directly via that IP; the outer host
+# uses the existing port-forwards and doesn't consult this file.
+info "Repointing pve-e2e-nested.local → 10.0.0.1 in nested /etc/hosts (was stale DHCP install-time IP)..."
+nested_ssh "
+    set -e
+    # Strip every pre-existing line whose hostname column matches our
+    # fqdn (case-insensitive) so we don't accumulate stale duplicates
+    # across reruns.
+    awk 'BEGIN{IGNORECASE=1} \$0 !~ /[[:space:]]pve-e2e-nested(\.local)?([[:space:]]|\$)/' /etc/hosts > /etc/hosts.new
+    echo '10.0.0.1 pve-e2e-nested.local pve-e2e-nested' >> /etc/hosts.new
+    mv /etc/hosts.new /etc/hosts
+    # Restart dnsmasq if running so expand-hosts picks up the new line.
+    systemctl is-active --quiet dnsmasq && systemctl restart dnsmasq || true
+" || error "Failed to repoint pve-e2e-nested.local in /etc/hosts"
+success "pve-e2e-nested.local now points at 10.0.0.1 (vmbr1 gateway, reachable from CTs)"
+
 # Step 10d: Install and configure dnsmasq for DHCP on vmbr1.
 # `set -e` matters here: without it, a failed `apt-get install dnsmasq`
 # would silently let the remaining lines run, then the block would exit

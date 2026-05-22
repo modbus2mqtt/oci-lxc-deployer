@@ -92,10 +92,37 @@ interface DebugEntry {
  *   - `finish()` marks the entry complete (timestamp).
  *   - `renderBundle()` returns the virtual file map.
  */
+/**
+ * Module-level reference set by WebAppVE on construction so that
+ * services running outside the webapp (clone-cleanup-service, etc.) can
+ * reach the live collector. The lifetime matches the webapp's, so it's
+ * safe to keep a global pointer. Returns null before WebAppVE.init runs.
+ */
+let activeCollector: WebAppDebugCollector | null = null;
+export function getActiveDebugCollector(): WebAppDebugCollector | null {
+  return activeCollector;
+}
+
 export class WebAppDebugCollector {
   private entries: Map<string, DebugEntry> = new Map();
   /** Tracks which restartKey is currently active for the logger sink. */
   private activeRestartKey: string | null = null;
+  /**
+   * Pre-rendered bundles adopted from another deployer (clone) — keyed by
+   * the same restartKey the clone used. After a self-upgrade-via-clone the
+   * new deployer pulls the clone's bundle and injects it here so that
+   * `GET /api/ve/debug/<restartKey>/*` keeps working on the new deployer
+   * as if it had run the task itself.
+   *
+   * Stored as a virtual file map (filename → content), the same shape
+   * `renderBundle()` produces, so the route handlers can serve adopted
+   * bundles uniformly with live ones.
+   */
+  private adoptedBundles: Map<string, Map<string, string>> = new Map();
+
+  constructor() {
+    activeCollector = this;
+  }
 
   /** Returns the currently active restartKey (logger sink uses this). */
   getActiveRestartKey(): string | null {
@@ -335,7 +362,32 @@ export class WebAppDebugCollector {
    *               variable cross-reference). The .md links to them; humans
    *               don't need to read them.
    */
+  /**
+   * Inject a pre-rendered bundle that this deployer adopts from another
+   * source (e.g. a clone-driven self-upgrade). Subsequent
+   * `renderBundle(restartKey)` calls return this file map directly,
+   * bypassing the live entries map.
+   *
+   * Idempotent: subsequent injects under the same key replace the previous
+   * bundle (useful for retries).
+   */
+  injectBundle(restartKey: string, files: Map<string, string>): void {
+    this.adoptedBundles.set(restartKey, files);
+  }
+
+  /**
+   * Whether a bundle (live or adopted) exists for the given key. Used by
+   * the route handlers to short-circuit `waitForFinish` for adopted
+   * bundles (which never had a live entry, so the wait would always
+   * return immediately anyway, but checking upfront is cheaper).
+   */
+  hasAdoptedBundle(restartKey: string): boolean {
+    return this.adoptedBundles.has(restartKey);
+  }
+
   renderBundle(restartKey: string): Map<string, string> | null {
+    const adopted = this.adoptedBundles.get(restartKey);
+    if (adopted) return adopted;
     const entry = this.entries.get(restartKey);
     if (!entry) return null;
     const files = new Map<string, string>();
