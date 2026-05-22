@@ -1,0 +1,14 @@
+{
+  "task": "upgrade",
+  "depends_on": [
+    "test-proxvex-deployer/default"
+  ],
+  "wait_seconds": 30,
+  "params": [
+    {
+      "name": "oci_image_tag",
+      "value": "latest"
+    }
+  ],
+  "description": "Upgrade the test-proxvex-deployer container's OCI image. Overrides the inherited proxvex/upgrade depends_on so the source CT comes from the same-application install (test-proxvex-deployer/default), not from proxvex/default — which is a different application and isn't present when this scenario runs."
+}

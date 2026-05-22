@@ -46,6 +46,9 @@ import {
   preCleanupNonSnapshotConsumers, rollbackOrDestroyDepsFromSnapshot,
 } from "./vm-lifecycle.mjs";
 import { executeScenarios } from "./scenario-executor.mjs";
+import { writeRunOverviewHtml, writeRunOverviewJson, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
+import { overviewPortForDeployer, startRunOverviewServer, type RunOverviewServer } from "./run-overview-server.mjs";
+import { cleanupOldRuns, writeRunsIndex } from "./runs-index.mjs";
 import { RED, GREEN, NC, logOk, logFail, logWarn, logInfo } from "./log-helpers.mjs";
 import { analyzeCoverage } from "./coverage-analyzer.mjs";
 import { renderMarkdown as renderCoverageMarkdown, renderJson as renderCoverageJson } from "./coverage-report.mjs";
@@ -852,6 +855,50 @@ async function main() {
   }
   console.log("");
 
+  // Live overview: bring up the HTTP/SSE server and write the initial
+  // HTML viewer + JSON snapshot BEFORE the long rollback so an operator can
+  // open the page during planning/baseline. Storage column fills in once
+  // the executor seeds assignments; statuses fill in as scenarios run.
+  const commandLine = process.argv.join(" ");
+  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
+  const overviewState: RunOverviewState = {
+    outDir: resultWriter.getOutputDir(),
+    runId: resultWriter.getRunId(),
+    startedAt: new Date(),
+    commandLine: resultWriter.getCommandLine(),
+    planned,
+    status: new Map<string, ScenarioStatus>(),
+    startedAtMap: new Map<string, Date>(),
+    finishedAtMap: new Map<string, Date>(),
+    storage: new Map<string, string>(),
+    errorMessages: new Map<string, string>(),
+  };
+  const overviewServer: RunOverviewServer | null = await startRunOverviewServer(
+    overviewState,
+    overviewPortForDeployer(config.deployerUrl),
+  );
+  writeRunOverviewHtml(overviewState, overviewServer?.sseUrl ?? null);
+  writeRunOverviewJson(overviewState);
+  // Sweep result directories older than 3 h and regenerate the top-level
+  // index.html so the user can browse past runs. Cleanup is timestamp-
+  // based (runId prefix), independent of mtime which a running scenario
+  // would refresh.
+  const resultsRoot = path.dirname(resultWriter.getOutputDir());
+  const removed = cleanupOldRuns(resultsRoot, 3);
+  if (removed > 0) logInfo(`Removed ${removed} livetest result dir(s) older than 3h`);
+  writeRunsIndex(resultsRoot);
+  logInfo(`Runs index: file://${resultsRoot}/index.html`);
+  const overviewJsonTimer = setInterval(() => {
+    writeRunOverviewJson(overviewState);
+  }, 60_000);
+  overviewJsonTimer.unref();
+  logInfo(`Results: ${resultWriter.getOutputDir()}`);
+  if (overviewServer) {
+    logInfo(`Live overview: ${overviewServer.url}/run-overview.html (file://${resultWriter.getOutputDir()}/run-overview.html for post-mortem)`);
+  } else {
+    logInfo(`Live overview: file://${resultWriter.getOutputDir()}/run-overview.html (server port busy — JSON-only updates)`);
+  }
+
   // Phase 0: resolve the per-application dependency-snapshot name for this
   // run scope. `null` for `--all` / multi-application subsets → no dep
   // snapshot is created or restored (those go the parallelisation route).
@@ -915,22 +962,31 @@ async function main() {
   const fixtureBaseDir = fixturesFlag
     ? path.join(projectRoot, "frontend/src/test-fixtures")
     : undefined;
-  const commandLine = process.argv.join(" ");
-  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
-  logInfo(`Results: ${resultWriter.getOutputDir()}`);
-  logInfo(`Live overview: ${resultWriter.getOutputDir()}/run-overview.html (live via SSE while runner is up; opens from filesystem for post-mortem view)`);
   if (failFastFlag) logInfo("--fail-fast enabled: aborting on first scenario failure");
   let result;
-  if (parallelEnabled) {
-    logInfo(`--parallel enabled: concurrency limit ${parallelLimit}`);
-    const { executeScenariosParallel } = await import("./scenario-executor.mjs");
-    result = await executeScenariosParallel(
-      planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
-      appStackIdsMap, resultWriter, fixtureBaseDir,
-      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) },
-    );
-  } else {
-    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
+  const overviewOpts = { overview: { state: overviewState, server: overviewServer } };
+  try {
+    if (parallelEnabled) {
+      logInfo(`--parallel enabled: concurrency limit ${parallelLimit}`);
+      const { executeScenariosParallel } = await import("./scenario-executor.mjs");
+      result = await executeScenariosParallel(
+        planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
+        appStackIdsMap, resultWriter, fixtureBaseDir,
+        { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) },
+      );
+    } else {
+      result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
+    }
+  } finally {
+    clearInterval(overviewJsonTimer);
+    // Final JSON snapshot is the post-mortem source of truth — viewers
+    // opened after the runner exits read this file. Index is regenerated
+    // so the runs listing shows this run's final counts + failed list.
+    writeRunOverviewJson(overviewState);
+    writeRunsIndex(resultsRoot);
+    if (overviewServer) {
+      try { await overviewServer.stop(); } catch { /* best-effort */ }
+    }
   }
   const allResults = [result];
 

@@ -1,0 +1,23 @@
+{
+  "selectedAddons": [
+    "addon-ssl",
+    "addon-oidc"
+  ],
+  "params": [
+    {
+      "name": "check_oidc_enabled",
+      "value": "true"
+    },
+    {
+      "name": "check_oidc_api_protected",
+      "value": "true"
+    }
+  ],
+  "task": "reconfigure",
+  "depends_on": [
+    "test-proxvex-deployer/default",
+    "zitadel/default"
+  ],
+  "wait_seconds": 30,
+  "description": "Reconfigure: enable SSL and OIDC addon on an existing test-proxvex-deployer container. Overrides the inherited proxvex/reconf-oidc depends_on so the reconfigure target is the same-application install (test-proxvex-deployer/default = plain admin-only), not proxvex/plain, which lives in a different application namespace and is not present when this scenario runs."
+}

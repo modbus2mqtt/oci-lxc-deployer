@@ -75,6 +75,15 @@ export interface ExecuteScenariosOptions {
    * shifts the default away from cli-executor's hardcoded 600 s. Useful
    * when parallel runs push per-scenario duration past the default. */
   cliTimeoutSec?: number;
+  /** Externally-owned run-overview (server + state) — when set, the executor
+   * only seeds per-scenario storage and emits on transitions; the runner
+   * owns server start/stop, JSON timer, and final-write lifecycle so the
+   * overview is reachable from the moment the runner starts (planning),
+   * not only once the executor is reached. */
+  overview?: {
+    state: RunOverviewState;
+    server: RunOverviewServer | null;
+  };
 }
 
 /**
@@ -455,44 +464,101 @@ export async function executeScenarios(
   // lock contention.
   const storageByIdx = assignStoragePerScenario(planned, parallelStorages, volumeStorageOverride);
 
-  // Live overview: serves <outDir>/run-overview.html + an SSE stream from the
-  // run-overview server, and refreshes <outDir>/run-overview.json once per
-  // minute + at every state transition + on exit. The HTML page picks live
-  // (SSE) or post-mortem (JSON) automatically based on its own protocol.
-  // Best-effort observability — never crashes the run if IO/port-bind fails.
-  const overviewState: RunOverviewState | undefined = resultWriter ? {
-    outDir: resultWriter.getOutputDir(),
-    runId: resultWriter.getRunId(),
-    startedAt: new Date(),
-    commandLine: resultWriter.getCommandLine(),
-    planned,
-    status: new Map<string, ScenarioStatus>(),
-    startedAtMap: new Map<string, Date>(),
-    finishedAtMap: new Map<string, Date>(),
-    storage: new Map<string, string>(),
-    errorMessages: new Map<string, string>(),
-  } : undefined;
-  let overviewServer: RunOverviewServer | null = null;
+  // Source-clone storage gate.
+  //
+  // Upgrade/reconfigure scenarios with `consumes_source: "isolate"` do
+  //   pct snapshot <source>
+  //   pct clone   <source> <temp> --snapname … --full 1
+  // around the parallel-driver's dispatch boundary. Without `--storage`, the
+  // clone lands on the SOURCE CT's storage — which may differ from the
+  // scenario's reserved target storage when a consumer was placed on a
+  // round-robin storage but its dep wasn't.
+  //
+  // The worker gate's `busyStorages` only tracks the scenario's *target*
+  // storage. Without this map, another worker scheduled on the SOURCE's
+  // storage would race the source-clone for the `pve-storage-<X>` lock
+  // and time out. Pre-compute the source storage per upgrade/reconfigure
+  // scenario so the dispatch loop can reserve both storages together.
+  //
+  // Heuristic: source is the depends_on entry that shares the scenario's
+  // application (the only kind of dep `findExistingVmForReconfigure` will
+  // pick at runtime). When that storage matches the target, no extra
+  // reservation is needed.
+  const sourceStorageByIdx = new Map<number, string>();
+  const idxById = new Map<string, number>();
+  planned.forEach((p, i) => idxById.set(p.scenario.id, i));
+  for (let i = 0; i < planned.length; i++) {
+    const sc = planned[i]!.scenario;
+    if (sc.task !== "upgrade" && sc.task !== "reconfigure") continue;
+    const meta = appMetaMap.get(sc.application) ?? {};
+    const isDC = (meta.framework ?? meta.extends) === "docker-compose";
+    const defaultStrategy: "isolate" | "in-place" | "shared" =
+      isDC && sc.task === "upgrade" ? "in-place" : "isolate";
+    const consumesSource = sc.consumes_source ?? defaultStrategy;
+    if (consumesSource !== "isolate") continue;
+    for (const depId of sc.depends_on ?? []) {
+      const depIdx = idxById.get(depId);
+      if (depIdx === undefined) continue;
+      if (planned[depIdx]!.scenario.application !== sc.application) continue;
+      const depStorage = storageByIdx.get(depIdx);
+      const myStorage = storageByIdx.get(i);
+      if (depStorage && depStorage !== myStorage) {
+        sourceStorageByIdx.set(i, depStorage);
+      }
+      break;
+    }
+  }
+  if (sourceStorageByIdx.size > 0) {
+    const lines = [...sourceStorageByIdx.entries()]
+      .map(([i, s]) => `  ${planned[i]!.scenario.id} → also reserves source storage ${s}`)
+      .join("\n");
+    logInfo(`Cross-storage source-clones detected (${sourceStorageByIdx.size}):\n${lines}`);
+  }
+
+  // Live overview: when the runner pre-built the state+server (the common
+  // path), reuse it so the HTML viewer is already up before this executor
+  // is reached. Falls back to constructing locally for unit-test / direct
+  // callers that don't pass `overview` through options — in that fallback
+  // the executor also owns the server lifecycle (start + JSON timer + stop).
+  const overviewState: RunOverviewState | undefined =
+    options?.overview?.state ?? (resultWriter ? {
+      outDir: resultWriter.getOutputDir(),
+      runId: resultWriter.getRunId(),
+      startedAt: new Date(),
+      commandLine: resultWriter.getCommandLine(),
+      planned,
+      status: new Map<string, ScenarioStatus>(),
+      startedAtMap: new Map<string, Date>(),
+      finishedAtMap: new Map<string, Date>(),
+      storage: new Map<string, string>(),
+      errorMessages: new Map<string, string>(),
+    } : undefined);
+  const ownsOverviewLifecycle = !options?.overview && !!overviewState;
+  let overviewServer: RunOverviewServer | null = options?.overview?.server ?? null;
   let overviewJsonTimer: NodeJS.Timeout | null = null;
   if (overviewState) {
-    // Seed storage assignments up front so they appear from the first render.
+    // Seed storage assignments. The assignment depends on `parallelStorages`
+    // (SSH-probed above), so it has to happen here rather than in the runner.
     planned.forEach((p, i) => {
       const s = storageByIdx.get(i);
       if (s) overviewState.storage.set(p.scenario.id, s);
     });
-    overviewServer = await startRunOverviewServer(
-      overviewState,
-      overviewPortForDeployer(config.deployerUrl),
-    );
-    // HTML viewer goes to disk first so file:// can fall back even if the
-    // server failed to bind. The embedded SSE URL is null in that case, so
-    // the page skips the SSE attempt and reads JSON directly.
-    writeRunOverviewHtml(overviewState, overviewServer?.sseUrl ?? null);
-    writeRunOverviewJson(overviewState);
-    overviewJsonTimer = setInterval(() => {
-      if (overviewState) writeRunOverviewJson(overviewState);
-    }, 60_000);
-    overviewJsonTimer.unref();
+    if (ownsOverviewLifecycle) {
+      overviewServer = await startRunOverviewServer(
+        overviewState,
+        overviewPortForDeployer(config.deployerUrl),
+      );
+      writeRunOverviewHtml(overviewState, overviewServer?.sseUrl ?? null);
+      writeRunOverviewJson(overviewState);
+      overviewJsonTimer = setInterval(() => {
+        if (overviewState) writeRunOverviewJson(overviewState);
+      }, 60_000);
+      overviewJsonTimer.unref();
+    } else {
+      // Externally-owned server: emit a snapshot now so the freshly seeded
+      // storage column reaches connected clients immediately.
+      overviewServer?.emit(overviewState);
+    }
   }
   const markStatus = (idx: number, status: ScenarioStatus, err?: string): void => {
     if (!overviewState) return;
@@ -903,11 +969,12 @@ export async function executeScenarios(
           logFail(errMsg);
           result.errors.push(errMsg);
           result.failed++;
-          // Skip this scenario but keep running the rest of the --all plan.
-          // Aborting here (via `break`) hid many passable scenarios whenever
-          // a reconfigure/upgrade task's live dependency VM had already been
-          // torn down by a previous scenario's cleanup.
-          return { type: "done" };
+          // Treat as a real partition failure (not `done`) so the parallel
+          // driver marks the overview as "failed" and cascades the skip
+          // to anything downstream. The previous `return { type: "done" }`
+          // caused the overview to mismark the scenario as passed, leaving
+          // the CLI summary and the JSON snapshot inconsistent.
+          return { type: "failed-partition", scenarioId: scenario.id };
         }
         // From here on existingVm is guaranteed non-null. Bind into a typed
         // local so TS keeps the narrowing across the reassignment below
@@ -2051,19 +2118,26 @@ export async function executeScenarios(
             if (active >= effectiveCap) break;
             if (state[idx] !== "pending") continue;
             const reservedStorage = storageByIdx.get(idx);
+            const sourceStorage = sourceStorageByIdx.get(idx);
             const scenarioId = planned[idx]!.scenario.id;
-            // Worker-occupancy gate: skip if this scenario's storage is
-            // currently held by another running scenario. The next pump()
-            // call (triggered when a worker finishes) will pick it up.
-            if (reservedStorage && busyStorages.has(reservedStorage)) {
+            // Worker-occupancy gate: target storage + (for source-isolating
+            // upgrade/reconfigure) the source storage too. busyStorages is
+            // flat; dedupe when source equals target so we don't double-add.
+            const toReserve: string[] = [];
+            if (reservedStorage) toReserve.push(reservedStorage);
+            if (sourceStorage && sourceStorage !== reservedStorage) toReserve.push(sourceStorage);
+            const blocking = toReserve.find((s) => busyStorages.has(s));
+            if (blocking) {
               if (!waitLogged.has(idx)) {
-                logWorkerTimeline("wait", reservedStorage, scenarioId,
-                  "(storage busy)");
+                const detail = blocking === reservedStorage
+                  ? "(storage busy)"
+                  : `(source storage ${blocking} busy)`;
+                logWorkerTimeline("wait", reservedStorage, scenarioId, detail);
                 waitLogged.add(idx);
               }
               continue;
             }
-            if (reservedStorage) busyStorages.add(reservedStorage);
+            for (const s of toReserve) busyStorages.add(s);
             if (waitLogged.has(idx)) {
               logWorkerTimeline("resume", reservedStorage, scenarioId);
               waitLogged.delete(idx);
@@ -2091,7 +2165,7 @@ export async function executeScenarios(
             void runStep(idx)
               .then((outcome) => {
                 active--;
-                if (reservedStorage) busyStorages.delete(reservedStorage);
+                for (const s of toReserve) busyStorages.delete(s);
                 const dur = ((Date.now() - startTs) / 1000).toFixed(1);
                 if (outcome.type === "crashed") {
                   state[idx] = "failed";
@@ -2116,7 +2190,7 @@ export async function executeScenarios(
               })
               .catch((err) => {
                 active--;
-                if (reservedStorage) busyStorages.delete(reservedStorage);
+                for (const s of toReserve) busyStorages.delete(s);
                 const dur = ((Date.now() - startTs) / 1000).toFixed(1);
                 logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s exception`);
                 markStatus(idx, "failed", `exception after ${dur}s`);
@@ -2204,12 +2278,16 @@ export async function executeScenarios(
     }
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
-    if (overviewJsonTimer) clearInterval(overviewJsonTimer);
-    // Final JSON snapshot is the post-mortem source of truth — viewers
-    // opened after the runner exits read this file.
-    if (overviewState) writeRunOverviewJson(overviewState);
-    if (overviewServer) {
-      try { await overviewServer.stop(); } catch { /* best-effort */ }
+    // Only tear down the overview when this executor owns its lifecycle.
+    // The runner-owned path lets the runner write the final JSON + stop
+    // the server after summary printing, so a viewer opened in the last
+    // seconds still sees a coherent end state.
+    if (ownsOverviewLifecycle) {
+      if (overviewJsonTimer) clearInterval(overviewJsonTimer);
+      if (overviewState) writeRunOverviewJson(overviewState);
+      if (overviewServer) {
+        try { await overviewServer.stop(); } catch { /* best-effort */ }
+      }
     }
   }
 

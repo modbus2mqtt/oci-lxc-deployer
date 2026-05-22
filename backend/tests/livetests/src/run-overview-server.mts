@@ -81,8 +81,10 @@ export async function startRunOverviewServer(
     _req.on("close", () => { clients.delete(res); });
   });
 
-  // Static files: served straight from the run's outDir so the page works
-  // identically whether opened via http://… or file://….
+  // `/` defaults to the overview page. The full outDir is mounted as
+  // static below so per-scenario links (e.g. `nginx-default/livetest-index.md`)
+  // in the overview table resolve when the page is opened via http://.
+  // Same content also lives on disk for the file:// post-mortem path.
   const serveFile = (filename: string, contentType: string) =>
     (_req: Request, res: Response): void => {
       try {
@@ -94,8 +96,13 @@ export async function startRunOverviewServer(
       }
     };
   app.get("/", serveFile("run-overview.html", "text/html; charset=utf-8"));
-  app.get("/run-overview.html", serveFile("run-overview.html", "text/html; charset=utf-8"));
-  app.get("/run-overview.json", serveFile("run-overview.json", "application/json; charset=utf-8"));
+  app.use(express.static(state.outDir, {
+    // index: false so a request for a directory doesn't show a listing —
+    // we deliberately don't serve directory indexes (privacy + the only
+    // top-level page worth showing is the overview, handled by GET /).
+    index: false,
+    setHeaders: (res) => { res.setHeader("Cache-Control", "no-cache"); },
+  }));
 
   const httpServer: Server = createServer(app);
 

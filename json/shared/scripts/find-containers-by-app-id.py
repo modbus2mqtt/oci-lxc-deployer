@@ -136,17 +136,26 @@ def main() -> None:
     # Phase 3: hostname-suffix tiebreaker for stackless apps under --all.
     # nginx (and other apps with stacktype:null) carries no stack tag, so
     # the Phase 1 filter accepts every running instance — under `--all`
-    # zitadel-pgrst-app/default then sees nginx-default, nginx-acme,
-    # nginx-acme-real, nginx-ssl all at once and aborts with "Multiple
-    # running containers found". Narrow to the one whose hostname matches
-    # `<application_id>-<stack_id_filter>` when the caller has a specific
-    # stack_id — that picks `nginx-default` for a `default` consumer
-    # without changing the legacy "no-filter → all" behaviour.
-    if len(running) > 1 and stack_id_filter:
-        preferred_hostname = f"{app_id}-{stack_id_filter}"
-        narrowed = [c for c in running if c.get("hostname") == preferred_hostname]
-        if narrowed:
-            running = narrowed
+    # zitadel-pgrst-app/default then sees nginx-default, nginx-oidc-ssl,
+    # nginx-reconf-addons-on, nginx-reconf-addons-off all at once and
+    # aborts with "Multiple running containers found". Narrow by
+    # `<application_id>-<variant>` where `variant` is the suffix of a
+    # caller stack id formatted `<stacktype>_<variant>` (e.g.
+    # `postgres_default` -> `default` -> `nginx-default`). First hit wins.
+    if len(running) > 1:
+        variants: set[str] = set()
+        for s in stack_ids_filter:
+            variants.add(s.rsplit("_", 1)[-1] if "_" in s else s)
+        if stack_id_filter:
+            variants.add(
+                stack_id_filter.rsplit("_", 1)[-1] if "_" in stack_id_filter else stack_id_filter
+            )
+        for variant in variants:
+            preferred_hostname = f"{app_id}-{variant}"
+            narrowed = [c for c in running if c.get("hostname") == preferred_hostname]
+            if narrowed:
+                running = narrowed
+                break
 
     # Return output in VeExecution format: IOutput[]
     print(json.dumps([{"id": "containers", "value": json.dumps(running)}]))
