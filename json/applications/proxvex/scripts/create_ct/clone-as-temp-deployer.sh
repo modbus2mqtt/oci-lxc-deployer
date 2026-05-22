@@ -137,41 +137,60 @@ if grep -q "lxc.console.logfile:" "$TARGET_CONF"; then
 fi
 
 # Detect source bridge + IP/GW. The clone uses the SAME bridge (so it sits
-# on the same L2 segment as the deployer it will replace), with a static IP
-# derived from the source by incrementing the last octet by 1 plus an
-# offset based on the wall clock to reduce collisions when previous
-# clones leaked. The proxvex base image carries no DHCP client (deployer
-# CTs always run with host-managed=1 + static IP), so DHCP would just
-# leave the clone without a default route.
+# on the same L2 segment as the deployer it will replace).
+#
+# Two source-IP modes are supported:
+#   1) Source has a static IP (production deployer-CTs run with
+#      host-managed=1 + ip=<cidr>): the clone gets a static IP derived
+#      from the source by incrementing the last octet by 1..9 (wall-clock
+#      mod 9, retry-friendly). Source-CT lock blocks parallel self-
+#      upgrades, so octet collisions are practically impossible.
+#   2) Source has ip=dhcp (fresh-installed proxvex CTs in nested test
+#      environments where dnsmasq serves vmbr1, e.g. proxvex/plain
+#      livetest scenario): clone also uses ip=dhcp and gets its IP from
+#      the same pool. CLONE_IP is "" pre-start; populated post-pct-start
+#      by pct's lease tracking writing back the leased address into
+#      /etc/pve/lxc/<vmid>.conf.
 SRC_NET0=$(pct config "$SOURCE_VMID" | grep -a "^net0:")
 SRC_BRIDGE=$(printf '%s' "$SRC_NET0" | awk -F'[=,]' '{for(i=1;i<=NF;i++) if ($i=="bridge") print $(i+1)}' | head -1)
 SRC_IPCIDR=$(printf '%s' "$SRC_NET0" | awk -F'[=,]' '{for(i=1;i<=NF;i++) if ($i=="ip") print $(i+1)}' | head -1)
 SRC_GW=$(printf '%s' "$SRC_NET0" | awk -F'[=,]' '{for(i=1;i<=NF;i++) if ($i=="gw") print $(i+1)}' | head -1)
+SRC_HOSTMGD=$(printf '%s' "$SRC_NET0" | awk -F'[=,]' '{for(i=1;i<=NF;i++) if ($i=="host-managed") print $(i+1)}' | head -1)
 [ -n "$SRC_BRIDGE" ] || SRC_BRIDGE="vmbr0"
-[ -n "$SRC_IPCIDR" ] || fail "Source net0 has no static IP (got: '$SRC_NET0'). Need static IP to derive clone IP."
 
-# Compute clone IP: source last-octet + offset (1..49 wrap to skip .0/.1/etc).
-SRC_IP=${SRC_IPCIDR%/*}
-SRC_PREFIX=${SRC_IPCIDR#*/}
-[ "$SRC_IP" = "$SRC_IPCIDR" ] && SRC_PREFIX="24"
-SRC_NET3=${SRC_IP%.*}
-SRC_LAST=${SRC_IP##*.}
-# Pick offset 1..9 by ts mod, skipping 0/255 boundaries. If source is .250
-# we'd overflow so we wrap into .101..109 range; the source-CT lock blocks
-# overlapping self-upgrades, so multiple offsets only matter for retries
-# after a stale clone leak.
-_offset=$(( ( $(date +%s) % 9 ) + 1 ))
-CLONE_LAST=$(( SRC_LAST + _offset ))
-[ "$CLONE_LAST" -gt 254 ] && CLONE_LAST=$(( 100 + _offset ))
-[ "$CLONE_LAST" -eq "$SRC_LAST" ] && CLONE_LAST=$(( CLONE_LAST + 1 ))
-CLONE_IP="${SRC_NET3}.${CLONE_LAST}"
-log "Clone net0: bridge=$SRC_BRIDGE ip=${CLONE_IP}/${SRC_PREFIX} gw=${SRC_GW:-none} (source was $SRC_IPCIDR)"
+if [ -z "$SRC_IPCIDR" ] || [ "$SRC_IPCIDR" = "dhcp" ]; then
+  CLONE_MODE="dhcp"
+  CLONE_IP=""
+  log "Clone net0: bridge=$SRC_BRIDGE ip=dhcp (source ${SRC_IPCIDR:-no-ip}, host-managed=${SRC_HOSTMGD:-0}) — IP learned post-start"
+else
+  CLONE_MODE="static"
+  SRC_IP=${SRC_IPCIDR%/*}
+  SRC_PREFIX=${SRC_IPCIDR#*/}
+  [ "$SRC_IP" = "$SRC_IPCIDR" ] && SRC_PREFIX="24"
+  SRC_NET3=${SRC_IP%.*}
+  SRC_LAST=${SRC_IP##*.}
+  _offset=$(( ( $(date +%s) % 9 ) + 1 ))
+  CLONE_LAST=$(( SRC_LAST + _offset ))
+  [ "$CLONE_LAST" -gt 254 ] && CLONE_LAST=$(( 100 + _offset ))
+  [ "$CLONE_LAST" -eq "$SRC_LAST" ] && CLONE_LAST=$(( CLONE_LAST + 1 ))
+  CLONE_IP="${SRC_NET3}.${CLONE_LAST}"
+  log "Clone net0: bridge=$SRC_BRIDGE ip=${CLONE_IP}/${SRC_PREFIX} gw=${SRC_GW:-none} (source was $SRC_IPCIDR)"
+fi
 
 pct set "$TARGET_VMID" --hostname "$NEW_HOSTNAME" >&2 || fail "pct set hostname failed"
-_net0_args="name=eth0,bridge=${SRC_BRIDGE},ip=${CLONE_IP}/${SRC_PREFIX},host-managed=1,firewall=0"
-[ -n "$SRC_GW" ] && _net0_args="${_net0_args},gw=${SRC_GW}"
+if [ "$CLONE_MODE" = "static" ]; then
+  _net0_args="name=eth0,bridge=${SRC_BRIDGE},ip=${CLONE_IP}/${SRC_PREFIX},host-managed=1,firewall=0"
+  [ -n "$SRC_GW" ] && _net0_args="${_net0_args},gw=${SRC_GW}"
+else
+  # Preserve host-managed=1 if the source had it so PVE keeps doing the
+  # leasing on the host side (proxvex base image carries no in-guest
+  # DHCP client). Auto-generated hwaddr ensures the clone gets a
+  # different DHCP lease than the source.
+  _net0_args="name=eth0,bridge=${SRC_BRIDGE},ip=dhcp,firewall=0"
+  [ "$SRC_HOSTMGD" = "1" ] && _net0_args="${_net0_args},host-managed=1"
+fi
 pct set "$TARGET_VMID" --net0 "$_net0_args" >&2 \
-  || fail "pct set --net0 (static, host-managed=1) failed"
+  || fail "pct set --net0 ($CLONE_MODE) failed"
 pct set "$TARGET_VMID" --onboot 0 >&2 || true
 
 # Strip OIDC env so the clone backend boots without OIDC enforcement.

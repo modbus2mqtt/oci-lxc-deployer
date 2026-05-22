@@ -5,7 +5,8 @@ import { createLogger } from "../logger/index.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { VeExecution } from "../ve-execution/ve-execution.mjs";
 import { determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
-import { ICommand, TaskType, IParameterValue } from "../types.mjs";
+import { ICommand, TaskType, IParameterValue, IVeExecuteMessage, ISingleExecuteMessagesResponse } from "../types.mjs";
+import type { WebAppVeMessageManager } from "../webapp/webapp-ve-message-manager.mjs";
 
 type ParamNV = { name: string; value: IParameterValue };
 
@@ -141,15 +142,88 @@ export async function cloneSelfAsTempDeployer(
   await ve.run(null);
 
   const cloneVmid = String(ve.outputs.get("vm_id") ?? "");
-  const cloneIp = String(ve.outputs.get("clone_ip") ?? "");
+  let cloneIp = String(ve.outputs.get("clone_ip") ?? "");
   const cloneHostname = String(ve.outputs.get("hostname") ?? "");
-  if (!cloneVmid || !cloneIp || !cloneHostname) {
+  if (!cloneVmid || !cloneHostname) {
     throw new Error(
       `Clone script returned incomplete outputs: vmid=${cloneVmid} ip=${cloneIp} host=${cloneHostname}`,
     );
   }
-  logger.info("Clone created", { cloneVmid, cloneIp, cloneHostname, sourceVmid: selfVmid, veKey });
+  // cloneIp empty means the source had ip=dhcp; the clone now also uses
+  // DHCP and the actual IP will be discovered post-start (see startClone +
+  // discoverCloneIp below).
+  logger.info("Clone created", { cloneVmid, cloneIp: cloneIp || "(dhcp)", cloneHostname, sourceVmid: selfVmid, veKey });
   return { cloneVmid, cloneIp, cloneHostname, sourceVmid: selfVmid, veContextKey: veKey };
+}
+
+/**
+ * Discover the clone's actual IP address after it has been started. For
+ * static-IP clones the IP is known from the script output; for DHCP
+ * clones we need to look up the leased address. Implementation reads
+ * the clone's own routing table from /proc/net/fib_trie (no in-CT tools
+ * required) and extracts the /32 LOCAL host route — that's the IP
+ * bound on the clone's eth0 (excluding the lo 127.0.0.1).
+ *
+ * Polls for up to 30s — DHCP lease + interface bring-up can take a few
+ * seconds after `pct start` returns.
+ */
+export async function discoverCloneIp(
+  cloneVmid: string,
+  veContextKey: string,
+  timeoutMs = 30_000,
+): Promise<string> {
+  const pm = PersistenceManager.getInstance();
+  const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
+  if (!veContext) throw new Error(`VE context ${veContextKey} not found`);
+
+  const inlineScript = `#!/bin/sh
+set -eu
+VMID="{{ clone_vmid }}"
+TIMEOUT="{{ timeout_seconds }}"
+elapsed=0
+while [ "$elapsed" -lt "$TIMEOUT" ]; do
+  # Read fib_trie from inside the clone. /sbin/ip is missing in the
+  # proxvex base image, so we use the kernel-side procfs view: every
+  # bound IP appears as a "/32 host LOCAL" line (excluding 127.0.0.1).
+  ip=$(pct exec "$VMID" -- /bin/cat /proc/net/fib_trie 2>/dev/null \
+    | awk '
+      /\\|--/ { last = $2; next }
+      /\\/32 host LOCAL/ && last !~ /^127\\./ { print last; exit }
+    ')
+  if [ -n "$ip" ]; then
+    printf '[{"id":"clone_ip","value":"%s"}]' "$ip"
+    exit 0
+  fi
+  sleep 2
+  elapsed=$((elapsed + 2))
+done
+echo "Error: clone $VMID has no non-loopback IP after $TIMEOUT s" >&2
+exit 1
+`;
+  const timeoutSeconds = Math.ceil(timeoutMs / 1000);
+  const cmd: ICommand = {
+    name: "Discover clone IP",
+    execute_on: "ve",
+    script: "inline-discover-clone-ip.sh",
+    scriptContent: inlineScript,
+    outputs: [],
+  };
+  const ve = new VeExecution(
+    [cmd],
+    [
+      { id: "clone_vmid", value: String(cloneVmid) },
+      { id: "timeout_seconds", value: String(timeoutSeconds) },
+    ],
+    veContext,
+    new Map(),
+    undefined,
+    determineExecutionMode(),
+  );
+  await ve.run(null);
+  const ip = String(ve.outputs.get("clone_ip") ?? "");
+  if (!ip) throw new Error(`Clone ${cloneVmid} did not bind any non-loopback IP within ${timeoutSeconds}s`);
+  logger.info("Clone IP discovered", { cloneVmid, cloneIp: ip });
+  return ip;
 }
 
 /**
@@ -339,6 +413,130 @@ fi
     return false;
   }
   return String(ve.outputs.get("is_deployer") ?? "false") === "true";
+}
+
+/**
+ * Stage-E: poll the clone's task-message stream and forward every new
+ * message into the original deployer's message manager under the same
+ * restart key. The UI is already subscribed to the original's SSE
+ * stream — by mirroring messages locally we give the user a continuous
+ * live view of the clone's progress without changing the frontend.
+ *
+ * Fire-and-forget: started from the route handler after the trigger
+ * succeeds; runs until the clone reports the task is finished, or for
+ * up to `maxDurationMs` (default 30 min), or until the source CT is
+ * stopped and the process dies (whichever first). Errors are logged
+ * but not rethrown — losing the mirror is degraded UX, not a failure
+ * of the upgrade itself.
+ *
+ * Polling cadence: 2s. Each tick fetches messages with `?since=N` so
+ * we only see new ones. The poll endpoint is cheap (in-memory data on
+ * the clone), so 2s is comfortably below "noticeable lag" for a
+ * progress UI.
+ */
+export async function mirrorCloneTaskMessages(opts: {
+  cloneIp: string;
+  port?: number;
+  veContextKey: string;
+  application: string;
+  task: string;
+  restartKey: string;
+  messageManager: WebAppVeMessageManager;
+  maxDurationMs?: number;
+  pollIntervalMs?: number;
+}): Promise<void> {
+  const {
+    cloneIp,
+    port = 3080,
+    veContextKey,
+    application,
+    task,
+    restartKey,
+    messageManager,
+    maxDurationMs = 30 * 60_000,
+    pollIntervalMs = 2_000,
+  } = opts;
+
+  const startedAt = Date.now();
+  let since = 0;
+  let seenIndices = new Set<number>();
+  let consecutiveErrors = 0;
+
+  logger.info("Mirroring clone task messages", { cloneIp, veContextKey, application, task, restartKey });
+
+  while (Date.now() - startedAt < maxDurationMs) {
+    let groups: ISingleExecuteMessagesResponse[];
+    try {
+      const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}&since=${since}`;
+      groups = await httpGetJson<ISingleExecuteMessagesResponse[]>(url, 5_000);
+      consecutiveErrors = 0;
+    } catch (err: any) {
+      consecutiveErrors++;
+      // After ~30s of unbroken errors (15 ticks × 2s), assume the clone
+      // is gone (could have been destroyed mid-task by an admin) and
+      // exit. Below that, transient errors are expected during the
+      // clone's busy phases.
+      if (consecutiveErrors > 15) {
+        logger.warn("Mirror giving up after sustained errors from clone", {
+          cloneIp,
+          error: err?.message,
+          consecutiveErrors,
+        });
+        return;
+      }
+      await sleep(pollIntervalMs);
+      continue;
+    }
+
+    const group = groups.find((g) => g.restartKey === restartKey);
+    if (group) {
+      for (const msg of group.messages) {
+        // Dedupe by index — re-polling returns already-seen messages.
+        const idx = msg.index;
+        if (typeof idx === "number") {
+          if (seenIndices.has(idx)) continue;
+          seenIndices.add(idx);
+        }
+        try {
+          messageManager.handleExecutionMessage(
+            msg as IVeExecuteMessage,
+            application,
+            task,
+            restartKey,
+          );
+        } catch (err: any) {
+          logger.warn("Failed to inject mirrored message into local manager", {
+            error: err?.message,
+            msgIndex: idx,
+          });
+        }
+      }
+      // Bump the since cursor past the last seen message so subsequent
+      // polls return only what's new.
+      if (group.messages.length > 0) {
+        since = Date.now();
+      }
+      // If the most recent message reports finished, we're done.
+      // (The group-level shape has no `finished` field; per-message
+      // `finished: true` is the canonical end-of-task marker.)
+      const lastMsg = group.messages[group.messages.length - 1];
+      if (lastMsg && (lastMsg as IVeExecuteMessage).finished) {
+        logger.info("Clone task reported finished; mirroring stopped", {
+          restartKey,
+          messageCount: group.messages.length,
+          durationMs: Date.now() - startedAt,
+        });
+        return;
+      }
+    }
+
+    await sleep(pollIntervalMs);
+  }
+
+  logger.warn("Mirror reached maxDurationMs without seeing 'finished' — exiting", {
+    restartKey,
+    maxDurationMs,
+  });
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────

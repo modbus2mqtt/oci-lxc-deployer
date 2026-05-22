@@ -37,9 +37,12 @@ log "Unlocking $VMID (if locked)..."
 pct unlock "$VMID" >&2 2>/dev/null || true
 
 log "Stopping clone $VMID (graceful shutdown, timeout 15s, fall back to kill)..."
-# pct shutdown supports --timeout; pct stop does not on every PVE version
-# (it's a forceful operation). --forceStop makes shutdown SIGKILL after timeout
-# instead of giving up.
+# Use `pct shutdown --timeout N --forceStop 1`: `pct stop --timeout` is not
+# accepted by `pct` on this PVE (`pct stop` is the forceful path and takes
+# no timeout). `--forceStop 1` makes shutdown SIGKILL after the timeout
+# instead of bailing with "shutdown timed out". The bare `pct stop` is
+# a last-resort fallback in case shutdown returns non-zero for an unrelated
+# reason.
 pct shutdown "$VMID" --timeout 15 --forceStop 1 >&2 \
   || pct stop "$VMID" >&2 \
   || log "Warning: pct shutdown/stop $VMID returned non-zero (may already be stopped)"

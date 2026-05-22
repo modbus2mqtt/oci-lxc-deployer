@@ -21,10 +21,15 @@ Test filter      Application (eclipse-mosquitto), scenario (zitadel/default),
                  comments). Treated like --all but scoped to the listed
                  scenarios + their deps. Same snapshot semantics as --all.
                  Example: @e2e/snapshot-baseline.lst replaces step3.
---all / @file    Runner rolls the nested VM back to qm @deployer-installed
-                 first; parallel default; catalog members get a pct snapshot
-                 on success (CT + transitive deps). Use --no-parallel /
-                 --parallel=1 to force serial.
+--all / @file    Runs in nested-deployer mode by default (--config
+                 <auto-instance>): step2b refreshes the deployer LXC from
+                 the current sources, then the runner rolls the nested VM
+                 back to qm @deployer-installed; parallel default; catalog
+                 members get a pct snapshot on success (CT + transitive
+                 deps). Use --no-parallel / --parallel=1 to force serial.
+                 Tests against the actual deployer LXC (not a local Node
+                 process), so self-upgrade-via-clone and other LXC-bound
+                 paths run for real.
 --from-snapshot  Single-scenario only: roll back each transitive dep CT
                  from its existing pct snapshot (and destroy deps that have
                  none, so they reinstall fresh). Default for single is to
@@ -40,7 +45,7 @@ Test filter      Application (eclipse-mosquitto), scenario (zitadel/default),
 Examples:
   /livetest eclipse-mosquitto
   /livetest --debug script zitadel/default
-  /livetest --all                            # qm rollback + parallel + snapshots
+  /livetest --all                            # step2b + nested-deployer + parallel + snapshots (~60 min)
   /livetest @e2e/snapshot-baseline.lst       # fast baseline build (replaces step3)
   /livetest --from-snapshot zitadel/default  # quick rerun from snapshot
   /livetest --fix pgadmin
@@ -54,7 +59,7 @@ Then ask via `AskUserQuestion`:
 - **Options** (single-select, last is Other-auto):
   - `@e2e/snapshot-baseline.lst` — fast baseline build (replaces step3, ~20 min) (Recommended)
   - `eclipse-mosquitto/default` — single scenario, ~1 min, no dependencies
-  - `--all` — full suite (qm rollback + parallel + snapshots), ~30+ min
+  - `--all` — full suite (step2b + nested-deployer + parallel + snapshots), ~60 min
   - `--from-snapshot zitadel/default` — rerun zitadel/default off existing snapshot
 
 When the user picks an option, also ask in a second question whether to enable `--debug` (single-select):
@@ -104,6 +109,13 @@ CONFIG_INSTANCE=""             # populated from --config; empty means local-back
 case "${DEPLOYER_PORT:-3201}" in
   3301) AUTO_INSTANCE=yellow ;;
   *)    AUTO_INSTANCE=green  ;;
+esac
+# --all (and @file curated runs) default to nested-deployer mode so the
+# suite always tests against the deployer LXC built from the current
+# sources (not a stale snapshot). Single-scenario runs stay in
+# local-backend mode for faster iteration.
+case "${TEST_FILTER:-}" in
+  --all|@*) [ -z "$CONFIG_INSTANCE" ] && CONFIG_INSTANCE="$AUTO_INSTANCE" ;;
 esac
 INSTANCE="${CONFIG_INSTANCE:-$AUTO_INSTANCE}"
 
