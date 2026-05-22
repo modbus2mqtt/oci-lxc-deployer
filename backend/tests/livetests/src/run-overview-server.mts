@@ -101,7 +101,15 @@ export async function startRunOverviewServer(
     // we deliberately don't serve directory indexes (privacy + the only
     // top-level page worth showing is the overview, handled by GET /).
     index: false,
-    setHeaders: (res) => { res.setHeader("Cache-Control", "no-cache"); },
+    setHeaders: (res, filePath) => {
+      res.setHeader("Cache-Control", "no-cache");
+      // Express's default mime for `.md` is `text/plain`, which means
+      // browser markdown-viewer extensions don't trigger. Force the
+      // proper IANA type so they render the file as a document.
+      if (filePath.endsWith(".md")) {
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      }
+    },
   }));
 
   const httpServer: Server = createServer(app);

@@ -142,7 +142,7 @@ vol_alloc() {
       while [ "$_vol_attempt" -le "$_vol_max_attempts" ]; do
         if zfs list -H "$_vol_dataset" >/dev/null 2>&1; then
           echo "vol_alloc: pvesm alloc timed out (attempt $_vol_attempt/$_vol_max_attempts); destroying orphan dataset $_vol_dataset and retrying" >&2
-          zfs destroy -fr "$_vol_dataset" 2>&1 >&2 || true
+          zfs destroy -fr "$_vol_dataset" >&2 2>&1 || true
         else
           echo "vol_alloc: pvesm alloc timed out (attempt $_vol_attempt/$_vol_max_attempts); retrying" >&2
         fi
@@ -176,7 +176,7 @@ vol_alloc() {
       # aren't poisoned, then fail.
       if zfs list -H "$_vol_dataset" >/dev/null 2>&1; then
         echo "vol_alloc: all $_vol_max_attempts retries timed out; cleaning up final orphan dataset $_vol_dataset" >&2
-        zfs destroy -fr "$_vol_dataset" 2>&1 >&2 || true
+        zfs destroy -fr "$_vol_dataset" >&2 2>&1 || true
       fi
       echo "vol_alloc retry failed (type=$_vol_type) after $_vol_max_attempts attempts" >&2
       return 1
@@ -770,18 +770,18 @@ vol_unlink_persistent() {
           echo "Rename collision: ${_vol_stor}:${_vol_clean} already exists; deleting redundant source ${_vol_mpsrc}" >&2
           case "$_vol_type" in
             zfspool)
-              if ! zfs destroy -r "${_vol_pool}/${_vol_name}" 2>&1 >&2; then
+              if ! zfs destroy -r "${_vol_pool}/${_vol_name}" >&2 2>&1; then
                 echo "WARNING: could not destroy redundant ZFS dataset ${_vol_pool}/${_vol_name}; will surface as orphan_unmounted" >&2
               fi
               ;;
             lvmthin|lvm)
-              if ! lvremove -f "${_vol_vgname}/${_vol_name}" 2>&1 >&2; then
+              if ! lvremove -f "${_vol_vgname}/${_vol_name}" >&2 2>&1; then
                 echo "WARNING: could not lvremove redundant LV ${_vol_vgname}/${_vol_name}; will surface as orphan_unmounted" >&2
               fi
               ;;
             dir)
               _vol_old_vmid_d=$(echo "$_vol_name" | sed -E 's/^(subvol|vm)-([0-9]+)-.*/\2/')
-              if ! rm -rf "${_vol_base}/images/${_vol_old_vmid_d}/${_vol_name}" 2>&1 >&2; then
+              if ! rm -rf "${_vol_base}/images/${_vol_old_vmid_d}/${_vol_name}" >&2 2>&1; then
                 echo "WARNING: could not delete redundant dir volume ${_vol_name}" >&2
               fi
               ;;

@@ -56,7 +56,7 @@ rm -rf "$TMP_DIR"
 
 # Restart pveproxy to pick up new cert
 echo "Restarting pveproxy..." >&2
-systemctl restart pveproxy 2>&1 >&2 || true
+systemctl restart pveproxy >&2 2>&1 || true
 
 echo "PVE certificate provisioned successfully for ${FQDN}" >&2
 echo '[{"id":"pve_cert_provisioned","value":"true"}]'
