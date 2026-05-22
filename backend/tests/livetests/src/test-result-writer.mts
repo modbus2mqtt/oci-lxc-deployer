@@ -53,10 +53,6 @@ export interface TestResultData {
   logs?: LogSummary[];
   /** Backend restartKey — when set the writer pulls the debug bundle. */
   restart_key?: string;
-  /** Derived restartKey under which clone-side diagnostics are exposed for
-   *  self-upgrade-via-clone tests (typically `${restart_key}__clone`). When
-   *  set the writer pulls a second bundle into `./clone-bundle/`. */
-  clone_restart_key?: string;
 }
 
 const FILTER_MAX_LEN = 30;
@@ -129,6 +125,10 @@ export class TestResultWriter {
     // 3) Backend debug bundle (optional) — pulled when restart_key + apiUrl
     // are both available. Each file is written verbatim to preserve the
     // relative-link structure (e.g. scripts/01-foo.md → ../index.md).
+    //
+    // For self-upgrade-via-clone tests the bundle contains the whole story
+    // (Hub-Phasen + Clone reconfigure + post-replace) under one restartKey
+    // (E.8) — no separate clone-bundle/ subdir needed.
     let bundleNote = "";
     if (data.restart_key && this.apiUrl) {
       const fetched = await this.fetchBundle(data.restart_key, dir);
@@ -141,22 +141,6 @@ export class TestResultWriter {
       bundleNote = `_backend bundle skipped — no apiUrl configured for the writer._\n`;
     } else {
       bundleNote = `_no restartKey on this test result — debug bundle could not be fetched._\n`;
-    }
-
-    // 3b) Clone-side bundle (F.5) — for self-upgrade-via-clone tests the
-    // clone B's reconfigure pipeline is exposed on the new CT under a
-    // derived key (typically `${restart_key}__clone`). Pull it into
-    // `./clone-bundle/` so the livetest-results contain both Hub-side
-    // and Clone-side diagnostics side-by-side.
-    if (data.clone_restart_key && this.apiUrl) {
-      const cloneDir = path.join(dir, "clone-bundle");
-      mkdirSync(cloneDir, { recursive: true });
-      const fetched = await this.fetchBundle(data.clone_restart_key, cloneDir);
-      if (fetched.length > 0) {
-        bundleNote += `Clone-side bundle (${fetched.length} files): see clone-bundle/index.md\n`;
-      } else {
-        bundleNote += `_clone-side bundle unavailable under restartKey ${data.clone_restart_key}._\n`;
-      }
     }
 
     // 4) livetest-index.md — entry point that links the rest.
@@ -230,9 +214,6 @@ export class TestResultWriter {
     skippedReason?: string;
     logs?: LogSummary[];
     restartKey?: string;
-    /** When true, derive a clone-side restartKey (`${restartKey}__clone`)
-     *  and store it on the result so the writer pulls a second bundle. */
-    expectCloneLifecycle?: boolean;
   }): TestResultData {
     const variant = opts.scenarioId.split("/")[1] ?? "default";
     const result: TestResultData = {
@@ -259,12 +240,6 @@ export class TestResultWriter {
     };
     if (opts.logs && opts.logs.length > 0) result.logs = opts.logs;
     if (opts.restartKey) result.restart_key = opts.restartKey;
-    if (opts.restartKey && opts.expectCloneLifecycle) {
-      // Convention: clone-side adoption key = `${outerKey}__clone` (set by
-      // self-upgrade-orchestrator). The writer pulls a second bundle from
-      // this key into ./clone-bundle/. See plan Stage E.6 + F.5.
-      result.clone_restart_key = `${opts.restartKey}__clone`;
-    }
     return result;
   }
 }

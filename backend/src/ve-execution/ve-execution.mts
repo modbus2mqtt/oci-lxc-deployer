@@ -780,14 +780,39 @@ export class VeExecution extends EventEmitter {
         // Build restart info for successful execution
         rcRestartInfo = this.stateManager.buildRestartInfo(i);
 
-        // Short-circuit on proxvex self-upgrade: replace-ct.sh signals that
-        // the new deployer will take over the IP. The old deployer (running
-        // this loop) is about to be stopped by the new one — any remaining
-        // commands (e.g. the check phase) cannot complete here. Mark all
-        // commands as successful so the "Completed" message with the
-        // redirectUrl is emitted now and the UI can start its switchover
-        // countdown.
+        // Short-circuit on proxvex self-upgrade: replace-ct.sh / lxc-start.sh
+        // signals that the new deployer will take over the IP. The old
+        // deployer (running this loop) is about to be stopped by the new
+        // one — any remaining commands (e.g. the check phase) cannot
+        // complete here. Mark all commands as successful so the
+        // "Completed" message with the redirectUrl is emitted now and
+        // the UI can start its switchover countdown.
         if (this.outputs.get("switchover_scheduled") === "true") {
+          // E.9: emit one synthetic "kind: skipped" message per remaining
+          // template so the debug bundle's Scripts table is honest about
+          // what didn't run. Without these the bundle just stops after
+          // lxc-start (or replace-ct), suggesting "task ended at step N"
+          // when actually step N+1..M were deliberately skipped because
+          // of the switchover. The debug-collector treats kind: "skipped"
+          // as a first-class row (separate from stderr attachment to the
+          // previous script).
+          for (let j = i + 1; j < this.commands.length; j++) {
+            const skippedCmd = this.commands[j];
+            if (!skippedCmd) continue;
+            this.emit("message", {
+              command: skippedCmd.name,
+              execute_on: skippedCmd.execute_on ?? "ve",
+              exitCode: 0,
+              result: "switchover_scheduled",
+              stderr: "Skipped: deployer self-upgrade scheduled (new CT takes over). Post-switchover steps run via the new CT's boot path.",
+              finished: false,
+              index: getNextMessageIndex(),
+              partial: false,
+              kind: "skipped",
+              ...(skippedCmd.template ? { template: skippedCmd.template } : {}),
+              ...(skippedCmd.restartKey ? { restartKey: skippedCmd.restartKey } : {}),
+            } as IVeExecuteMessage);
+          }
           rcRestartInfo = this.stateManager.buildRestartInfo(
             this.commands.length - 1,
           );

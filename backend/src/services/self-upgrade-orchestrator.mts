@@ -36,14 +36,11 @@ export function writeCleanupMarker(
   marker: {
     cloneVmid: string;
     cloneIp: string;
-    /** Clone B's own task restartKey — used to PULL bundle/messages from B. */
-    cloneRestartKey: string;
-    /** Hub's outer task restartKey — used to build the adoption key. */
-    outerRestartKey: string;
-    /** Derived key (typically `${outerRestartKey}__clone`) under which clone
-     *  diagnostics are adopted on the new CT. Stored explicitly so the
-     *  cleanup service doesn't need to know the derivation rule. */
-    cloneAdoptionKey: string;
+    /** Unified restartKey used by Hub, Clone, and new-CT adoption (E.8).
+     *  Hub generates it; the Clone runs its entire reconfigure pipeline
+     *  under this same key; clone-cleanup-service on the new CT adopts
+     *  the bundle + messages under it. One key, one bundle, one stream. */
+    restartKey: string;
     veContextKey: string;
   },
 ): string {
@@ -51,9 +48,7 @@ export function writeCleanupMarker(
   const body = {
     clone_vmid: marker.cloneVmid,
     clone_ip: marker.cloneIp,
-    clone_restart_key: marker.cloneRestartKey,
-    outer_restart_key: marker.outerRestartKey,
-    clone_adoption_key: marker.cloneAdoptionKey,
+    restart_key: marker.restartKey,
     ve_context_key: marker.veContextKey,
     started_at: new Date().toISOString(),
   };
@@ -371,11 +366,19 @@ export async function triggerUpgradeViaClone(
     params: paramsWithPrev,
     selectedAddons,
     [ORCHESTRATED_FLAG]: true,
+    // E.8: Hub forwards its outer restartKey to the Clone. The Clone's
+    // route handler picks this up and forces setupExecution to use it
+    // instead of generating a new one — so the Clone's whole reconfigure
+    // pipeline (every command, the debug bundle, all messages) lands
+    // under the SAME key the Hub started with. clone-cleanup-service
+    // then adopts under that same key on the new CT, and the CLI sees
+    // a single coherent task stream end-to-end.
+    ...(outerRestartKey ? { outer_restart_key: outerRestartKey } : {}),
   };
   // Route shape: /api/:veContext/ve-configuration/:application (see
   // ApiUri.VeConfiguration in types.mts).
   const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve-configuration/${encodeURIComponent(application)}`;
-  logger.info("Triggering clone-side upgrade", { url, task, previousVmid, selectedAddons });
+  logger.info("Triggering clone-side upgrade", { url, task, previousVmid, selectedAddons, outerRestartKey });
   const response = await httpPostJson<{ restartKey?: string }>(url, body, timeoutMs);
   if (!response.body?.restartKey) {
     throw new Error(
@@ -491,12 +494,13 @@ export async function mirrorCloneTaskMessages(opts: {
   veContextKey: string;
   application: string;
   task: string;
-  /** Restart key Clone B is running its task under — used to QUERY clone. */
-  cloneRestartKey: string;
-  /** Key under which the messages are INJECTED into the local MessageManager.
-   *  Typically `${outerRestartKey}__clone` so the clone-side stream is
-   *  exposed as a separate sub-deployment. */
-  adoptionKey: string;
+  /** Unified restart key (E.8): same value the Clone runs under AND the
+   *  key the Hub-local MessageManager bucket uses. The Clone's pipeline
+   *  emits under this key; the mirror just polls /ve/execute on the
+   *  Clone and re-injects each new message under the same key into the
+   *  Hub's local manager — so live UI/CLI see continuous progress while
+   *  the Hub is still alive. */
+  restartKey: string;
   messageManager: WebAppVeMessageManager;
   maxDurationMs?: number;
   pollIntervalMs?: number;
@@ -507,8 +511,7 @@ export async function mirrorCloneTaskMessages(opts: {
     veContextKey,
     application,
     task,
-    cloneRestartKey,
-    adoptionKey,
+    restartKey,
     messageManager,
     maxDurationMs = 30 * 60_000,
     pollIntervalMs = 2_000,
@@ -518,7 +521,7 @@ export async function mirrorCloneTaskMessages(opts: {
   let seenIndices = new Set<number>();
   let consecutiveErrors = 0;
 
-  logger.info("Mirroring clone task messages", { cloneIp, veContextKey, application, task, cloneRestartKey, adoptionKey });
+  logger.info("Mirroring clone task messages", { cloneIp, veContextKey, application, task, restartKey });
 
   while (Date.now() - startedAt < maxDurationMs) {
     let groups: ISingleExecuteMessagesResponse[];
@@ -528,7 +531,7 @@ export async function mirrorCloneTaskMessages(opts: {
       // cutoff that excludes already-recorded messages with earlier ts,
       // which would silently drop the bulk of the clone's task output
       // after the first poll.
-      const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(cloneRestartKey)}`;
+      const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}`;
       groups = await httpGetJson<ISingleExecuteMessagesResponse[]>(url, 5_000);
       consecutiveErrors = 0;
     } catch (err: any) {
@@ -549,7 +552,7 @@ export async function mirrorCloneTaskMessages(opts: {
       continue;
     }
 
-    const group = groups.find((g) => g.restartKey === cloneRestartKey);
+    const group = groups.find((g) => g.restartKey === restartKey);
     if (group) {
       for (const msg of group.messages) {
         // Dedupe by index — re-polling returns already-seen messages.
@@ -563,7 +566,7 @@ export async function mirrorCloneTaskMessages(opts: {
             msg as IVeExecuteMessage,
             application,
             task,
-            adoptionKey,
+            restartKey,
           );
         } catch (err: any) {
           logger.warn("Failed to inject mirrored message into local manager", {
@@ -578,8 +581,7 @@ export async function mirrorCloneTaskMessages(opts: {
       const lastMsg = group.messages[group.messages.length - 1];
       if (lastMsg && (lastMsg as IVeExecuteMessage).finished) {
         logger.info("Clone task reported finished; mirroring stopped", {
-          cloneRestartKey,
-          adoptionKey,
+          restartKey,
           messageCount: group.messages.length,
           durationMs: Date.now() - startedAt,
         });
@@ -591,8 +593,7 @@ export async function mirrorCloneTaskMessages(opts: {
   }
 
   logger.warn("Mirror reached maxDurationMs without seeing 'finished' — exiting", {
-    cloneRestartKey,
-    adoptionKey,
+    restartKey,
     maxDurationMs,
   });
 }

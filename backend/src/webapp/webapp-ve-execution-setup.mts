@@ -32,6 +32,13 @@ export class WebAppVeExecutionSetup {
 
   /**
    * Sets up a VeExecution instance with event handlers and returns the restart key.
+   *
+   * When `restartKeyOverride` is passed, that value is used instead of
+   * generating a new one. Used by the clone-side handler of an orchestrated
+   * self-upgrade: the Hub generates the outer key, hands it to the Clone
+   * via the request body, and the Clone runs its entire reconfigure pipeline
+   * under that key. Single source of truth for the whole orchestrated task,
+   * adopted as-is on the replacement CT by clone-cleanup-service.
    */
   setupExecution(
     commands: ICommand[],
@@ -46,8 +53,9 @@ export class WebAppVeExecutionSetup {
     processedTemplates?: IProcessedTemplate[],
     debugCollector?: WebAppDebugCollector,
     appLogMonitor?: AppLogMonitor,
+    restartKeyOverride?: string,
   ): { exec: VeExecution; restartKey: string } {
-    const restartKey = this.generateRestartKey();
+    const restartKey = restartKeyOverride ?? this.generateRestartKey();
     // Stamp every command with the task's restartKey so MessageEmitter +
     // SshExecutor can thread it into every emitted event. Replaces the
     // legacy global `activeRestartKey` singleton — events now dispatch to

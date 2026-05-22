@@ -390,26 +390,25 @@ export class WebAppVeRouteHandlers {
             30_000,
             outerRestartKey,
           );
-          // E.6: derived restartKey under which the clone's bundle + messages
-          // are adopted on the new CT. Keeps the outer Hub-task bundle clean
-          // (Hub-Phasen only) and gives the clone-side reconfigure its own
-          // sub-deployment view at `${outerKey}__clone`.
-          const cloneAdoptionKey = `${outerRestartKey}__clone`;
+          // E.8: outer key IS the unified key. The Hub forwarded it to
+          // the Clone in the body.outer_restart_key; the Clone's route
+          // handler used it as restartKeyOverride; therefore
+          // result.restartKey === outerRestartKey and we use it for
+          // marker, mirror, and adoption.
 
           // Write the cleanup marker into the source CT's /config volume.
           // When the clone reconfigures the source, the volume is cloned
           // into the new CT — the marker rides along. The new CT's
-          // clone-cleanup-service reads it on first boot and destroys
-          // CT 400 + adopts its debug bundle + messages under the
-          // derived adoption key.
+          // clone-cleanup-service reads it on first boot, pulls the
+          // bundle/messages from the Clone under outerRestartKey, adopts
+          // them under outerRestartKey on the new CT, then destroys the
+          // Clone.
           try {
             const localPath = this.pm.getPathes().localPath;
             writeCleanupMarker(localPath, {
               cloneVmid: clone.cloneVmid,
               cloneIp: clone.cloneIp,
-              cloneRestartKey: result.restartKey,
-              outerRestartKey,
-              cloneAdoptionKey,
+              restartKey: outerRestartKey,
               veContextKey,
             });
           } catch (markerErr: any) {
@@ -420,18 +419,16 @@ export class WebAppVeRouteHandlers {
           this.logger.info("Clone-side upgrade dispatched", {
             cloneVmid: clone.cloneVmid,
             outerRestartKey,
-            cloneRestartKey: result.restartKey,
-            cloneAdoptionKey,
+            cloneAcceptedKey: result.restartKey,
           });
 
           // E.7: explicit handoff marker into the outer task stream.
-          // The CLI / livetest runner polls /api/<ve>/ve/execute under the
-          // outer key — this message tells the operator (and any future
-          // runner-side switchover-aware logic) that the Hub is about to
-          // be replaced and the diagnostics continue on the new CT under
-          // the same outer key + the `${outerKey}__clone` sub-deployment.
-          // Written BEFORE the actual switchover so it lands in the outer
-          // bundle even if the Hub gets killed mid-replace.
+          // The CLI / livetest runner polls /api/<ve>/ve/execute under
+          // outerRestartKey — this message tells the operator that the
+          // Hub is about to be replaced and diagnostics continue on the
+          // new CT under the SAME key. Written BEFORE the actual
+          // switchover so it lands in the local stream even if the Hub
+          // gets killed mid-replace.
           try {
             this.messageManager.handleExecutionMessage(
               {
@@ -440,7 +437,7 @@ export class WebAppVeRouteHandlers {
                 stderr:
                   `Hub will be replaced by clone-driven upgrade. ` +
                   `Polling continues on the new CT (same hostname/IP) under restartKey=${outerRestartKey}. ` +
-                  `Clone-side reconfigure diagnostics under restartKey=${cloneAdoptionKey}.`,
+                  `All clone-side diagnostics will be adopted under the same key.`,
                 result: null,
                 partial: false,
                 finished: false,
@@ -456,19 +453,16 @@ export class WebAppVeRouteHandlers {
             });
           }
 
-          // Stage E: mirror the clone's task messages into the local
-          // message manager under the cloneAdoptionKey so the UI's
-          // SSE/polling stream sees live progress on the clone-side
-          // sub-deployment. Fire-and-forget — losing the mirror only
-          // degrades UX. The source CT will stop mid-mirror once the
-          // clone reaches the replace step.
+          // Mirror the clone's task messages into the Hub's local message
+          // manager under outerRestartKey so live UI/CLI see continuous
+          // progress while the Hub is alive. The Hub will die mid-replace;
+          // the mirror exits cleanly when the source CT stops.
           void mirrorCloneTaskMessages({
             cloneIp: clone.cloneIp,
             veContextKey,
             application,
             task,
-            cloneRestartKey: result.restartKey,
-            adoptionKey: cloneAdoptionKey,
+            restartKey: outerRestartKey,
             messageManager: this.messageManager,
           }).catch((err) => {
             this.logger.warn("Clone message mirror crashed", { error: err?.message });
@@ -476,10 +470,6 @@ export class WebAppVeRouteHandlers {
 
           return {
             success: true,
-            // Return outer key (NOT clone key) — CLI polls /api/<ve>/ve/execute
-            // under this key for Hub-side orchestrator steps + adopted final
-            // status. Clone-side diagnostics are available under
-            // `${outerRestartKey}__clone` (cloneAdoptionKey).
             restartKey: outerRestartKey,
           };
         }
@@ -958,6 +948,18 @@ export class WebAppVeRouteHandlers {
       // Zitadel LXC, then DEPLOYER_OIDC_MACHINE_* once Phase 2 grants
       // deployer-cli the IAM-org audience needed for Management API).
 
+      // E.8: if this is a clone-side handler for an orchestrated self-upgrade,
+      // the Hub passed its outer restartKey in the body. Use it so the Clone's
+      // entire pipeline runs under the Hub's key — one bundle, one stream,
+      // one source of truth for the orchestrated task.
+      // Flag name kept in sync with ORCHESTRATED_FLAG in
+      // services/self-upgrade-orchestrator.mts (string-only here to avoid
+      // pulling that module into the route-handler import graph).
+      const orchestratedBody = body as { _orchestrated_via_clone?: boolean; outer_restart_key?: string };
+      const restartKeyOverride =
+        orchestratedBody._orchestrated_via_clone === true && orchestratedBody.outer_restart_key
+          ? orchestratedBody.outer_restart_key
+          : undefined;
       const { exec, restartKey } = this.executionSetup.setupExecution(
         commands,
         inputs,
@@ -971,6 +973,7 @@ export class WebAppVeRouteHandlers {
         loaded.processedTemplates,
         this.debugCollector,
         this.appLogMonitor,
+        restartKeyOverride,
       );
 
       // Persist shared_volpath per VE context whenever it appears in outputs
