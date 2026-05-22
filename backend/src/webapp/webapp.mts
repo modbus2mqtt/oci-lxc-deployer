@@ -26,6 +26,7 @@ import { registerValidationRoutes } from "./webapp-validation-routes.mjs";
 import { registerDependencyCheckRoutes } from "./webapp-dependency-check-routes.mjs";
 import { registerTestQueueRoutes } from "./webapp-test-queue-routes.mjs";
 import { registerHubRoutes } from "./webapp-hub-routes.mjs";
+import { registerSelfUpgradeRoutes } from "./webapp-self-upgrade-routes.mjs";
 import { createAuthMiddleware } from "./webapp-auth-middleware.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
 import { createLogger } from "../logger/index.mjs";
@@ -210,6 +211,11 @@ export class VEWebApp {
 
     // Hub endpoints (always active — CA signing + stack API for spokes)
     registerHubRoutes(this.app);
+
+    // Temporary Stage-B test endpoint for the self-upgrade-via-clone
+    // orchestrator. Removed in Stage C when the orchestrator gets wired
+    // into the regular upgrade/reconfigure route handlers.
+    registerSelfUpgradeRoutes(this.app);
 
     // Spoke endpoints — only meaningful if HUB_URL is set, but always
     // registered so the frontend can query status.

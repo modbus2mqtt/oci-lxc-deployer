@@ -1,0 +1,28 @@
+{
+  "execute_on": "ve",
+  "name": "Clone Self As Temp Deployer",
+  "description": "Clone the running proxvex deployer-CT into a short-lived 'upgrader' CT with DHCP, no OIDC, no SSL. The clone is started in parallel with the source and used by self-upgrade-orchestrator to drive a regular remote upgrade against the source. Strictly same-storage clone — fails if source storage cannot be uniquely determined.",
+  "parameters": [
+    "previous_vm_id",
+    "vm_id",
+    "vm_id_start",
+    "searchdomain"
+  ],
+  "commands": [
+    {
+      "template": "050-set-project-parameters.json"
+    },
+    {
+      "name": "Clone self as temp deployer",
+      "script": "clone-as-temp-deployer.sh",
+      "library": "upgrade-common.sh",
+      "outputs": [
+        "vm_id",
+        "previous_vm_id",
+        "hostname",
+        "source_vm_id",
+        "clone_ip"
+      ]
+    }
+  ]
+}

@@ -183,6 +183,23 @@ async function startWebApp(
   }
 
   const webApp = await VEWebApp.create(contextManager);
+
+  // Stage D: clone-cleanup finalizer. Runs AFTER WebAppVE is created so
+  // the global debug collector is registered and the finalizer can adopt
+  // the clone's bundle. Runs BEFORE app.listen so the bundle endpoint
+  // serves the adopted content from the very first request. No-op when
+  // there is no marker, so safe to call on every boot.
+  try {
+    const { finalizeCloneCleanupIfPending } = await import(
+      "./services/clone-cleanup-service.mjs"
+    );
+    await finalizeCloneCleanupIfPending(localPath);
+  } catch (err: any) {
+    logger.warn("Clone-cleanup finalization check failed (non-fatal)", {
+      error: err?.message,
+    });
+  }
+
   const httpPort = process.env.DEPLOYER_PORT || process.env.PORT || 3080;
   const localHttpsPort = process.env.DEPLOYER_HTTPS_PORT || 3443;
 

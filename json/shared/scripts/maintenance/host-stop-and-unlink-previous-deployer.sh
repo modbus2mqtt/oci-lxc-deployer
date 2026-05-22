@@ -37,8 +37,13 @@ pct unlock "$VMID" >&2 2>/dev/null || true
 
 status=$(pct status "$VMID" 2>/dev/null | awk '{print $2}' || echo "unknown")
 if [ "$status" = "running" ]; then
-  log "Stopping previous deployer container $VMID (timeout 90s)..."
-  pct stop "$VMID" --timeout 90 >&2 || fail "pct stop $VMID failed"
+  log "Stopping previous deployer container $VMID (graceful shutdown, timeout 90s, then forceStop)..."
+  # pct shutdown supports --timeout; pct stop on PVE 8 does not (it's a
+  # forceful operation). --forceStop SIGKILLs after the timeout if the
+  # graceful shutdown didn't complete.
+  pct shutdown "$VMID" --timeout 90 --forceStop 1 >&2 \
+    || pct stop "$VMID" >&2 \
+    || fail "pct shutdown/stop $VMID failed"
 else
   log "Container $VMID already stopped"
 fi

@@ -303,6 +303,82 @@ export class WebAppVeRouteHandlers {
         };
       }
       const veCtxToUse: IVEContext = ctx as IVEContext;
+
+      // ── Self-upgrade-via-clone orchestration ──────────────────────────
+      // For proxvex upgrade/reconfigure where the previous_vm_id is the
+      // running deployer-instance itself, delegate to the orchestrator:
+      // it clones the deployer, hands the real upgrade off to the clone,
+      // and returns the clone's restart key. The clone runs the regular
+      // pipeline against the original CT (no recursion thanks to the
+      // _orchestrated_via_clone flag on the request body).
+      try {
+        const prevParam = body.params?.find((p) => p.name === "previous_vm_id");
+        const previousVmid = prevParam?.value !== undefined ? String(prevParam.value) : undefined;
+        const { shouldOrchestrateSelfUpgrade, cloneSelfAsTempDeployer, startClone, waitForCloneApi, triggerUpgradeViaClone, writeCleanupMarker } =
+          await import("../services/self-upgrade-orchestrator.mjs");
+        if (await shouldOrchestrateSelfUpgrade(application, task as TaskType, previousVmid, body, veContextKey)) {
+          this.logger.info("Self-upgrade detected — delegating to clone orchestrator", {
+            application,
+            task,
+            previousVmid,
+            veContextKey,
+          });
+          const clone = await cloneSelfAsTempDeployer(previousVmid!, veContextKey);
+          await startClone(clone.cloneVmid, clone.veContextKey);
+          await waitForCloneApi(clone.cloneIp);
+          const result = await triggerUpgradeViaClone(
+            clone.cloneIp,
+            veContextKey,
+            application,
+            task as TaskType,
+            body.params ?? [],
+            previousVmid!,
+            body.selectedAddons ?? [],
+          );
+          // Write the cleanup marker into the source CT's /config volume.
+          // When the clone reconfigures the source, the volume is cloned
+          // into the new CT — the marker rides along. The new CT's
+          // clone-cleanup-service reads it on first boot and destroys
+          // CT 400 + adopts its debug bundle.
+          try {
+            const localPath = this.pm.getPathes().localPath;
+            writeCleanupMarker(localPath, {
+              cloneVmid: clone.cloneVmid,
+              cloneIp: clone.cloneIp,
+              restartKey: result.restartKey,
+              veContextKey,
+            });
+          } catch (markerErr: any) {
+            this.logger.warn("Failed to write clone-cleanup marker — orchestration continues, manual cleanup required", {
+              error: markerErr?.message,
+            });
+          }
+          this.logger.info("Clone-side upgrade dispatched", {
+            cloneVmid: clone.cloneVmid,
+            cloneRestartKey: result.restartKey,
+          });
+          return {
+            success: true,
+            restartKey: result.restartKey,
+          };
+        }
+      } catch (err: any) {
+        // NEVER fall back to the in-place flow on orchestration failure:
+        // that would risk creating a spurious in-place reconfigure on the
+        // running deployer with the wrong assumptions. Surface the error
+        // to the caller; manual cleanup of any half-created clone CT may
+        // be necessary (see host-stop-and-destroy-clone-deployer.sh).
+        this.logger.error("Self-upgrade orchestration failed", {
+          error: err?.message,
+          stack: err?.stack,
+        });
+        return {
+          success: false,
+          error: `Self-upgrade orchestration failed: ${err?.message ?? String(err)}`,
+          statusCode: 500,
+        };
+      }
+
       const templateProcessor = veCtxToUse
         .getStorageContext()
         .getTemplateProcessor();

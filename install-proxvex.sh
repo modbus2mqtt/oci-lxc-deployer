@@ -1053,17 +1053,47 @@ if [ "$enable_https" = "true" ]; then
   if ! curl -sf "${deployer_api}/api/applications" >/dev/null 2>&1; then
     log "Warning: Deployer API not ready after 60s, skipping HTTPS setup"
   else
-    # Ensure container can resolve PVE hostname (needed for SSH from deployer to host)
-    # Only add /etc/hosts entry if DNS resolution fails inside the container
-    if [ -n "$proxmox_hostname" ] && ! pct exec "${vm_id}" -- getent hosts "$proxmox_hostname" >/dev/null 2>&1; then
-      pve_host_ip=$(getent hosts "$proxmox_hostname" 2>/dev/null | awk '{print $1; exit}')
-      if [ -z "$pve_host_ip" ]; then
-        # Host can't resolve either — use IP of the default-route interface
-        pve_host_ip=$(ip -4 addr show "$(ip route | awk '/default/ {print $5; exit}')" 2>/dev/null | awk '/inet / {split($2, a, "/"); print a[1]; exit}')
+    # Ensure container can resolve AND reach the PVE hostname (needed for
+    # SSH from deployer to host). The previous check only verified DNS
+    # resolution, which fails open in nested test environments where
+    # dnsmasq returns a non-routable IP (e.g. pve-e2e-nested.local →
+    # 192.168.100.2 while the actual PVE host sits on 10.0.0.1 on the
+    # CT's bridge). Verify reachability too: if `getent` succeeds but
+    # the resolved IP can't be reached, override with the CT's gateway
+    # (which is the PVE host's bridge-side IP).
+    if [ -n "$proxmox_hostname" ]; then
+      _resolves=true
+      pct exec "${vm_id}" -- getent hosts "$proxmox_hostname" >/dev/null 2>&1 || _resolves=false
+      _reachable=true
+      if [ "$_resolves" = "true" ]; then
+        # ping is a poor proxy for SSH but it catches the common
+        # "wrong subnet" / "no route" case in 1-2s.
+        pct exec "${vm_id}" -- /bin/sh -c "ping -c1 -W2 ${proxmox_hostname} >/dev/null 2>&1" \
+          || _reachable=false
       fi
-      if [ -n "$pve_host_ip" ]; then
-        pct exec "${vm_id}" -- sh -c "echo '${pve_host_ip} ${proxmox_hostname} ${proxmox_hostname%%.*}' >> /etc/hosts"
-        log "Added /etc/hosts entry: ${pve_host_ip} ${proxmox_hostname}"
+
+      if [ "$_resolves" != "true" ] || [ "$_reachable" != "true" ]; then
+        pve_host_ip=""
+        # Prefer the CT's net0 gateway (always points at the PVE host's
+        # bridge-side IP for proxvex-managed CTs).
+        _gw=$(pct config "${vm_id}" 2>/dev/null \
+          | awk -F'[=,]' '/^net0:/ {for(i=1;i<=NF;i++) if ($i=="gw") print $(i+1)}' \
+          | head -1)
+        if [ -n "$_gw" ]; then
+          pve_host_ip="$_gw"
+        fi
+        # Fallback 1: host-side resolution.
+        [ -z "$pve_host_ip" ] && pve_host_ip=$(getent hosts "$proxmox_hostname" 2>/dev/null | awk '{print $1; exit}')
+        # Fallback 2: default-route iface IP.
+        if [ -z "$pve_host_ip" ]; then
+          pve_host_ip=$(ip -4 addr show "$(ip route | awk '/default/ {print $5; exit}')" 2>/dev/null | awk '/inet / {split($2, a, "/"); print a[1]; exit}')
+        fi
+        if [ -n "$pve_host_ip" ]; then
+          # Strip any prior stale entries for this hostname before appending.
+          pct exec "${vm_id}" -- /bin/sh -c "sed -i '/[[:space:]]${proxmox_hostname}\([[:space:]]\\\$\\\)/d' /etc/hosts 2>/dev/null || true"
+          pct exec "${vm_id}" -- /bin/sh -c "echo '${pve_host_ip} ${proxmox_hostname} ${proxmox_hostname%%.*}' >> /etc/hosts"
+          log "Added /etc/hosts entry: ${pve_host_ip} ${proxmox_hostname} (resolves=${_resolves}, reachable=${_reachable})"
+        fi
       fi
     fi
 

@@ -115,79 +115,19 @@ else
   fi
 fi
 
-# ─── Step 4a: Self-upgrade detection ─────────────────────────────────────────
-# If the SOURCE container is the deployer instance running THIS script (via
-# SSH driven by the deployer itself), we cannot stop it inline — stopping
-# the container kills the SSH session that's executing this script. Instead
-# we drop a marker into the NEW container's /config volume and return.
-# The NEW deployer reads the marker on first boot, SSHes back to the PVE
-# host, stops SOURCE with --timeout 90 and unlinks its managed volumes
-# (see upgrade-finalization-service.mts + host-stop-and-unlink-previous-
-# deployer.sh). That removes the previous systemd-run race entirely.
-IS_SELF_UPGRADE=false
-if pct config "$SOURCE_VMID" 2>/dev/null | grep -qa "deployer-instance"; then
-  IS_SELF_UPGRADE=true
-fi
-
-if [ "$IS_SELF_UPGRADE" = "true" ]; then
-  log "Self-upgrade detected (source $SOURCE_VMID is the deployer instance); handing switchover to new deployer"
-
-  # Resolve the path of the NEW container's /config volume directly from its
-  # pct config — during self-upgrade there are two volumes with the same
-  # hostname suffix (subvol-OLD-<host>-config AND subvol-NEW-<host>-config),
-  # so resolve_host_volume cannot disambiguate them.
-  NEW_CONFIG_VOLID=$(pct config "$TARGET_VMID" 2>/dev/null \
-    | grep -aE '^mp[0-9]+:.*[ ,]mp=/config([, ]|$)' \
-    | head -1 \
-    | sed -E 's/^mp[0-9]+: ([^,]+),.*/\1/' \
-    || true)
-  CONFIG_PATH=""
-  if [ -n "$NEW_CONFIG_VOLID" ]; then
-    CONFIG_PATH=$(pvesm path "$NEW_CONFIG_VOLID" 2>/dev/null || true)
-  fi
-  if [ -z "$CONFIG_PATH" ] || [ ! -d "$CONFIG_PATH" ]; then
-    fail "Could not resolve /config volume of new container $TARGET_VMID (volid=$NEW_CONFIG_VOLID, path=$CONFIG_PATH) — new deployer needs the marker to finish the switchover"
-  fi
-
-  NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  # ve_context_key lets the new deployer pick the right SSH context when it
-  # SSHes back to the PVE host to stop SOURCE.
-  cat > "${CONFIG_PATH}/.pending-post-upgrade.json" <<EOF
-{
-  "previous_vmid": "${SOURCE_VMID}",
-  "new_vmid": "${TARGET_VMID}",
-  "upgraded_at": "${NOW_UTC}",
-  "ve_context_key": "${VE_CONTEXT_KEY}"
-}
-EOF
-  chmod 0644 "${CONFIG_PATH}/.pending-post-upgrade.json" 2>/dev/null || true
-  log "Wrote post-upgrade marker: ${CONFIG_PATH}/.pending-post-upgrade.json"
-
-  # Mark the old deployer container as replaced (sets onboot=0 + lock + notes
-  # markers). lock is informational here — the new deployer issues
-  # `pct unlock` before `pct stop` regardless. SOURCE keeps serving on its
-  # IP until the new deployer stops it.
-  mark_replaced "$SOURCE_VMID" "$TARGET_VMID"
-
-  # The new container was already started by 200-start-lxc.json before this
-  # replace_ct template ran, so its finalizeUpgradeIfPending check at boot
-  # ran BEFORE we wrote the marker — and silently skipped because the marker
-  # didn't exist yet. Without restarting, the new deployer never reads the
-  # marker, the old deployer keeps holding the static IP, and the new
-  # deployer can't bind its listener (port conflict via the shared MAC).
-  # Reboot the new container so finalizeUpgradeIfPending runs again — this
-  # time it sees the marker, SSHes back to the PVE host, stops the old
-  # container, unlinks its managed volumes, and removes the marker.
-  log "Restarting new container $TARGET_VMID so its finalizer reads the marker..."
-  pct reboot "$TARGET_VMID" --timeout 30 >&2 || \
-    log "Warning: pct reboot $TARGET_VMID returned non-zero — finalizer may not have triggered"
-
-  log "Switchover marker placed. New deployer (vmid $TARGET_VMID) takes over and stops $SOURCE_VMID once it has finished booting."
-  printf '[{"id":"redirect_url","value":"%s"},{"id":"switchover_scheduled","value":"true"}]' "$REDIRECT_URL"
-  exit 0
-fi
-
-# ─── Step 4b: Regular stop + mark for delayed cleanup (non-self upgrades) ────
+# ─── Step 4: Stop source + mark for delayed cleanup ──────────────────────────
+# Historical note: this script used to have a 70-line "Self-upgrade detected"
+# special path that wrote .pending-post-upgrade.json into the NEW container's
+# /config volume and deferred the stop to the new deployer's finalizer
+# (upgrade-finalization-service.mts). With the self-upgrade-via-clone
+# orchestrator (stage C of the redesign), the deployer no longer drives
+# its own replace — a temporary clone CT runs replace-ct.sh externally,
+# so we can stop SOURCE inline without killing our SSH session. The
+# special path is gone; the regular path below handles all cases. If
+# SOURCE happens to be the deployer instance (e.g. somebody invoked the
+# CLI manually instead of going through the orchestrator), the atomic
+# start-new + stop-old fast-path in start/lxc-start.sh:21-45 has already
+# stopped SOURCE before this script runs.
 source_status=$(pct status "$SOURCE_VMID" 2>/dev/null | awk '{print $2}' || echo "unknown")
 if [ "$source_status" = "running" ]; then
   # Per-app stop timeout. This generic replace path serves ALL apps, so it
