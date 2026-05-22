@@ -4,24 +4,26 @@ import { IStackProvider } from "./stack-provider.mjs";
 
 /**
  * Local stack provider: delegates to ContextManager stack methods.
- * Used as the Hub/Standalone stack provider.
+ * Used as the Hub/Standalone stack provider. The wrapper methods are
+ * `async` only to satisfy the IStackProvider Promise contract; the
+ * underlying ContextManager ops are pure in-memory and synchronous.
  */
 export class LocalStackProvider implements IStackProvider {
   constructor(private contextManager: ContextManager) {}
 
-  listStacks(stacktype?: string): IStack[] {
+  async listStacks(stacktype?: string): Promise<IStack[]> {
     return this.contextManager.listStacks(stacktype);
   }
 
-  getStack(id: string): IStack | null {
+  async getStack(id: string): Promise<IStack | null> {
     return this.contextManager.getStack(id);
   }
 
-  addStack(stack: IStack): string {
+  async addStack(stack: IStack): Promise<string> {
     return this.contextManager.addStack(stack);
   }
 
-  deleteStack(id: string): boolean {
+  async deleteStack(id: string): Promise<boolean> {
     return this.contextManager.deleteStack(id);
   }
 }

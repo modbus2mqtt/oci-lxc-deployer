@@ -9,7 +9,7 @@ import {
   type ResolvedScenario,
   type PlannedScenario,
 } from "./live-test-runner.mjs";
-import { classifyParallel } from "./scenario-planner.mjs";
+import { classifyParallel, assignStoragePerScenario } from "./scenario-planner.mjs";
 
 // ── Tests ──
 
@@ -719,5 +719,240 @@ describe("classifyParallel", () => {
     ]);
     const { ready } = classifyParallel(p, ["pending", "pending", "pending"]);
     expect(ready).toEqual([0, 1, 2]);
+  });
+});
+
+// ── assignStoragePerScenario ──
+
+describe("assignStoragePerScenario", () => {
+  function plan(
+    entries: Array<{ id: string; depends_on?: string[] }>,
+  ): PlannedScenario[] {
+    return entries.map((e, i) => {
+      const [app] = e.id.split("/");
+      return {
+        vmId: 200 + i,
+        hostname: e.id.replace("/", "-"),
+        stackName: e.id.split("/")[1] ?? "default",
+        scenario: {
+          id: e.id,
+          application: app!,
+          description: e.id,
+          ...(e.depends_on ? { depends_on: e.depends_on } : {}),
+        },
+        hasStacktype: false,
+        isDependency: false,
+        skipExecution: false,
+      };
+    });
+  }
+
+  it("3 root deps + 4 storages → roots take slots 0/1/2, slot 3 unused", () => {
+    const p = plan([
+      { id: "postgres/default" },
+      { id: "postgres/ssl" },
+      { id: "postgres/mtls" },
+    ]);
+    const m = assignStoragePerScenario(p, ["s0", "s1", "s2", "s3"]);
+    expect(m.get(0)).toBe("s0");
+    expect(m.get(1)).toBe("s1");
+    expect(m.get(2)).toBe("s2");
+    // s3 stays free — exactly the "Es darf nur bis 3 gehen" property.
+    expect([...m.values()]).not.toContain("s3");
+  });
+
+  it("consumer inherits its dep's storage (no extra root slot consumed)", () => {
+    const p = plan([
+      { id: "postgres/default" },
+      { id: "zitadel/default", depends_on: ["postgres/default"] },
+      { id: "postgres/ssl" },
+    ]);
+    const m = assignStoragePerScenario(p, ["s0", "s1", "s2"]);
+    expect(m.get(0)).toBe("s0"); // root
+    expect(m.get(1)).toBe("s0"); // consumer → inherits postgres/default
+    expect(m.get(2)).toBe("s1"); // next root → next slot (not s2!)
+  });
+
+  it("two consumers of the same dep both inherit its storage", () => {
+    const p = plan([
+      { id: "postgres/ssl" },
+      { id: "zitadel/ssl", depends_on: ["postgres/ssl"] },
+      { id: "zitadel/mtls", depends_on: ["postgres/ssl"] },
+    ]);
+    const m = assignStoragePerScenario(p, ["s0", "s1"]);
+    expect(m.get(0)).toBe("s0");
+    expect(m.get(1)).toBe("s0");
+    expect(m.get(2)).toBe("s0");
+  });
+
+  it("more roots than storages wraps with full awareness (5 roots, 4 storages)", () => {
+    const p = plan([
+      { id: "a/default" }, { id: "b/default" }, { id: "c/default" },
+      { id: "d/default" }, { id: "e/default" },
+    ]);
+    const m = assignStoragePerScenario(p, ["s0", "s1", "s2", "s3"]);
+    expect(m.get(0)).toBe("s0");
+    expect(m.get(1)).toBe("s1");
+    expect(m.get(2)).toBe("s2");
+    expect(m.get(3)).toBe("s3");
+    expect(m.get(4)).toBe("s0"); // wrap
+  });
+
+  it("override pins every scenario to the given storage", () => {
+    const p = plan([
+      { id: "postgres/default" },
+      { id: "zitadel/default", depends_on: ["postgres/default"] },
+    ]);
+    const m = assignStoragePerScenario(p, ["s0", "s1"], "custom");
+    expect(m.get(0)).toBe("custom");
+    expect(m.get(1)).toBe("custom");
+  });
+
+  it("no storages available → empty map", () => {
+    const p = plan([{ id: "postgres/default" }]);
+    const m = assignStoragePerScenario(p, []);
+    expect(m.size).toBe(0);
+  });
+});
+
+// ── Worker-occupancy gate (simulator) ──
+//
+// Mirrors the busyStorages logic from executeScenariosParallel: each
+// storage is a worker; a scenario is dispatched only when its assigned
+// storage is idle. Simulation here proves the invariants without
+// spinning up the real executor.
+
+describe("worker-occupancy gate (busyStorages)", () => {
+  function plan(
+    entries: Array<{ id: string; depends_on?: string[] }>,
+  ): PlannedScenario[] {
+    return entries.map((e, i) => {
+      const [app] = e.id.split("/");
+      return {
+        vmId: 200 + i,
+        hostname: e.id.replace("/", "-"),
+        stackName: e.id.split("/")[1] ?? "default",
+        scenario: {
+          id: e.id,
+          application: app!,
+          description: e.id,
+          ...(e.depends_on ? { depends_on: e.depends_on } : {}),
+        },
+        hasStacktype: false,
+        isDependency: false,
+        skipExecution: false,
+      };
+    });
+  }
+
+  type St = "pending" | "running" | "done" | "failed";
+
+  // Mimics the inner ready-loop from executeScenariosParallel.
+  function tickDispatch(
+    planned: PlannedScenario[],
+    state: St[],
+    busy: Set<string>,
+    storageByIdx: Map<number, string>,
+    cap: number,
+  ): number[] {
+    const dispatched: number[] = [];
+    const { ready } = classifyParallel(planned, state);
+    const active = state.filter((s) => s === "running").length;
+    let slot = cap - active;
+    for (const idx of ready) {
+      if (slot <= 0) break;
+      const s = storageByIdx.get(idx);
+      if (s && busy.has(s)) continue;
+      if (s) busy.add(s);
+      state[idx] = "running";
+      dispatched.push(idx);
+      slot--;
+    }
+    return dispatched;
+  }
+
+  it("3 postgres roots fill 3 worker slots, 4th storage stays idle", () => {
+    const planned = plan([
+      { id: "postgres/default" },
+      { id: "postgres/ssl" },
+      { id: "postgres/mtls" },
+    ]);
+    const storage = assignStoragePerScenario(planned, ["s0", "s1", "s2", "s3"]);
+    const state: St[] = planned.map(() => "pending");
+    const busy = new Set<string>();
+
+    const dispatched = tickDispatch(planned, state, busy, storage, 4);
+    expect(dispatched).toEqual([0, 1, 2]);
+    expect(busy.has("s0") && busy.has("s1") && busy.has("s2")).toBe(true);
+    expect(busy.has("s3")).toBe(false);
+    // Only 3 in flight even though concurrency cap is 4.
+    expect(state.filter((s) => s === "running")).toHaveLength(3);
+  });
+
+  it("7 scenarios (3 roots + 4 consumers), 4 storages → never more than 3 concurrent (3 unique chains)", () => {
+    // Chains:
+    //  - postgres/default → zitadel/default          (storage s0)
+    //  - postgres/ssl → zitadel/ssl, zitadel/mtls    (storage s1, two consumers)
+    //  - postgres/mtls → zitadel/mtls-certonly       (storage s2)
+    const planned = plan([
+      { id: "postgres/default" },
+      { id: "zitadel/default", depends_on: ["postgres/default"] },
+      { id: "postgres/ssl" },
+      { id: "zitadel/ssl", depends_on: ["postgres/ssl"] },
+      { id: "zitadel/mtls", depends_on: ["postgres/ssl"] },
+      { id: "postgres/mtls" },
+      { id: "zitadel/mtls-certonly", depends_on: ["postgres/mtls"] },
+    ]);
+    const storage = assignStoragePerScenario(planned, ["s0", "s1", "s2", "s3"]);
+    expect(storage.get(0)).toBe("s0");
+    expect(storage.get(1)).toBe("s0"); // consumer inherits
+    expect(storage.get(2)).toBe("s1");
+    expect(storage.get(3)).toBe("s1");
+    expect(storage.get(4)).toBe("s1");
+    expect(storage.get(5)).toBe("s2");
+    expect(storage.get(6)).toBe("s2");
+
+    const state: St[] = planned.map(() => "pending");
+    const busy = new Set<string>();
+
+    // Tick 1: 3 roots ready (indices 0, 2, 5). Consumers blocked on deps.
+    const tick1 = tickDispatch(planned, state, busy, storage, 4);
+    expect(tick1.sort((a, b) => a - b)).toEqual([0, 2, 5]);
+    expect(busy.size).toBe(3); // s0, s1, s2 busy; s3 stays idle
+
+    // Mark all 3 roots done; release storage locks.
+    for (const i of tick1) { state[i] = "done"; busy.delete(storage.get(i)!); }
+
+    // Tick 2: 4 consumers ready. zitadel/default→s0, zitadel/ssl→s1,
+    // zitadel/mtls→s1 (CONFLICT with zitadel/ssl), zitadel/mtls-certonly→s2.
+    const tick2 = tickDispatch(planned, state, busy, storage, 4);
+    // Three should dispatch; one (the mtls/ssl conflict) must wait.
+    expect(tick2.length).toBe(3);
+    expect(state.filter((s) => s === "running")).toHaveLength(3);
+    // The two zitadel/* sharing s1 must NOT both be running.
+    const runningSslChain = state[3] === "running" && state[4] === "running";
+    expect(runningSslChain).toBe(false);
+
+    // Finish whoever is on s1 → that slot frees, the waiter joins.
+    const onS1Idx = state[3] === "running" ? 3 : 4;
+    const waiterIdx = onS1Idx === 3 ? 4 : 3;
+    state[onS1Idx] = "done"; busy.delete("s1");
+    const tick3 = tickDispatch(planned, state, busy, storage, 4);
+    expect(tick3).toEqual([waiterIdx]);
+  });
+
+  it("--volume-storage override pins everything → effective concurrency drops to 1", () => {
+    const planned = plan([
+      { id: "postgres/default" },
+      { id: "postgres/ssl" },
+      { id: "postgres/mtls" },
+    ]);
+    const storage = assignStoragePerScenario(planned, ["s0", "s1", "s2"], "pinned");
+    const state: St[] = planned.map(() => "pending");
+    const busy = new Set<string>();
+    const tick = tickDispatch(planned, state, busy, storage, 4);
+    // All three want "pinned" → only the first dispatches.
+    expect(tick).toEqual([0]);
+    expect(state.filter((s) => s === "running")).toHaveLength(1);
   });
 });

@@ -104,12 +104,15 @@ export class VeExecutionSshExecutor {
         verbose ? "LogLevel=DEBUG" : "LogLevel=ERROR", // verbose mode shows SSH diagnostics
         "-o",
         "ConnectTimeout=5", // fail fast on unreachable hosts
-        "-o",
-        "ControlMaster=auto", // reuse SSH connections
-        "-o",
-        "ControlPersist=60", // keep master connection alive
-        "-o",
-        `ControlPath=/tmp/proxvex-ssh-pipe-${process.pid}-%r@%h:%p`, // shared control socket; service+PID prefix avoids master/slave races against ve-logs-service
+        // ControlMaster (SSH connection multiplexing) intentionally OFF:
+        // under heavy parallel load (multiple workers × pct create / clone
+        // / replace_ct taking minutes), the shared control socket races
+        // its own cleanup. Long-running operations succeeded but their
+        // executeWithRetry re-attempt landed on a half-closed channel and
+        // bailed with exit 255 — a phantom failure that aborted otherwise-
+        // green scenarios (e.g. node-red/upgrade Create Storage Volumes).
+        // Cost of multiplexing-off: ~50–100 ms per SSH command (handshake
+        // each time). Acceptable trade for stable parallel runs.
         "-o",
         "ServerAliveInterval=30", // send keepalive every 30s
         "-o",
@@ -392,6 +395,9 @@ export class VeExecutionSshExecutor {
     const sourceTemplate = (tmplCommand as unknown as { _sourceTemplate?: string })._sourceTemplate;
     if (sourceTemplate) {
       message.template = sourceTemplate;
+    }
+    if (tmplCommand.restartKey) {
+      message.restartKey = tmplCommand.restartKey;
     }
     return message;
   }

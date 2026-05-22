@@ -32,7 +32,7 @@ export function registerCertificateRoutes(
   const pm = PersistenceManager.getInstance();
 
   // GET /api/ve/certificates/ca/:veContext - CA info (no private key)
-  app.get(ApiUri.CertificateCa, (req, res) => {
+  app.get(ApiUri.CertificateCa, async (req, res) => {
     try {
       const veContextKey = String(req.params.veContext || "").trim();
       if (!veContextKey) {
@@ -41,8 +41,8 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      const info: ICaInfoResponse = caService.getCaInfo(veContextKey);
-      info.project_domain_suffix = caService.getDomainSuffix(veContextKey);
+      const info: ICaInfoResponse = await caService.getCaInfo(veContextKey);
+      info.project_domain_suffix = await caService.getDomainSuffix(veContextKey);
       res.status(200).json(info);
     } catch (err: any) {
       sendErrorResponse(res, err);
@@ -50,7 +50,7 @@ export function registerCertificateRoutes(
   });
 
   // POST /api/ve/certificates/ca/:veContext - Import CA (upload key+cert)
-  app.post(ApiUri.CertificateCa, express.json(), (req, res) => {
+  app.post(ApiUri.CertificateCa, express.json(), async (req, res) => {
     try {
       const veContextKey = String(req.params.veContext || "").trim();
       if (!veContextKey) {
@@ -65,14 +65,14 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      const validation = caService.validateCaPem(body.key, body.cert);
+      const validation = await caService.validateCaPem(body.key, body.cert);
       if (!validation.valid) {
         res.status(400).json({ error: validation.error });
         return;
       }
 
-      caService.setCA(veContextKey, body.key, body.cert);
-      const info: ICaInfoResponse = caService.getCaInfo(veContextKey);
+      await caService.setCA(veContextKey, body.key, body.cert);
+      const info: ICaInfoResponse = await caService.getCaInfo(veContextKey);
       res.status(200).json(info);
     } catch (err: any) {
       sendErrorResponse(res, err);
@@ -80,7 +80,7 @@ export function registerCertificateRoutes(
   });
 
   // POST /api/ve/certificates/ca/generate/:veContext - Generate new CA
-  app.post(ApiUri.CertificateCaGenerate, express.json(), (req, res) => {
+  app.post(ApiUri.CertificateCaGenerate, express.json(), async (req, res) => {
     try {
       const veContextKey = String(req.params.veContext || "").trim();
       if (!veContextKey) {
@@ -89,8 +89,8 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      caService.generateCA(veContextKey);
-      const info: ICaInfoResponse = caService.getCaInfo(veContextKey);
+      await caService.generateCA(veContextKey);
+      const info: ICaInfoResponse = await caService.getCaInfo(veContextKey);
       res.status(200).json(info);
     } catch (err: any) {
       sendErrorResponse(res, err);
@@ -124,7 +124,7 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      const sharedVolpath = caService.getSharedVolpath(veContextKey);
+      const sharedVolpath = await caService.getSharedVolpath(veContextKey);
 
       const cmd: ICommand = {
         name: "List Certificate Status",
@@ -155,7 +155,7 @@ export function registerCertificateRoutes(
           ? JSON.parse(certsRaw)
           : [];
 
-      const caInfo = caService.getCaInfo(veContextKey);
+      const caInfo = await caService.getCaInfo(veContextKey);
       const caStatus = caInfo.exists
         ? {
             subject: caInfo.subject!,
@@ -197,13 +197,13 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      if (!caService.hasCA(veContextKey)) {
+      if (!(await caService.hasCA(veContextKey))) {
         res.status(400).json({ error: "No CA configured. Generate or import a CA first." });
         return;
       }
 
-      const ca = caService.getCA(veContextKey)!;
-      const sharedVolpath = caService.getSharedVolpath(veContextKey);
+      const ca = (await caService.getCA(veContextKey))!;
+      const sharedVolpath = await caService.getSharedVolpath(veContextKey);
 
       const repositories = pm.getRepositories();
       const scriptContent = repositories.getScript({
@@ -235,7 +235,7 @@ export function registerCertificateRoutes(
         { id: "cert_renew_requests", value: body.hostnames.join("\n") },
         { id: "ca_key_b64", value: ca.key },
         { id: "ca_cert_b64", value: ca.cert },
-        { id: "project_domain_suffix", value: caService.getDomainSuffix(veContextKey) },
+        { id: "project_domain_suffix", value: await caService.getDomainSuffix(veContextKey) },
         ...(sharedVolpath ? [{ id: "shared_volpath", value: sharedVolpath }] : []),
       ];
 
@@ -332,7 +332,7 @@ export function registerCertificateRoutes(
   });
 
   // POST /api/ve/certificates/domain-suffix/:veContext - Save domain suffix
-  app.post(ApiUri.CertificateDomainSuffix, express.json(), (req, res) => {
+  app.post(ApiUri.CertificateDomainSuffix, express.json(), async (req, res) => {
     try {
       const veContextKey = String(req.params.veContext || "").trim();
       if (!veContextKey) {
@@ -347,7 +347,7 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      caService.setDomainSuffix(veContextKey, suffix);
+      await caService.setDomainSuffix(veContextKey, suffix);
       res.status(200).json({ success: true, project_domain_suffix: suffix });
     } catch (err: any) {
       sendErrorResponse(res, err);
@@ -355,7 +355,7 @@ export function registerCertificateRoutes(
   });
 
   // GET /api/ve/certificates/ca/download/:veContext - Download CA cert as PEM
-  app.get(ApiUri.CertificateCaDownload, (req, res) => {
+  app.get(ApiUri.CertificateCaDownload, async (req, res) => {
     try {
       const veContextKey = String(req.params.veContext || "").trim();
       if (!veContextKey) {
@@ -364,12 +364,12 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      if (!caService.hasCA(veContextKey)) {
+      if (!(await caService.hasCA(veContextKey))) {
         res.status(404).json({ error: "No CA configured" });
         return;
       }
 
-      const ca = caService.getCA(veContextKey)!;
+      const ca = (await caService.getCA(veContextKey))!;
       const pemBytes = Buffer.from(ca.cert, "base64");
 
       res.setHeader("Content-Type", "application/x-pem-file");
@@ -381,7 +381,7 @@ export function registerCertificateRoutes(
   });
 
   // POST /api/ve/certificates/generate/:veContext - Generate cert for arbitrary hostname
-  app.post(ApiUri.CertificateGenerate, express.json(), (req, res) => {
+  app.post(ApiUri.CertificateGenerate, express.json(), async (req, res) => {
     try {
       const veContextKey = String(req.params.veContext || "").trim();
       if (!veContextKey) {
@@ -396,17 +396,17 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      if (!caService.hasCA(veContextKey)) {
+      if (!(await caService.hasCA(veContextKey))) {
         res.status(400).json({ error: "No CA configured. Generate or import a CA first." });
         return;
       }
 
       const hostname = body.hostname.trim();
-      const projectDomainSuffix = caService.getDomainSuffix(veContextKey);
+      const projectDomainSuffix = await caService.getDomainSuffix(veContextKey);
       const fqdn = `${hostname}${projectDomainSuffix}`;
 
-      const generated = caService.generateSelfSignedCert(veContextKey, hostname);
-      const ca = caService.getCA(veContextKey)!;
+      const generated = await caService.generateSelfSignedCert(veContextKey, hostname);
+      const ca = (await caService.getCA(veContextKey))!;
 
       const fullchain = Buffer.from(
         Buffer.from(generated.cert, "base64").toString("utf-8") +
@@ -441,13 +441,13 @@ export function registerCertificateRoutes(
       }
 
       const caService = new CertificateAuthorityService(storageContext);
-      if (!caService.hasCA(veContextKey)) {
+      if (!(await caService.hasCA(veContextKey))) {
         res.status(400).json({ error: "No CA configured. Generate or import a CA first." });
         return;
       }
 
-      const ca = caService.getCA(veContextKey)!;
-      const projectDomainSuffix = caService.getDomainSuffix(veContextKey);
+      const ca = (await caService.getCA(veContextKey))!;
+      const projectDomainSuffix = await caService.getDomainSuffix(veContextKey);
       const fqdn = `${veContext.host}${projectDomainSuffix}`;
 
       const repositories = pm.getRepositories();
@@ -507,7 +507,7 @@ export function registerCertificateRoutes(
 
       // Add CA certificate to the list if it exists
       const caService = new CertificateAuthorityService(storageContext);
-      const caInfo = caService.getCaInfo("");
+      const caInfo = await caService.getCaInfo("");
       if (caInfo.exists) {
         certificates.unshift({
           hostname: "CA",

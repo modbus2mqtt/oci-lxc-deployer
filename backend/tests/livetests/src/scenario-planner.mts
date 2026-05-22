@@ -50,13 +50,42 @@ function taskPriority(s: ResolvedScenario): number {
   return TASK_PRIORITY[s.task ?? "installation"] ?? 99;
 }
 
+/**
+ * Expand a set of scenario ids into the set of ids that should be treated
+ * as "priority" by `collectWithDeps`: the input ids plus all transitive
+ * `depends_on` ancestors found in `all`. Used to bias the topological
+ * ordering toward catalog members and their dependency chains, so the
+ * runner builds the snapshot infrastructure first (postgres → zitadel →
+ * catalog members) before fanning out to leaf consumers. Combined with
+ * the catalog-phase fail-fast gate, this also enables an early exit when
+ * any catalog member fails.
+ */
+export function expandToPriorityClosure(
+  ids: Iterable<string>,
+  all: Map<string, ResolvedScenario>,
+): Set<string> {
+  const closure = new Set<string>();
+  const walk = (id: string): void => {
+    if (closure.has(id)) return;
+    closure.add(id);
+    const s = all.get(id);
+    if (!s) return;
+    for (const dep of s.depends_on ?? []) walk(dep);
+  };
+  for (const id of ids) walk(id);
+  return closure;
+}
+
 export function collectWithDeps(
   selected: string[],
   all: Map<string, ResolvedScenario>,
+  priorityIds?: ReadonlySet<string>,
 ): ResolvedScenario[] {
   const visited = new Set<string>();
   const visiting = new Set<string>(); // for cycle detection
   const ordered: ResolvedScenario[] = [];
+
+  const priorityRank = (id: string): number => (priorityIds?.has(id) ? 0 : 1);
 
   function visit(id: string, chain: string[]) {
     if (visited.has(id)) return;
@@ -68,12 +97,14 @@ export function collectWithDeps(
     const s = all.get(id);
     if (!s) throw new Error(`Unknown test scenario: ${id}`);
 
-    // Visit deps in deterministic order — task priority first (install
-    // before upgrade before reconfigure), then alphabetical. With strict
-    // depends_on this is a no-op (only one dep per layer typically), but it
-    // becomes load-bearing in the top-level driver below where selected[]
-    // can carry multiple sibling consumers.
+    // Visit deps in deterministic order. Primary key: priority membership
+    // (catalog + transitive deps go first → unblock the snapshot phase
+    // before leaf consumers). Then task priority (install < upgrade <
+    // reconfigure). Then alphabetical for stability.
     const deps = [...(s.depends_on ?? [])].sort((a, b) => {
+      const pra = priorityRank(a);
+      const prb = priorityRank(b);
+      if (pra !== prb) return pra - prb;
       const sa = all.get(a);
       const sb = all.get(b);
       const pa = sa ? taskPriority(sa) : 99;
@@ -90,11 +121,14 @@ export function collectWithDeps(
     ordered.push(s);
   }
 
-  // Pre-sort the top-level selected[] by (task_priority, id) so siblings
-  // that share a source (e.g. `postgrest/upgrade-ssl`, `postgrest/reconf-ssl`)
-  // visit in the right order. Topological visit already preserves dep-chain
-  // ordering, so this only affects the layer where multiple roots are equal.
+  // Pre-sort selected[] — priority members first (catalog + their dep
+  // ancestors), then task_priority, then alphabetical. With `--all` this
+  // gives the snapshot phase a head start; with `@file` the listed
+  // scenarios are typically the catalog members themselves.
   const sortedSelected = [...selected].sort((a, b) => {
+    const pra = priorityRank(a);
+    const prb = priorityRank(b);
+    if (pra !== prb) return pra - prb;
     const sa = all.get(a);
     const sb = all.get(b);
     const pa = sa ? taskPriority(sa) : 99;
@@ -162,6 +196,55 @@ export function partitionAfterFailure(
  * applies the concurrency cap and the running-count; this function only
  * answers "what is eligible given current state".
  */
+/**
+ * Pre-compute storage assignment per planned scenario. Each unique chain
+ * (root dep + its consumer subtree) gets one storage; consumers inherit
+ * from their dep. The round-robin counter only advances on ROOT picks
+ * (so 3 root deps + 4 storages → no collision, slot 4 stays free).
+ *
+ * If `override` is set (e.g. `--volume-storage` CLI flag), every scenario
+ * is pinned to that storage. If `parallelStorages` is empty, returns an
+ * empty map (callers fall back to deployer-default storage).
+ *
+ * The parallel driver uses this map both for actual storage pinning AND
+ * as a worker-occupancy gate: at most one scenario per storage runs
+ * concurrently (each worker == one storage == one volume domain). This
+ * eliminates lock contention on `/var/lock/pve-manager/pve-storage-<name>`.
+ */
+export function assignStoragePerScenario(
+  planned: PlannedScenario[],
+  parallelStorages: ReadonlyArray<string>,
+  override?: string,
+): Map<number, string> {
+  const out = new Map<number, string>();
+  if (override) {
+    planned.forEach((_, i) => out.set(i, override));
+    return out;
+  }
+  if (parallelStorages.length === 0) return out;
+
+  const idxById = new Map<string, number>();
+  planned.forEach((p, i) => idxById.set(p.scenario.id, i));
+  let rootIdx = 0;
+  for (let i = 0; i < planned.length; i++) {
+    const p = planned[i]!;
+    let picked: string | undefined;
+    for (const depId of p.scenario.depends_on ?? []) {
+      const di = idxById.get(depId);
+      if (di !== undefined && out.has(di)) {
+        picked = out.get(di);
+        break;
+      }
+    }
+    if (!picked) {
+      picked = parallelStorages[rootIdx % parallelStorages.length]!;
+      rootIdx++;
+    }
+    out.set(i, picked);
+  }
+  return out;
+}
+
 export function classifyParallel(
   planned: PlannedScenario[],
   state: ReadonlyArray<"pending" | "running" | "done" | "failed">,
@@ -172,10 +255,17 @@ export function classifyParallel(
   const blocked: number[] = [];
   for (let idx = 0; idx < planned.length; idx++) {
     if (state[idx] !== "pending") continue;
+    // Both real and implicit deps gate readiness: real deps express
+    // structural correctness; implicit deps compress the destructive-task
+    // tail (see addImplicitDestructiveTaskDeps). Failed real dep blocks
+    // (cascade); failed implicit dep also blocks because if a same-tree
+    // install failed, the destructive task would race against an
+    // incomplete tree.
     const deps = planned[idx]!.scenario.depends_on ?? [];
+    const implicit = planned[idx]!.implicitDeps ?? [];
     let depBlocked = false;
     let allDone = true;
-    for (const depId of deps) {
+    for (const depId of [...deps, ...implicit]) {
       const di = indexById.get(depId);
       if (di === undefined) continue; // dep not in this plan → satisfied
       if (state[di] === "failed") { depBlocked = true; break; }
@@ -185,6 +275,73 @@ export function classifyParallel(
     else if (allDone) ready.push(idx);
   }
   return { ready, blocked };
+}
+
+/**
+ * Augments `depends_on` of every upgrade/reconfigure scenario with the
+ * implicit "wait for all installs in my dependency tree" rule.
+ *
+ * Motivation: under `--all`, a reconfigure becomes ready as soon as its own
+ * source install finishes — even if other installs in the same dependency
+ * fan-out (siblings, cousins) are still running. Those installs may write
+ * shared external state (e.g. zitadel projects, OIDC clients) that the
+ * reconfigure also touches, producing late-run races and a long tail.
+ *
+ * Rule: a reconfigure/upgrade scenario R implicitly depends on every
+ * `installation`-task scenario I where R and I share at least one node in
+ * their transitive `depends_on` closure (i.e. they live in the same
+ * connected component of the dep graph). Unrelated trees are unaffected,
+ * so `--all` parallelism within independent fan-outs is preserved.
+ *
+ * Mutation: planned-scenario `depends_on` arrays are extended in place.
+ * That's safe because `planned[]` is per-run and not reused across runs.
+ */
+export function addImplicitDestructiveTaskDeps(planned: PlannedScenario[]): void {
+  const indexById = new Map<string, number>();
+  planned.forEach((p, i) => indexById.set(p.scenario.id, i));
+
+  // Closure cache: scenario id -> set of every id reachable through depends_on
+  // (including itself). Built once with memoisation.
+  const closure = new Map<string, Set<string>>();
+  const computeClosure = (id: string, visiting: Set<string> = new Set()): Set<string> => {
+    const cached = closure.get(id);
+    if (cached) return cached;
+    if (visiting.has(id)) return new Set([id]); // cycle guard; should not happen post-toposort
+    visiting.add(id);
+    const acc = new Set<string>([id]);
+    const idx = indexById.get(id);
+    if (idx !== undefined) {
+      for (const dep of planned[idx]!.scenario.depends_on ?? []) {
+        for (const x of computeClosure(dep, visiting)) acc.add(x);
+      }
+    }
+    visiting.delete(id);
+    closure.set(id, acc);
+    return acc;
+  };
+  for (const p of planned) computeClosure(p.scenario.id);
+
+  for (const p of planned) {
+    const task = p.scenario.task ?? "installation";
+    if (task !== "upgrade" && task !== "reconfigure") continue;
+    const myClosure = closure.get(p.scenario.id)!;
+    const existing = new Set(p.scenario.depends_on ?? []);
+    const added: string[] = [];
+    for (const other of planned) {
+      if (other.scenario.id === p.scenario.id) continue;
+      if ((other.scenario.task ?? "installation") !== "installation") continue;
+      if (existing.has(other.scenario.id)) continue;
+      const otherClosure = closure.get(other.scenario.id)!;
+      let shared = false;
+      for (const x of otherClosure) {
+        if (myClosure.has(x)) { shared = true; break; }
+      }
+      if (shared) added.push(other.scenario.id);
+    }
+    if (added.length > 0) {
+      p.implicitDeps = added;
+    }
+  }
 }
 
 /**

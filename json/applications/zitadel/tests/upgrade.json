@@ -3,7 +3,6 @@
   "depends_on": [
     "zitadel/default"
   ],
-  "cli_timeout": 600,
   "wait_seconds": 90,
   "params": [
     {

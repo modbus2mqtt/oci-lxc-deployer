@@ -4,7 +4,6 @@
     "proxvex/default"
   ],
   "wait_seconds": 30,
-  "cli_timeout": 600,
   "params": [
     {
       "name": "oci_image_tag",

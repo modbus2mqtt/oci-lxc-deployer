@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { IStack } from "../types.mjs";
 import { IStackProvider } from "./stack-provider.mjs";
 import { createLogger } from "../logger/index.mjs";
@@ -6,19 +5,24 @@ import { createLogger } from "../logger/index.mjs";
 const logger = createLogger("remote-stack-provider");
 
 /**
- * Remote stack provider: delegates stack operations to the Hub deployer via HTTP(S).
+ * Remote stack provider: delegates stack operations to the Hub deployer
+ * via HTTP(S).
  *
- * Auth: If a bearer token getter is provided and returns a token, it's sent
- * as `Authorization: Bearer <token>`. Otherwise the request goes unauthenticated
- * (Hub without OIDC accepts this).
+ * Async via native `fetch` so Spoke→Hub calls never block the Node event
+ * loop. The earlier `spawnSync("curl")` was a workaround for an old sync
+ * IStackProvider interface; that interface is now async too.
  *
- * TLS trust: During TOFU (Trust On First Use) the HTTPS agent accepts any
- * certificate. Once a trusted CA PEM is known, it is pinned via `ca:`. For
- * plain http:// hub URLs TLS is not used.
+ * Auth: If a bearer token getter is provided and returns a token, it's
+ * sent as `Authorization: Bearer <token>`. Otherwise the request goes
+ * unauthenticated (Hub without OIDC accepts this).
  *
- * The `IStackProvider` interface is synchronous (listStacks / getStack / addStack /
- * deleteStack). Since Node `http.request` is async, we use `spawnSync("curl")`
- * under the hood — matches the legacy approach but without mTLS flags.
+ * TLS trust: TOFU is provided by the global `NODE_TLS_REJECT_UNAUTHORIZED=0`
+ * the runner sets (and that the deployer entrypoint sets in test mode).
+ * Using a per-request undici Agent here forced the proxvex production
+ * image to ship undici as an explicit dep — but `undici` is built into
+ * Node, only the JS module is not always installed in production images,
+ * so importing the package broke `proxvex/plain` with
+ * `Cannot find package 'undici'`. Native global `fetch` is enough.
  */
 export class RemoteStackProvider implements IStackProvider {
   private hubUrl: string;
@@ -49,56 +53,58 @@ export class RemoteStackProvider implements IStackProvider {
     return new RemoteStackProvider(hubUrl, getBearerToken, trustedHubCa);
   }
 
-  private fetchJsonSync<T>(path: string, method: string = "GET", body?: unknown): T {
+  private async fetchJson<T>(
+    path: string,
+    method: string = "GET",
+    body?: unknown,
+  ): Promise<T> {
     const url = `${this.hubUrl}${path}`;
-    // -sS: suppress progress meter but DO show error messages on stderr.
-    // Plain -s would silently swallow "Could not resolve host" / connection
-    // errors and surface only `result.status != 0` with empty stderr — making
-    // DNS-related Spoke→Hub failures undebuggable.
-    // -L: follow 3xx redirects. The Hub-LXC auto-redirects plain HTTP /api/*
-    // to HTTPS; without -L curl returns the redirect HTML body and JSON.parse
-    // throws "Invalid JSON from Hub: Moved Permanently".
-    const args: string[] = ["-sSL", "--max-time", "10"];
-
-    if (this.isHttps && !this.trustedHubCa) {
-      args.push("-k"); // TOFU — trust any cert
-    }
-    // Note: when we have a trustedHubCa, we don't pass --cacert because
-    // the Hub cert is signed by it and we rely on OS-level trust for
-    // production Hubs. A future improvement writes the CA to a temp file
-    // and passes --cacert for proper validation.
-
-    if (method !== "GET") {
-      args.push("-X", method);
-    }
+    const headers: Record<string, string> = {};
     const token = this.getBearerToken?.();
-    if (token) {
-      args.push("-H", `Authorization: Bearer ${token}`);
-    }
-    if (body) {
-      args.push("-H", "Content-Type: application/json", "-d", JSON.stringify(body));
-    }
-    args.push(url);
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (body !== undefined) headers["Content-Type"] = "application/json";
 
-    const result = spawnSync("curl", args, { encoding: "utf-8", timeout: 15000 });
-    if (result.error) throw new Error(`Hub connection failed: ${result.error.message}`);
-    if (result.status !== 0) throw new Error(`curl failed: ${result.stderr}`);
+    const init: RequestInit = {
+      method,
+      headers,
+      // 10s overall ceiling — same as the old curl --max-time.
+      signal: AbortSignal.timeout(10000),
+    };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    let response: Response;
     try {
-      return JSON.parse(result.stdout);
-    } catch {
-      throw new Error(`Invalid JSON from Hub: ${result.stdout}`);
+      response = await fetch(url, init);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Hub connection failed: ${msg}`);
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Hub returned ${response.status}: ${text.slice(0, 500)}`,
+      );
+    }
+    try {
+      return (await response.json()) as T;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Invalid JSON from Hub: ${msg}`);
     }
   }
 
-  listStacks(stacktype?: string): IStack[] {
+  async listStacks(stacktype?: string): Promise<IStack[]> {
     const query = stacktype ? `?stacktype=${encodeURIComponent(stacktype)}` : "";
-    const response = this.fetchJsonSync<{ stacks: IStack[] }>(`/api/hub/stacks${query}`);
+    const response = await this.fetchJson<{ stacks: IStack[] }>(
+      `/api/hub/stacks${query}`,
+    );
     return response.stacks;
   }
 
-  getStack(id: string): IStack | null {
+  async getStack(id: string): Promise<IStack | null> {
     try {
-      const response = this.fetchJsonSync<{ stack: IStack }>(`/api/hub/stack/${encodeURIComponent(id)}`);
+      const response = await this.fetchJson<{ stack: IStack }>(
+        `/api/hub/stack/${encodeURIComponent(id)}`,
+      );
       return response.stack;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -107,14 +113,21 @@ export class RemoteStackProvider implements IStackProvider {
     }
   }
 
-  addStack(stack: IStack): string {
-    const response = this.fetchJsonSync<{ key: string }>("/api/hub/stacks", "POST", stack);
+  async addStack(stack: IStack): Promise<string> {
+    const response = await this.fetchJson<{ key: string }>(
+      "/api/hub/stacks",
+      "POST",
+      stack,
+    );
     logger.info("Stack created on Hub", { key: response.key });
     return response.key;
   }
 
-  deleteStack(id: string): boolean {
-    const response = this.fetchJsonSync<{ deleted: boolean }>(`/api/hub/stack/${encodeURIComponent(id)}`, "DELETE");
+  async deleteStack(id: string): Promise<boolean> {
+    const response = await this.fetchJson<{ deleted: boolean }>(
+      `/api/hub/stack/${encodeURIComponent(id)}`,
+      "DELETE",
+    );
     if (response.deleted) logger.info("Stack deleted on Hub", { id });
     return response.deleted;
   }

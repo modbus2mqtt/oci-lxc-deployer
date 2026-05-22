@@ -180,6 +180,15 @@ export interface ICommand {
   hook_trigger_now?: boolean;
   /** @internal category is set internally from the template's category for look-ahead skip logic */
   category?: string;
+  /**
+   * @internal Task correlation key — stamped on every command at
+   * VeExecution start by `webapp-ve-execution-setup`. The MessageEmitter
+   * threads it into every emitted event so the DebugCollector can dispatch
+   * to the right per-task entry. Replaces the legacy global
+   * `activeRestartKey` singleton in WebAppDebugCollector, enabling
+   * concurrent tasks to each own their bundle without interleaved events.
+   */
+  restartKey?: string;
 }
 
 export interface IVeExecuteMessage {
@@ -200,6 +209,10 @@ export interface IVeExecuteMessage {
   switchoverScheduled?: boolean; // true for proxvex self-upgrade: the new deployer takes over the IP, so the UI must wait longer than the default redirect countdown before navigating to redirectUrl.
   completionInfo?: ICompletionInfo; // Optional structured completion info from application
   template?: string; // Filename of the template this command was loaded from (e.g. "342-post-install-acme-renew-on-start.json")
+  /** Task correlation key from `cmd.restartKey`, included by emit sites
+   * so the DebugCollector can dispatch to the right per-task entry under
+   * concurrent execution. Optional for backwards compat. */
+  restartKey?: string;
 }
 
 export interface ICompletionInfo {

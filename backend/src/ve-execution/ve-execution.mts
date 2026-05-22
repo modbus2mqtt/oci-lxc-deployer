@@ -829,6 +829,10 @@ export class VeExecution extends EventEmitter {
           }
         : undefined;
 
+      // All commands carry the same restartKey (stamped at task start in
+      // webapp-ve-execution-setup); pick from the first command for the
+      // top-level Completed/Failed messages that have no command context.
+      const runRestartKey = this.commands[0]?.restartKey;
       this.emit("message", {
         command: "Completed",
         execute_on: "ve",
@@ -842,6 +846,7 @@ export class VeExecution extends EventEmitter {
         redirectUrl: redirectUrl || undefined,
         switchoverScheduled: switchoverScheduled || undefined,
         completionInfo,
+        ...(runRestartKey ? { restartKey: runRestartKey } : {}),
       } as IVeExecuteMessage);
 
       if (restartInfo == undefined) {
@@ -850,6 +855,7 @@ export class VeExecution extends EventEmitter {
     } else {
       // Send a final failure message so CLI/polling clients stop waiting
       const vmId = rcRestartInfo?.vm_id;
+      const runRestartKey = this.commands[0]?.restartKey;
 
       this.emit("message", {
         command: "Failed",
@@ -861,6 +867,7 @@ export class VeExecution extends EventEmitter {
         index: getNextMessageIndex(),
         partial: false,
         vmId: vmId,
+        ...(runRestartKey ? { restartKey: runRestartKey } : {}),
       } as IVeExecuteMessage);
     }
     return rcRestartInfo;

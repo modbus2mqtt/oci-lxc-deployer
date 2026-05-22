@@ -283,33 +283,74 @@ export class PersistenceManager {
    * inline duplicates in the webapp routes. Lazily constructed so it picks
    * up the current StackProvider (Spoke/Standalone-aware).
    */
+  /**
+   * Builds the dependency resolver. The resolver's IDependencyDataSource is
+   * synchronous, but `IStackProvider.getStack` is now async (so RemoteStackProvider
+   * can do non-blocking fetch). To bridge: callers that actually need stack
+   * lookups must call `getApplicationDependencyResolverForStacks(stackIds)`
+   * instead — that pre-fetches the relevant stacks and seeds a sync stack-map.
+   * This zero-arg variant is for paths where `getStack` is never invoked
+   * (e.g. deriveTestDependencies passes selectedStackIds=[] and only uses
+   * stacktype/addon information).
+   */
   private _dependencyResolver: ApplicationDependencyResolver | null = null;
   getApplicationDependencyResolver(): ApplicationDependencyResolver {
     if (!this._dependencyResolver) {
-      const stacktypes = this.getStacktypes();
-      const stacktypeMap = new Map<string, IStacktypeEntry>();
-      for (const st of stacktypes) stacktypeMap.set(st.name, st);
-      const stackProvider = this.getStackProvider();
-      const repos = this.repositories;
-      const addonSvc = this.addonService;
-      const source: IDependencyDataSource = {
-        getApplication: (name) => {
-          try {
-            const cfg = repos.getApplication(name) as { dependencies?: IStacktypeDependency[]; stacktype?: string | string[] };
-            return cfg ?? null;
-          } catch { return null; }
-        },
-        getStacktype: (name) => stacktypeMap.get(name) ?? null,
-        getAddon: (id) => {
-          try { return addonSvc.getAddon(id) ?? null; } catch { return null; }
-        },
-        getStack: (id) => {
-          try { return stackProvider.getStack(id) ?? null; } catch { return null; }
-        },
-      };
-      this._dependencyResolver = new ApplicationDependencyResolver(source);
+      this._dependencyResolver = this.buildDependencyResolver(new Map());
     }
     return this._dependencyResolver;
+  }
+
+  /**
+   * Like `getApplicationDependencyResolver` but pre-fetches the supplied
+   * stack IDs from the (possibly remote) StackProvider so the resolver's
+   * sync `getStack` callback can return them without doing I/O. Required
+   * in Spoke mode where stacks live on the Hub.
+   */
+  async getApplicationDependencyResolverForStacks(
+    stackIds: string[],
+  ): Promise<ApplicationDependencyResolver> {
+    const stackMap = new Map<string, { stacktype?: string | string[] }>();
+    if (stackIds.length > 0) {
+      const sp = this.getStackProvider();
+      const results = await Promise.all(
+        stackIds.map(async (id) => {
+          try {
+            return [id, await sp.getStack(id)] as const;
+          } catch {
+            return [id, null] as const;
+          }
+        }),
+      );
+      for (const [id, stack] of results) {
+        if (stack) stackMap.set(id, stack);
+      }
+    }
+    return this.buildDependencyResolver(stackMap);
+  }
+
+  private buildDependencyResolver(
+    stackMap: ReadonlyMap<string, { stacktype?: string | string[] }>,
+  ): ApplicationDependencyResolver {
+    const stacktypes = this.getStacktypes();
+    const stacktypeMap = new Map<string, IStacktypeEntry>();
+    for (const st of stacktypes) stacktypeMap.set(st.name, st);
+    const repos = this.repositories;
+    const addonSvc = this.addonService;
+    const source: IDependencyDataSource = {
+      getApplication: (name) => {
+        try {
+          const cfg = repos.getApplication(name) as { dependencies?: IStacktypeDependency[]; stacktype?: string | string[] };
+          return cfg ?? null;
+        } catch { return null; }
+      },
+      getStacktype: (name) => stacktypeMap.get(name) ?? null,
+      getAddon: (id) => {
+        try { return addonSvc.getAddon(id) ?? null; } catch { return null; }
+      },
+      getStack: (id) => stackMap.get(id) ?? null,
+    };
+    return new ApplicationDependencyResolver(source);
   }
 
   private _caProvider: ICaProvider | null = null;

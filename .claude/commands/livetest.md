@@ -229,7 +229,17 @@ Throughout the rest of the skill, substitute `$VMID`, `$DEPLOYER_PORT`, `$PVE_SS
 
    Use a 10 minute timeout (15 in `--config` mode to allow for step2b). Show the full output to the user.
 
-7. **Report results** — summarize pass/fail status. Always mention the debug-bundle location: `livetest-results/$(ls -1t livetest-results/ | head -1)/`. For failed scenarios, the bundle's `livetest-index.md` is the first place the user (or fix loop) should look.
+6a. **Surface the live overview link immediately after the runner has logged
+    its `Results:` and `Live overview:` lines** (typically within the first
+    seconds of step 6). The runner writes `livetest-results/<runId>/run-overview.md`
+    and updates it on every scenario state transition with a table of
+    App / Scenario / SSL / OIDC / mTLS / Storage / Status / Duration. Tell
+    the user the path once the runner prints it, so they can `tail -F` or
+    open it in a Markdown viewer while the run is still in progress. For
+    long `--all` / `@file.lst` runs in background mode, this is the
+    primary progress signal alongside the STDERR worker timeline.
+
+7. **Report results** — summarize pass/fail status. Always mention the debug-bundle location: `livetest-results/$(ls -1t livetest-results/ | head -1)/`. For failed scenarios, the bundle's `livetest-index.md` is the first place the user (or fix loop) should look. The same directory contains `run-overview.md` with the final per-scenario table and the persistent STDERR worker timeline (if redirected via `2> worker.log`).
 
 8. **If `--fix` and tests failed**: Enter the fix loop (see below).
 

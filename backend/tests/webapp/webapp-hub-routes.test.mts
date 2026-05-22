@@ -63,7 +63,7 @@ describe("Hub API routes", () => {
     });
 
     it("returns the CA certificate after generation", async () => {
-      const ca = new CertificateAuthorityService(setup.ctx).generateCA(
+      const ca = await new CertificateAuthorityService(setup.ctx).generateCA(
         CA_VE_CONTEXT,
       );
 

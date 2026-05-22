@@ -1,13 +1,20 @@
 {
-  "selectedAddons": ["addon-ssl", "addon-mtls"],
-  "depends_on": ["postgres/mtls"],
+  "selectedAddons": [
+    "addon-ssl",
+    "addon-mtls"
+  ],
+  "depends_on": [
+    "postgres/mtls"
+  ],
   "params": [
-    { "name": "mtls_cns", "value": "gitea" }
+    {
+      "name": "mtls_cns",
+      "value": "gitea"
+    }
   ],
   "cleanup": {
     "postgres": "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='gitea' AND pid<>pg_backend_pid(); DROP DATABASE IF EXISTS gitea; DROP ROLE IF EXISTS gitea;"
   },
-  "cli_timeout": 360,
   "wait_seconds": 60,
   "description": "Pure cert-only gitea -> postgres. The livetest-local overlay (188-conf-init-gitea-testdb, execute_on application:postgres, TEST-ONLY) creates a no-password `gitea` LOGIN role owning the gitea DB — production proxvex creates NO DB SQL (operator's job, see gitea/application.md ## Database setup). addon-mtls issues CN=gitea into /etc/ssl/addon/mtls/gitea/; conf-enable-mtls-app.sh appends GITEA__database__SSL_MODE=verify-ca + USER=gitea + PGSSL* env (overriding the password-mode defaults). postgres/mtls enforces hostssl ... cert. Gitea renders its start page only after DB migrations + queries succeed, so the harness HTTPS health check reaching the running app is end-to-end proof of the cert-only DB path. addon-oidc is intentionally omitted: it would pull in a zitadel that is NOT cert-only-wired here and would itself fail against the cert-only postgres, masking the gitea result. OIDC stays in production/gitea.json."
 }

@@ -105,8 +105,8 @@
     }
   },
   "defaults": {
-    "vmMemory": 4096,
-    "vmCores": 2,
+    "vmMemory": 8192,
+    "vmCores": 4,
     "vmDiskSize": 100,
     "vmStorage": "local-zfs",
     "filesystem": "zfs",

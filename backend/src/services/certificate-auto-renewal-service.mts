@@ -202,7 +202,7 @@ export class CertificateAutoRenewalService {
       let totalSelfSigned = 0;
 
       for (const veKey of veKeys) {
-        if (!caService.hasCA(veKey)) continue;
+        if (!(await caService.hasCA(veKey))) continue;
 
         const veContext = this.contextManager.getVEContextByKey(veKey);
         const host = veContext?.host || veKey.replace(/^ve_/, "");
@@ -272,7 +272,7 @@ export class CertificateAutoRenewalService {
     if (!scriptContent) throw new Error("list-certificate-status.sh not found");
 
     const caService = new CertificateAuthorityService(this.contextManager);
-    const sharedVolpath = caService.getSharedVolpath(veContextKey);
+    const sharedVolpath = await caService.getSharedVolpath(veContextKey);
 
     const cmd: ICommand = {
       name: "List Certificate Status",
@@ -314,8 +314,8 @@ export class CertificateAutoRenewalService {
     const veContext = this.contextManager.getVEContextByKey(veContextKey);
     if (!veContext) throw new Error(`VE context not found: ${veContextKey}`);
 
-    const ca = caService.getCA(veContextKey)!;
-    const sharedVolpath = caService.getSharedVolpath(veContextKey);
+    const ca = (await caService.getCA(veContextKey))!;
+    const sharedVolpath = await caService.getSharedVolpath(veContextKey);
 
     const pm = PersistenceManager.getInstance();
     const repositories = pm.getRepositories();
@@ -347,7 +347,7 @@ export class CertificateAutoRenewalService {
       { id: "cert_renew_requests", value: hostnames.join("\n") },
       { id: "ca_key_b64", value: ca.key },
       { id: "ca_cert_b64", value: ca.cert },
-      { id: "project_domain_suffix", value: caService.getDomainSuffix(veContextKey) },
+      { id: "project_domain_suffix", value: await caService.getDomainSuffix(veContextKey) },
       ...(sharedVolpath ? [{ id: "shared_volpath", value: sharedVolpath }] : []),
     ];
 

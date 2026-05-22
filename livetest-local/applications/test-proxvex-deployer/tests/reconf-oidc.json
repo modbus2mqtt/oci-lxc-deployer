@@ -1,0 +1,24 @@
+{
+  "selectedAddons": [
+    "addon-ssl",
+    "addon-oidc"
+  ],
+  "params": [
+    {
+      "name": "check_oidc_enabled",
+      "value": "true"
+    },
+    {
+      "name": "check_oidc_api_protected",
+      "value": "true"
+    }
+  ],
+  "task": "reconfigure",
+  "depends_on": [
+    "test-proxvex-deployer/default",
+    "zitadel/default"
+  ],
+  "wait_seconds": 30,
+  "untestable": "covered by test-proxvex-deployer/reconfigure-via-ui (Playwright drives the same reconfigure flow UI-side); a direct task=reconfigure against the overlay hits the same 991-host-test-deployer-ssh-setup hostname/volume-race as the upgrade variant",
+  "description": "Reconfigure: enable SSL and OIDC addon on an existing test-proxvex-deployer container. Direct task=reconfigure is marked untestable — see `untestable` field for details."
+}

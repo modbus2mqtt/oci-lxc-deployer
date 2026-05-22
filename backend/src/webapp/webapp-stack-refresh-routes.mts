@@ -34,7 +34,7 @@ export class WebAppStackRefresh {
           const varName = (req.body?.varName as string | undefined) ?? undefined;
           const vmIdFilter = req.body?.vmId as number | undefined;
 
-          const stack = this.stackProvider.getStack(id);
+          const stack = await this.stackProvider.getStack(id);
           if (!stack) {
             res.status(404).json({ error: `Stack not found: ${id}` });
             return;
@@ -81,7 +81,7 @@ export class WebAppStackRefresh {
             return;
           }
 
-          const stack = this.stackProvider.getStack(id);
+          const stack = await this.stackProvider.getStack(id);
           if (!stack) {
             res.status(404).json({ error: `Stack not found: ${id}` });
             return;
@@ -127,7 +127,7 @@ export class WebAppStackRefresh {
             if (!anyError) {
               stack.dirty = false;
             }
-            this.stackProvider.addStack(stack);
+            await this.stackProvider.addStack(stack);
           }
 
           this.appendAuditLog(result);

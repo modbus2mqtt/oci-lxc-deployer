@@ -84,11 +84,12 @@ interface DebugEntry {
  * Wiring overview:
  *   - `start()` is called by the route handler at task start with the
  *     restartKey + selected debugLevel.
- *   - `attachLogLine()` is fed from the Logger debug sink.
  *   - `attachStderr()` is fed from the MessageManager listener when a
  *     partial message arrives.
  *   - `attachScriptStart()` / `attachScriptEnd()` are fed from the VeExecution
- *     `"debug"` channel.
+ *     `"debug"` channel — each event carries its own restartKey (stamped on
+ *     ICommand at task start, threaded by MessageEmitter), so the
+ *     dispatcher can run multiple tasks concurrently without interleaving.
  *   - `finish()` marks the entry complete (timestamp).
  *   - `renderBundle()` returns the virtual file map.
  */
@@ -107,22 +108,6 @@ export class WebAppDebugCollector {
   private entries: Map<string, DebugEntry> = new Map();
   /** Tracks which restartKey is currently active for the logger sink. */
   private activeRestartKey: string | null = null;
-  /**
-   * Pre-rendered bundles adopted from another deployer (clone) — keyed by
-   * the same restartKey the clone used. After a self-upgrade-via-clone the
-   * new deployer pulls the clone's bundle and injects it here so that
-   * `GET /api/ve/debug/<restartKey>/*` keeps working on the new deployer
-   * as if it had run the task itself.
-   *
-   * Stored as a virtual file map (filename → content), the same shape
-   * `renderBundle()` produces, so the route handlers can serve adopted
-   * bundles uniformly with live ones.
-   */
-  private adoptedBundles: Map<string, Map<string, string>> = new Map();
-
-  constructor() {
-    activeCollector = this;
-  }
 
   /** Returns the currently active restartKey (logger sink uses this). */
   getActiveRestartKey(): string | null {
@@ -153,7 +138,6 @@ export class WebAppDebugCollector {
       ready,
       resolveReady,
     });
-    this.activeRestartKey = restartKey;
   }
 
   finish(restartKey: string): void {
@@ -161,7 +145,6 @@ export class WebAppDebugCollector {
     if (!entry) return;
     entry.finishedAt = Date.now();
     entry.resolveReady();
-    if (this.activeRestartKey === restartKey) this.activeRestartKey = null;
   }
 
   /**
@@ -170,7 +153,13 @@ export class WebAppDebugCollector {
    * Bundle consumers (test runners) await this before reading the manifest
    * so they don't race with async post-task diagnostic capture.
    */
-  async waitForFinish(restartKey: string, timeoutMs = 30000): Promise<void> {
+  // 90s ceiling: the slowest observed post-install-crash path takes ~91s
+  // between the host-side runner declaring failure (via wait_seconds) and
+  // the backend's finalizeBundle firing — the backend may still be mid-
+  // install when the runner gives up, then runs captureLxcDiagnostics on
+  // a stopped CT. 30s was cutting that case short, leaving the bundle
+  // empty even though it would have been complete moments later.
+  async waitForFinish(restartKey: string, timeoutMs = 90000): Promise<void> {
     const entry = this.entries.get(restartKey);
     if (!entry) return;
     if (entry.finishedAt !== undefined) return;
@@ -182,28 +171,6 @@ export class WebAppDebugCollector {
 
   has(restartKey: string): boolean {
     return this.entries.has(restartKey);
-  }
-
-  attachLogLine(
-    restartKey: string,
-    entry: {
-      ts: number;
-      level: LogLevel;
-      component: string;
-      message: string;
-      meta?: Record<string, unknown>;
-    },
-  ): void {
-    const e = this.entries.get(restartKey);
-    if (!e) return;
-    e.events.push({
-      ts: entry.ts,
-      source: "logger",
-      level: entry.level,
-      component: entry.component,
-      msg: entry.message,
-      ...(entry.meta ? { meta: entry.meta } : {}),
-    });
   }
 
   /**

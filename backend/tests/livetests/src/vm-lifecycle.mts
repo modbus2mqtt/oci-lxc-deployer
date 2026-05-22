@@ -167,6 +167,23 @@ export async function rollbackToBaseline(
     `qm rollback ${vmId} ${BASELINE_QM_SNAPSHOT}`,
     600000,
   );
+
+  // qm rollback restores the snapshot's saved hardware config too — including
+  // any cores/memory values frozen when the snapshot was taken. Snapshots
+  // from older step2b runs were created with the default 2c/4G; under
+  // `--all` parallel load those numbers caused softdog kernel-watchdog
+  // resets, leaving SSH corrupt for ~5 min. Re-apply the current
+  // config.json defaults (4c/8G) AFTER rollback, BEFORE start, so every
+  // run gets the headroom we configured even when the snapshot is stale.
+  // qm set on a stopped VM is cheap and idempotent.
+  try {
+    await nestedSshAsync(
+      pveHost, OUTER_PVE_SSH_PORT,
+      `qm set ${vmId} --cores 4 --memory 8192 2>/dev/null; true`,
+      30000,
+    );
+  } catch { /* best-effort */ }
+
   await nestedSshAsync(
     pveHost, OUTER_PVE_SSH_PORT,
     `qm start ${vmId} 2>/dev/null; true`,
@@ -195,6 +212,21 @@ export async function rollbackToBaseline(
   } else {
     logOk(`Nested VM ${vmId} rolled back to @${BASELINE_QM_SNAPSHOT} and responsive`);
   }
+
+  // First `pct list` succeeded but subsequent SSH commands can still ETIMEDOUT
+  // right after boot — sshd's first accept() works but the second connection
+  // hits a slow path while pveproxy/pvedaemon finish initialising. Observed
+  // in the runner's sync prepareVms loop (~60 pct-status calls back-to-back)
+  // dying with `spawnSync /bin/sh ETIMEDOUT` on the second call. A short
+  // settle period + a warmup pct list keeps the connection pool primed.
+  await new Promise((r) => setTimeout(r, 5000));
+  try {
+    await nestedSshAsync(
+      pveHost, pveSshPort,
+      `pct list 2>/dev/null | wc -l`,
+      15000,
+    );
+  } catch { /* warmup is best-effort */ }
 }
 
 /**
@@ -387,6 +419,107 @@ export async function rollbackOrDestroyDepsFromSnapshot(
 }
 
 /**
+ * Threshold above which `--all`/`@file` runs prefer a single `qm rollback`
+ * over N parallel `pct destroy` calls. Below the threshold per-CT destroys
+ * (each finishes in ~1-2 s with `pct stop --timeout 1`) are faster than the
+ * ~30 s qm-rollback round-trip. Tuned for the typical "many leftovers from
+ * an aborted full-suite run" case.
+ */
+const ROLLBACK_THRESHOLD = 20;
+
+/**
+ * Enumerate the VMIDs of all managed CTs currently in the nested VM in ONE
+ * SSH round-trip. Excludes the proxvex-deployer Hub-LXC (application-id =
+ * "proxvex") — it must never be wiped. Result is the canonical "what's
+ * already on disk" view consumed by both the smart-cleanup branch
+ * (rollback-vs-destroy decision) and `prepareVms` (skip no-op destroys for
+ * CTs that don't exist).
+ */
+export async function listExistingTestCts(
+  pveHost: string,
+  sshPort: number,
+): Promise<Set<number>> {
+  try {
+    const out = await nestedSshAsync(
+      pveHost, sshPort,
+      `for f in /etc/pve/lxc/*.conf; do ` +
+      `  [ -f "$f" ] || continue; ` +
+      `  vmid=$(basename "$f" .conf); ` +
+      `  grep -q 'proxvex%3Amanaged\\|proxvex:managed' "$f" 2>/dev/null || continue; ` +
+      `  grep -q 'proxvex%3Adeployer-instance\\|proxvex:deployer-instance' "$f" 2>/dev/null && continue; ` +
+      `  echo "$vmid"; ` +
+      `done`,
+      15000,
+    );
+    const set = new Set<number>();
+    for (const line of out.split("\n")) {
+      const vmid = Number.parseInt(line.trim(), 10);
+      if (Number.isFinite(vmid)) set.add(vmid);
+    }
+    return set;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Smart pre-run cleanup for `--all` / `@file` modes: enumerate existing
+ * managed CTs once, then either
+ *   - **rollback** the whole nested VM to `deployer-installed` (1 op, ~30 s)
+ *     when many CTs need to go (count >= ROLLBACK_THRESHOLD). For `--all` the
+ *     CTs get reinstalled from scratch anyway, so wiping pct snapshots is
+ *     acceptable — they're disposable artifacts of the previous run.
+ *   - **per-CT destroy** in parallel (each ~1-2 s with `pct stop --timeout 1`)
+ *     when few CTs exist. Faster than a 30 s rollback for the small-cleanup
+ *     case (catalog-only @file rerun, light leftovers).
+ *
+ * Returns the set of VMIDs that REMAIN after cleanup, so `prepareVms` can
+ * skip its (now-redundant) per-CT existence probe.
+ */
+export async function smartCleanupBeforeRun(
+  pveHost: string,
+  pveSshPort: number,
+  vmId: number,
+  plannedVmIds: ReadonlySet<number>,
+): Promise<Set<number>> {
+  const existing = await listExistingTestCts(pveHost, pveSshPort);
+  // CTs to remove = existing minus those the run will reuse (planned). The
+  // planned-set check matters for @file: catalog dep CTs from a prior run
+  // should be REUSED, not destroyed, so they're excluded from the count.
+  const toRemove: number[] = [];
+  for (const vmid of existing) {
+    if (!plannedVmIds.has(vmid)) toRemove.push(vmid);
+  }
+  if (toRemove.length === 0) {
+    logInfo(`Smart cleanup: 0 leftover CTs, nothing to do`);
+    return existing;
+  }
+  if (toRemove.length >= ROLLBACK_THRESHOLD) {
+    logInfo(`Smart cleanup: ${toRemove.length} leftover CTs ≥ ${ROLLBACK_THRESHOLD} threshold → qm rollback (faster than per-CT)`);
+    await rollbackToBaseline(pveHost, pveSshPort, vmId);
+    return new Set(); // rollback wipes all test CTs
+  }
+  logInfo(`Smart cleanup: ${toRemove.length} leftover CTs < ${ROLLBACK_THRESHOLD} threshold → parallel per-CT destroy`);
+  await Promise.all(toRemove.map(async (id) => {
+    try {
+      await nestedSshAsync(
+        pveHost, pveSshPort,
+        `pct stop ${id} --timeout 1 2>/dev/null; pct destroy ${id} --force --purge 2>/dev/null; true`,
+        60000,
+      );
+    } catch (err) {
+      logWarn(`Smart cleanup: destroy ${id} failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }));
+  // After destroy: surviving CTs are those in `existing` AND `plannedVmIds`.
+  const remaining = new Set<number>();
+  for (const id of existing) {
+    if (plannedVmIds.has(id)) remaining.add(id);
+  }
+  return remaining;
+}
+
+/**
  * Compute the catalog member name that owns the snapshot for a given dep
  * VM-id in the planned set. Used by the per-member-snapshot path in the
  * executor to derive the snapshot name from the scenario id. Returns null
@@ -517,13 +650,13 @@ export function prepareVms(
     // Clear stale locks from aborted runs
     try {
       nestedSsh(config.pveHost, config.portPveSsh,
-        `pct unlock ${p.vmId} 2>/dev/null; true`, 5000);
+        `pct unlock ${p.vmId} 2>/dev/null; true`, 15000);
     } catch { /* ignore */ }
 
     let status: string;
     try {
       status = nestedSshStrict(config.pveHost, config.portPveSsh,
-        `pct status ${p.vmId} 2>/dev/null || echo "not found"`, 10000);
+        `pct status ${p.vmId} 2>/dev/null || echo "not found"`, 30000);
     } catch (err: any) {
       logFail(`SSH connection failed during pre-cleanup: ${err.message}`);
       process.exit(1);
@@ -571,7 +704,13 @@ export function prepareVms(
       }
     } else if (REPLACE_CT_TASKS.includes(task) && status.includes("running")) {
       logOk(`VM ${p.vmId} (${p.scenario.id}) running — ${task} in place`);
-    } else if (!p.isDependency || status.includes("status:")) {
+    } else if (status.includes("status:")) {
+      // Only destroy when the CT actually exists (pct status reports
+      // "status: running|stopped"). After a `qm rollback` to baseline, all
+      // test CT configs are gone, so `pct status` returns "not found" —
+      // calling `pct destroy` then is a 30 s SSH no-op per scenario
+      // (60+ for `--all`). Skip the entire block when there's nothing to
+      // destroy; the scenario will create the CT fresh during install.
       logInfo(`Destroying VM ${p.vmId} (${p.scenario.id})...`);
       // Release any leftover host-side LV mounts first — vol_mount
       // (used on LVM/LVM-thin storage) leaves /var/lib/pve-vol-mounts/<volname>

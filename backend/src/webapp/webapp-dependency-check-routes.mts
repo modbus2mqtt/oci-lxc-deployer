@@ -53,9 +53,9 @@ export function registerDependencyCheckRoutes(
       // reconfigure flow in webapp-ve-route-handlers and the livetest
       // scenario auto-derive — three call-sites converge on identical
       // behaviour for identical inputs.
-      const allDeps = pm
-        .getApplicationDependencyResolver()
-        .resolve(application, selectedAddons, selectedStackIds);
+      const allDeps = (
+        await pm.getApplicationDependencyResolverForStacks(selectedStackIds)
+      ).resolve(application, selectedAddons, selectedStackIds);
 
       // No dependencies → return empty
       if (allDeps.length === 0) {

@@ -18,6 +18,12 @@ export type IVeDebugEvent =
       redactedScript: string;
       substitutions: IVarSubstitution[];
       ts: number;
+      /** Task correlation key from `cmd.restartKey`, set at task start
+       * (webapp-ve-execution-setup). Lets DebugCollector dispatch to the
+       * right entry under concurrent task execution — replaces the old
+       * global activeRestartKey singleton. Optional only for compat with
+       * tests that build events directly. */
+      restartKey?: string;
     }
   | {
       type: "script-end";
@@ -25,6 +31,7 @@ export type IVeDebugEvent =
       command: string;
       exitCode: number;
       ts: number;
+      restartKey?: string;
     }
   | {
       type: "script-skipped";
@@ -34,6 +41,7 @@ export type IVeDebugEvent =
       template?: string;
       reason: string;
       ts: number;
+      restartKey?: string;
     };
 
 /**
@@ -73,6 +81,7 @@ export class VeExecutionMessageEmitter {
       redactedScript,
       substitutions,
       ts: Date.now(),
+      ...(cmd.restartKey ? { restartKey: cmd.restartKey } : {}),
     };
     this.eventEmitter.emit("debug", event);
     return index;
@@ -89,6 +98,7 @@ export class VeExecutionMessageEmitter {
       command: cmd.name ?? "",
       exitCode,
       ts: Date.now(),
+      ...(cmd.restartKey ? { restartKey: cmd.restartKey } : {}),
     };
     this.eventEmitter.emit("debug", event);
   }
@@ -111,6 +121,7 @@ export class VeExecutionMessageEmitter {
       ...(sourceTemplate ? { template: sourceTemplate } : {}),
       reason,
       ts: Date.now(),
+      ...(cmd.restartKey ? { restartKey: cmd.restartKey } : {}),
     };
     this.eventEmitter.emit("debug", event);
     return index;
@@ -133,6 +144,7 @@ export class VeExecutionMessageEmitter {
       exitCode: -1, // Not finished yet
       execute_on: tmplCommand.execute_on || undefined,
       partial: true,
+      ...(tmplCommand.restartKey ? { restartKey: tmplCommand.restartKey } : {}),
     } as IVeExecuteMessage);
   }
 
@@ -160,6 +172,7 @@ export class VeExecutionMessageEmitter {
       partial: false,
       ...(sourceTemplate ? { template: sourceTemplate } : {}),
       ...(kind ? { kind } : {}),
+      ...(cmd.restartKey ? { restartKey: cmd.restartKey } : {}),
     } as unknown as IVeExecuteMessage);
   }
 
@@ -188,6 +201,7 @@ export class VeExecutionMessageEmitter {
       partial: false,
       error: errorObj,
       ...(sourceTemplate ? { template: sourceTemplate } : {}),
+      ...(cmd.restartKey ? { restartKey: cmd.restartKey } : {}),
     } as IVeExecuteMessage);
   }
 }

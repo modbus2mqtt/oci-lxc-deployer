@@ -302,10 +302,26 @@ def skopeo_copy(image_ref: str, output_path: str, username: Optional[str] = None
 def import_to_proxmox(storage: str, tarball_path: str, image_name: str, tag: str) -> str:
     """
     Import OCI tarball to Proxmox storage.
-    
+
     Proxmox stores OCI images in the vztmpl cache directory of the storage.
     For local storage, this is typically /var/lib/vz/template/cache/
-    
+
+    **Concurrency-safe**: under `--all`/`@file` multiple postgres or zitadel
+    variants race to import the SAME OCI tarball (`postgres_16-alpine.tar`,
+    etc.) into the shared `vztmpl/` directory. The previous straight
+    `shutil.copy(src, dest)` raced — mid-write left a partial tarball,
+    `pct create` then failed with `corrupt deflate stream`. The fix:
+    1. If the dest exists already, reuse it (cache hit).
+    2. Otherwise check the `.isdownloading` marker. If present, wait up
+       to 3 minutes for the dest to appear (peer is downloading). If the
+       dest appears → cache hit. If marker is stale (no progress in 3
+       min, peer crashed) → take over.
+    3. Claim the marker with O_CREAT|O_EXCL. Copy to a unique
+       `<dest>.tmp.<pid>` in the SAME directory (so the rename below is
+       atomic on the same filesystem) then `os.replace` to the final
+       name. atexit + signal handlers guarantee the marker is removed
+       even on SIGTERM/SIGINT/SIGHUP.
+
     Returns the template path in format: storage:vztmpl/image_tag.tar
     """
     # Extract image name for filename (last component)
@@ -313,14 +329,14 @@ def import_to_proxmox(storage: str, tarball_path: str, image_name: str, tag: str
     # Create filename: image_tag.tar (replace : with _ if tag contains it)
     safe_tag = tag.replace(':', '_').replace('/', '_')
     filename = f"{image_base}_{safe_tag}.tar"
-    
+
     # Try to determine storage path
     if storage == "local":
         storage_dir = "/var/lib/vz/template/cache"
     else:
         # Try to get storage path from pvesm status
         try:
-            result = subprocess.run(['pvesm', 'status', '-storage', storage], 
+            result = subprocess.run(['pvesm', 'status', '-storage', storage],
                                   capture_output=True, text=True, check=True)
             # For non-local storage, use /mnt/pve/<storage>/template/cache
             storage_dir = f"/mnt/pve/{storage}/template/cache"
@@ -328,23 +344,86 @@ def import_to_proxmox(storage: str, tarball_path: str, image_name: str, tag: str
             # Fallback to local path structure
             storage_dir = f"/var/lib/vz/template/cache"
             log(f"Warning: Could not determine storage path for {storage}, using {storage_dir}")
-    
+
     # Ensure storage directory exists
     os.makedirs(storage_dir, mode=0o755, exist_ok=True)
-    
-    # Copy tarball to storage directory
+
     dest_path = os.path.join(storage_dir, filename)
-    log(f"Copying OCI tarball to {dest_path}")
+    marker_path = dest_path + ".isdownloading"
+    template_path = f"{storage}:vztmpl/{filename}"
+
+    # Tier 1: cache hit — destination already complete.
+    if os.path.exists(dest_path):
+        log(f"OCI tarball already present at {dest_path}, reusing (cache hit)")
+        return template_path
+
+    # Tier 2: peer in mid-flight — wait up to 3 min for it to publish.
+    import time
+    wait_deadline = time.time() + 180
+    if os.path.exists(marker_path):
+        log(f"Peer is downloading (marker present at {marker_path}), waiting up to 180 s")
+        while os.path.exists(marker_path) and time.time() < wait_deadline:
+            if os.path.exists(dest_path):
+                log(f"OCI tarball appeared during wait — using {dest_path}")
+                return template_path
+            time.sleep(1)
+        # Re-check after marker disappeared
+        if os.path.exists(dest_path):
+            log(f"Peer finished, using {dest_path}")
+            return template_path
+        # Stale marker (peer crashed) → take over after removing it.
+        log(f"Marker stale after 180 s, peer presumably crashed; taking over")
+        try:
+            os.unlink(marker_path)
+        except FileNotFoundError:
+            pass
+
+    # Tier 3: claim the marker and download. O_CREAT|O_EXCL is atomic;
+    # losing the race here is fine — recurse to wait on the winner.
     try:
-        shutil.copy(tarball_path, dest_path)
-        os.chmod(dest_path, 0o644)  # Set permissions
+        fd = os.open(marker_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.close(fd)
+    except FileExistsError:
+        log("Lost marker race to a peer; retrying as waiter")
+        return import_to_proxmox(storage, tarball_path, image_name, tag)
+
+    def _cleanup_marker():
+        try:
+            os.unlink(marker_path)
+        except FileNotFoundError:
+            pass
+
+    import atexit, signal
+    atexit.register(_cleanup_marker)
+    for _sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        try:
+            signal.signal(_sig, lambda *_: (_cleanup_marker(), sys.exit(1)))
+        except (ValueError, OSError):
+            # ValueError: handler set in non-main thread; OSError: not supported.
+            pass
+
+    # Copy to <dest>.tmp.<pid> in the SAME directory, then atomic
+    # os.replace. Cross-FS rename is NOT atomic, so we copy into the
+    # destination filesystem first.
+    tmp_dest = f"{dest_path}.tmp.{os.getpid()}"
+    log(f"Copying OCI tarball to {tmp_dest} then atomic-renaming to {dest_path}")
+    try:
+        shutil.copy(tarball_path, tmp_dest)
+        os.chmod(tmp_dest, 0o644)
+        os.replace(tmp_dest, dest_path)  # atomic on same fs
     except PermissionError:
+        try: os.unlink(tmp_dest)
+        except FileNotFoundError: pass
+        _cleanup_marker()
         error(f"Permission denied: Cannot write to {dest_path}. Script needs root or storage access.")
     except Exception as e:
+        try: os.unlink(tmp_dest)
+        except FileNotFoundError: pass
+        _cleanup_marker()
         error(f"Failed to copy tarball to storage: {str(e)}")
-    
-    # Return template path in Proxmox format
-    template_path = f"{storage}:vztmpl/{filename}"
+    finally:
+        _cleanup_marker()
+
     return template_path
 
 def _is_private_ip(ip: str) -> bool:

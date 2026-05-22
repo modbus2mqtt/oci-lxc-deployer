@@ -64,7 +64,19 @@ export class WebAppVeMessageManager {
   }
 
   /**
-   * Finds or creates a message group for the given application and task.
+   * Finds or creates a message group for the given application + task +
+   * restartKey.
+   *
+   * Why all three: under livetest `--all`, multiple scenarios for the same
+   * (application, task) run in parallel (e.g. postgres/default and
+   * postgres/ssl both have application=postgres, task=installation). The
+   * earlier `(app, task)`-only key reused the same group across parallel
+   * runs and stamped the latest restartKey onto it, so the previous
+   * scenario's Completed message landed in a group filtered out by its
+   * CLI (handleGetMessages filters groups by restartKey, see
+   * webapp-ve-route-handlers.mts:826). Symptom: CLI polled until
+   * `Execution timed out after 900s` while the backend bundle had been
+   * finalized within ~80s and the script ran clean.
    */
   findOrCreateMessageGroup(
     application: string,
@@ -72,7 +84,10 @@ export class WebAppVeMessageManager {
     restartKey: string,
   ): ISingleExecuteMessagesResponse {
     let existing = this.messages.find(
-      (g) => g.application === application && g.task === task,
+      (g) =>
+        g.application === application &&
+        g.task === task &&
+        g.restartKey === restartKey,
     );
     if (!existing) {
       existing = {
@@ -82,9 +97,6 @@ export class WebAppVeMessageManager {
         restartKey,
       };
       this.messages.push(existing);
-    } else {
-      // Always update restartKey so the frontend can restart the latest execution
-      existing.restartKey = restartKey;
     }
     return existing;
   }

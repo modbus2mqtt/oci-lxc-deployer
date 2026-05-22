@@ -8,7 +8,7 @@
 import { runCli, type CliJsonResult } from "./cli-executor.mjs";
 import { SnapshotManager } from "./snapshot-manager.mjs";
 import { nestedSsh, nestedSshAsync, nestedSshStrictAsync, waitForServices, waitForContainerStable, waitForLxcInit } from "./ssh-helpers.mjs";
-import { buildParams, partitionAfterFailure, classifyParallel } from "./scenario-planner.mjs";
+import { buildParams, partitionAfterFailure, classifyParallel, assignStoragePerScenario } from "./scenario-planner.mjs";
 import { TestResultWriter, type TestResultDependency } from "./test-result-writer.mjs";
 import { collectFailureLogs } from "./diagnostics.mjs";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -19,12 +19,42 @@ import type { ResolvedScenario, PlannedScenario, TestResult, RunMode } from "./l
 import { sanitizeScenarioIdForSnapshot } from "./livetest-types.mjs";
 import { Verifier, buildDefaultVerify, type AppMeta } from "./verifier.mjs";
 import { logOk, logFail, logWarn, logInfo, logStep, scenarioLogContext, type ScenarioLogContext } from "./log-helpers.mjs";
-import { enumerateZfsPoolStorages } from "./live-test-runner.mjs";
+import { enumerateParallelStorages } from "./live-test-runner.mjs";
 import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
+import { writeRunOverviewHtml, writeRunOverviewJson, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
+import { overviewPortForDeployer, startRunOverviewServer, type RunOverviewServer } from "./run-overview-server.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
+
+/**
+ * Emit a single worker-timeline event on STDERR. Separate from the normal
+ * stdout stream so operators can redirect it independently (`2> worker.log`)
+ * without losing the scenario-context logs. One line per event; columns are
+ * fixed-width for visual scanning, scenario+extra at the right edge for
+ * easy `awk`/`grep`.
+ *
+ * Kinds: start, wait, resume, done, fail
+ *   start  — worker took the storage and dispatched the scenario
+ *   wait   — scenario was ready but its storage was busy (logged once per gate)
+ *   resume — gated scenario got dispatched after the storage freed
+ *   done   — scenario finished successfully; storage released
+ *   fail   — scenario failed/crashed; storage released
+ */
+function logWorkerTimeline(
+  kind: "start" | "wait" | "resume" | "done" | "fail",
+  storage: string | undefined,
+  scenarioId: string,
+  extra?: string,
+): void {
+  const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+  const storageCol = (storage ?? "—").padEnd(14);
+  const kindCol = kind.toUpperCase().padEnd(6);
+  const line = `[${ts}] worker ${storageCol} ${kindCol} ${scenarioId}` +
+    (extra ? `  ${extra}` : "");
+  process.stderr.write(line + "\n");
+}
 
 /** Options accepted by both executor drivers (sequential + parallel). */
 export interface ExecuteScenariosOptions {
@@ -40,6 +70,20 @@ export interface ExecuteScenariosOptions {
   /** Curated set of scenario ids whose CT + transitive dep CTs get a pct
    * snapshot after a successful test. Independent of `depSnapshotName`. */
   snapshotCatalog?: ReadonlySet<string>;
+  /** Fallback CLI-execute timeout (seconds) for scenarios that don't set
+   * `cli_timeout` in test.json. Per-scenario value still wins; this only
+   * shifts the default away from cli-executor's hardcoded 600 s. Useful
+   * when parallel runs push per-scenario duration past the default. */
+  cliTimeoutSec?: number;
+  /** Externally-owned run-overview (server + state) — when set, the executor
+   * only seeds per-scenario storage and emits on transitions; the runner
+   * owns server start/stop, JSON timer, and final-write lifecycle so the
+   * overview is reachable from the moment the runner starts (planning),
+   * not only once the executor is reached. */
+  overview?: {
+    state: RunOverviewState;
+    server: RunOverviewServer | null;
+  };
 }
 
 /**
@@ -387,30 +431,153 @@ export async function executeScenarios(
   const verifier = new Verifier(config.pveHost, config.portPveSsh, apiUrl, veHost);
   const tmpDir = mkdtempSync(path.join(tmpdir(), "livetest-"));
 
-  // Enumerate ZFS pool storages once. Each scenario picks one of these for
-  // its volumes via the hierarchy below (see `volume_storage` push in runStep):
+  // Enumerate parallel-capable storages once (zfspool ∪ dir, see
+  // enumerateParallelStorages). Each scenario picks one for its volumes via
+  // the hierarchy below (see `volume_storage` push in runStep):
   //
   //   1. --volume-storage CLI override (step3 mode: pin every CT of one
   //      cluster build to one storage so chain-internal pct clone stays
-  //      ZFS-CoW-fast).
+  //      filesystem-local).
   //   2. Dependency inheritance: if the scenario's deps already live on a
   //      storage (looked up via `vmidToStorage`), inherit that storage so
-  //      the consumer's CT lands next to its source → CoW clones, ZFS-local
-  //      ops.
+  //      the consumer's CT lands next to its source → reflink/CoW clones,
+  //      FS-local ops.
   //   3. Index round-robin: cluster roots (no deps) spread evenly across the
   //      storages, so parallel rollbacks of independent chains don't all
-  //      contend on the same `rpool/data` lock.
+  //      contend on the same storage's lock.
   //
   // Empty list (legacy single-storage cluster, SSH failure) → callers leave
   // volume_storage unset and the deployer's default takes over.
-  const zfsPoolStorages = enumerateZfsPoolStorages(config.pveHost, config.portPveSsh);
+  const parallelStorages = enumerateParallelStorages(config.pveHost, config.portPveSsh);
   const volumeStorageOverride = options?.volumeStorageOverride;
   if (volumeStorageOverride) {
-    logInfo(`--volume-storage=${volumeStorageOverride}: every scenario in this run pinned to this pool`);
-  } else if (zfsPoolStorages.length > 0) {
-    logInfo(`zfspool storages available for distribution: ${zfsPoolStorages.join(", ")}`);
-    if (concurrency > zfsPoolStorages.length) {
-      logWarn(`--parallel=${concurrency} > storages=${zfsPoolStorages.length} — multiple scenarios will share a storage, lock contention possible`);
+    logInfo(`--volume-storage=${volumeStorageOverride}: every scenario in this run pinned to this storage`);
+  } else if (parallelStorages.length > 0) {
+    logInfo(`parallel storages available for distribution: ${parallelStorages.join(", ")}`);
+  }
+
+  // Pre-compute storage assignment per scenario (chain-root round-robin +
+  // consumer inheritance, see assignStoragePerScenario). Used both for
+  // storage pinning AND as the parallel-driver's worker-occupancy gate:
+  // each storage = one worker = one volume domain, so at most one
+  // scenario per storage runs concurrently → no `pve-storage-<name>`
+  // lock contention.
+  const storageByIdx = assignStoragePerScenario(planned, parallelStorages, volumeStorageOverride);
+
+  // Source-clone storage gate.
+  //
+  // Upgrade/reconfigure scenarios with `consumes_source: "isolate"` do
+  //   pct snapshot <source>
+  //   pct clone   <source> <temp> --snapname … --full 1
+  // around the parallel-driver's dispatch boundary. Without `--storage`, the
+  // clone lands on the SOURCE CT's storage — which may differ from the
+  // scenario's reserved target storage when a consumer was placed on a
+  // round-robin storage but its dep wasn't.
+  //
+  // The worker gate's `busyStorages` only tracks the scenario's *target*
+  // storage. Without this map, another worker scheduled on the SOURCE's
+  // storage would race the source-clone for the `pve-storage-<X>` lock
+  // and time out. Pre-compute the source storage per upgrade/reconfigure
+  // scenario so the dispatch loop can reserve both storages together.
+  //
+  // Heuristic: source is the depends_on entry that shares the scenario's
+  // application (the only kind of dep `findExistingVmForReconfigure` will
+  // pick at runtime). When that storage matches the target, no extra
+  // reservation is needed.
+  const sourceStorageByIdx = new Map<number, string>();
+  const idxById = new Map<string, number>();
+  planned.forEach((p, i) => idxById.set(p.scenario.id, i));
+  for (let i = 0; i < planned.length; i++) {
+    const sc = planned[i]!.scenario;
+    if (sc.task !== "upgrade" && sc.task !== "reconfigure") continue;
+    const meta = appMetaMap.get(sc.application) ?? {};
+    const isDC = (meta.framework ?? meta.extends) === "docker-compose";
+    const defaultStrategy: "isolate" | "in-place" | "shared" =
+      isDC && sc.task === "upgrade" ? "in-place" : "isolate";
+    const consumesSource = sc.consumes_source ?? defaultStrategy;
+    if (consumesSource !== "isolate") continue;
+    for (const depId of sc.depends_on ?? []) {
+      const depIdx = idxById.get(depId);
+      if (depIdx === undefined) continue;
+      if (planned[depIdx]!.scenario.application !== sc.application) continue;
+      const depStorage = storageByIdx.get(depIdx);
+      const myStorage = storageByIdx.get(i);
+      if (depStorage && depStorage !== myStorage) {
+        sourceStorageByIdx.set(i, depStorage);
+      }
+      break;
+    }
+  }
+  if (sourceStorageByIdx.size > 0) {
+    const lines = [...sourceStorageByIdx.entries()]
+      .map(([i, s]) => `  ${planned[i]!.scenario.id} → also reserves source storage ${s}`)
+      .join("\n");
+    logInfo(`Cross-storage source-clones detected (${sourceStorageByIdx.size}):\n${lines}`);
+  }
+
+  // Live overview: when the runner pre-built the state+server (the common
+  // path), reuse it so the HTML viewer is already up before this executor
+  // is reached. Falls back to constructing locally for unit-test / direct
+  // callers that don't pass `overview` through options — in that fallback
+  // the executor also owns the server lifecycle (start + JSON timer + stop).
+  const overviewState: RunOverviewState | undefined =
+    options?.overview?.state ?? (resultWriter ? {
+      outDir: resultWriter.getOutputDir(),
+      runId: resultWriter.getRunId(),
+      startedAt: new Date(),
+      commandLine: resultWriter.getCommandLine(),
+      planned,
+      status: new Map<string, ScenarioStatus>(),
+      startedAtMap: new Map<string, Date>(),
+      finishedAtMap: new Map<string, Date>(),
+      storage: new Map<string, string>(),
+      errorMessages: new Map<string, string>(),
+    } : undefined);
+  const ownsOverviewLifecycle = !options?.overview && !!overviewState;
+  let overviewServer: RunOverviewServer | null = options?.overview?.server ?? null;
+  let overviewJsonTimer: NodeJS.Timeout | null = null;
+  if (overviewState) {
+    // Seed storage assignments. The assignment depends on `parallelStorages`
+    // (SSH-probed above), so it has to happen here rather than in the runner.
+    planned.forEach((p, i) => {
+      const s = storageByIdx.get(i);
+      if (s) overviewState.storage.set(p.scenario.id, s);
+    });
+    if (ownsOverviewLifecycle) {
+      overviewServer = await startRunOverviewServer(
+        overviewState,
+        overviewPortForDeployer(config.deployerUrl),
+      );
+      writeRunOverviewHtml(overviewState, overviewServer?.sseUrl ?? null);
+      writeRunOverviewJson(overviewState);
+      overviewJsonTimer = setInterval(() => {
+        if (overviewState) writeRunOverviewJson(overviewState);
+      }, 60_000);
+      overviewJsonTimer.unref();
+    } else {
+      // Externally-owned server: emit a snapshot now so the freshly seeded
+      // storage column reaches connected clients immediately.
+      overviewServer?.emit(overviewState);
+    }
+  }
+  const markStatus = (idx: number, status: ScenarioStatus, err?: string): void => {
+    if (!overviewState) return;
+    const sid = planned[idx]?.scenario.id;
+    if (!sid) return;
+    overviewState.status.set(sid, status);
+    if (status === "running" && !overviewState.startedAtMap.has(sid)) {
+      overviewState.startedAtMap.set(sid, new Date());
+    }
+    if (status === "passed" || status === "failed") {
+      overviewState.finishedAtMap.set(sid, new Date());
+    }
+    if (err) overviewState.errorMessages.set(sid, err);
+    overviewServer?.emit(overviewState);
+  };
+  if (concurrency > 1 && parallelStorages.length > 0 && !volumeStorageOverride) {
+    const effective = Math.min(concurrency, parallelStorages.length);
+    if (effective < concurrency) {
+      logInfo(`Effective parallelism: ${effective} (capped by parallel storages=${parallelStorages.length})`);
     }
   }
 
@@ -705,30 +872,14 @@ export async function executeScenarios(
         { name: "bridge", value: "vmbr1" },
         ...(!isReplaceCt ? [{ name: "vm_id", value: String(step.vmId) }] : []),
         ...(isReplaceCt ? [{ name: "vm_id_start", value: String(step.vmId) }] : []),
-        // Enable per-task debug bundle on the backend when --debug was passed
-        // to the livetest. Only the user-requested scenario gets the bundle —
-        // dependencies (e.g. postgres for a zitadel test) stay quiet so the
-        // result directory only carries the artefact for the test the user
-        // actually asked for.
-        //
-        // Under `--parallel` (concurrency > 1) the bundle still runs:
-        // - Runner events flow into the correct bundle via the restartKey-
-        //   tagged endpoint `POST /api/ve/debug/:restartKey/external-events`
-        //   (see log-helpers AsyncLocalStorage). Cross-bundle isolation: ✓.
-        // - Backend stderr / script events route through messageManager,
-        //   which is already restartKey-keyed (since the recent
-        //   `getExecuteMessages` filter): ✓.
-        // - The deployer-side `Logger.setDebugSink` is the lone process-
-        //   global state ("single concurrent task is the current assumption"
-        //   in webapp-ve-execution-setup.mts). Lines tagged with the
-        //   currently-active restartKey may leak across bundles. Accepted
-        //   trade-off for now: three of four event sources are clean per
-        //   bundle, which is a net win over the previous "no bundle at all
-        //   under --parallel". Tightening the Logger sink to per-deploy
-        //   AsyncLocalStorage is a separate, optional follow-up.
-        ...(options?.debugLevel
-          && options.debugLevel !== "off"
-          && !step.isDependency
+        // Enable per-task debug bundle on the backend when --debug was
+        // passed. Routed via the per-key event pipeline (`ICommand.restartKey`
+        // threaded through MessageEmitter), so concurrent tasks each own
+        // their bundle — both targets AND dependencies now get full
+        // bundles, which makes `--all` failure analysis feasible. The
+        // legacy `!step.isDependency` suppression was the workaround for
+        // the deleted `Logger.setDebugSink` singleton and is gone.
+        ...(options?.debugLevel && options.debugLevel !== "off"
           ? [{ name: "debug_level", value: options.debugLevel }]
           : []),
       ];
@@ -818,11 +969,12 @@ export async function executeScenarios(
           logFail(errMsg);
           result.errors.push(errMsg);
           result.failed++;
-          // Skip this scenario but keep running the rest of the --all plan.
-          // Aborting here (via `break`) hid many passable scenarios whenever
-          // a reconfigure/upgrade task's live dependency VM had already been
-          // torn down by a previous scenario's cleanup.
-          return { type: "done" };
+          // Treat as a real partition failure (not `done`) so the parallel
+          // driver marks the overview as "failed" and cascades the skip
+          // to anything downstream. The previous `return { type: "done" }`
+          // caused the overview to mismark the scenario as passed, leaving
+          // the CLI summary and the JSON snapshot inconsistent.
+          return { type: "failed-partition", scenarioId: scenario.id };
         }
         // From here on existingVm is guaranteed non-null. Bind into a typed
         // local so TS keeps the narrowing across the reassignment below
@@ -1009,36 +1161,15 @@ export async function executeScenarios(
         buildResult.params.some((p) => p.name === "volume_storage") ||
         buildResult.params.some((p) => p.name === "rootfs_storage");
       if (!hasOperatorOverride) {
-        let picked: string | undefined;
-        let pickReason = "";
-        if (volumeStorageOverride) {
-          picked = volumeStorageOverride;
-          pickReason = "--volume-storage override";
-        } else {
-          // Walk the scenario's deps looking for an already-known storage.
-          // First hit wins — by convention deps within one chain all live on
-          // the same storage (cluster-root sets it, downstream inherits).
-          for (const depId of scenario.depends_on ?? []) {
-            const depStep = planned.find((p) => p.scenario.id === depId);
-            const depStorage = depStep ? vmidToStorage.get(depStep.vmId) : undefined;
-            if (depStorage) {
-              picked = depStorage;
-              pickReason = `inherited from dep ${depId} (VM ${depStep!.vmId})`;
-              break;
-            }
-          }
-          if (!picked && zfsPoolStorages.length > 0) {
-            picked = zfsPoolStorages[i % zfsPoolStorages.length]!;
-            pickReason = `round-robin i=${i} mod ${zfsPoolStorages.length}`;
-          }
-        }
+        // Use the pre-computed assignment from assignStoragePerScenario.
+        // The driver enforces worker-occupancy via busyStorages so two
+        // scenarios sharing a storage never run concurrently.
+        const picked = storageByIdx.get(i);
         if (picked) {
           buildResult.params.push({ name: "rootfs_storage", value: picked });
           buildResult.params.push({ name: "volume_storage", value: picked });
-          // Record our pick so any downstream scenario depending on us
-          // inherits the same storage (CoW clones for the whole chain).
           vmidToStorage.set(step.vmId, picked);
-          logInfo(`storage=${picked} for ${scenario.id} [VM ${step.vmId}] (${pickReason})`);
+          logInfo(`storage=${picked} for ${scenario.id} [VM ${step.vmId}]`);
         }
       }
 
@@ -1113,7 +1244,7 @@ export async function executeScenarios(
       const useOidc = deployerOidcEnabled && oidcCredentials;
       const cliResult = await runCli(
         projectRoot, apiUrl, veHost,
-        paramsFile, allAddons, scenario.cli_timeout, scenarioFixtureDir,
+        paramsFile, allAddons, scenario.cli_timeout ?? options?.cliTimeoutSec, scenarioFixtureDir,
         useOidc ? oidcCredentials : undefined,
       );
       // restartKey is now known → bind it to this scenario's log context and
@@ -1753,6 +1884,15 @@ export async function executeScenarios(
         }
       }
 
+      // Consumer-stop (`pct stop` after !isDependency steps) was attempted
+      // here to free nested-VM RAM during `--all` but reverted on
+      // 2026-05-21: zitadel/ssl (and similar) use postgres-ssl via stack-
+      // name match without an explicit `depends_on: ["postgres/ssl"]`, so
+      // `dependedOn` misses them. The result was postgres/ssl getting
+      // stopped before zitadel/ssl read its CA cert. Once we have a
+      // stack/cert-aware "still-needed" predicate the stop can come back;
+      // until then 4c/8G nested VM defaults absorb the load.
+
       return { type: "done" };
       } catch (iterErr) {
         // Uncaught exception during this scenario — turn it into a "failed"
@@ -1861,9 +2001,40 @@ export async function executeScenarios(
       // performance win is purely from overlapping the long idle waits
       // (container create, package install, docker compose up,
       // wait_seconds, Playwright) — the deployer/API stay single.
-      logInfo(`Parallel scenario execution: concurrency=${concurrency}`);
+      // Worker model: one logical worker per parallel-storage. A scenario
+      // can only be dispatched if its assigned storage's worker is idle
+      // (i.e. not in `busyStorages`). This caps effective parallelism at
+      // min(concurrency, parallelStorages.length) and structurally prevents
+      // `/var/lock/pve-manager/pve-storage-<name>` contention.
+      //
+      // If no parallel storages are available (SSH enumeration failed) the
+      // gate falls back to the unconstrained `concurrency` cap — same as
+      // pre-storage-gate behaviour.
+      const effectiveCap = parallelStorages.length > 0
+        ? Math.min(concurrency, parallelStorages.length)
+        : concurrency;
+      logInfo(`Parallel scenario execution: concurrency=${concurrency}` + (
+        effectiveCap < concurrency
+          ? ` (effective=${effectiveCap}, capped by storages=${parallelStorages.length})`
+          : ""
+      ));
       type St = "pending" | "running" | "done" | "failed";
       const state: St[] = planned.map(() => "pending");
+      const busyStorages = new Set<string>();
+      // Track scenarios already logged as "waiting for storage" so each
+      // gated scenario produces exactly one wait-line, not one per pump tick.
+      // Cleared on dispatch so a scenario that waits, dispatches, completes,
+      // and is later re-evaluated (shouldn't happen, but safe) re-logs.
+      const waitLogged = new Set<number>();
+      // Catalog-phase indices for the fail-fast gate: if any catalog member
+      // fails, everything downstream is wasted work (the run can't produce
+      // valid snapshots, and OIDC consumers depend on a healthy Zitadel
+      // anyway). Empty when no catalog → gate disabled.
+      const catalogIdx = new Set<number>();
+      planned.forEach((p, i) => {
+        if (snapshotCatalog.has(p.scenario.id)) catalogIdx.add(i);
+      });
+      let catalogAbortLogged = false;
       let active = 0;
       let crashedErr: unknown = null;
       let aborted = false;
@@ -1877,6 +2048,45 @@ export async function executeScenarios(
             resolve();
             return;
           }
+          // Catalog-phase fail-fast: once every catalog member has reached
+          // a terminal state, abort the run if any of them failed. The
+          // remaining scenarios (typically 50+ OIDC consumers) depend on a
+          // healthy snapshot chain, so continuing is wasted minutes.
+          if (catalogIdx.size > 0 && !catalogAbortLogged) {
+            let allTerminal = true;
+            let anyFailed = false;
+            for (const i of catalogIdx) {
+              const s = state[i];
+              if (s === "pending" || s === "running") { allTerminal = false; break; }
+              if (s === "failed") anyFailed = true;
+            }
+            if (allTerminal && anyFailed) {
+              const failedNames = [...catalogIdx]
+                .filter((i) => state[i] === "failed")
+                .map((i) => planned[i]!.scenario.id);
+              logFail(`Catalog phase failed (${failedNames.length}/${catalogIdx.size}: ${failedNames.join(", ")}) — aborting remaining scenarios.`);
+              catalogAbortLogged = true;
+              aborted = true;
+              // Mark every still-pending scenario as skipped with the
+              // catalog reason so the overview/result writer reports a
+              // clear cause instead of a missing-data void.
+              for (let i = 0; i < planned.length; i++) {
+                if (state[i] === "pending") {
+                  state[i] = "failed";
+                  const p = planned[i]!;
+                  if (!p.skipExecution) {
+                    p.skipExecution = true;
+                    result.errors.push(`Skipped: ${p.scenario.id} (catalog phase failed)`);
+                    markStatus(i, "skipped", "catalog phase failed");
+                  }
+                }
+              }
+            }
+          }
+          if (aborted) {
+            if (active === 0) resolve();
+            return;
+          }
           // Cascade blocked scenarios to a fixpoint (a failed dep blocks its
           // dependents, which transitively block theirs) before scheduling.
           let ready: number[] = [];
@@ -1887,11 +2097,17 @@ export async function executeScenarios(
             for (const idx of c.blocked) {
               state[idx] = "failed";
               const p = planned[idx]!;
+              // markStatus must run for every blocked scenario, even when
+              // `skipExecution` was already set by applyFailurePartition
+              // earlier in this pump cycle — otherwise the overview shows
+              // them as "pending" forever. The skipExecution guard only
+              // dedupes the warn-log + result.errors push.
               if (!p.skipExecution) {
                 logWarn(`Skipping ${p.scenario.id} (blocked by failed dependency)`);
                 p.skipExecution = true;
                 result.errors.push(`Skipped: ${p.scenario.id} (blocked dependency)`);
               }
+              markStatus(idx, "skipped", "blocked by failed dependency");
             }
           }
           if (state.every((s) => s === "done" || s === "failed")) {
@@ -1899,27 +2115,85 @@ export async function executeScenarios(
             return;
           }
           for (const idx of ready) {
-            if (active >= concurrency) break;
+            if (active >= effectiveCap) break;
             if (state[idx] !== "pending") continue;
+            const reservedStorage = storageByIdx.get(idx);
+            const sourceStorage = sourceStorageByIdx.get(idx);
+            const scenarioId = planned[idx]!.scenario.id;
+            // Worker-occupancy gate: target storage + (for source-isolating
+            // upgrade/reconfigure) the source storage too. busyStorages is
+            // flat; dedupe when source equals target so we don't double-add.
+            const toReserve: string[] = [];
+            if (reservedStorage) toReserve.push(reservedStorage);
+            if (sourceStorage && sourceStorage !== reservedStorage) toReserve.push(sourceStorage);
+            const blocking = toReserve.find((s) => busyStorages.has(s));
+            if (blocking) {
+              if (!waitLogged.has(idx)) {
+                const detail = blocking === reservedStorage
+                  ? "(storage busy)"
+                  : `(source storage ${blocking} busy)`;
+                logWorkerTimeline("wait", reservedStorage, scenarioId, detail);
+                waitLogged.add(idx);
+              }
+              continue;
+            }
+            for (const s of toReserve) busyStorages.add(s);
+            if (waitLogged.has(idx)) {
+              logWorkerTimeline("resume", reservedStorage, scenarioId);
+              waitLogged.delete(idx);
+            }
+            logWorkerTimeline("start", reservedStorage, scenarioId,
+              `vm=${planned[idx]!.vmId}`);
+            // skipExecution=true scenarios (restored from snapshot, or
+            // already-matching managed dep CTs) take an early-exit inside
+            // runStep — they don't really run. Use a dedicated status so
+            // the overview shows "restored" / "skipped" instead of a
+            // misleading "running → passed" (which would imply real work).
+            const earlyExitStatus: "restored" | "skipped" | undefined =
+              planned[idx]!.skipExecution
+                ? (planned[idx]!.isDependency ? "restored" : "skipped")
+                : undefined;
+            if (earlyExitStatus) {
+              markStatus(idx, earlyExitStatus, earlyExitStatus === "restored"
+                ? "from covering pct snapshot" : "managed CT already running");
+            } else {
+              markStatus(idx, "running");
+            }
+            const startTs = Date.now();
             state[idx] = "running";
             active++;
             void runStep(idx)
               .then((outcome) => {
                 active--;
+                for (const s of toReserve) busyStorages.delete(s);
+                const dur = ((Date.now() - startTs) / 1000).toFixed(1);
                 if (outcome.type === "crashed") {
                   state[idx] = "failed";
+                  logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s crashed`);
+                  markStatus(idx, "failed", `crashed after ${dur}s`);
                   if (failFast) { crashedErr = outcome.err; aborted = true; }
                 } else if (outcome.type === "failed-partition") {
                   state[idx] = "failed";
+                  logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s failed`);
+                  markStatus(idx, "failed", `failed after ${dur}s`);
                   applyFailurePartition(outcome.scenarioId, idx, false);
                   if (failFast) aborted = true;
                 } else {
                   state[idx] = "done";
+                  logWorkerTimeline("done", reservedStorage, scenarioId, `${dur}s`);
+                  // Preserve restored/skipped status set at dispatch — those
+                  // are early-exit scenarios that didn't really run. Only
+                  // promote to "passed" when actual work happened.
+                  if (!earlyExitStatus) markStatus(idx, "passed");
                 }
                 pump();
               })
               .catch((err) => {
                 active--;
+                for (const s of toReserve) busyStorages.delete(s);
+                const dur = ((Date.now() - startTs) / 1000).toFixed(1);
+                logWorkerTimeline("fail", reservedStorage, scenarioId, `${dur}s exception`);
+                markStatus(idx, "failed", `exception after ${dur}s`);
                 state[idx] = "failed";
                 crashedErr = err;
                 aborted = true;
@@ -1933,20 +2207,88 @@ export async function executeScenarios(
       if (crashedErr) throw crashedErr;
     } else {
       // ── Sequential driver (unchanged behaviour) ──────────────────────
+      const catalogIdxSeq = new Set<number>();
+      planned.forEach((p, i) => {
+        if (snapshotCatalog.has(p.scenario.id)) catalogIdxSeq.add(i);
+      });
+      // Per-scenario terminal state for the catalog-phase gate. Only the
+      // "failed" vs "anything else" distinction matters; we collapse
+      // passed / skipped / restored into "done" since none of them block
+      // downstream consumers in the catalog sense.
+      const seqState: ("pending" | "done" | "failed")[] = planned.map(() => "pending");
+      let abortedSeq = false;
       for (let i = 0; i < planned.length; i++) {
-        const outcome = await runStep(i);
-        if (outcome.type === "crashed") {
-          if (failFast) throw outcome.err;
+        if (abortedSeq) {
+          // Catalog-phase already failed — mark remaining as skipped.
+          if (!planned[i]!.skipExecution) {
+            planned[i]!.skipExecution = true;
+            result.errors.push(`Skipped: ${planned[i]!.scenario.id} (catalog phase failed)`);
+            markStatus(i, "skipped", "catalog phase failed");
+          }
+          seqState[i] = "done";
           continue;
         }
-        if (outcome.type === "failed-partition") {
+        // Match the parallel driver: scenarios with skipExecution=true
+        // (snapshot-restored or already-running matching) get an explicit
+        // restored/skipped status, not "running → passed".
+        const earlyExit: "restored" | "skipped" | undefined =
+          planned[i]!.skipExecution
+            ? (planned[i]!.isDependency ? "restored" : "skipped")
+            : undefined;
+        if (earlyExit) {
+          markStatus(i, earlyExit, earlyExit === "restored"
+            ? "from covering pct snapshot" : "managed CT already running");
+        } else {
+          markStatus(i, "running");
+        }
+        const outcome = await runStep(i);
+        if (outcome.type === "crashed") {
+          markStatus(i, "failed", "crashed");
+          seqState[i] = "failed";
+          if (failFast) throw outcome.err;
+        } else if (outcome.type === "failed-partition") {
+          markStatus(i, "failed", `failed (cascade from ${outcome.scenarioId})`);
+          seqState[i] = "failed";
           applyFailurePartition(outcome.scenarioId, i, true);
-          continue;
+        } else {
+          if (!earlyExit) markStatus(i, "passed");
+          // All three terminal-success states (passed / restored / skipped)
+          // collapse to "done" — only "failed" matters for the gate.
+          seqState[i] = "done";
+        }
+        // Catalog-phase fail-fast check, identical semantics to the
+        // parallel driver's pump-time gate.
+        if (catalogIdxSeq.size > 0 && !abortedSeq) {
+          let allTerminal = true;
+          let anyFailed = false;
+          for (const ci of catalogIdxSeq) {
+            const s = seqState[ci];
+            if (s === "pending") { allTerminal = false; break; }
+            if (s === "failed") anyFailed = true;
+          }
+          if (allTerminal && anyFailed) {
+            const failedNames = [...catalogIdxSeq]
+              .filter((ci) => seqState[ci] === "failed")
+              .map((ci) => planned[ci]!.scenario.id);
+            logFail(`Catalog phase failed (${failedNames.length}/${catalogIdxSeq.size}: ${failedNames.join(", ")}) — aborting remaining scenarios.`);
+            abortedSeq = true;
+          }
         }
       }
     }
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
+    // Only tear down the overview when this executor owns its lifecycle.
+    // The runner-owned path lets the runner write the final JSON + stop
+    // the server after summary printing, so a viewer opened in the last
+    // seconds still sees a coherent end state.
+    if (ownsOverviewLifecycle) {
+      if (overviewJsonTimer) clearInterval(overviewJsonTimer);
+      if (overviewState) writeRunOverviewJson(overviewState);
+      if (overviewServer) {
+        try { await overviewServer.stop(); } catch { /* best-effort */ }
+      }
+    }
   }
 
   result.passed = verifier.passed;

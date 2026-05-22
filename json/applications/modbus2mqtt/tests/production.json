@@ -15,6 +15,5 @@
     "zitadel/default"
   ],
   "wait_seconds": 30,
-  "cli_timeout": 360,
   "description": "Production-like deploy: native HTTPS + OIDC"
 }

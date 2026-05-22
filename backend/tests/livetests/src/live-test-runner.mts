@@ -31,6 +31,7 @@ import { nestedSsh, nestedSshStrict } from "./ssh-helpers.mjs";
 import {
   collectWithDeps, selectScenarios, planScenarios, applyTagFilter,
   classifyRunMode, loadSnapshotCatalog, loadScenarioListFromFile,
+  expandToPriorityClosure, addImplicitDestructiveTaskDeps,
 } from "./scenario-planner.mjs";
 import { TestResultWriter } from "./test-result-writer.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
@@ -41,10 +42,13 @@ import { resolveDepSnapshotName } from "./livetest-types.mjs";
 import { apiFetch, type AppMeta } from "./verifier.mjs";
 import { runCleanupSql, destroyStaleVms, ensureStacks } from "./stack-manager.mjs";
 import {
-  restoreBestSnapshot, prepareVms, rollbackToBaseline,
+  restoreBestSnapshot, prepareVms, smartCleanupBeforeRun, rollbackToBaseline,
   preCleanupNonSnapshotConsumers, rollbackOrDestroyDepsFromSnapshot,
 } from "./vm-lifecycle.mjs";
 import { executeScenarios } from "./scenario-executor.mjs";
+import { writeRunOverviewHtml, writeRunOverviewJson, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
+import { overviewPortForDeployer, startRunOverviewServer, type RunOverviewServer } from "./run-overview-server.mjs";
+import { cleanupOldRuns, writeRunsIndex } from "./runs-index.mjs";
 import { RED, GREEN, NC, logOk, logFail, logWarn, logInfo } from "./log-helpers.mjs";
 import { analyzeCoverage } from "./coverage-analyzer.mjs";
 import { renderMarkdown as renderCoverageMarkdown, renderJson as renderCoverageJson } from "./coverage-report.mjs";
@@ -185,15 +189,20 @@ function loadConfig(instanceName?: string): {
 }
 
 /**
- * Enumerate all `zfspool` rootdir storages on the PVE host via SSH.
- * Returns names in `pvesm status` order, or `[]` when SSH fails or no
- * zfspool storage exists. Callers use this list to spread parallel
- * scenarios across separate ZFS pools (separate datasets = separate
- * locks, so `pct create`/`zfs snapshot` don't queue on `rpool/data`).
- * Empty list → callers leave `volume_storage` unset, default from
- * `parameter-definitions.json` kicks in.
+ * Enumerate rootdir-capable storages on the PVE host that can be used to
+ * spread parallel-livetest scenarios across separate lock domains. Includes
+ * `zfspool` (separate ZFS datasets → separate dataset locks) AND `dir`
+ * (separate filesystem directories → separate FS locks), so the same
+ * parallelization win is available on ext4/xfs nested VMs (github-action
+ * instance) without requiring ZFS. Other rootdir-capable types (lvm,
+ * lvmthin) are excluded — they share VG locks and the runner has no
+ * snapshot story for them.
+ *
+ * Returns storage names in `pvesm status` order, or `[]` when SSH fails or
+ * no eligible storage exists. Empty list → callers leave `volume_storage`
+ * unset, default from `parameter-definitions.json` kicks in.
  */
-export function enumerateZfsPoolStorages(
+export function enumerateParallelStorages(
   pveHost: string,
   sshPort: number,
 ): string[] {
@@ -205,7 +214,7 @@ export function enumerateZfsPoolStorages(
         const [name, type] = line.trim().split(/\s+/);
         return { name: name || "", type: type || "" };
       })
-      .filter((s) => s.name && s.type === "zfspool")
+      .filter((s) => s.name && (s.type === "zfspool" || s.type === "dir"))
       .map((s) => s.name);
   } catch {
     return [];
@@ -467,6 +476,22 @@ async function main() {
   //   2. round-robin by index → spread cluster-roots evenly
   const volumeStorageOverride = popValueFlag(args, "--volume-storage");
 
+  // --cli-timeout N: override the per-scenario CLI timeout (default 600s in
+  // cli-executor.runCli). Useful when parallel runs push per-scenario duration
+  // past the default (apk install / image pull contention inside the nested
+  // VM). Per-scenario `cli_timeout` from test.json takes precedence; this
+  // flag only sets the fallback for scenarios that don't specify one.
+  const cliTimeoutOverride = popValueFlag(args, "--cli-timeout");
+  let cliTimeoutSec: number | undefined;
+  if (cliTimeoutOverride !== undefined) {
+    const n = Number.parseInt(cliTimeoutOverride, 10);
+    if (!Number.isFinite(n) || n < 30) {
+      console.error(`Invalid --cli-timeout "${cliTimeoutOverride}". Expected a positive integer (seconds, >= 30).`);
+      process.exit(2);
+    }
+    cliTimeoutSec = n;
+  }
+
   const positionalArgs = args.filter((a, i, arr) =>
     a !== "--fixtures" &&
     a !== "--queue" &&
@@ -682,7 +707,7 @@ async function main() {
   // Queue worker mode — delegate all scenario management to the queue API
   if (queueFlag) {
     const { runQueueWorker: runQueue } = await import("./queue-worker.mjs");
-    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, enumerateZfsPoolStorages);
+    await runQueue(config, apiUrl, veHost, projectRoot, appMetaMap, enumerateParallelStorages);
     return;
   }
 
@@ -751,9 +776,22 @@ async function main() {
     process.exit(1);
   }
 
+  // Build the priority closure: catalog members + transitive deps. Drives
+  // the snapshot-first topological order in collectWithDeps so the runner
+  // builds the snapshot infrastructure (postgres → zitadel → catalog
+  // member) before fanning out to leaf consumers. Empty set (no catalog
+  // or no catalog-related scenarios in selection) leaves the legacy
+  // task-priority + alphabetical sort intact.
+  const priorityIds = snapshotCatalog.size > 0
+    ? expandToPriorityClosure(snapshotCatalog, allTests)
+    : new Set<string>();
+  if (priorityIds.size > 0) {
+    logInfo(`Priority set (catalog ∪ deps): ${priorityIds.size} scenario(s) — ${[...priorityIds].sort().join(", ")}`);
+  }
+
   let scenariosToRun: ResolvedScenario[];
   try {
-    scenariosToRun = collectWithDeps(selectedIds, allTests);
+    scenariosToRun = collectWithDeps(selectedIds, allTests, priorityIds);
   } catch (err: any) {
     logFail(err.message);
     process.exit(1);
@@ -763,6 +801,13 @@ async function main() {
 
   // Plan: assign VM IDs and stack names
   const planned = planScenarios(scenariosToRun, appStacktypes, allTests);
+
+  // Implicit ordering: every upgrade/reconfigure waits for every same-tree
+  // installation. Compresses the late-run tail (long destructive tasks would
+  // otherwise become ready as soon as their direct source install finished
+  // and run in parallel with the remaining installs — sometimes touching
+  // shared external state like zitadel projects, producing late races).
+  addImplicitDestructiveTaskDeps(planned);
 
   // Mark dependencies vs explicitly selected targets.
   //
@@ -817,6 +862,58 @@ async function main() {
   }
   console.log("");
 
+  // Live overview: bring up the HTTP/SSE server and write the initial
+  // HTML viewer + JSON snapshot BEFORE the long rollback so an operator can
+  // open the page during planning/baseline. Storage column fills in once
+  // the executor seeds assignments; statuses fill in as scenarios run.
+  const commandLine = process.argv.join(" ");
+  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
+  const overviewState: RunOverviewState = {
+    outDir: resultWriter.getOutputDir(),
+    runId: resultWriter.getRunId(),
+    startedAt: new Date(),
+    commandLine: resultWriter.getCommandLine(),
+    planned,
+    status: new Map<string, ScenarioStatus>(),
+    startedAtMap: new Map<string, Date>(),
+    finishedAtMap: new Map<string, Date>(),
+    storage: new Map<string, string>(),
+    errorMessages: new Map<string, string>(),
+    phase: "planning",
+  };
+  const overviewServer: RunOverviewServer | null = await startRunOverviewServer(
+    overviewState,
+    overviewPortForDeployer(config.deployerUrl),
+  );
+  writeRunOverviewHtml(overviewState, overviewServer?.sseUrl ?? null);
+  writeRunOverviewJson(overviewState);
+  // Sweep result directories older than 3 h and regenerate the top-level
+  // index.html so the user can browse past runs. Cleanup is timestamp-
+  // based (runId prefix), independent of mtime which a running scenario
+  // would refresh.
+  const resultsRoot = path.dirname(resultWriter.getOutputDir());
+  const removed = cleanupOldRuns(resultsRoot, 3);
+  if (removed > 0) logInfo(`Removed ${removed} livetest result dir(s) older than 3h`);
+  writeRunsIndex(resultsRoot);
+  logInfo(`Runs index: file://${resultsRoot}/index.html`);
+  const overviewJsonTimer = setInterval(() => {
+    writeRunOverviewJson(overviewState);
+  }, 60_000);
+  overviewJsonTimer.unref();
+  logInfo(`Results: ${resultWriter.getOutputDir()}`);
+  if (overviewServer) {
+    logInfo(`Live overview: ${overviewServer.url}/run-overview.html (file://${resultWriter.getOutputDir()}/run-overview.html for post-mortem)`);
+  } else {
+    logInfo(`Live overview: file://${resultWriter.getOutputDir()}/run-overview.html (server port busy — JSON-only updates)`);
+  }
+  // Coarse-grained phase labels for the HTML header. Setup phases can take
+  // minutes (qm rollback boot, smartCleanup of dozens of CTs, ensureStacks
+  // round-trips); knowing where the runner is helps an observer judge ETA.
+  const setPhase = (phase: string): void => {
+    overviewState.phase = phase;
+    overviewServer?.emit(overviewState);
+  };
+
   // Phase 0: resolve the per-application dependency-snapshot name for this
   // run scope. `null` for `--all` / multi-application subsets → no dep
   // snapshot is created or restored (those go the parallelisation route).
@@ -832,38 +929,53 @@ async function main() {
   }
 
   // VM preparation — gated by run mode:
-  //   - all/file: qm rollback to deployer-installed baseline → setupPortForwarding
-  //   - single + --from-snapshot: per-dep pct rollback or destroy
-  //   - single (default): pre-cleanup of non-snapshot, non-needed CTs
-  //   - snapshot-build: legacy path (no qm rollback, no pre-cleanup)
-  // pct restore of dep-CTs runs *additionally* across all modes when a
-  // covering snapshot exists (cheap, idempotent).
-  if (runMode === "all" || runMode === "file") {
+  //   - all:    ALWAYS qm rollback to deployer-installed baseline. No
+  //             dep-snapshot restore (would reuse stale state from prior
+  //             runs and silently skip the full-suite validation `--all`
+  //             is supposed to perform). Everything re-installs from
+  //             scratch — that's the point.
+  //   - file:   smartCleanup (threshold-based rollback OR per-CT destroy)
+  //             + restoreBestSnapshot. Catalog snapshots from prior @file
+  //             runs survive and accelerate re-runs.
+  //   - single + --from-snapshot: per-dep pct rollback or destroy.
+  //   - single (default): pre-cleanup of non-snapshot, non-needed CTs.
+  //   - snapshot-build: legacy path (no qm rollback, no pre-cleanup).
+  if (runMode === "all") {
+    setPhase("rolling back nested VM to @deployer-installed");
     await rollbackToBaseline(config.pveHost, config.portPveSsh, config.vmId);
+  } else if (runMode === "file") {
+    setPhase("smart-cleanup of pre-existing CTs");
+    const plannedVmIdSet = new Set(planned.map((p) => p.vmId));
+    await smartCleanupBeforeRun(config.pveHost, config.portPveSsh, config.vmId, plannedVmIdSet);
   }
-  // Skip the legacy per-dep restore in --from-snapshot mode:
-  // rollbackOrDestroyDepsFromSnapshot below does the same `pct rollback`
-  // and additionally destroys snapshotless deps, so running both would
-  // pct-rollback every dep CT twice. In all other modes restoreBestSnapshot
-  // stays — it's a cheap no-op when no covering snapshot exists (and a
-  // welcome speedup when one does).
-  if (!(runMode === "single" && fromSnapshot)) {
+  // restoreBestSnapshot is the dep-snapshot fast-path. Skipped for:
+  //   - --all: full-suite test must validate everything from scratch.
+  //   - single + --from-snapshot: rollbackOrDestroyDepsFromSnapshot does
+  //     the same work plus destroys snapshotless deps; running both would
+  //     pct-rollback every dep CT twice.
+  if (runMode !== "all" && !(runMode === "single" && fromSnapshot)) {
+    setPhase("restoring snapshots for dep CTs");
     await restoreBestSnapshot(planned, allTests, config, apiUrl, projectRoot, depSnapshotName);
   }
   // qm rollback wipes the nested-VM iptables + dnsmasq state, so reapply
   // port forwarding (idempotent) so Playwright specs and OIDC redirect URIs
   // still reach the right inner containers.
+  setPhase("setting up port forwarding");
   setupPortForwarding(config);
   if (runMode === "single" && fromSnapshot) {
+    setPhase("rolling back/destroying dep CTs from snapshot");
     await rollbackOrDestroyDepsFromSnapshot(planned, config.pveHost, config.portPveSsh, projectRoot);
   }
   if (runMode === "single") {
+    setPhase("pre-cleanup of non-snapshot consumers");
     const neededVmIds = new Set(planned.map((p) => p.vmId));
     await preCleanupNonSnapshotConsumers(config.pveHost, config.portPveSsh, neededVmIds);
   }
+  setPhase("preparing VMs");
   prepareVms(planned, config, appStacktypes);
 
   // Stack management: cleanup SQL, stale VM detection, stack creation
+  setPhase("cleaning up stale state + creating stacks");
   runCleanupSql(planned, config.pveHost, config.portPveSsh);
   await destroyStaleVms(planned, config.pveHost, config.portPveSsh, apiUrl, appStacktypes);
   const { appStackIdsMap } = await ensureStacks(planned, apiUrl, appStacktypes);
@@ -873,21 +985,33 @@ async function main() {
   const fixtureBaseDir = fixturesFlag
     ? path.join(projectRoot, "frontend/src/test-fixtures")
     : undefined;
-  const commandLine = process.argv.join(" ");
-  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
-  logInfo(`Results: ${resultWriter.getOutputDir()}`);
   if (failFastFlag) logInfo("--fail-fast enabled: aborting on first scenario failure");
   let result;
-  if (parallelEnabled) {
-    logInfo(`--parallel enabled: concurrency limit ${parallelLimit}`);
-    const { executeScenariosParallel } = await import("./scenario-executor.mjs");
-    result = await executeScenariosParallel(
-      planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
-      appStackIdsMap, resultWriter, fixtureBaseDir,
-      { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) },
-    );
-  } else {
-    result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...(volumeStorageOverride ? { volumeStorageOverride } : {}) });
+  const overviewOpts = { overview: { state: overviewState, server: overviewServer } };
+  setPhase("running scenarios");
+  try {
+    if (parallelEnabled) {
+      logInfo(`--parallel enabled: concurrency limit ${parallelLimit}`);
+      const { executeScenariosParallel } = await import("./scenario-executor.mjs");
+      result = await executeScenariosParallel(
+        planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests,
+        appStackIdsMap, resultWriter, fixtureBaseDir,
+        { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) },
+      );
+    } else {
+      result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
+    }
+  } finally {
+    clearInterval(overviewJsonTimer);
+    setPhase("finished");
+    // Final JSON snapshot is the post-mortem source of truth — viewers
+    // opened after the runner exits read this file. Index is regenerated
+    // so the runs listing shows this run's final counts + failed list.
+    writeRunOverviewJson(overviewState);
+    writeRunsIndex(resultsRoot);
+    if (overviewServer) {
+      try { await overviewServer.stop(); } catch { /* best-effort */ }
+    }
   }
   const allResults = [result];
 
