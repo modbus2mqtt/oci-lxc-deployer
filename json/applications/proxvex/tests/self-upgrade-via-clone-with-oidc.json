@@ -4,6 +4,7 @@
   "wait_seconds": 120,
   "cli_timeout": 900,
   "consumes_source": "in-place",
+  "target_deployer_instance": true,
   "run_in_ve": true,
   "expect_clone_lifecycle": true,
   "params": [

@@ -700,6 +700,13 @@ pve_ssh "
     iptables -A FORWARD -p tcp -d $NESTED_IP --dport 3080 -j ACCEPT
     iptables -t nat -A PREROUTING -p tcp --dport $PORT_DEPLOYER_HTTPS -j DNAT --to-destination $NESTED_IP:3443
     iptables -A FORWARD -p tcp -d $NESTED_IP --dport 3443 -j ACCEPT
+    # Additional mapping: identity-port 3443 → nested VM 3443. The Hub's
+    # HTTP→HTTPS redirect emits absolute URLs with the container's internal
+    # local_https_port (3443) — without this rule, a CLI/runner that calls
+    # http://${PVE_HOST}:${PORT_DEPLOYER} after addon-ssl was activated
+    # follows the 301 to https://${PVE_HOST}:3443 and fails connect-refused.
+    # Mapping 3443 alongside ${PORT_DEPLOYER_HTTPS} makes both URLs work.
+    iptables -t nat -A PREROUTING -p tcp --dport 3443 -j DNAT --to-destination $NESTED_IP:3443
 
     # NAT for nested VM network
     iptables -t nat -A POSTROUTING -s ${SUBNET}.0/24 -o vmbr0 -j MASQUERADE
