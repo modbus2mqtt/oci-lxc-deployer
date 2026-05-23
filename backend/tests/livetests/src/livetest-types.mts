@@ -130,6 +130,15 @@ export interface TestScenario {
    * via `--config <instance>`.
    */
   run_in_ve?: boolean;
+
+  /**
+   * Addons to deactivate via the CLI's `--disable-addons` flag (passes
+   * through as `disabledAddons` body param). Triggers the corresponding
+   * `conf-disable-<addon>-app.sh` pre_start templates on reconfigure.
+   * Used by the disable-OIDC test to actively strip OIDC_* env vars from
+   * /config/proxvex.env.
+   */
+  disabledAddons?: string[];
 }
 
 /** Discovered scenario with resolved identity */

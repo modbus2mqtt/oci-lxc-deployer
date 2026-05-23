@@ -34,6 +34,7 @@ import {
   expandToPriorityClosure, addImplicitDestructiveTaskDeps,
 } from "./scenario-planner.mjs";
 import { TestResultWriter } from "./test-result-writer.mjs";
+import type { RunnerAuthContext } from "./runner-http.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -817,11 +818,16 @@ async function main() {
 
   // Scenarios with `run_in_ve: true` cannot run in default (local-backend)
   // mode — the deployer they target is a local Node process, not the
-  // Hub-LXC inside the nested VM. Skip them with a clear hint so a user
-  // running `/livetest --all` doesn't see the self-upgrade test fail in
-  // confusing ways. The `--config <instance>` path strips deployerHost/
-  // deployerPort and flips inNestedDeployerMode=true; there they run.
-  if (!config.inNestedDeployerMode) {
+  // Hub-LXC inside the nested VM. Skip them with a clear hint.
+  //
+  // H.6: also skip in `--all` runs (even when nested-deployer mode is
+  // active via auto-config). The OIDC/self-upgrade tests destroy the Hub
+  // mid-run and replace it with a new CT — any other parallel-running
+  // Spoke-tests against the same Hub would see SSH-resets and bogus vmids.
+  // The OIDC-suite always runs as its own `--config <inst> @<list>`-style
+  // invocation, never folded into `--all`.
+  const isAllRun = testArg === "--all";
+  if (!config.inNestedDeployerMode || isAllRun) {
     const beforeVeFilter = selectedIds.length;
     const skippedRunInVe: string[] = [];
     selectedIds = selectedIds.filter((id) => {
@@ -833,12 +839,14 @@ async function main() {
       return true;
     });
     if (skippedRunInVe.length > 0) {
+      const reason = isAllRun
+        ? "(--all skips run_in_ve scenarios — run them in a dedicated OIDC-suite invocation)"
+        : "(self-upgrade tests destroy the deployer mid-run and must target the Hub-LXC directly)";
       logWarn(
         `Skipping ${skippedRunInVe.length} scenario(s) with run_in_ve=true: ${skippedRunInVe.join(", ")}`,
       );
       logInfo(
-        `Run them separately via: /livetest --config <instance> <scenario> ` +
-          `(self-upgrade tests destroy the deployer mid-run and must target the Hub-LXC directly)`,
+        `Run them separately via: /livetest --config <instance> <scenario-or-@list> ${reason}`,
       );
     }
     if (selectedIds.length !== beforeVeFilter) {
@@ -942,7 +950,23 @@ async function main() {
   // open the page during planning/baseline. Storage column fills in once
   // the executor seeds assignments; statuses fill in as scenarios run.
   const commandLine = process.argv.join(" ");
-  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
+  // Shared runner-auth context — populated by scenario-executor after
+  // Zitadel install (or via env vars below for OIDC-enabled-from-start Hubs).
+  // Same reference is passed to both TestResultWriter and executePlan so
+  // mutations from inside the executor (e.g. setting oidcCreds) propagate
+  // to the writer's bundle-pull path.
+  const runnerAuth: RunnerAuthContext = {};
+  // Env-var bootstrap path: operator running against a Hub that's already
+  // OIDC-enabled (no fresh step2b rollback). Otherwise creds get populated
+  // by scenario-executor once Zitadel is installed/reachable.
+  const envIssuer = process.env.TEST_DEPLOYER_OIDC_ISSUER_URL ?? process.env.OIDC_ISSUER_URL;
+  const envClientId = process.env.TEST_DEPLOYER_OIDC_MACHINE_CLIENT_ID ?? process.env.OIDC_CLIENT_ID;
+  const envSecret = process.env.TEST_DEPLOYER_OIDC_MACHINE_CLIENT_SECRET ?? process.env.OIDC_CLIENT_SECRET;
+  if (envIssuer && envClientId && envSecret) {
+    runnerAuth.oidcCreds = { issuerUrl: envIssuer, clientId: envClientId, clientSecret: envSecret };
+    logInfo(`Runner machine-token bootstrap from env (issuer=${envIssuer})`);
+  }
+  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl, runnerAuth);
   const overviewState: RunOverviewState = {
     outDir: resultWriter.getOutputDir(),
     runId: resultWriter.getRunId(),
@@ -1074,7 +1098,7 @@ async function main() {
         { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) },
       );
     } else {
-      result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
+      result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, runnerAuth, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
     }
   } finally {
     clearInterval(overviewJsonTimer);

@@ -24,6 +24,7 @@ import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
 import { writeRunOverviewHtml, writeRunOverviewJson, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
 import { overviewPortForDeployer, startRunOverviewServer, type RunOverviewServer } from "./run-overview-server.mjs";
+import { runnerHttpJson, type RunnerAuthContext } from "./runner-http.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
@@ -84,6 +85,12 @@ export interface ExecuteScenariosOptions {
     state: RunOverviewState;
     server: RunOverviewServer | null;
   };
+  /** Shared runner-auth context — when set, all direct runner→Hub fetches
+   * inside the executor (stack lookup, debug external-events, /api/reload)
+   * use the same Bearer token TestResultWriter does. Allows env-var
+   * bootstrap from live-test-runner OR mid-run population from Zitadel
+   * stack lookup to apply to both writer and executor. (Stage G) */
+  runnerAuth?: RunnerAuthContext;
 }
 
 /**
@@ -697,6 +704,12 @@ export async function executeScenarios(
   // Only used if the deployer itself has OIDC enabled (not for app-level OIDC addons)
   let oidcCredentials: { issuerUrl: string; clientId: string; clientSecret: string } | undefined;
 
+  // Runner-side machine-token auth context (Stage G). Either passed in from
+  // live-test-runner (= shared ref with TestResultWriter — env-var bootstrap
+  // applies) or freshly allocated if no caller supplied one. Population
+  // happens lazily in loadOidcCredsFromStack below.
+  const runnerAuth: RunnerAuthContext = options?.runnerAuth ?? {};
+
   /**
    * Pull the test-deployer credentials from the oidc_<stackName> stack the
    * way addon-oidc-consuming applications do: Zitadel install emits
@@ -707,10 +720,17 @@ export async function executeScenarios(
    */
   async function loadOidcCredsFromStack(stackName: string): Promise<typeof oidcCredentials> {
     try {
-      const resp = await fetch(`${apiUrl}/api/stack/oidc_${stackName}`, { signal: AbortSignal.timeout(5000) });
-      if (!resp.ok) return undefined;
-      const data = await resp.json() as { stack?: { provides?: Array<{ name: string; value: string }> } };
-      const provides = data.stack?.provides ?? [];
+      // Use authedFetch — once we DO have runnerAuth.oidcCreds (subsequent
+      // call for a second OIDC test in the same run), the stack route
+      // may have moved behind OIDC. First call typically lands here
+      // pre-token; runnerHttpJson just omits the header in that case.
+      const resp = await runnerHttpJson<{ stack?: { provides?: Array<{ name: string; value: string }> } }>(
+        runnerAuth,
+        `${apiUrl}/api/stack/oidc_${stackName}`,
+        { signal: AbortSignal.timeout(5000) },
+      );
+      if (!resp.ok || !resp.body) return undefined;
+      const provides = resp.body.stack?.provides ?? [];
       const get = (name: string): string | undefined => provides.find((p) => p.name === name)?.value;
       // Prefer TEST_DEPLOYER_OIDC_* — emitted by template 357 (livetest-local
       // overlay), this user gets ALL project roles granted (template 358 +
@@ -729,6 +749,13 @@ export async function executeScenarios(
         get("TEST_DEPLOYER_OIDC_MACHINE_CLIENT_SECRET")
         ?? get("DEPLOYER_OIDC_MACHINE_CLIENT_SECRET");
       if (issuerUrl && clientId && clientSecret) {
+        // G.2: populate runnerAuth so subsequent direct fetches from the
+        // runner attach Authorization: Bearer (driven by runnerHttpJson).
+        // Same creds power the CLI subprocess via the existing
+        // oidcCredentials path below.
+        runnerAuth.oidcCreds = { issuerUrl, clientId, clientSecret };
+        runnerAuth.token = undefined;
+        runnerAuth.tokenExp = undefined;
         return { issuerUrl, clientId, clientSecret };
       }
     } catch { /* stack not ready yet */ }
@@ -762,7 +789,7 @@ export async function executeScenarios(
     if (!ctx.restartKey || ctx.buffer.length === 0) return;
     const events = ctx.buffer.splice(0);
     try {
-      await fetch(`${apiUrl}/api/ve/debug/${ctx.restartKey}/external-events`, {
+      await runnerHttpJson(runnerAuth, `${apiUrl}/api/ve/debug/${ctx.restartKey}/external-events`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ events }),
@@ -1255,7 +1282,7 @@ export async function executeScenarios(
       // measurement run anyway). Sequenzpfad bleibt unverändert.
       if (concurrency <= 1) {
         try {
-          const reloadResp = await fetch(`${apiUrl}/api/reload`, { method: "POST" });
+          const reloadResp = await runnerHttpJson(runnerAuth, `${apiUrl}/api/reload`, { method: "POST" });
           if (reloadResp.ok) logInfo("Deployer reloaded");
           else logInfo(`Deployer reload returned ${reloadResp.status} (continuing)`);
         } catch {
@@ -1278,6 +1305,7 @@ export async function executeScenarios(
         projectRoot, apiUrl, veHost,
         paramsFile, allAddons, scenario.cli_timeout ?? options?.cliTimeoutSec, scenarioFixtureDir,
         useOidc ? oidcCredentials : undefined,
+        scenario.disabledAddons,
       );
       // restartKey is now known → bind it to this scenario's log context and
       // ship the buffered pre-CLI events into the bundle right away. The

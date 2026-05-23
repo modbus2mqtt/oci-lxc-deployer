@@ -1,0 +1,13 @@
+{
+  "task": "reconfigure",
+  "depends_on": ["proxvex/self-upgrade-via-clone-with-oidc"],
+  "wait_seconds": 120,
+  "cli_timeout": 900,
+  "consumes_source": "in-place",
+  "run_in_ve": true,
+  "expect_clone_lifecycle": true,
+  "selectedAddons": [],
+  "disabledAddons": ["addon-ssl", "addon-oidc"],
+  "params": [],
+  "description": "Self-reconfigure that DISABLES addon-ssl + addon-oidc again. Pre-state: Hub serves HTTPS with OIDC. Pipeline: clone-driven reconfigure with disabledAddons triggers 162-conf-disable-oidc-app.json + 158-conf-disable-ssl-app.json on the new CT → OIDC_* env vars and SSL cert mountpoint are stripped from /etc/pve/lxc/<vmid>.conf. Post-state: Hub back on plain HTTP, /api/* fully public. Verifies the symmetric off-path: that disable actually removes what enable wrote. Final-stage runner bundle pull works because Hub didn't yet shut down OIDC when handoff message was written, and once cleanup-service injects under outerKey the diagnose is available regardless of post-replace auth state."
+}

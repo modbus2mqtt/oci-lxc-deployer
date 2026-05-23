@@ -100,6 +100,7 @@ export function runCli(
   cliTimeout = 600,
   fixturePath?: string,
   oidcCredentials?: { issuerUrl: string; clientId: string; clientSecret: string },
+  disabledAddons?: string[],
 ): Promise<CliJsonResult> {
   return new Promise((resolve) => {
     // Auto-detect dev mode: if TypeScript source exists, use tsx
@@ -125,6 +126,10 @@ export function runCli(
 
     if (addons && addons.length > 0) {
       cliArgs.push("--enable-addons", addons.join(","));
+    }
+
+    if (disabledAddons && disabledAddons.length > 0) {
+      cliArgs.push("--disable-addons", disabledAddons.join(","));
     }
 
     if (fixturePath) {

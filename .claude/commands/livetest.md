@@ -54,27 +54,51 @@ Examples:
 
 ### Self-upgrade tests run in a SECOND, separate call
 
-Scenarios marked `run_in_ve: true` in their JSON (currently only
-`proxvex/self-upgrade-via-clone`) destroy the deployer-CT mid-test and have
-a new CT take over its IP. They MUST run against the Hub-LXC inside the
-nested VM, not the local-backend Spoke. The runner auto-skips them in
-default mode with a hint message.
+Scenarios marked `run_in_ve: true` in their JSON destroy the deployer-CT
+mid-test and have a new CT take over its IP. They MUST run against the
+Hub-LXC inside the nested VM, not the local-backend Spoke. The runner
+auto-skips them in default mode AND in `--all` (even with auto-config
+nested-deployer mode) — running them parallel to other Spoke tests would
+break those tests via SSH-resets during the Hub-replace.
 
 Standard two-phase workflow:
 
 ```
-# Phase 1: normal Spoke tests (parallel, default)
+# Phase 1: parallel Spoke-Test-Masse (~60 min)
 /livetest --all                                       # skips run_in_ve scenarios
 
-# Phase 2: VE-mode tests (serial, --config)
-/livetest --config green proxvex/self-upgrade-via-clone
+# Phase 2: OIDC + Self-Upgrade Suite (~25–30 min, eigener step2b rollback)
+/livetest --config green @e2e/oidc-self-suite.lst
 ```
 
-Phase 2 uses `--config <instance>` because each `run_in_ve` test
-mid-replaces the deployer; running anything else in parallel against the
-same Hub would observe random connection-refused errors. There are
-expected to be at most ~2 such scenarios (reconfigure + upgrade), so
-running them serially is acceptable.
+The OIDC suite (`e2e/oidc-self-suite.lst`) runs these scenarios in order:
+1. `zitadel/default` — provides `DEPLOYER_OIDC_MACHINE_*` in `oidc_default` stack
+2. `proxvex/self-reconfigure-enable-https-oidc` — Hub HTTP → HTTPS+OIDC
+3. `proxvex/self-upgrade-via-clone-with-oidc` — image-bump while HTTPS+OIDC stays on
+4. `proxvex/self-reconfigure-disable-https-oidc` — Hub HTTPS+OIDC → HTTP
+
+Each step replaces the Hub CT (new vmid each time). `target_deployer_instance`
+autodetect (backend `getSelfVmid()` via `/proc/1/cgroup`) finds the active
+Hub-vmid dynamically. The livetest runner uses `DEPLOYER_OIDC_MACHINE_*` from
+the `oidc_default` stack to obtain a Bearer JWT (client_credentials grant)
+that authenticates all runner→Hub fetches once OIDC is enabled — keeps the
+diagnose-bundle pull working across the Hub-replace.
+
+You can also run any single OIDC scenario individually:
+```
+/livetest --config green proxvex/self-reconfigure-enable-https-oidc
+/livetest --config green proxvex/self-upgrade-via-clone-with-oidc
+/livetest --config green proxvex/self-reconfigure-disable-https-oidc
+```
+…but their `depends_on` chain still forces the planner to install the
+preceding scenarios anyway (e.g. running `disable` directly will pull in
+`enable + upgrade` as prerequisites).
+
+If the operator runs against a Hub that is **already** OIDC-enabled before
+the run starts (no step2b rollback), set
+`TEST_DEPLOYER_OIDC_ISSUER_URL/MACHINE_CLIENT_ID/MACHINE_CLIENT_SECRET`
+(or the prod `OIDC_*` equivalents) as env vars before `/livetest` so the
+runner's setup-fetches can authenticate immediately.
 
 Then ask via `AskUserQuestion`:
 

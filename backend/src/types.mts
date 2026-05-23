@@ -541,6 +541,10 @@ export interface ITestScenarioResponse {
    *  nested VM (`--config <instance>`), not against the local-backend
    *  Spoke. Runner skips it in default-mode with a hint to re-run. */
   run_in_ve?: boolean;
+  /** Addons to deactivate via the CLI's `--disable-addons` flag. Triggers
+   *  `162-conf-disable-<addon>-app.json` pre_start templates on
+   *  reconfigure. Used by the disable-OIDC test. */
+  disabledAddons?: string[];
   /** Project-root-relative path to this scenario's application directory,
    *  resolved via the persistence layer (local → hub → json). The livetest
    *  runner uses this to locate uploads, the Playwright spec dir, etc.,

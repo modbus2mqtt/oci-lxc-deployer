@@ -1,0 +1,16 @@
+{
+  "task": "upgrade",
+  "depends_on": ["proxvex/self-reconfigure-enable-https-oidc"],
+  "wait_seconds": 120,
+  "cli_timeout": 900,
+  "consumes_source": "in-place",
+  "run_in_ve": true,
+  "expect_clone_lifecycle": true,
+  "params": [
+    {
+      "name": "oci_image_tag",
+      "value": "latest"
+    }
+  ],
+  "description": "Self-upgrade-via-clone against an OIDC-enabled Hub. Reuses the existing orchestrator flow (clone temp deployer → upgrade source → new CT replaces old Hub) but the precondition is that the Hub already has OIDC+HTTPS active (set up by self-reconfigure-enable-https-oidc). Validates that (1) the bearer-authenticated runner can still pull the diagnose bundle from the new CT, (2) the clone stays OIDC-stripped during its lifetime (intentional — Hub-to-Clone HTTP is internal/trusted), (3) OIDC env vars (OIDC_ENABLED, OIDC_ISSUER_URL, ...) ride through the /config-volume migration into the new CT."
+}

@@ -72,6 +72,10 @@ export class TestResultWriter {
   private runId: string;
   private commandLine: string;
   private apiUrl: string | undefined;
+  /** Runner machine-token context (Stage G). When set, every bundle pull
+   *  via runner-http attaches Authorization: Bearer. Optional — old call
+   *  sites that don't set it still work against OIDC-disabled Hubs. */
+  private runnerAuth: import("./runner-http.mjs").RunnerAuthContext | undefined;
 
   constructor(
     baseDir: string,
@@ -79,6 +83,7 @@ export class TestResultWriter {
     filterArg: string,
     commandLine: string,
     apiUrl?: string,
+    runnerAuth?: import("./runner-http.mjs").RunnerAuthContext,
   ) {
     const unix = Math.floor(Date.now() / 1000);
     const filterSlug = sanitizeFilter(filterArg);
@@ -86,6 +91,7 @@ export class TestResultWriter {
     this.outputDir = path.join(baseDir, "livetest-results", this.runId);
     this.commandLine = commandLine;
     this.apiUrl = apiUrl;
+    this.runnerAuth = runnerAuth;
     mkdirSync(this.outputDir, { recursive: true });
   }
 
@@ -156,32 +162,34 @@ export class TestResultWriter {
   ): Promise<string[]> {
     if (!this.apiUrl) return [];
     try {
+      // Lazy-import to avoid a hard test-result-writer ↔ runner-http
+      // dependency cycle at module load. runner-http only attaches
+      // Authorization: Bearer when `runnerAuth.oidcCreds` is set —
+      // OIDC-disabled Hubs see no header and behave like before.
+      const { runnerHttpJson, runnerHttpText } = await import("./runner-http.mjs");
+      const auth = this.runnerAuth ?? {};
       // Manifest endpoint waits for the bundle's finishedAt to be set
       // (backend's `waitForFinish`, now 90 s ceiling) before responding.
-      // Worst case is the post-install-crash path: host-side wait_seconds
-      // catches a stopped CT before the backend's install task has even
-      // completed naturally, so the backend hasn't yet started its own
-      // captureLxcDiagnostics. Observed gap up to ~91 s between host-side
-      // failure detection and backend `finish()`. 120 s on the HTTP side
-      // leaves a small margin above the backend's 90 s waitForFinish.
-      const manifestResp = await fetch(
+      // 120 s on the HTTP side leaves a small margin above the backend's
+      // 90 s waitForFinish.
+      const manifestResp = await runnerHttpJson<{ files?: string[] }>(
+        auth,
         `${this.apiUrl}/api/ve/debug/${encodeURIComponent(restartKey)}`,
         { signal: AbortSignal.timeout(120000) },
       );
-      if (!manifestResp.ok) return [];
-      const manifest = (await manifestResp.json()) as { files?: string[] };
-      const files = manifest.files ?? [];
+      if (!manifestResp.ok || !manifestResp.body) return [];
+      const files = manifestResp.body.files ?? [];
       const written: string[] = [];
       for (const filePath of files) {
-        const fileResp = await fetch(
+        const fileResp = await runnerHttpText(
+          auth,
           `${this.apiUrl}/api/ve/debug/${encodeURIComponent(restartKey)}/${filePath}`,
           { signal: AbortSignal.timeout(10000) },
         );
-        if (!fileResp.ok) continue;
-        const content = await fileResp.text();
+        if (!fileResp.ok || fileResp.text === undefined) continue;
         const target = path.join(targetDir, filePath);
         mkdirSync(path.dirname(target), { recursive: true });
-        writeFileSync(target, content);
+        writeFileSync(target, fileResp.text);
         written.push(filePath);
       }
       return written;
