@@ -99,7 +99,7 @@ export function runCli(
   addons?: string[],
   cliTimeout = 600,
   fixturePath?: string,
-  oidcCredentials?: { issuerUrl: string; clientId: string; clientSecret: string },
+  oidcCredentials?: { issuerUrl: string; clientId: string; clientSecret: string; hostOverride?: string; projectId?: string },
   disabledAddons?: string[],
 ): Promise<CliJsonResult> {
   return new Promise((resolve) => {
@@ -122,6 +122,12 @@ export function runCli(
         "--oidc-client-id", oidcCredentials.clientId,
         "--oidc-client-secret", oidcCredentials.clientSecret,
       );
+      if (oidcCredentials.hostOverride) {
+        cliArgs.push("--oidc-host-override", oidcCredentials.hostOverride);
+      }
+      if (oidcCredentials.projectId) {
+        cliArgs.push("--oidc-project-id", oidcCredentials.projectId);
+      }
     }
 
     if (addons && addons.length > 0) {

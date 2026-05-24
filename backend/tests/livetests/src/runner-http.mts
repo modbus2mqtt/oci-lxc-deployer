@@ -18,13 +18,68 @@
  */
 
 import { createLogger } from "../../../src/logger/index.mjs";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 
 const logger = createLogger("runner-http");
+
+/**
+ * POST form-urlencoded body using Node's http(s).request — preserves
+ * user-supplied Host header (fetch / undici overrides it). Used by the
+ * OIDC token endpoint to support hostOverride.
+ */
+async function httpPostFormPreserveHost(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; text: string }> {
+  const parsed = new URL(url);
+  const isHttps = parsed.protocol === "https:";
+  const reqFn = isHttps ? httpsRequest : httpRequest;
+  const options = {
+    method: "POST",
+    hostname: parsed.hostname,
+    port: parsed.port || (isHttps ? 443 : 80),
+    path: parsed.pathname + parsed.search,
+    headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) },
+  };
+  return await new Promise((resolve, reject) => {
+    const req = reqFn(options, (resp) => {
+      const chunks: Buffer[] = [];
+      resp.on("data", (c: Buffer) => chunks.push(c));
+      resp.on("end", () => {
+        resolve({
+          status: resp.statusCode ?? 0,
+          text: Buffer.concat(chunks).toString("utf-8"),
+        });
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(10_000, () => req.destroy(new Error("OIDC token request timed out after 10s")));
+    req.write(body);
+    req.end();
+  });
+}
 
 export interface RunnerOidcCreds {
   issuerUrl: string;
   clientId: string;
   clientSecret: string;
+  /** Optional HTTP `Host` header override applied to the OIDC token
+   * request. When Zitadel was configured with an internal
+   * `ExternalDomain` (e.g. `zitadel-default:8080`) but the runner
+   * reaches it via an external NAT (e.g. `http://ubuntupve:1808`),
+   * Zitadel's instance-domain lookup rejects the external Host.
+   * Bytes still route by URL — only the Host header is overridden,
+   * which makes Zitadel see the value it expects. Production where
+   * the public URL already matches Zitadel's `ExternalDomain` leaves
+   * this unset. */
+  hostOverride?: string;
+  /** Zitadel project ID. When set, the token request scope includes
+   * `urn:zitadel:iam:org:project:id:<projectId>:aud` + roles. Without
+   * this the JWT lacks role claims and the Hub returns 403 on every
+   * /api call. Same scope production/_lib.sh uses. */
+  projectId?: string;
 }
 
 export interface RunnerAuthContext {
@@ -55,27 +110,29 @@ export interface RunnerHttpResult<T = unknown> {
  */
 async function fetchMachineToken(ctx: RunnerAuthContext): Promise<void> {
   if (!ctx.oidcCreds) return;
-  const { issuerUrl, clientId, clientSecret } = ctx.oidcCreds;
+  const { issuerUrl, clientId, clientSecret, hostOverride, projectId } = ctx.oidcCreds;
   const tokenUrl = `${issuerUrl}/oauth/v2/token`;
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  let scope = "openid";
+  if (projectId) {
+    scope += ` urn:zitadel:iam:org:project:id:${projectId}:aud urn:zitadel:iam:org:projects:roles`;
+  }
   const params = new URLSearchParams({
     grant_type: "client_credentials",
-    scope: "openid",
+    scope,
   });
-  const resp = await fetch(tokenUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${basic}`,
-    },
-    body: params.toString(),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!resp.ok) {
-    const detail = await resp.text().catch(() => "");
-    throw new Error(`OIDC token request failed (${resp.status}): ${detail.slice(0, 200)}`);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    Authorization: `Basic ${basic}`,
+  };
+  if (hostOverride) headers["Host"] = hostOverride;
+  // Use http(s).request — fetch (undici) silently overrides any
+  // user-supplied Host header with the URL's authority.
+  const resp = await httpPostFormPreserveHost(tokenUrl, headers, params.toString());
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new Error(`OIDC token request failed (${resp.status}): ${resp.text.slice(0, 200)}`);
   }
-  const data = (await resp.json()) as { access_token: string; expires_in?: number };
+  const data = JSON.parse(resp.text) as { access_token: string; expires_in?: number };
   ctx.token = data.access_token;
   ctx.tokenExp = Math.floor(Date.now() / 1000) + (data.expires_in ?? 3600);
   logger.info("Runner machine-token refreshed", {

@@ -324,15 +324,21 @@ export function setupPortForwarding(config: {
           5000);
       }
 
-      // b) iptables DNAT on nested VM (inner forwarding)
-      const innerCheck = nestedSsh(config.pveHost, config.portPveSsh,
-        `iptables -t nat -C PREROUTING -p tcp --dport ${fwd.port} -j DNAT --to-destination ${fwd.ip}:${fwd.containerPort} 2>/dev/null && echo "exists" || echo "missing"`,
+      // b) iptables DNAT on nested VM (inner forwarding).
+      //
+      // Same cleanup pattern as the outer step (c) below: drop EVERY
+      // existing rule for this --dport before installing ours. The old
+      // approach was a `-C` exact-match check + `-A` on miss, which left
+      // stale rules with a different `containerPort` in place (e.g.
+      // after changing zitadel's containerPort from the SSL :1443 to the
+      // plain-HTTP :8080 — the old :1443 rule kept winning iptables'
+      // first-match ordering and routed traffic to a dead inner port).
+      nestedSsh(config.pveHost, config.portPveSsh,
+        `iptables -t nat -S PREROUTING | awk '/--dport ${fwd.port} / && /DNAT/ { sub(/^-A/, "-D"); print }' | ` +
+        `while IFS= read -r rule; do [ -n "$rule" ] && iptables -t nat $rule; done; ` +
+        `iptables -t nat -A PREROUTING -p tcp --dport ${fwd.port} -j DNAT --to-destination ${fwd.ip}:${fwd.containerPort}; ` +
+        `iptables -C FORWARD -p tcp -d ${fwd.ip} --dport ${fwd.containerPort} -j ACCEPT 2>/dev/null || iptables -A FORWARD -p tcp -d ${fwd.ip} --dport ${fwd.containerPort} -j ACCEPT`,
         5000);
-      if (innerCheck.trim() === "missing") {
-        nestedSsh(config.pveHost, config.portPveSsh,
-          `iptables -t nat -A PREROUTING -p tcp --dport ${fwd.port} -j DNAT --to-destination ${fwd.ip}:${fwd.containerPort} && iptables -A FORWARD -p tcp -d ${fwd.ip} --dport ${fwd.containerPort} -j ACCEPT`,
-          5000);
-      }
 
       // c) iptables DNAT on outer PVE host. Forwards external port to nested
       // VM which then forwards to container. The nested-VM IP comes from
