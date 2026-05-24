@@ -111,8 +111,8 @@ fi
 
 # Run the CLI in --json mode, mirroring livetest's cli-executor.mts pattern:
 #   - stdout = structured JSON lines (progress + a final {…,restartKey} line);
-#     captured to a file AND rendered human-readably via a jq passthrough
-#     (raw JSON fallback when jq is absent).
+#     captured to a file AND rendered human-readably via a python3 passthrough
+#     (no jq dependency — python3 stdlib is on every Debian/Proxmox host).
 #   - stderr = raw script output; captured to a file (surfaced on failure).
 # On a non-zero CLI exit, fetch the per-task debug bundle from
 #   GET /api/ve/debug/:restartKey            (manifest: { files: [...] })
@@ -127,19 +127,39 @@ run_cli_capture() {
   out=$(mktemp); err=$(mktemp)
 
   set +e
-  if command -v jq >/dev/null 2>&1; then
-    "$@" 2>"$err" | tee "$out" | jq -R --unbuffered -r '
-      fromjson? // empty
-      | select(type=="object" and (.command|type=="string"))
-      | "[\((.index // 0)+1)] \(.command) " +
-        (if ((.exitCode // 0) != 0) then "FAILED"
-         elif (.finished == true) then "OK" else "..." end)'
-    rc=${PIPESTATUS[0]}
-  else
-    echo "  (jq not found — raw JSON progress; install jq for readable output)" >&2
-    "$@" 2>"$err" | tee "$out"
-    rc=${PIPESTATUS[0]}
-  fi
+  # Pretty-print streaming JSON progress via python3 — stdlib only, available
+  # on every Debian/Proxmox host out of the box. Matches the jq one-liner
+  # this used to invoke: emit "[index+1] command STATUS" for each parseable
+  # JSON object with a string `.command`, where STATUS is FAILED / OK /
+  # in-progress based on .exitCode + .finished.
+  "$@" 2>"$err" | tee "$out" | python3 -u -c '
+import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line or line[0] != "{":
+        continue
+    try:
+        o = json.loads(line)
+    except Exception:
+        continue
+    if not isinstance(o, dict):
+        continue
+    cmd = o.get("command")
+    if not isinstance(cmd, str):
+        continue
+    idx = o.get("index", 0)
+    if not isinstance(idx, int):
+        idx = 0
+    ec = o.get("exitCode", 0)
+    if ec != 0:
+        status = "FAILED"
+    elif o.get("finished") is True:
+        status = "OK"
+    else:
+        status = "..."
+    print(f"[{idx+1}] {cmd} {status}", flush=True)
+'
+  rc=${PIPESTATUS[0]}
   # NB: stay under `set +e` through diagnostics so a non-zero grep/curl can't
   # abort before the bundle is written; errexit is restored just before return.
 
@@ -183,7 +203,7 @@ except Exception: pass' 2>/dev/null || true)
 
   # Always surface the completion banner (e.g. Zitadel admin login/password
   # from template 380). In --json mode these are structured outputs on
-  # stdout; the jq passthrough only prints step status, and on success $out
+  # stdout; the python3 passthrough only prints step status, and on success $out
   # is discarded — so without this the credentials would be lost. Scan the
   # captured stdout for the known completion output ids (schema-tolerant).
   local banner
@@ -247,13 +267,24 @@ _managed_vmids_for_app() {
   body=$(auth_curl -sk --max-time 30 \
     "$SERVER/api/ve_${PVE_HOST}/installations" 2>/dev/null || true)
   [ -z "$body" ] && return 0
-  if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$body" | jq -r ".[]? | select(.application_id == \"$app\") | .vm_id" 2>/dev/null
-  else
-    printf '%s' "$body" | tr ',' '\n' | awk -v app="$app" '
-      /"vm_id":/ { gsub(/[^0-9]/, ""); cur=$0 }
-      /"application_id":/ { gsub(/"|application_id|:| /, ""); if ($0==app && cur!="") print cur; cur="" }'
-  fi
+  # Robust JSON parsing via python3 (stdlib, available on every Debian +
+  # Proxmox host). Earlier awk fallback assumed a specific line layout
+  # and silently missed matches when the API returned compact one-line
+  # JSON — that's the kind of soft-fail the install-guard must not have.
+  printf '%s' "$body" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(data, list):
+    sys.exit(0)
+for entry in data:
+    if isinstance(entry, dict) and entry.get('application_id') == '$app':
+        vm = entry.get('vm_id')
+        if vm is not None:
+            print(vm)
+" 2>/dev/null
 }
 
 guard_no_existing_install() {
@@ -403,17 +434,24 @@ resolve_previous_vmid() {
     echo "WARN: could not query installations API — cannot auto-detect previous_vm_id for $app" >&2
     return 1
   fi
-  # Extract vm_ids where application_id matches. Use jq if available, else
-  # fall back to a grep+awk pipeline that handles the same JSON shape.
+  # Extract vm_ids where application_id matches via python3 (stdlib, on
+  # every Debian/Proxmox host). Replaces the older awk fallback which
+  # depended on a particular JSON line layout.
   local matches
-  if command -v jq >/dev/null 2>&1; then
-    matches=$(echo "$body" | jq -r ".[] | select(.application_id == \"$app\") | .vm_id" 2>/dev/null)
-  else
-    matches=$(echo "$body" | tr ',' '\n' | awk -v app="$app" '
-      /"vm_id":/ { gsub(/[^0-9]/, ""); cur_vmid=$0 }
-      /"application_id":/ { gsub(/"|application_id|:| /, ""); if ($0 == app && cur_vmid != "") print cur_vmid; cur_vmid="" }
-    ')
-  fi
+  matches=$(printf '%s' "$body" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(data, list):
+    sys.exit(0)
+for entry in data:
+    if isinstance(entry, dict) and entry.get('application_id') == '$app':
+        vm = entry.get('vm_id')
+        if vm is not None:
+            print(vm)
+" 2>/dev/null)
   local count
   count=$(echo "$matches" | grep -c .)
   if [ "$count" -eq 0 ]; then
@@ -455,16 +493,23 @@ augment_params_with_previous_vmid() {
   echo "  Auto-resolved previous_vm_id=$vmid for $task task" >&2
   local out
   out=$(mktemp)
-  if command -v jq >/dev/null 2>&1; then
-    jq --argjson v "$vmid" '.params += [{"name":"previous_vm_id","value":$v}]' "$input" > "$out"
-  else
-    awk -v vmid="$vmid" '
-      /"params"[[:space:]]*:[[:space:]]*\[/ {
-        sub(/\[/, "[ {\"name\":\"previous_vm_id\",\"value\":" vmid "},")
-      }
-      { print }
-    ' "$input" > "$out"
-  fi
+  # Inject previous_vm_id into the params array via python3 — round-trips
+  # the whole JSON document, so structurally correct regardless of
+  # whitespace/ordering. Earlier awk fallback was a regex hack that
+  # assumed `"params": [` appears on its own line.
+  PROXVEX_VMID="$vmid" python3 -c '
+import json, os, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    doc = json.load(f)
+vmid_raw = os.environ["PROXVEX_VMID"]
+try:
+    vmid = int(vmid_raw)
+except ValueError:
+    vmid = vmid_raw
+doc.setdefault("params", []).append({"name": "previous_vm_id", "value": vmid})
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    json.dump(doc, f, indent=2)
+' "$input" "$out"
   echo "$out"
 }
 

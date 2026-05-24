@@ -90,7 +90,11 @@
       "Bash(ssh -o StrictHostKeyChecking=no -T -q -p 22 root@ubuntupve \"ls -la /tmp/.oci-version-cache.json 2>&1; head -c 200 /tmp/.oci-version-cache.json 2>&1; echo\")",
       "Bash(pnpm exec *)",
       "Bash(sh -n /tmp/probe-merged.sh)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(/Users/volkmar/proxvex-green/production/setup-production.sh)",
+      "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 root@pve1.cluster ' *)",
+      "Bash(sh -n /Users/volkmar/proxvex-green/production/deploy.sh)",
+      "Bash(sh -n /Users/volkmar/proxvex-green/production/setup-pve-host.sh)"
     ]
   },
   "hooks": {

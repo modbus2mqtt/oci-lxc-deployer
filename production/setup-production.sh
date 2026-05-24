@@ -99,8 +99,10 @@ CF_TOKEN="${CF_TOKEN:-}"
 SMTP_PASSWORD="${SMTP_PASSWORD:-}"
 
 # --- Step catalog (keep in sync with banner calls below) ---
+# Heredoc tag deliberately UNQUOTED so $(host_for_app …) expands to the
+# resolved target host. host_for_app() is defined above (line ~61).
 print_steps() {
-  cat <<'STEPS'
+  cat <<STEPS
   Steps:
     1   DNS + NAT on router
     2   Verify deployer is reachable
@@ -177,7 +179,8 @@ Options:
                         preserve the cached image volume.
   -h, --help            Show this help and exit
 
-Without arguments, this help is shown and nothing is executed.
+Without arguments, only the step list (below) is printed. Use --help for the
+full option reference, --all to run every step, or --step N for a single step.
 
 EOF
   print_steps
@@ -197,8 +200,13 @@ EOF
 }
 
 # --- Parse arguments ---
+# No-args: print just the step list (compact reference for the operator).
+# Full option help is reachable via --help.
 if [ $# -eq 0 ]; then
-  usage
+  print_steps
+  echo ""
+  echo "Run --help for option reference, --all to install everything, or"
+  echo "    --step N to run a single step."
   exit 0
 fi
 

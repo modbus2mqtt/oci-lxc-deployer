@@ -2,11 +2,18 @@
 # Verify the Docker Registry Mirror is working as a pull-through proxy.
 #
 # Runs on the PVE host (execute_on: ve) and:
-# 1. Checks docker-registry-mirror is reachable
-# 2. Adds /etc/hosts entries for registry-1.docker.io + index.docker.io
-# 3. Verifies deployer CA is installed in the host trust store
-#    (placed there by setup-pve-host.sh / install-proxvex.sh)
-# 4. Tests skopeo inspect through the mirror
+# 1. Checks that the mirror hostname resolves to a local address
+# 2. Verifies deployer CA is installed in the host trust store
+# 3. Tests `skopeo inspect` against the mirror under its own hostname
+#
+# Note: clients (skopeo / containerd / docker) reach the mirror via
+# `registries.conf [[registry.mirror]] location = '<mirror-host>:443'` or
+# the equivalent `REGISTRY_PROXY_REMOTEURL` env-var on chained mirrors —
+# both reference the mirror by its native hostname, not via an /etc/hosts
+# rewrite of registry-1.docker.io. The legacy hostname rewrite that this
+# script used to install was removed because it shadowed the canonical
+# DNS path for direct upstream calls (e.g. CA renewal, healthchecks)
+# without any consumer relying on it any more.
 
 MIRROR_HOST="{{ hostname }}"
 [ "$MIRROR_HOST" = "NOT_DEFINED" ] || [ -z "$MIRROR_HOST" ] && MIRROR_HOST="${1:-docker-registry-mirror}"
@@ -14,7 +21,7 @@ MIRROR_HOST="{{ hostname }}"
 ERRORS=""
 add_error() { ERRORS="${ERRORS}${ERRORS:+\n}$1"; }
 
-# 1. DNS check: docker-registry-mirror must resolve to a local address
+# 1. DNS check: <mirror-host> must resolve to a local address
 echo "Checking DNS for ${MIRROR_HOST}..." >&2
 MIRROR_IP=$(nslookup "$MIRROR_HOST" 2>/dev/null | awk '/^Address:/ && !/127\.0\.0\.53/ && !/::1/ {print $2}' | tail -1)
 if [ -z "$MIRROR_IP" ]; then
@@ -30,32 +37,27 @@ else
   esac
 fi
 
-# 2. Add /etc/hosts entries for Docker Hub hostnames -> mirror IP
-MARKER="# proxvex: registry mirror"
-if [ -n "$MIRROR_IP" ] && ! grep -q "$MARKER" /etc/hosts 2>/dev/null; then
-  echo "${MIRROR_IP} registry-1.docker.io index.docker.io  ${MARKER}" >> /etc/hosts
-  echo "Added /etc/hosts: ${MIRROR_IP} -> registry-1.docker.io, index.docker.io" >&2
-fi
-
-# 3. Verify CA certificate is installed in the host trust store. This is
+# 2. Verify CA certificate is installed in the host trust store. This is
 #    set up once per PVE host during deployer install/host registration.
 CA_CERT="/usr/local/share/ca-certificates/proxvex-ca.crt"
 if [ ! -f "$CA_CERT" ]; then
   add_error "CA: Deployer CA certificate not installed at ${CA_CERT}"
 fi
 
-# 4. Skopeo inspect through the mirror (using registry-1.docker.io which now points to mirror).
-# skopeo_with_probe (from skopeo-probe.sh library) appends a probe block to
-# stderr on failure — DNS, /v2/ reachability, manifest HEAD, control image,
-# and (if named in skopeo's stderr) a direct GET of the failing blob.
-echo "Testing skopeo inspect through mirror..." >&2
+# 3. Skopeo inspect against the mirror's own hostname — exercises TLS
+#    (cert SAN must match the hostname), the registry protocol, and (in
+#    proxy mode) the upstream pull-through path. skopeo_with_probe from
+#    skopeo-probe.sh appends an evidence block to stderr on failure —
+#    DNS, /v2/ reachability, manifest HEAD, blob-stream GET — so the
+#    failure mode is self-evident in the bundle without further grep.
+echo "Testing skopeo inspect against ${MIRROR_HOST}..." >&2
 if command -v skopeo >/dev/null 2>&1; then
-  INSPECT_RESULT=$(skopeo_with_probe inspect "docker://registry-1.docker.io/library/alpine:latest" 2>&1)
+  INSPECT_RESULT=$(skopeo_with_probe inspect "docker://${MIRROR_HOST}/library/alpine:latest" 2>&1)
   if echo "$INSPECT_RESULT" | grep -q '"Digest"'; then
     DIGEST=$(echo "$INSPECT_RESULT" | grep '"Digest"' | head -1 | sed 's/.*"Digest": *"//' | sed 's/".*//')
-    echo "Skopeo: alpine:latest inspected through mirror (${DIGEST})" >&2
+    echo "Skopeo: alpine:latest inspected via ${MIRROR_HOST} (${DIGEST})" >&2
   else
-    add_error "Skopeo: Failed to inspect alpine:latest: $(echo "$INSPECT_RESULT" | head -3)"
+    add_error "Skopeo: Failed to inspect alpine:latest via ${MIRROR_HOST}: $(echo "$INSPECT_RESULT" | head -3)"
   fi
 else
   echo "Skopeo not available, skipping inspect test" >&2

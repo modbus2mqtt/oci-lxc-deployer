@@ -57,7 +57,7 @@
     },
     {
       "id": "ssl_additional_san",
-      "value": "DNS:registry-1.docker.io,DNS:index.docker.io"
+      "default": "DNS:registry-1.docker.io,DNS:index.docker.io"
     },
     {
       "id": "wait_for_network",
