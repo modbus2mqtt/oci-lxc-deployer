@@ -10,8 +10,6 @@
       "subnet": "10.99.1",
       "bridge": "vmbr1",
       "filesystem": "zfs",
-      "deployerHost": "localhost",
-      "deployerPort": "${DEPLOYER_PORT:-3201}",
       "snapshot": {
         "enabled": true
       },
