@@ -615,6 +615,18 @@
       "required": false,
       "internal": true
     },
+    "mirror_mode": {
+      "name": "Registry Mirror Mode",
+      "type": "enum",
+      "default": "proxy",
+      "enumValues": [
+        "proxy",
+        "readwrite",
+        "readonly"
+      ],
+      "internal": true,
+      "description": "Operating mode for distribution-based registry mirror containers. proxy: pull-through cache (recommended). readwrite: private push-target registry (Distribution's 7-day TTL scheduler erodes pull-through caches — avoid). readonly: frozen corpus. Set as a locked value in docker-registry-mirror/application.json."
+    },
     "mtls_cns": {
       "name": "Client Certificate CNs",
       "type": "string",

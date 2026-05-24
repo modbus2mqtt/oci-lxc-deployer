@@ -1,10 +1,10 @@
 {
   "name": "Registry Mode Stub",
-  "description": "Distribution's filesystem-storage default behaviour (writable private registry) is wrong for our use case: every blob GET schedules a 7-day TTL cleanup; after the TTL the blob link AND the data file get unlinked. Result: a pull-through cache that slowly self-destructs even with no external DELETE calls (see /var/log/lxc/<host>-<vmid>.log: 'Scheduler error returned from OnExpire(...): Path not found'). This pre-start template patches /etc/distribution/config.yml to the mode declared by the locked `mode` property (today: 'proxy'). The patch happens on the host filesystem before the LXC starts; the env vars (REGISTRY_PROXY_REMOTEURL etc., set via the application's `envs` property) only take effect once their parent `proxy:` section exists in the config file — without this stub they are silently ignored and the registry boots in the broken filesystem-storage mode. Idempotent: skipped if the file already declares the requested mode.",
+  "description": "Distribution's filesystem-storage default behaviour (writable private registry) is wrong for our use case: every blob GET schedules a 7-day TTL cleanup; after the TTL the blob link AND the data file get unlinked. Result: a pull-through cache that slowly self-destructs even with no external DELETE calls (see /var/log/lxc/<host>-<vmid>.log: 'Scheduler error returned from OnExpire(...): Path not found'). This pre-start template patches /etc/distribution/config.yml to the mode declared by the locked `mirror_mode` property (today: 'proxy'). The patch happens on the host filesystem before the LXC starts; the env vars (REGISTRY_PROXY_REMOTEURL etc., set via the application's `envs` property) only take effect once their parent `proxy:` section exists in the config file — without this stub they are silently ignored and the registry boots in the broken filesystem-storage mode. Idempotent: skipped if the file already declares the requested mode.",
   "execute_on": "ve",
   "parameters": [
     "vm_id",
-    "mode"
+    "mirror_mode"
   ],
   "commands": [
     {

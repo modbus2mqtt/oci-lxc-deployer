@@ -87,7 +87,10 @@
       "Bash(curl -s \"https://api.github.com/repos/pgadmin-org/pgadmin4/releases?per_page=10\")",
       "Bash(curl -s \"https://api.github.com/repos/PostgREST/postgrest/releases?per_page=10\")",
       "Bash(ssh -o StrictHostKeyChecking=no -T -q -p 1222 root@ubuntupve \"ls -la /tmp/.oci-version-cache.json; head -c 200 /tmp/.oci-version-cache.json; echo\")",
-      "Bash(ssh -o StrictHostKeyChecking=no -T -q -p 22 root@ubuntupve \"ls -la /tmp/.oci-version-cache.json 2>&1; head -c 200 /tmp/.oci-version-cache.json 2>&1; echo\")"
+      "Bash(ssh -o StrictHostKeyChecking=no -T -q -p 22 root@ubuntupve \"ls -la /tmp/.oci-version-cache.json 2>&1; head -c 200 /tmp/.oci-version-cache.json 2>&1; echo\")",
+      "Bash(pnpm exec *)",
+      "Bash(sh -n /tmp/probe-merged.sh)",
+      "Bash(python3 -c ' *)"
     ]
   },
   "hooks": {

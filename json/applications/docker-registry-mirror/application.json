@@ -12,7 +12,7 @@
       "default": "docker-registry-mirror"
     },
     {
-      "id": "mode",
+      "id": "mirror_mode",
       "value": "proxy"
     },
     {
