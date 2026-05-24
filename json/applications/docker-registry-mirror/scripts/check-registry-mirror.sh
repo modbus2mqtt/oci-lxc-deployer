@@ -44,10 +44,13 @@ if [ ! -f "$CA_CERT" ]; then
   add_error "CA: Deployer CA certificate not installed at ${CA_CERT}"
 fi
 
-# 4. Skopeo inspect through the mirror (using registry-1.docker.io which now points to mirror)
+# 4. Skopeo inspect through the mirror (using registry-1.docker.io which now points to mirror).
+# skopeo_with_probe (from skopeo-probe.sh library) appends a probe block to
+# stderr on failure — DNS, /v2/ reachability, manifest HEAD, control image,
+# and (if named in skopeo's stderr) a direct GET of the failing blob.
 echo "Testing skopeo inspect through mirror..." >&2
 if command -v skopeo >/dev/null 2>&1; then
-  INSPECT_RESULT=$(skopeo inspect "docker://registry-1.docker.io/library/alpine:latest" 2>&1)
+  INSPECT_RESULT=$(skopeo_with_probe inspect "docker://registry-1.docker.io/library/alpine:latest" 2>&1)
   if echo "$INSPECT_RESULT" | grep -q '"Digest"'; then
     DIGEST=$(echo "$INSPECT_RESULT" | grep '"Digest"' | head -1 | sed 's/.*"Digest": *"//' | sed 's/".*//')
     echo "Skopeo: alpine:latest inspected through mirror (${DIGEST})" >&2

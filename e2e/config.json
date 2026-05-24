@@ -10,6 +10,8 @@
       "subnet": "10.99.1",
       "bridge": "vmbr1",
       "filesystem": "zfs",
+      "deployerHost": "localhost",
+      "deployerPort": "${DEPLOYER_PORT:-3201}",
       "snapshot": {
         "enabled": true
       },
@@ -103,8 +105,8 @@
     }
   },
   "defaults": {
-    "vmMemory": 8192,
-    "vmCores": 4,
+    "vmMemory": 4096,
+    "vmCores": 2,
     "vmDiskSize": 100,
     "vmStorage": "local-zfs",
     "filesystem": "zfs",

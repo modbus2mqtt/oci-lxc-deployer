@@ -222,16 +222,15 @@ def skopeo_inspect(image_ref: str, username: Optional[str] = None, password: Opt
         cmd.extend(['--creds', f'{username}'])
     
     cmd.append(image_ref)
-    
+
+    res = run_skopeo(cmd, timeout=300, image_ref=image_ref)
+    if not res.ok():
+        log(f"Warning: skopeo inspect failed for {image_ref} (exit {res.exit_code})")
+        if res.annotated_stderr().strip():
+            log(res.annotated_stderr().strip())
+        return None
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=True)
-        return json.loads(result.stdout)
-    except subprocess.TimeoutExpired:
-        log(f"Warning: Timeout inspecting image {image_ref}")
-        return None
-    except subprocess.CalledProcessError as e:
-        log(f"Warning: Failed to inspect image {image_ref}: {e.stderr.strip()}")
-        return None
+        return json.loads(res.stdout)
     except json.JSONDecodeError as e:
         log(f"Warning: Failed to parse inspect output for {image_ref}: {e}")
         return None
@@ -277,27 +276,23 @@ def skopeo_copy(image_ref: str, output_path: str, username: Optional[str] = None
     cmd.extend([image_ref, f'oci-archive:{output_path}'])
     
     log(f"Downloading image with skopeo...")
-    try:
-        # skopeo copy outputs progress to stderr, which is fine
-        # Capture both stdout and stderr to prevent any output from going to stdout
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, check=True)
-        # Log any stdout/stderr output from skopeo to stderr (not stdout)
-        if result.stdout:
-            log(f"skopeo stdout: {result.stdout}")
-        if result.stderr:
-            log(f"skopeo stderr: {result.stderr}")
-        log("Image downloaded successfully")
-    except subprocess.TimeoutExpired:
+    res = run_skopeo(cmd, timeout=1800, image_ref=image_ref)
+    if res.exit_code == 124:
         error(f"Timeout downloading image {image_ref}")
-    except subprocess.CalledProcessError as e:
-        stderr = (e.stderr or '').strip()
-        stdout = (e.stdout or '').strip()
-        msg = f"Failed to download image {image_ref} (skopeo exit {e.returncode})"
-        if stderr:
-            msg += f"\n--- skopeo stderr ---\n{stderr}"
+    if not res.ok():
+        msg = f"Failed to download image {image_ref} (skopeo exit {res.exit_code})"
+        annotated = res.annotated_stderr().strip()
+        if annotated:
+            msg += f"\n--- skopeo stderr ---\n{annotated}"
+        stdout = (res.stdout or '').strip()
         if stdout:
             msg += f"\n--- skopeo stdout ---\n{stdout}"
         error(msg)
+    if res.stdout:
+        log(f"skopeo stdout: {res.stdout}")
+    if res.stderr:
+        log(f"skopeo stderr: {res.stderr}")
+    log("Image downloaded successfully")
 
 def import_to_proxmox(storage: str, tarball_path: str, image_name: str, tag: str) -> str:
     """

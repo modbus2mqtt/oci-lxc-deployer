@@ -8,7 +8,8 @@
   "commands": [
     {
       "name": "Check Registry Mirror",
-      "script": "check-registry-mirror.sh"
+      "script": "check-registry-mirror.sh",
+      "library": "skopeo-probe.sh"
     }
   ]
 }

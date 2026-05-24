@@ -74,10 +74,16 @@ def parse_image_ref(image: str, tag: str = 'latest') -> str:
 def skopeo_inspect(image_ref: str, platform: str = 'linux/amd64') -> Dict:
     """
     Inspect image using skopeo and return JSON output.
-    
+
     Args:
         image_ref: Image reference (e.g., docker://image:tag)
         platform: Target platform (e.g., linux/amd64, linux/arm64)
+
+    NOTE: this script is loaded standalone by FrameworkFromImage (no
+    oci_version_lib prepending), so the richer run_skopeo helper isn't
+    available here. Falling back to raw subprocess.run is fine: the only
+    consumer is framework-discovery, which already treats every failure
+    as "image not pickable" and returns None.
     """
     cmd = ['skopeo', 'inspect', '--format', '{{json .}}']
     

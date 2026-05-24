@@ -12,6 +12,10 @@
       "default": "docker-registry-mirror"
     },
     {
+      "id": "mode",
+      "value": "proxy"
+    },
+    {
       "id": "oci_image",
       "value": "distribution/distribution:{{oci_image_tag}}"
     },
