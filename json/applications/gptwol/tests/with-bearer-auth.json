@@ -1,0 +1,11 @@
+{
+  "description": "Install gptwol with the full Phase-1b addon stack: addon-oidc (browser UI login for LAN users), addon-ssl (internal CA cert for HTTPS), and addon-oauth2-proxy (M2M Bearer-JWT gateway). Verifies that oauth2-proxy starts in HTTPS mode (because addon-ssl ships certs), listens on bearer_listen_port, validates against the Zitadel-registered gptwol-api audience, and locks the upstream gptwol port (5000) to loopback via iptables. addon-acme is intentionally omitted — livetest can't reach Cloudflare for real ACME issuance; addon-ssl's internal CA fills the same slot for cert validation.",
+  "selectedAddons": ["addon-oidc", "addon-oauth2-proxy", "addon-ssl"],
+  "depends_on": ["zitadel/default"],
+  "stack_name": "default",
+  "params": [
+    { "name": "bearer_audience", "value": "gptwol-api" },
+    { "name": "ssl_mode", "value": "certs" }
+  ],
+  "wait_seconds": 30
+}
