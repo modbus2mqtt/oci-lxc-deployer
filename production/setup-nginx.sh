@@ -143,8 +143,39 @@ ${SSL_DIRECTIVES}
 }
 EOF
 
+# gptwol: only the /api/wake/* path is reachable from the public internet.
+# Upstream is oauth2-proxy inside the gptwol LXC (port 8443, provided by
+# addon-oauth2-proxy), which validates Authorization: Bearer JWTs against
+# Zitadel JWKS and proxies validated requests to gptwol's internal port 5000.
+# All other paths return 404 — the gptwol UI is intentionally not exposed
+# externally; LAN users reach it directly at http://gptwol:5000.
+cat > "$TMPDIR/gptwol.conf" <<EOF
+server {
+    listen ${LISTEN_PORT} ssl;
+    listen [::]:${LISTEN_PORT} ssl;
+    server_name gptwol.ohnewarum.de;
+${SSL_DIRECTIVES}
+    location /api/wake/ {
+        proxy_pass https://gptwol:8443;
+        proxy_http_version 1.1;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate ${CERT_DIR}/chain.pem;
+        proxy_ssl_server_name on;
+        proxy_ssl_name gptwol;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization \$http_authorization;
+    }
+    location / {
+        return 404;
+    }
+}
+EOF
+
 # Push config files into container
-for conf in default.conf ohnewarum.conf nebenkosten.conf auth.conf git.conf; do
+for conf in default.conf ohnewarum.conf nebenkosten.conf auth.conf git.conf gptwol.conf; do
   pct push "$NGINX_VMID" "$TMPDIR/$conf" "/etc/nginx/conf.d/$conf"
   echo "  Pushed $conf"
 done
@@ -208,3 +239,4 @@ echo "  Homepage:     https://ohnewarum.de"
 echo "  Nebenkosten:  https://nebenkosten.ohnewarum.de (Placeholder)"
 echo "  Zitadel:      https://auth.ohnewarum.de"
 echo "  Gitea:        https://git.ohnewarum.de"
+echo "  gptwol API:   https://gptwol.ohnewarum.de/api/wake/<host> (M2M Bearer JWT only)"

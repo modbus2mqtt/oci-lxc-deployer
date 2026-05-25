@@ -123,6 +123,8 @@ print_steps() {
     17  Deploy ghcr-registry-mirror (target: $(host_for_app ghcr-registry-mirror)) [test/CI infra; optional]
     18  Deploy docker-mirror-test (target: $(host_for_app docker-mirror-test)) [test infra; parallel to step 5]
     19  Deploy zot-mirror (target: $(host_for_app zot-mirror)) [pull-through cache for ghcr.io; cert SAN already covers Docker Hub for Phase B]
+    20  Deploy gptwol (Wake-on-LAN UI + M2M API via addon-oauth2-proxy)
+    21  Create runner-wake-svc Machine User in Zitadel (outputs WAKE_CLIENT_ID/SECRET for GitHub Actions)
 STEPS
 }
 
@@ -1017,6 +1019,40 @@ if should_run 19; then
 fi
 
 # ================================================================
+# Step 20: Deploy gptwol — Wake-on-LAN UI + M2M API via addon-oauth2-proxy
+#
+# The UI uses browser-flow OIDC (addon-oidc) on http://gptwol:5000 — only
+# reachable from the LAN. The M2M API path /api/wake/* is exposed publicly
+# at https://gptwol.ohnewarum.de via nginx, gated by oauth2-proxy
+# (addon-oauth2-proxy) which validates Authorization: Bearer JWTs against
+# Zitadel JWKS for audience `gptwol-api`.
+#
+# Prerequisites:
+#   - nginx (Step 8) — vhost gptwol.conf written by setup-nginx.sh
+#   - zitadel (Step 10) — OIDC provider
+#   - addon-acme + Cloudflare stack (Step 6) — for the gptwol.ohnewarum.de
+#     cert
+# ================================================================
+if should_run 20; then
+  banner 20 "Deploy gptwol"
+  "$SCRIPT_DIR/deploy.sh" --host "$(host_for_app gptwol)" gptwol.json
+fi
+
+# ================================================================
+# Step 21: Create the runner-wake-svc Machine User in Zitadel and grant
+# it the `wake` role on the gptwol project. Prints WAKE_CLIENT_ID,
+# WAKE_CLIENT_SECRET, ZITADEL_ISSUER_URL, WAKE_AUDIENCE_PROJECT_ID for the
+# operator to copy into the GitHub fork's Secrets.
+#
+# Idempotent: re-running rotates the client_secret (operator must paste
+# the new value into GitHub Secrets).
+# ================================================================
+if should_run 21; then
+  banner 21 "Setup runner-wake-svc (GitHub Actions Bearer auth)"
+  "$SCRIPT_DIR/setup-runner-wake-auth.sh"
+fi
+
+# ================================================================
 # Done
 # ================================================================
 echo ""
@@ -1036,4 +1072,6 @@ echo "  Modbus2MQTT: 192.168.4.47 (modbus2mqtt.local)"
 echo "  GHCR Mirror: 192.168.4.48 (ghcr-mirror, ubuntupve, test infra)"
 echo "  Test Mirror: 192.168.4.49 (docker-mirror-test, ubuntupve, test infra)"
 echo "  Zot Mirror:  192.168.4.50 (zot-mirror, ubuntupve, ghcr.io pull-through)"
+echo "  gptwol:      LAN: http://gptwol:5000  (Browser OIDC login)"
+echo "               Public: https://gptwol.ohnewarum.de/api/wake/<host>  (Bearer JWT only)"
 echo ""
