@@ -182,6 +182,40 @@
       "required": true,
       "group": "Application"
     },
+    "bearer_audience": {
+      "name": "Bearer Audience",
+      "type": "string",
+      "required": true,
+      "group": "Authentication",
+      "description": "OAuth2 audience that issued JWTs must carry (aud claim). Use the application's hostname or a short slug. The addon registers an API application with this name in Zitadel."
+    },
+    "bearer_audience_client_id": {
+      "name": "Bearer Audience Client ID",
+      "type": "string",
+      "internal": true,
+      "description": "clientId of the API application registered for bearer_audience. This is the actual aud claim value oauth2-proxy validates against. Populated by 172-conf-register-bearer-api."
+    },
+    "bearer_audience_project_id": {
+      "name": "Bearer Audience Project ID",
+      "type": "string",
+      "internal": true,
+      "description": "Zitadel project ID hosting the bearer audience API app. Used for role grants when machine users need access. Populated by 172-conf-register-bearer-api."
+    },
+    "bearer_listen_port": {
+      "name": "Bearer Listener Port",
+      "type": "number",
+      "default": 8443,
+      "required": false,
+      "group": "Authentication",
+      "description": "External port the oauth2-proxy listens on. nginx and other consumers proxy_pass here."
+    },
+    "bearer_upstream_port": {
+      "name": "Bearer Upstream Port",
+      "type": "number",
+      "required": false,
+      "internal": true,
+      "description": "The application's internal HTTP port that oauth2-proxy forwards validated requests to. Defaults to the application's http_port."
+    },
     "bind_privileged_port": {
       "name": "Bind Privileged Port",
       "type": "boolean",

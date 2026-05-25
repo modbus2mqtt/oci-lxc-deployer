@@ -135,6 +135,7 @@ export async function ensureStacks(
                 // For now, use a simple mapping based on known addons
                 const knownAddonStacktypes: Record<string, string> = {
                   "addon-oidc": "oidc",
+                  "addon-oauth2-proxy": "oidc",
                   "addon-acme": "cloudflare",
                   "addon-ssl": "",
                   "samba-shares": "",

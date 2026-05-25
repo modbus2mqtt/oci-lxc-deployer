@@ -1,0 +1,26 @@
+{
+  "name": "OAuth2 Proxy Testbed",
+  "description": "Minimal application used to exercise addon-oauth2-proxy in isolation. Wraps a tiny HTTP echo (traefik/whoami) so livetests can verify that oauth2-proxy is correctly fronting an arbitrary app, validating JWTs, and locking the upstream port via iptables. Not for production.",
+  "extends": "oci-image",
+  "supported_addons": [
+    "addon-oauth2-proxy",
+    "addon-ssl"
+  ],
+  "stacktype": "oidc",
+  "parameters": [
+    "bearer_audience",
+    "bearer_listen_port"
+  ],
+  "properties": [
+    { "id": "hostname", "default": "oauth2-proxy-testbed" },
+    { "id": "oci_image", "value": "nginx:{{oci_image_tag}}" },
+    { "id": "http_port", "value": "80" },
+    { "id": "uid", "value": "0" },
+    { "id": "username", "value": "root" }
+  ],
+  "installation": {},
+  "tags": [
+    "test",
+    "security"
+  ]
+}
