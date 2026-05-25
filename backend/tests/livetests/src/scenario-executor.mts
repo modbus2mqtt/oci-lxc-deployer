@@ -24,6 +24,7 @@ import { checkVolumeConsistency } from "./volume-consistency-check.mjs";
 import { collectScenarioEnv } from "./scenario-env.mjs";
 import { writeRunOverviewHtml, writeRunOverviewJson, type RunOverviewState, type ScenarioStatus } from "./run-overview.mjs";
 import { overviewPortForDeployer, startRunOverviewServer, type RunOverviewServer } from "./run-overview-server.mjs";
+import { runnerHttpJson, type RunnerAuthContext } from "./runner-http.mjs";
 
 /** Tasks that use create_ct + replace_ct (old container must stay running) */
 const REPLACE_CT_TASKS = ["upgrade", "reconfigure"];
@@ -84,6 +85,12 @@ export interface ExecuteScenariosOptions {
     state: RunOverviewState;
     server: RunOverviewServer | null;
   };
+  /** Shared runner-auth context — when set, all direct runner→Hub fetches
+   * inside the executor (stack lookup, debug external-events, /api/reload)
+   * use the same Bearer token TestResultWriter does. Allows env-var
+   * bootstrap from live-test-runner OR mid-run population from Zitadel
+   * stack lookup to apply to both writer and executor. (Stage G) */
+  runnerAuth?: RunnerAuthContext;
 }
 
 /**
@@ -298,6 +305,45 @@ function verifyDependencyVm(
   } catch {
     return null;
   }
+}
+
+/**
+ * Map an internal OIDC issuer URL (whose hostname is a container's bridge
+ * name, only resolvable inside the nested-VM) to the externally-routable
+ * NAT entry from `config.portForwarding`. Preserves the URL's scheme,
+ * path, and query — only the host[:port] is swapped.
+ *
+ * Returns the input unchanged when there's no matching portForwarding
+ * entry — in that case the caller will most likely fail later on the
+ * unreachable hostname, but doing nothing here is preferable to silently
+ * fabricating an external URL that might be wrong.
+ *
+ * Also returns the ORIGINAL `host:port` as `hostOverride` so the caller
+ * can pass it through as an HTTP `Host` header. Zitadel validates the
+ * Host header against its configured ExternalDomain (the internal one)
+ * and rejects requests whose Host doesn't match a registered instance
+ * domain — sending the bytes to the external NAT but keeping the Host
+ * header as the internal value lets both halves see what they expect.
+ */
+function rewriteOidcIssuerForExternalAccess(
+  issuerUrl: string,
+  pveHost: string,
+  portForwarding: Array<{ port: number; hostname: string }>,
+): { issuerUrl: string; hostOverride?: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(issuerUrl);
+  } catch {
+    return { issuerUrl };
+  }
+  const match = portForwarding.find((f) => f.hostname === parsed.hostname);
+  if (!match) return { issuerUrl };
+  const originalHost = parsed.host;
+  parsed.host = `${pveHost}:${match.port}`;
+  return {
+    issuerUrl: parsed.toString().replace(/\/$/, ""),
+    hostOverride: originalHost,
+  };
 }
 
 /** Allocate a fresh VMID for a source-isolation clone. Picks a slot well
@@ -695,7 +741,13 @@ export async function executeScenarios(
 
   // OIDC credentials for delegated access (loaded after Zitadel installation)
   // Only used if the deployer itself has OIDC enabled (not for app-level OIDC addons)
-  let oidcCredentials: { issuerUrl: string; clientId: string; clientSecret: string } | undefined;
+  let oidcCredentials: { issuerUrl: string; clientId: string; clientSecret: string; hostOverride?: string; projectId?: string } | undefined;
+
+  // Runner-side machine-token auth context (Stage G). Either passed in from
+  // live-test-runner (= shared ref with TestResultWriter — env-var bootstrap
+  // applies) or freshly allocated if no caller supplied one. Population
+  // happens lazily in loadOidcCredsFromStack below.
+  const runnerAuth: RunnerAuthContext = options?.runnerAuth ?? {};
 
   /**
    * Pull the test-deployer credentials from the oidc_<stackName> stack the
@@ -707,10 +759,17 @@ export async function executeScenarios(
    */
   async function loadOidcCredsFromStack(stackName: string): Promise<typeof oidcCredentials> {
     try {
-      const resp = await fetch(`${apiUrl}/api/stack/oidc_${stackName}`, { signal: AbortSignal.timeout(5000) });
-      if (!resp.ok) return undefined;
-      const data = await resp.json() as { stack?: { provides?: Array<{ name: string; value: string }> } };
-      const provides = data.stack?.provides ?? [];
+      // Use authedFetch — once we DO have runnerAuth.oidcCreds (subsequent
+      // call for a second OIDC test in the same run), the stack route
+      // may have moved behind OIDC. First call typically lands here
+      // pre-token; runnerHttpJson just omits the header in that case.
+      const resp = await runnerHttpJson<{ stack?: { provides?: Array<{ name: string; value: string }> } }>(
+        runnerAuth,
+        `${apiUrl}/api/stack/oidc_${stackName}`,
+        { signal: AbortSignal.timeout(5000) },
+      );
+      if (!resp.ok || !resp.body) return undefined;
+      const provides = resp.body.stack?.provides ?? [];
       const get = (name: string): string | undefined => provides.find((p) => p.name === name)?.value;
       // Prefer TEST_DEPLOYER_OIDC_* — emitted by template 357 (livetest-local
       // overlay), this user gets ALL project roles granted (template 358 +
@@ -728,20 +787,61 @@ export async function executeScenarios(
       const clientSecret =
         get("TEST_DEPLOYER_OIDC_MACHINE_CLIENT_SECRET")
         ?? get("DEPLOYER_OIDC_MACHINE_CLIENT_SECRET");
+      const projectId = get("DEPLOYER_OIDC_PROJECT_ID");
       if (issuerUrl && clientId && clientSecret) {
-        return { issuerUrl, clientId, clientSecret };
+        // Rewrite the issuer URL to the externally-routable NAT entry,
+        // and capture the original internal host:port as `hostOverride`
+        // so the CLI / runner can keep Zitadel happy by sending the
+        // expected `Host` header even though the bytes route via the
+        // external NAT. Zitadel's instance-domain validation otherwise
+        // rejects requests with `Host: ubuntupve:1808` as "Instance not
+        // found" when its `ExternalDomain` was set to the internal
+        // `zitadel-default:8080`. Production deployments where the
+        // public domain matches Zitadel's `ExternalDomain` produce no
+        // rewrite (hostOverride stays undefined) — passthrough.
+        const rewritten = rewriteOidcIssuerForExternalAccess(
+          issuerUrl, config.pveHost, config.portForwarding ?? [],
+        );
+        const creds = {
+          issuerUrl: rewritten.issuerUrl,
+          clientId, clientSecret,
+          ...(rewritten.hostOverride ? { hostOverride: rewritten.hostOverride } : {}),
+          ...(projectId ? { projectId } : {}),
+        };
+        // G.2: populate runnerAuth so subsequent direct fetches from the
+        // runner attach Authorization: Bearer (driven by runnerHttpJson).
+        // Same creds power the CLI subprocess via the existing
+        // oidcCredentials path below.
+        runnerAuth.oidcCreds = creds;
+        runnerAuth.token = undefined;
+        runnerAuth.tokenExp = undefined;
+        return creds;
       }
     } catch { /* stack not ready yet */ }
     return undefined;
   }
-  let deployerOidcEnabled = false;
-  try {
-    const authResp = await fetch(`${apiUrl}/api/auth/config`, { signal: AbortSignal.timeout(3000) });
-    if (authResp.ok) {
-      const authConfig = await authResp.json() as { enabled?: boolean };
-      deployerOidcEnabled = !!authConfig.enabled;
-    }
-  } catch { /* deployer has no OIDC */ }
+  // Probe whether the deployer requires OIDC auth right now. Wrapped as a
+  // function so the per-scenario useOidc decision below can re-evaluate it
+  // — a single cached value taken at run start goes stale across self-
+  // reconfigure-enable/disable scenarios that flip the Hub's OIDC state
+  // mid-run, leaving the CLI subprocess without Bearer creds against the
+  // newly-OIDC-protected Hub.
+  const probeDeployerOidcEnabled = async (): Promise<boolean> => {
+    try {
+      // Note: the field is `oidcEnabled` (not `enabled`) — the older code
+      // looked for `enabled` and silently saw `false` even on OIDC-active
+      // Hubs, which broke per-scenario useOidc decisions for downstream
+      // tests in the OIDC suite that don't carry selectedAddons of their
+      // own (e.g. upgrade-with-oidc after enable-https-oidc).
+      const authResp = await fetch(`${apiUrl}/api/auth/config`, { signal: AbortSignal.timeout(3000) });
+      if (authResp.ok) {
+        const authConfig = await authResp.json() as { oidcEnabled?: boolean; enabled?: boolean };
+        return !!(authConfig.oidcEnabled ?? authConfig.enabled);
+      }
+    } catch { /* deployer unreachable or no OIDC */ }
+    return false;
+  };
+  let deployerOidcEnabled = await probeDeployerOidcEnabled();
 
   // Outcome of one scenario step, driving the sequential / parallel driver.
   type StepOutcome =
@@ -762,7 +862,7 @@ export async function executeScenarios(
     if (!ctx.restartKey || ctx.buffer.length === 0) return;
     const events = ctx.buffer.splice(0);
     try {
-      await fetch(`${apiUrl}/api/ve/debug/${ctx.restartKey}/external-events`, {
+      await runnerHttpJson(runnerAuth, `${apiUrl}/api/ve/debug/${ctx.restartKey}/external-events`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ events }),
@@ -917,8 +1017,40 @@ export async function executeScenarios(
       //      errors into the post-rename log.
       let existingVm: { vm_id: number; addons?: string[]; hostname?: string } | null = null;
       if (isReplaceCt) {
+        // target_deployer_instance: scenario targets whatever CT carries
+        // the proxvex:deployer-instance marker on the PVE host. Used by
+        // the self-upgrade test — vmid varies (production: any; nested
+        // green: CT 300). Resolved once via `pct list` and a marker
+        // probe; existingVm.vm_id becomes the deployer's vmid and the
+        // standard hostname-based search is skipped.
+        if (scenario.target_deployer_instance) {
+          try {
+            const deployerVmidRaw = (await nestedSshAsync(
+              config.pveHost, config.portPveSsh,
+              "pct list | awk 'NR>1 {print $1}' | while read v; do " +
+                "pct config \"$v\" 2>/dev/null | grep -qa deployer-instance && echo \"$v\" && break; " +
+              "done",
+              15000,
+            )).trim();
+            if (!deployerVmidRaw || !/^\d+$/.test(deployerVmidRaw)) {
+              const errMsg = `target_deployer_instance: no CT with proxvex:deployer-instance marker found on ${config.pveHost} (raw=${JSON.stringify(deployerVmidRaw)})`;
+              logFail(errMsg);
+              result.errors.push(errMsg);
+              result.failed++;
+              return { type: "failed-partition", scenarioId: scenario.id };
+            }
+            existingVm = { vm_id: Number(deployerVmidRaw) };
+            logInfo(`target_deployer_instance: using CT ${existingVm.vm_id} (proxvex:deployer-instance marker) for ${task}`);
+          } catch (err: any) {
+            const errMsg = `target_deployer_instance: SSH probe failed: ${err?.message ?? String(err)}`;
+            logFail(errMsg);
+            result.errors.push(errMsg);
+            result.failed++;
+            return { type: "failed-partition", scenarioId: scenario.id };
+          }
+        }
         const explicitPrev = buildResult.params.find((p) => p.name === "previous_vm_id");
-        if (explicitPrev) {
+        if (!existingVm && explicitPrev) {
           existingVm = { vm_id: Number(explicitPrev.value) };
           logInfo(`Using explicit previous_vm_id=${explicitPrev.value} from scenario for ${task}`);
         }
@@ -1223,7 +1355,7 @@ export async function executeScenarios(
       // measurement run anyway). Sequenzpfad bleibt unverändert.
       if (concurrency <= 1) {
         try {
-          const reloadResp = await fetch(`${apiUrl}/api/reload`, { method: "POST" });
+          const reloadResp = await runnerHttpJson(runnerAuth, `${apiUrl}/api/reload`, { method: "POST" });
           if (reloadResp.ok) logInfo("Deployer reloaded");
           else logInfo(`Deployer reload returned ${reloadResp.status} (continuing)`);
         } catch {
@@ -1240,12 +1372,33 @@ export async function executeScenarios(
       const scenarioFixtureDir = fixtureBaseDir
         ? path.join(fixtureBaseDir, scenario.id.replace("/", "-"))
         : undefined;
-      // Use OIDC credentials only if the deployer itself requires OIDC auth
-      const useOidc = deployerOidcEnabled && oidcCredentials;
+      // Decide whether to forward OIDC creds to the CLI subprocess.
+      //
+      // The CLI uses Bearer for every /api call when --oidc-* are passed; the
+      // Hub silently ignores Bearer when OIDC is disabled, so passing creds
+      // pre-emptively is harmless. We must pass them in three situations:
+      //   1. Deployer currently requires OIDC — re-probed here, because the
+      //      single cache at run-start goes stale across the OIDC suite
+      //      (enable/disable scenarios flip the Hub's OIDC state mid-run).
+      //   2. Scenario flips the deployer TO OIDC (`selectedAddons` includes
+      //      `addon-oidc`) — the CLI continues polling AFTER the Hub-replace
+      //      and will hit 401 if it didn't start with creds. This is what
+      //      bit self-reconfigure-enable-https-oidc: cli_executor was started
+      //      without --oidc-*, mid-run the new Hub flipped to OIDC, polling
+      //      returned 401 "Authentication required. Use --token."
+      //   3. Scenario flips the deployer FROM OIDC (`disabledAddons` includes
+      //      `addon-oidc`) — the CLI starts against an OIDC-protected Hub and
+      //      needs creds for the pre-switchover phase.
+      deployerOidcEnabled = await probeDeployerOidcEnabled();
+      const wantsAddonOidc = scenario.selectedAddons?.includes("addon-oidc") ?? false;
+      const dropsAddonOidc = scenario.disabledAddons?.includes("addon-oidc") ?? false;
+      const useOidc = !!oidcCredentials
+        && (deployerOidcEnabled || wantsAddonOidc || dropsAddonOidc);
       const cliResult = await runCli(
         projectRoot, apiUrl, veHost,
         paramsFile, allAddons, scenario.cli_timeout ?? options?.cliTimeoutSec, scenarioFixtureDir,
         useOidc ? oidcCredentials : undefined,
+        scenario.disabledAddons,
       );
       // restartKey is now known → bind it to this scenario's log context and
       // ship the buffered pre-CLI events into the bundle right away. The

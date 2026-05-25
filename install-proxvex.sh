@@ -535,6 +535,24 @@ ChallengeResponseAuthentication no
 UsePAM no
 AuthorizedKeysFile .ssh/authorized_keys .ssh/authenticated_keys
 AllowUsers root
+# Raised so the PVE host can absorb the parallel SSH bursts a clone-driven
+# self-upgrade produces (Hub-CT + Clone-CT both running execute_on:ve
+# templates in lockstep). Default 10:30:100 starts probabilistic rejection
+# at 10 concurrent unauthenticated connections.
+MaxStartups 100:30:200
+PerSourceMaxStartups 50
+# Disable OpenSSH 10's anti-bruteforce auto-blocker. Defaults to
+# `crash:90 authfail:5 noauth:1 ...` — after a few SSH connections from
+# the same source that complete the kex but don't authenticate (which
+# happens repeatedly during a self-upgrade as each template opens its
+# own short-lived ssh call), sshd 10+ refuses further connections from
+# that source with the pre-auth banner "Not allowed at this time". That
+# manifests as "kex_exchange_identification: banner line 0: Not allowed
+# at this time" — a livetest fired enough SSH calls in quick succession
+# to trigger it on the second wave. Proxvex's own SSH callers are
+# trusted (deployer-CT, clone-CT, livetest runner), so the penalty
+# pattern is the wrong threat model: turn it off entirely.
+PerSourcePenalties no
 AcceptEnv LANG LC_*
 SSHCONF
   
@@ -560,6 +578,24 @@ ChallengeResponseAuthentication no
 UsePAM no
 AuthorizedKeysFile .ssh/authorized_keys .ssh/authenticated_keys
 AllowUsers root
+# Raised so the PVE host can absorb the parallel SSH bursts a clone-driven
+# self-upgrade produces (Hub-CT + Clone-CT both running execute_on:ve
+# templates in lockstep). Default 10:30:100 starts probabilistic rejection
+# at 10 concurrent unauthenticated connections.
+MaxStartups 100:30:200
+PerSourceMaxStartups 50
+# Disable OpenSSH 10's anti-bruteforce auto-blocker. Defaults to
+# `crash:90 authfail:5 noauth:1 ...` — after a few SSH connections from
+# the same source that complete the kex but don't authenticate (which
+# happens repeatedly during a self-upgrade as each template opens its
+# own short-lived ssh call), sshd 10+ refuses further connections from
+# that source with the pre-auth banner "Not allowed at this time". That
+# manifests as "kex_exchange_identification: banner line 0: Not allowed
+# at this time" — a livetest fired enough SSH calls in quick succession
+# to trigger it on the second wave. Proxvex's own SSH callers are
+# trusted (deployer-CT, clone-CT, livetest runner), so the penalty
+# pattern is the wrong threat model: turn it off entirely.
+PerSourcePenalties no
 SSHCONF
     systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || true
   fi

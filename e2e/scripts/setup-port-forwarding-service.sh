@@ -164,7 +164,10 @@ def main():
         # port we own. The latter purges stale rules another instance left
         # behind on the same external port (e.g. an old yellow 2810->10.99.3.10
         # rule when green now wants 1810, or vice versa after a hardcoded-IP bug).
-        owned_ports = [port_pve_web, port_pve_ssh, port_deployer, port_deployer_https] + extra_ports
+        # 3443 is the identity-mapped Hub HTTPS port (see DNAT below) — always
+        # owned by the active instance so cleanup purges stale rules on the
+        # multi-instance setup switching from green→yellow.
+        owned_ports = [port_pve_web, port_pve_ssh, port_deployer, port_deployer_https, 3443] + extra_ports
         cleanup_rules(nested_ip, subnet, owned_ports)
 
         # Add port forwarding rules
@@ -176,6 +179,13 @@ def main():
         run(f'iptables -A FORWARD -p tcp -d {nested_ip} --dport 3080 -j ACCEPT')
         run(f'iptables -t nat -A PREROUTING -p tcp --dport {port_deployer_https} -j DNAT --to-destination {nested_ip}:3443')
         run(f'iptables -A FORWARD -p tcp -d {nested_ip} --dport 3443 -j ACCEPT')
+        # Identity mapping 3443→3443 so the Hub's HTTP→HTTPS 301 redirect
+        # (which emits absolute URLs at the container's internal port 3443)
+        # remains reachable from outside the nested VM. Without this,
+        # `http://${pve_host}:${port_deployer}` after addon-ssl gets redirected
+        # to `https://${pve_host}:3443` and fails connect-refused. FORWARD
+        # rule for 3443 is already in place from the line above.
+        run(f'iptables -t nat -A PREROUTING -p tcp --dport 3443 -j DNAT --to-destination {nested_ip}:3443')
 
         # NAT for nested VM network
         run(f'iptables -t nat -A POSTROUTING -s {subnet}.0/24 -o vmbr0 -j MASQUERADE')

@@ -30,7 +30,12 @@ export class CliProgress {
   async poll(): Promise<{ vmId?: number; success: boolean }> {
     const deadline = Date.now() + this.options.timeout * 1000;
     let retryCount = 0;
-    const maxRetries = 3;
+    // Default 3 retries (~15 s at 5 s/retry) for normal operations. The
+    // self-upgrade-via-clone scenario destroys the deployer-CT mid-task
+    // (boot+takeover gap can be 30-60+ s); the livetest runner sets
+    // PROXVEX_CLI_MAX_RETRIES to ride out the gap and pick up the
+    // adopted finished message on the new CT.
+    const maxRetries = parseInt(process.env.PROXVEX_CLI_MAX_RETRIES ?? "3", 10);
 
     while (Date.now() < deadline) {
       let messages: IVeExecuteMessage[];

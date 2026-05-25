@@ -26,6 +26,18 @@ interface ParsedArgs {
   oidcIssuer?: string;
   oidcClientId?: string;
   oidcClientSecret?: string;
+  /** Optional HTTP Host header override for the OIDC token endpoint.
+   * Lets the CLI reach Zitadel through an external NAT (e.g.
+   * `http://ubuntupve:1808`) while making Zitadel's instance-domain
+   * lookup see the configured ExternalDomain (e.g.
+   * `zitadel-default:8080`). Without this, Zitadel returns 404
+   * "Instance not found" when the request host doesn't match a
+   * registered instance domain. */
+  oidcHostOverride?: string;
+  /** Zitadel project ID — when set, the token request scope is widened
+   * with `urn:zitadel:iam:org:project:id:<id>:aud` and roles so the
+   * JWT carries role claims (and the Hub doesn't 403 on /api). */
+  oidcProjectId?: string;
 }
 
 function parseArgs(): ParsedArgs {
@@ -90,6 +102,12 @@ function parseArgs(): ParsedArgs {
       } else if (arg === "--oidc-client-secret") {
         args.oidcClientSecret = argv[i + 1] ?? "";
         i += 2;
+      } else if (arg === "--oidc-host-override") {
+        args.oidcHostOverride = argv[i + 1] ?? "";
+        i += 2;
+      } else if (arg === "--oidc-project-id") {
+        args.oidcProjectId = argv[i + 1] ?? "";
+        i += 2;
       } else if (!arg.startsWith("--")) {
         if (args.generateTemplate) {
           // generate-template mode: positional args are application, task, [output.json]
@@ -136,6 +154,12 @@ function parseArgs(): ParsedArgs {
       } else if (arg === "--oidc-client-secret") {
         args.oidcClientSecret = argv[i + 1] ?? "";
         i += 2;
+      } else if (arg === "--oidc-host-override") {
+        args.oidcHostOverride = argv[i + 1] ?? "";
+        i += 2;
+      } else if (arg === "--oidc-project-id") {
+        args.oidcProjectId = argv[i + 1] ?? "";
+        i += 2;
       } else {
         i += 1;
       }
@@ -161,6 +185,10 @@ async function runRemoteCommand(args: ParsedArgs): Promise<void> {
   let oidcCredentials: OidcCredentials | undefined;
   if (oidcIssuer && oidcClientId && oidcClientSecret) {
     oidcCredentials = { issuerUrl: oidcIssuer, clientId: oidcClientId, clientSecret: oidcClientSecret };
+    const hostOverride = args.oidcHostOverride || process.env.OIDC_HOST_OVERRIDE;
+    if (hostOverride) oidcCredentials.hostOverride = hostOverride;
+    const projectId = args.oidcProjectId || process.env.OIDC_PROJECT_ID;
+    if (projectId) oidcCredentials.projectId = projectId;
   }
 
   if (!args.ve) {
@@ -223,6 +251,10 @@ async function runValidateCommand(args: ParsedArgs): Promise<void> {
   let oidcCreds: OidcCredentials | undefined;
   if (oidcIssuer && oidcClientId && oidcClientSecret) {
     oidcCreds = { issuerUrl: oidcIssuer, clientId: oidcClientId, clientSecret: oidcClientSecret };
+    const hostOverride = args.oidcHostOverride || process.env.OIDC_HOST_OVERRIDE;
+    if (hostOverride) oidcCreds.hostOverride = hostOverride;
+    const projectId = args.oidcProjectId || process.env.OIDC_PROJECT_ID;
+    if (projectId) oidcCreds.projectId = projectId;
   }
 
   const client = new CliApiClient(server, token, args.insecure, undefined, oidcCreds);

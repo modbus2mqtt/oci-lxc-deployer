@@ -108,6 +108,22 @@ export class WebAppDebugCollector {
   private entries: Map<string, DebugEntry> = new Map();
   /** Tracks which restartKey is currently active for the logger sink. */
   private activeRestartKey: string | null = null;
+  /**
+   * Pre-rendered bundles adopted from another deployer (clone) — keyed by
+   * the same restartKey the clone used. After a self-upgrade-via-clone the
+   * new deployer pulls the clone's bundle and injects it here so that
+   * `GET /api/ve/debug/<restartKey>/*` keeps working on the new deployer
+   * as if it had run the task itself.
+   *
+   * Stored as a virtual file map (filename → content), the same shape
+   * `renderBundle()` produces, so the route handlers can serve adopted
+   * bundles uniformly with live ones.
+   */
+  private adoptedBundles: Map<string, Map<string, string>> = new Map();
+
+  constructor() {
+    activeCollector = this;
+  }
 
   /** Returns the currently active restartKey (logger sink uses this). */
   getActiveRestartKey(): string | null {

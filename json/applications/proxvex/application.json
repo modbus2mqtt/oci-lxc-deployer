@@ -85,7 +85,21 @@
       "value": "admin"
     }
   ],
-  "installation": {},
+  "installation": {
+    "pre_start": [
+      "175-host-ensure-deployer-sshd-config.json"
+    ]
+  },
+  "upgrade": {
+    "pre_start": [
+      "175-host-ensure-deployer-sshd-config.json"
+    ]
+  },
+  "reconfigure": {
+    "pre_start": [
+      "175-host-ensure-deployer-sshd-config.json"
+    ]
+  },
   "check": {
     "check": [
       "check-oidc-endpoint.json",

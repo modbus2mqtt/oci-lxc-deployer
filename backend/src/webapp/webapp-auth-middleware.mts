@@ -19,6 +19,7 @@ const PUBLIC_PATHS = [
 
 interface AuthSession {
   authenticated?: boolean;
+  oidcReturnTo?: string;
 }
 
 /**
@@ -104,7 +105,23 @@ export function createAuthMiddleware(
       }
     }
 
-    // No valid auth found
+    // No valid auth found. For browser-driven navigation (HTML accept,
+    // GET request) redirect to /api/auth/login so the user lands in the
+    // OIDC flow instead of getting a raw JSON 401. This matters for the
+    // log-viewer (/logs/<ve>/<vmId>) and any future HTML routes that
+    // sit under the auth middleware — they're typically reached via a
+    // Proxmox-notes link click, and a 401 JSON in the browser would be
+    // a dead-end. Record the original URL so the callback can land the
+    // user where they wanted to go.
+    const acceptsHtml =
+      typeof req.headers.accept === "string" && req.headers.accept.includes("text/html");
+    if (req.method === "GET" && acceptsHtml) {
+      if (sess) {
+        sess.oidcReturnTo = req.originalUrl;
+      }
+      res.redirect(302, "/api/auth/login");
+      return;
+    }
     res.status(401).json({ error: "Authentication required" });
   };
 }

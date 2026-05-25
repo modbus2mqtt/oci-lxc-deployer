@@ -34,6 +34,7 @@ import {
   expandToPriorityClosure, addImplicitDestructiveTaskDeps,
 } from "./scenario-planner.mjs";
 import { TestResultWriter } from "./test-result-writer.mjs";
+import type { RunnerAuthContext } from "./runner-http.mjs";
 import { renderResultsMarkdown } from "./result-summary.mjs";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -94,6 +95,10 @@ function loadConfig(instanceName?: string): {
   bridge: string;
   veHost: string;
   veSshPort: number;
+  /** True when deployerHost/deployerPort are not configured — the test
+   *  runner talks directly to the Hub-LXC inside the nested VM (via
+   *  pveHost port-forward) rather than a local Spoke. Set per call. */
+  inNestedDeployerMode: boolean;
   vmId: number;
   snapshot?: { enabled: boolean };
   registryMirror?: { dnsForwarder: string };
@@ -112,10 +117,12 @@ function loadConfig(instanceName?: string): {
     process.exit(1);
   }
 
-  // Resolve ${VAR:-default} and ${VAR} in config values
+  // Resolve ${VAR:-default} and ${VAR} in config values. The default may
+  // be any hostname-like string (alphanumerics, dots, dashes), not just
+  // a single word — so we can fall back to e.g. "pve-e2e-nested.local".
   const resolveEnv = (val: string) =>
     val
-      .replace(/\$\{(\w+):-(\w+)\}/g, (_, varName, defaultVal) => process.env[varName] || defaultVal)
+      .replace(/\$\{(\w+):-([^}]+)\}/g, (_, varName, defaultVal) => process.env[varName] || defaultVal)
       .replace(/\$\{(\w+)\}/g, (_, varName) => process.env[varName] || "");
 
   const pveHost = resolveEnv(inst.pveHost);
@@ -139,11 +146,32 @@ function loadConfig(instanceName?: string): {
     deployerHttpsUrl = `https://${pveHost}:${portDeployerHttps}`;
   }
 
-  // veHost/veSshPort: how the deployer (inside the nested VM) reaches the PVE host.
-  // Defaults to pveHost:portPveSsh (same as external), but can be overridden
-  // for nested setups where the deployer uses a different hostname/port.
-  const veHost = inst.veHost ? resolveEnv(inst.veHost) : pveHost;
-  const veSshPort = inst.veSshPort ?? portPveSsh;
+  // veHost/veSshPort: how the deployer reaches the PVE host for
+  // execute_on:ve scripts. The reachable host depends on where the
+  // deployer runs:
+  //
+  // - Spoke mode (deployerHost+Port set, e.g. localhost:3201): deployer
+  //   is a local Node process on the dev machine. SSH from dev host to
+  //   `pveHost:portPveSsh` (e.g. ubuntupve:1022, the outer SSH port-
+  //   forward). This is the default.
+  //
+  // - Nested-deployer mode (deployerHost/deployerPort omitted, livetest.md
+  //   step 2a strips them): deployer is the Hub-LXC inside the nested
+  //   VM. `ubuntupve:1022` is NOT reachable from the Hub-LXC. The Hub
+  //   reaches its own PVE host via the bridge gateway — `pve-e2e-
+  //   nested.local:22` (resolved to 10.0.0.1 via dnsmasq expand-hosts
+  //   on vmbr1).
+  //
+  // The instance can override with `veHost`/`veSshPort` (e.g. github-
+  // action uses "10.0.0.1":22 because it only ever runs in nested-
+  // deployer mode in CI).
+  const inNestedDeployerMode = !inst.deployerHost && !inst.deployerPort;
+  const veHost = inst.veHost
+    ? resolveEnv(inst.veHost)
+    : inNestedDeployerMode
+      ? "pve-e2e-nested.local"
+      : pveHost;
+  const veSshPort = inst.veSshPort ?? (inNestedDeployerMode ? 22 : portPveSsh);
 
   // Snapshot config (for VM-level snapshots)
   const snapshot = inst.snapshot?.enabled ? { enabled: true } : undefined;
@@ -177,6 +205,7 @@ function loadConfig(instanceName?: string): {
     bridge: inst.lxcBridge || "vmbr1",
     veHost,
     veSshPort,
+    inNestedDeployerMode,
     vmId: inst.vmId,
     ...(snapshot ? { snapshot } : {}),
     ...(registryMirror ? { registryMirror } : {}),
@@ -295,15 +324,21 @@ export function setupPortForwarding(config: {
           5000);
       }
 
-      // b) iptables DNAT on nested VM (inner forwarding)
-      const innerCheck = nestedSsh(config.pveHost, config.portPveSsh,
-        `iptables -t nat -C PREROUTING -p tcp --dport ${fwd.port} -j DNAT --to-destination ${fwd.ip}:${fwd.containerPort} 2>/dev/null && echo "exists" || echo "missing"`,
+      // b) iptables DNAT on nested VM (inner forwarding).
+      //
+      // Same cleanup pattern as the outer step (c) below: drop EVERY
+      // existing rule for this --dport before installing ours. The old
+      // approach was a `-C` exact-match check + `-A` on miss, which left
+      // stale rules with a different `containerPort` in place (e.g.
+      // after changing zitadel's containerPort from the SSL :1443 to the
+      // plain-HTTP :8080 — the old :1443 rule kept winning iptables'
+      // first-match ordering and routed traffic to a dead inner port).
+      nestedSsh(config.pveHost, config.portPveSsh,
+        `iptables -t nat -S PREROUTING | awk '/--dport ${fwd.port} / && /DNAT/ { sub(/^-A/, "-D"); print }' | ` +
+        `while IFS= read -r rule; do [ -n "$rule" ] && iptables -t nat $rule; done; ` +
+        `iptables -t nat -A PREROUTING -p tcp --dport ${fwd.port} -j DNAT --to-destination ${fwd.ip}:${fwd.containerPort}; ` +
+        `iptables -C FORWARD -p tcp -d ${fwd.ip} --dport ${fwd.containerPort} -j ACCEPT 2>/dev/null || iptables -A FORWARD -p tcp -d ${fwd.ip} --dport ${fwd.containerPort} -j ACCEPT`,
         5000);
-      if (innerCheck.trim() === "missing") {
-        nestedSsh(config.pveHost, config.portPveSsh,
-          `iptables -t nat -A PREROUTING -p tcp --dport ${fwd.port} -j DNAT --to-destination ${fwd.ip}:${fwd.containerPort} && iptables -A FORWARD -p tcp -d ${fwd.ip} --dport ${fwd.containerPort} -j ACCEPT`,
-          5000);
-      }
 
       // c) iptables DNAT on outer PVE host. Forwards external port to nested
       // VM which then forwards to container. The nested-VM IP comes from
@@ -352,6 +387,13 @@ function cleanupVms(
   for (const p of [...planned].reverse()) {
     if (p.isDependency) {
       logWarn(`Keeping dependency VM ${p.vmId} (${p.scenario.id})`);
+      console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
+    } else if (p.scenario.expect_clone_lifecycle) {
+      // Self-upgrade test: the scenario VM IS the new deployer-CT after
+      // the replace took over the original Hub's hostname/IP. Destroying
+      // it leaves green with no deployer until step2b reinstalls. Always
+      // preserve.
+      logWarn(`Keeping deployer-replacement VM ${p.vmId} (${p.scenario.id}, expect_clone_lifecycle)`);
       console.log(`  ssh -p ${sshPort} root@${pveHost} 'pct stop ${p.vmId}; pct destroy ${p.vmId}'`);
     } else if (snapshotCatalog.has(p.scenario.id)) {
       // Catalog members own pct snapshots created by the per-member-snapshot
@@ -619,7 +661,16 @@ async function main() {
   // not loaded JSON schemas — so a code/schema change made after the spoke
   // started leaves it serving stale validators. Compare gitHash; on mismatch,
   // restart via start-livetest-deployer.sh and rediscover the URL.
-  apiUrl = await ensureSpokeMatchesBuild(apiUrl, config, projectRoot);
+  //
+  // Skipped in nested-deployer mode: the apiUrl points at the Hub-LXC inside
+  // the nested VM (refreshed by step2b), not a local Spoke. The build-match
+  // check would compare against a Spoke gitHash that's irrelevant here and
+  // its restart path needs DEPLOYER_PORT which isn't set in this mode.
+  if (!config.inNestedDeployerMode) {
+    apiUrl = await ensureSpokeMatchesBuild(apiUrl, config, projectRoot);
+  } else {
+    logInfo("Nested-deployer mode: skipping Spoke build-match check (Hub-LXC refreshed via step2b)");
+  }
 
   // Ensure VE host SSH config exists on the deployer
   const veHost = config.veHost;
@@ -771,6 +822,44 @@ async function main() {
     logInfo(`requires_env filter dropped ${beforeEnvFilter - selectedIds.length} scenario(s)`);
   }
 
+  // Scenarios with `run_in_ve: true` cannot run in default (local-backend)
+  // mode — the deployer they target is a local Node process, not the
+  // Hub-LXC inside the nested VM. Skip them with a clear hint.
+  //
+  // H.6: also skip in `--all` runs (even when nested-deployer mode is
+  // active via auto-config). The OIDC/self-upgrade tests destroy the Hub
+  // mid-run and replace it with a new CT — any other parallel-running
+  // Spoke-tests against the same Hub would see SSH-resets and bogus vmids.
+  // The OIDC-suite always runs as its own `--config <inst> @<list>`-style
+  // invocation, never folded into `--all`.
+  const isAllRun = testArg === "--all";
+  if (!config.inNestedDeployerMode || isAllRun) {
+    const beforeVeFilter = selectedIds.length;
+    const skippedRunInVe: string[] = [];
+    selectedIds = selectedIds.filter((id) => {
+      const sc = allTests.get(id);
+      if (sc?.run_in_ve) {
+        skippedRunInVe.push(id);
+        return false;
+      }
+      return true;
+    });
+    if (skippedRunInVe.length > 0) {
+      const reason = isAllRun
+        ? "(--all skips run_in_ve scenarios — run them in a dedicated OIDC-suite invocation)"
+        : "(self-upgrade tests destroy the deployer mid-run and must target the Hub-LXC directly)";
+      logWarn(
+        `Skipping ${skippedRunInVe.length} scenario(s) with run_in_ve=true: ${skippedRunInVe.join(", ")}`,
+      );
+      logInfo(
+        `Run them separately via: /livetest --config <instance> <scenario-or-@list> ${reason}`,
+      );
+    }
+    if (selectedIds.length !== beforeVeFilter) {
+      logInfo(`run_in_ve filter dropped ${beforeVeFilter - selectedIds.length} scenario(s)`);
+    }
+  }
+
   if (selectedIds.length === 0) {
     logFail("No scenarios matched after filter — nothing to run.");
     process.exit(1);
@@ -867,7 +956,23 @@ async function main() {
   // open the page during planning/baseline. Storage column fills in once
   // the executor seeds assignments; statuses fill in as scenarios run.
   const commandLine = process.argv.join(" ");
-  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl);
+  // Shared runner-auth context — populated by scenario-executor after
+  // Zitadel install (or via env vars below for OIDC-enabled-from-start Hubs).
+  // Same reference is passed to both TestResultWriter and executePlan so
+  // mutations from inside the executor (e.g. setting oidcCreds) propagate
+  // to the writer's bundle-pull path.
+  const runnerAuth: RunnerAuthContext = {};
+  // Env-var bootstrap path: operator running against a Hub that's already
+  // OIDC-enabled (no fresh step2b rollback). Otherwise creds get populated
+  // by scenario-executor once Zitadel is installed/reachable.
+  const envIssuer = process.env.TEST_DEPLOYER_OIDC_ISSUER_URL ?? process.env.OIDC_ISSUER_URL;
+  const envClientId = process.env.TEST_DEPLOYER_OIDC_MACHINE_CLIENT_ID ?? process.env.OIDC_CLIENT_ID;
+  const envSecret = process.env.TEST_DEPLOYER_OIDC_MACHINE_CLIENT_SECRET ?? process.env.OIDC_CLIENT_SECRET;
+  if (envIssuer && envClientId && envSecret) {
+    runnerAuth.oidcCreds = { issuerUrl: envIssuer, clientId: envClientId, clientSecret: envSecret };
+    logInfo(`Runner machine-token bootstrap from env (issuer=${envIssuer})`);
+  }
+  const resultWriter = new TestResultWriter(projectRoot, config.instance, testArg, commandLine, apiUrl, runnerAuth);
   const overviewState: RunOverviewState = {
     outDir: resultWriter.getOutputDir(),
     runId: resultWriter.getRunId(),
@@ -999,7 +1104,7 @@ async function main() {
         { failFast: failFastFlag, debugLevel, depSnapshotName, concurrency: parallelLimit, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) },
       );
     } else {
-      result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
+      result = await executeScenarios(planned, config, apiUrl, veHost, projectRoot, appMetaMap, allTests, appStackIdsMap, resultWriter, fixtureBaseDir, { failFast: failFastFlag, debugLevel, depSnapshotName, snapshotMode, runMode, snapshotCatalog, runnerAuth, ...overviewOpts, ...(volumeStorageOverride ? { volumeStorageOverride } : {}), ...(cliTimeoutSec !== undefined ? { cliTimeoutSec } : {}) });
     }
   } finally {
     clearInterval(overviewJsonTimer);

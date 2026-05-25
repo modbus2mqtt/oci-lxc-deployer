@@ -132,10 +132,17 @@ export class VEWebApp {
       });
     }
 
-    // Auth middleware on /api/* routes (must be before route registration)
+    // Auth middleware on /api/* and /logs/* (must be before route registration).
+    // The log-viewer at /logs/<ve>/<vmId> is a human-facing HTML page
+    // typically opened from the proxvex:log-url marker in Proxmox CT notes.
+    // When OIDC is on, the browser already carries the session cookie from
+    // earlier admin activity, so protecting /logs is transparent for the
+    // operator — and prevents anonymous access to LXC console logs / docker
+    // logs by anyone who can guess the vmId.
     const authMiddleware = createAuthMiddleware(oidcConfig);
     if (authMiddleware) {
       this.app.use("/api", authMiddleware);
+      this.app.use("/logs", authMiddleware);
     }
 
     registerLogsHtmlRoute(this.app);

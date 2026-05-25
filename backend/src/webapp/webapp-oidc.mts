@@ -541,7 +541,20 @@ export function registerOidcRoutes(
               logger.warn("[oidc] Spoke-sync failed", { error: err.message }),
             );
         }
-        res.redirect("/");
+        // Honour the auth middleware's "remember where you were going"
+        // marker so a click on a Proxmox-notes log link lands the user
+        // on /logs/<ve>/<vmId> after login, not on the SPA root.
+        // Restricted to relative paths (must start with /, must not start
+        // with //) to prevent open-redirect attacks via crafted login URLs.
+        const returnTo = sess.oidcReturnTo;
+        delete sess.oidcReturnTo;
+        const safeReturnTo =
+          typeof returnTo === "string" &&
+          returnTo.startsWith("/") &&
+          !returnTo.startsWith("//")
+            ? returnTo
+            : "/";
+        res.redirect(safeReturnTo);
       } catch (err) {
         logOidcFailure("[oidc] Callback error", err, oidcConfig, {
           protocol: req.protocol,
@@ -647,6 +660,10 @@ interface AuthSession {
   sub?: string;
   oidcState?: string;
   oidcNonce?: string;
+  /** Origin-relative URL the user was trying to reach when redirected to
+   *  /api/auth/login. The callback handler honours this and redirects
+   *  back, falling back to "/" otherwise. Set by the auth middleware. */
+  oidcReturnTo?: string;
   roles?: Record<string, Record<string, unknown>>;
   accessToken?: string;
 }

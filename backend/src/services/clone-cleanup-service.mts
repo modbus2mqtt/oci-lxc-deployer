@@ -12,6 +12,9 @@ const logger = createLogger("clone-cleanup");
 interface CloneCleanupMarker {
   clone_vmid?: string;
   clone_ip?: string;
+  /** Unified restartKey (E.8): same key the Hub generated, the Clone ran
+   *  its pipeline under, and the new CT adopts under. PULL from Clone +
+   *  INJECT on new CT both use this single key. */
   restart_key?: string;
   ve_context_key?: string;
   started_at?: string;
@@ -45,38 +48,73 @@ export async function finalizeCloneCleanupIfPending(localPath: string): Promise<
     return;
   }
 
-  const { clone_vmid: cloneVmid, clone_ip: cloneIp, restart_key: restartKey, ve_context_key: veKey } = marker;
-  if (!cloneVmid || !cloneIp || !veKey) {
+  const {
+    clone_vmid: cloneVmid,
+    clone_ip: cloneIp,
+    restart_key: restartKey,
+    ve_context_key: veKey,
+  } = marker;
+  if (!cloneVmid || !cloneIp || !veKey || !restartKey) {
     logger.warn("Clone-cleanup marker has missing fields — refusing to act", { marker });
     return;
   }
 
   logger.info("Clone-cleanup starting", { cloneVmid, cloneIp, restartKey, veKey });
 
-  // 1. Pull the clone's debug bundle (best-effort: a missing bundle is
-  // not fatal — we still want to destroy the clone so the user does not
-  // end up with a zombie helper CT).
-  if (restartKey) {
-    try {
-      await pullAndAdoptBundle(cloneIp, restartKey);
-    } catch (err: any) {
-      logger.warn("Clone bundle pull failed — continuing with cleanup", {
-        cloneIp,
-        restartKey,
-        error: err?.message,
-      });
-    }
+  // Pull the clone's debug bundle + messages under the SAME restartKey
+  // the Hub generated and the Clone ran under (E.8 unified key). Adoption
+  // on the new CT also uses this key — so the CLI poll already in flight
+  // continues to see the same stream once the new CT comes up.
+  //
+  // Critical: wait for the clone to mark the task `finished` BEFORE
+  // pulling. The clone's task finishes only after post_start on the
+  // new CT (us) is done — so when this code runs at boot, the clone
+  // may still be running. Polling for finished blocks until completion.
+  try {
+    await waitForCloneTaskFinished(cloneIp, veKey, restartKey);
+    await pullAndAdoptBundle(cloneIp, restartKey);
+    await pullAndAdoptMessages(cloneIp, veKey, restartKey);
+  } catch (err: any) {
+    logger.warn("Clone diagnostics pull failed — runner may see partial bundle", {
+      cloneIp,
+      restartKey,
+      error: err?.message,
+    });
   }
 
-  // 2. Stop + destroy the clone via the maintenance script.
+  // 2. Stop + destroy the clone via the maintenance script. The script
+  // captures the clone's LXC console log BEFORE destroying the CT and
+  // returns it base64-encoded so we can inject it into the adopted
+  // bundle as `clone-lxc-console.log` (F.6).
+  let cloneConsoleLogB64 = "";
   try {
-    await destroyClone(cloneVmid, veKey);
+    cloneConsoleLogB64 = await destroyClone(cloneVmid, veKey);
   } catch (err: any) {
     logger.error("Clone destroy failed — marker kept for retry on next boot", {
       cloneVmid,
       error: err?.message,
     });
     return;
+  }
+
+  // 2b. Inject the LXC console log into the adopted bundle.
+  if (cloneConsoleLogB64) {
+    try {
+      const decoded = Buffer.from(cloneConsoleLogB64, "base64").toString("utf-8");
+      const { getActiveDebugCollector } = await import("../webapp/webapp-debug-collector.mjs");
+      const collector = getActiveDebugCollector();
+      if (collector) {
+        const existing = collector.renderBundle(restartKey);
+        const files = existing ? new Map(existing) : new Map<string, string>();
+        files.set("clone-lxc-console.log", decoded);
+        collector.injectBundle(restartKey, files);
+        logger.info("Clone LXC console log added to adopted bundle", {
+          bytes: decoded.length,
+        });
+      }
+    } catch (err: any) {
+      logger.warn("Could not decode/inject clone LXC console log", { error: err?.message });
+    }
   }
 
   // 3. Drop the marker; cleanup is complete.
@@ -90,13 +128,16 @@ export async function finalizeCloneCleanupIfPending(localPath: string): Promise<
 
 async function pullAndAdoptBundle(cloneIp: string, restartKey: string): Promise<void> {
   const port = 3080;
-  // Fetch the manifest.
+  // Fetch the manifest using the unified restartKey.
   const manifest = await httpGetJson<{ files?: string[] }>(
     `http://${cloneIp}:${port}/api/ve/debug/${encodeURIComponent(restartKey)}`,
     5000,
   );
   if (!manifest?.files || !Array.isArray(manifest.files) || manifest.files.length === 0) {
-    logger.info("Clone reports no debug-bundle files — nothing to adopt", { cloneIp, restartKey });
+    logger.info("Clone reports no debug-bundle files — nothing to adopt", {
+      cloneIp,
+      restartKey,
+    });
     return;
   }
 
@@ -120,6 +161,8 @@ async function pullAndAdoptBundle(cloneIp: string, restartKey: string): Promise<
     });
     return;
   }
+  // E.8: adopt under the SAME unified key. `/api/<ve>/debug/<restartKey>`
+  // on the new CT now serves what was on the Clone, transparently.
   collector.injectBundle(restartKey, fileMap);
   logger.info("Clone bundle adopted into local collector", {
     cloneIp,
@@ -128,7 +171,97 @@ async function pullAndAdoptBundle(cloneIp: string, restartKey: string): Promise<
   });
 }
 
-async function destroyClone(cloneVmid: string, veContextKey: string): Promise<void> {
+async function waitForCloneTaskFinished(
+  cloneIp: string,
+  veContextKey: string,
+  restartKey: string,
+  timeoutMs = 8 * 60_000,
+  pollIntervalMs = 3_000,
+): Promise<void> {
+  const port = 3080;
+  const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}`;
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveErrors = 0;
+  while (Date.now() < deadline) {
+    try {
+      const groups = await httpGetJson<Array<{
+        restartKey?: string;
+        messages?: Array<{ finished?: boolean; exitCode?: number }>;
+      }>>(url, 5_000);
+      const group = (groups ?? []).find((g) => g.restartKey === restartKey);
+      const lastMsg = group?.messages?.[group.messages.length - 1];
+      if (lastMsg?.finished === true) {
+        logger.info("Clone task reports finished — proceeding to bundle pull", {
+          cloneIp,
+          restartKey,
+          messageCount: group?.messages?.length ?? 0,
+          exitCode: lastMsg.exitCode,
+        });
+        return;
+      }
+      consecutiveErrors = 0;
+    } catch (err: any) {
+      consecutiveErrors++;
+      // Tolerate transient errors — the clone may be busy on a long-running
+      // pct command, where the HTTP server briefly stops accepting new
+      // connections. Hard-fail only on sustained outages (assume clone
+      // crashed mid-task).
+      if (consecutiveErrors > 30) {
+        throw new Error(`Clone ${cloneIp} unreachable for ${consecutiveErrors * pollIntervalMs / 1000}s — giving up wait-for-finished (${err?.message ?? String(err)})`);
+      }
+    }
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+  }
+  throw new Error(`Clone task did not report finished within ${timeoutMs / 1000}s — pulling messages anyway may give partial results`);
+}
+
+async function pullAndAdoptMessages(
+  cloneIp: string,
+  veContextKey: string,
+  restartKey: string,
+): Promise<void> {
+  const port = 3080;
+  // GET /api/<veCtx>/ve/execute?restartKey=<key> returns an array of
+  // ISingleExecuteMessagesResponse groups. We filter to the matching key.
+  const url = `http://${cloneIp}:${port}/api/${encodeURIComponent(veContextKey)}/ve/execute?restartKey=${encodeURIComponent(restartKey)}`;
+  const groups = await httpGetJson<Array<{
+    application?: string;
+    task?: string;
+    restartKey?: string;
+    messages?: unknown[];
+  }>>(url, 10_000);
+  const group = (groups ?? []).find((g) => g.restartKey === restartKey);
+  if (!group || !group.application || !group.task || !Array.isArray(group.messages) || group.messages.length === 0) {
+    logger.info("Clone reports no messages for this restartKey — nothing to inject", {
+      cloneIp,
+      restartKey,
+      hasGroup: !!group,
+      messageCount: group?.messages?.length ?? 0,
+    });
+    return;
+  }
+  const { getActiveMessageManager } = await import("../webapp/webapp-ve-message-manager.mjs");
+  const mm = getActiveMessageManager();
+  if (!mm) {
+    logger.warn("Active message manager not available — messages pulled but not adopted; runner polling will see empty group", {
+      restartKey,
+      messageCount: group.messages.length,
+    });
+    return;
+  }
+  // E.8: inject under the SAME unified key. `/api/<ve>/ve/execute` on
+  // the new CT now lists the same group the Clone was running.
+  mm.injectMessages(group.application, group.task, restartKey, group.messages as never);
+  logger.info("Clone messages adopted into local manager", {
+    cloneIp,
+    restartKey,
+    application: group.application,
+    task: group.task,
+    messageCount: group.messages.length,
+  });
+}
+
+async function destroyClone(cloneVmid: string, veContextKey: string): Promise<string> {
   const pm = PersistenceManager.getInstance();
   const veContext = pm.getContextManager().getVEContextByKey(veContextKey);
   if (!veContext) throw new Error(`VE context ${veContextKey} not found`);
@@ -147,7 +280,10 @@ async function destroyClone(cloneVmid: string, veContextKey: string): Promise<vo
     execute_on: "ve",
     script: "host-stop-and-destroy-clone-deployer.sh",
     scriptContent,
-    outputs: [],
+    outputs: [
+      { id: "clone_destroyed" },
+      { id: "clone_console_log_b64" },
+    ],
   };
   const ve = new VeExecution(
     [cmd],
@@ -158,7 +294,13 @@ async function destroyClone(cloneVmid: string, veContextKey: string): Promise<vo
     determineExecutionMode(),
   );
   await ve.run(null);
-  logger.info("Clone destroyed", { cloneVmid, ve_context: veContextKey });
+  const consoleLogB64 = String(ve.outputs.get("clone_console_log_b64") ?? "");
+  logger.info("Clone destroyed", {
+    cloneVmid,
+    ve_context: veContextKey,
+    consoleLogBytes: consoleLogB64.length,
+  });
+  return consoleLogB64;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────

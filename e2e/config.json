@@ -10,8 +10,6 @@
       "subnet": "10.99.1",
       "bridge": "vmbr1",
       "filesystem": "zfs",
-      "deployerHost": "localhost",
-      "deployerPort": "${DEPLOYER_PORT:-3201}",
       "snapshot": {
         "enabled": true
       },
@@ -27,7 +25,7 @@
           "port": 1808,
           "hostname": "zitadel-default",
           "ip": "10.0.0.226",
-          "containerPort": 1443
+          "containerPort": 8080
         },
         {
           "port": 1810,
@@ -105,8 +103,8 @@
     }
   },
   "defaults": {
-    "vmMemory": 8192,
-    "vmCores": 4,
+    "vmMemory": 4096,
+    "vmCores": 2,
     "vmDiskSize": 100,
     "vmStorage": "local-zfs",
     "filesystem": "zfs",

@@ -99,7 +99,8 @@ export function runCli(
   addons?: string[],
   cliTimeout = 600,
   fixturePath?: string,
-  oidcCredentials?: { issuerUrl: string; clientId: string; clientSecret: string },
+  oidcCredentials?: { issuerUrl: string; clientId: string; clientSecret: string; hostOverride?: string; projectId?: string },
+  disabledAddons?: string[],
 ): Promise<CliJsonResult> {
   return new Promise((resolve) => {
     // Auto-detect dev mode: if TypeScript source exists, use tsx
@@ -121,10 +122,20 @@ export function runCli(
         "--oidc-client-id", oidcCredentials.clientId,
         "--oidc-client-secret", oidcCredentials.clientSecret,
       );
+      if (oidcCredentials.hostOverride) {
+        cliArgs.push("--oidc-host-override", oidcCredentials.hostOverride);
+      }
+      if (oidcCredentials.projectId) {
+        cliArgs.push("--oidc-project-id", oidcCredentials.projectId);
+      }
     }
 
     if (addons && addons.length > 0) {
       cliArgs.push("--enable-addons", addons.join(","));
+    }
+
+    if (disabledAddons && disabledAddons.length > 0) {
+      cliArgs.push("--disable-addons", disabledAddons.join(","));
     }
 
     if (fixturePath) {
@@ -147,7 +158,16 @@ export function runCli(
     let stderr = "";
     const proc = spawn(cmd, args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: "0" },
+      env: {
+        ...process.env,
+        NODE_TLS_REJECT_UNAUTHORIZED: "0",
+        // Allow ~10 min of connection-error retries (120 × 5 s) so the
+        // self-upgrade-via-clone scenario rides out the deployer-CT
+        // replacement gap. The outer `cli_timeout` still bounds the total
+        // run; this just stops the CLI from failing fast on transient
+        // connection-refused during the takeover.
+        PROXVEX_CLI_MAX_RETRIES: process.env.PROXVEX_CLI_MAX_RETRIES ?? "120",
+      },
     });
 
     proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });

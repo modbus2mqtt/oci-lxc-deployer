@@ -528,6 +528,23 @@ export interface ITestScenarioResponse {
    *  available to other consumers. `in-place` runs against the source
    *  directly (docker-compose upgrade). `shared` is the legacy behaviour. */
   consumes_source?: "isolate" | "in-place" | "shared";
+  /** When true, the livetest runner resolves `previous_vm_id` by finding
+   *  the CT on the PVE host that carries the `proxvex:deployer-instance`
+   *  marker. Used by the self-upgrade test where the target vmid is not
+   *  known statically. */
+  target_deployer_instance?: boolean;
+  /** When true, the runner expects the scenario to destroy the deployer-CT
+   *  mid-run and have a new CT take over its IP+hostname (self-upgrade-via-
+   *  clone). Documentation flag for now. */
+  expect_clone_lifecycle?: boolean;
+  /** When true, the scenario MUST run against the deployer-LXC inside the
+   *  nested VM (`--config <instance>`), not against the local-backend
+   *  Spoke. Runner skips it in default-mode with a hint to re-run. */
+  run_in_ve?: boolean;
+  /** Addons to deactivate via the CLI's `--disable-addons` flag. Triggers
+   *  `162-conf-disable-<addon>-app.json` pre_start templates on
+   *  reconfigure. Used by the disable-OIDC test. */
+  disabledAddons?: string[];
   /** Project-root-relative path to this scenario's application directory,
    *  resolved via the persistence layer (local → hub → json). The livetest
    *  runner uses this to locate uploads, the Playwright spec dir, etc.,

@@ -1,15 +1,22 @@
 #!/bin/sh
-# Append a stub `proxy: {}` block to /etc/distribution/config.yml in the
-# LXC's rootfs volume BEFORE the LXC starts. See the template description
-# for rationale.
+# Patch /etc/distribution/config.yml in the LXC's rootfs volume BEFORE the
+# LXC starts, according to the {{ mirror_mode }} application property. See
+# the template description for the underlying Distribution-scheduler bug.
 set -eu
 
 VM_ID="{{ vm_id }}"
+MIRROR_MODE="{{ mirror_mode }}"
 log() { echo "$@" >&2; }
 fail() { log "Error: $*"; exit 1; }
 
 if [ -z "$VM_ID" ] || [ "$VM_ID" = "NOT_DEFINED" ]; then
   fail "vm_id is required"
+fi
+# Default to proxy when the property is missing (application.json sets it to
+# 'proxy' as a locked value; the fallback covers older deployments that
+# pre-date that property).
+if [ -z "$MIRROR_MODE" ] || [ "$MIRROR_MODE" = "NOT_DEFINED" ]; then
+  MIRROR_MODE="proxy"
 fi
 
 # Resolve the rootfs volume's host filesystem path so we can edit
@@ -32,14 +39,38 @@ if [ ! -f "$CONFIG" ]; then
   exit 0
 fi
 
-# Idempotency check: only append if no `proxy:` block exists yet (at column
-# 0, so we don't match keys like `cache: blobdescriptor:` etc.).
-if grep -qE '^proxy:' "$CONFIG"; then
-  log "$CONFIG already has a proxy: block — leaving as is"
-  echo '[{"id":"registry_proxy_stub","value":"present"}]'
-  exit 0
-fi
-
-printf '\nproxy: {}\n' >> "$CONFIG"
-log "Appended 'proxy: {}' stub to $CONFIG"
-echo '[{"id":"registry_proxy_stub","value":"added"}]'
+case "$MIRROR_MODE" in
+  proxy)
+    # Append a `proxy:` stub so REGISTRY_PROXY_REMOTEURL etc. take effect.
+    # Idempotent: skip if already present at column 0 (avoids matching
+    # nested keys like `cache: blobdescriptor:`).
+    if grep -qE '^proxy:' "$CONFIG"; then
+      log "$CONFIG already has a proxy: block — leaving as is"
+      echo '[{"id":"mirror_mode_applied","value":"proxy-present"}]'
+      exit 0
+    fi
+    printf '\nproxy: {}\n' >> "$CONFIG"
+    log "Appended 'proxy: {}' stub to $CONFIG (mirror_mode=proxy)"
+    echo '[{"id":"mirror_mode_applied","value":"proxy-added"}]'
+    ;;
+  readwrite)
+    # Private push-target registry. NOT recommended for pull-through caches —
+    # Distribution's filesystem driver schedules blob deletion on a 7-day TTL,
+    # so a cache that's only read-from (not pushed-to) self-destructs.
+    log "mirror_mode=readwrite — leaving $CONFIG untouched (Distribution default)"
+    echo '[{"id":"mirror_mode_applied","value":"readwrite"}]'
+    ;;
+  readonly)
+    # Frozen corpus, e.g. for air-gapped serving of a pre-populated cache.
+    # Add `maintenance.readonly.enabled: true` if not already present.
+    if grep -qE '^\s+readonly:\s*$' "$CONFIG"; then
+      log "$CONFIG already declares a readonly block — leaving as is"
+      echo '[{"id":"mirror_mode_applied","value":"readonly-present"}]'
+      exit 0
+    fi
+    fail "mirror_mode=readonly: stub does not yet implement the readonly patch; extend conf-registry-proxy-stub.sh when this becomes needed"
+    ;;
+  *)
+    fail "Unknown mirror_mode '$MIRROR_MODE' — application property 'mirror_mode' must be one of: proxy | readwrite | readonly"
+    ;;
+esac

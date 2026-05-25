@@ -20,11 +20,74 @@ import {
   NotFoundError,
   ApiError,
 } from "./cli-types.mjs";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+
+/**
+ * POST a form-urlencoded body using Node's low-level http(s).request API,
+ * which (unlike global fetch / undici) preserves a user-supplied `Host`
+ * header. Used by the OIDC token endpoint when the runner reaches Zitadel
+ * via an external NAT but Zitadel's instance-domain lookup expects a
+ * different Host (see OidcCredentials.hostOverride for the rationale).
+ *
+ * `NODE_TLS_REJECT_UNAUTHORIZED=0` (set by the CLI's --insecure flag)
+ * already disables TLS verification globally for https.request too.
+ */
+async function httpPostForm(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; text: string }> {
+  const parsed = new URL(url);
+  const isHttps = parsed.protocol === "https:";
+  const reqFn = isHttps ? httpsRequest : httpRequest;
+  const options = {
+    method: "POST",
+    hostname: parsed.hostname,
+    port: parsed.port || (isHttps ? 443 : 80),
+    path: parsed.pathname + parsed.search,
+    headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) },
+  };
+  return await new Promise((resolve, reject) => {
+    const req = reqFn(options, (resp) => {
+      const chunks: Buffer[] = [];
+      resp.on("data", (c: Buffer) => chunks.push(c));
+      resp.on("end", () => {
+        resolve({
+          status: resp.statusCode ?? 0,
+          text: Buffer.concat(chunks).toString("utf-8"),
+        });
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(30_000, () => req.destroy(new Error("OIDC token request timed out after 30s")));
+    req.write(body);
+    req.end();
+  });
+}
 
 export interface OidcCredentials {
   issuerUrl: string;
   clientId: string;
   clientSecret: string;
+  /** Optional override for the HTTP Host header sent to the OIDC token
+   * endpoint. Needed when the runner reaches Zitadel via an external NAT
+   * (e.g. `http://ubuntupve:1808`) but Zitadel was configured with an
+   * internal `ExternalDomain` (e.g. `zitadel-default:8080`) and rejects
+   * requests whose Host header doesn't match a registered instance
+   * domain. With the override, bytes route by URL while Zitadel's
+   * domain-lookup sees the value it expects. Production deployments
+   * where the public URL matches Zitadel's configured ExternalDomain
+   * leave this unset. */
+  hostOverride?: string;
+  /** Zitadel project ID. When set, the token request scope includes
+   * `urn:zitadel:iam:org:project:id:<projectId>:aud` so the JWT carries
+   * a project audience AND role claims (`accessTokenRoleAssertion`).
+   * Without this the JWT has no roles, and the proxvex Hub's
+   * webapp-auth-middleware rejects with HTTP 403 "Required role:
+   * 'admin'". Matches the scope production/_lib.sh uses for the same
+   * machine-user client_credentials grant. */
+  projectId?: string;
 }
 
 /**
@@ -104,32 +167,42 @@ export class CliApiClient {
     if (this.token) return; // Already have a token
 
     const tokenUrl = `${this.oidcCredentials.issuerUrl}/oauth/v2/token`;
+    // Zitadel-specific scopes: project audience + roles. Without the
+    // `urn:zitadel:iam:org:project:id:<projectId>:aud` scope the JWT
+    // is not bound to the proxvex project and carries no role claims,
+    // so the Hub's webapp-auth-middleware rejects every /api call with
+    // HTTP 403 "Required role: 'admin'". Production's _lib.sh:106
+    // uses the same scope set for the same grant.
+    let scope = "openid";
+    if (this.oidcCredentials.projectId) {
+      scope += ` urn:zitadel:iam:org:project:id:${this.oidcCredentials.projectId}:aud urn:zitadel:iam:org:projects:roles`;
+    }
     const params = new URLSearchParams({
       grant_type: "client_credentials",
-      scope: "openid",
+      scope,
     });
 
     const credentials = Buffer.from(
       `${this.oidcCredentials.clientId}:${this.oidcCredentials.clientSecret}`,
     ).toString("base64");
 
-    const response = await fetch(tokenUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": `Basic ${credentials}`,
-      },
-      body: params.toString(),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Authorization": `Basic ${credentials}`,
+    };
+    if (this.oidcCredentials.hostOverride) {
+      headers["Host"] = this.oidcCredentials.hostOverride;
+    }
+    // Use http(s).request — fetch (undici) silently overrides any
+    // user-supplied Host header with the URL's authority, which defeats
+    // the whole point of `hostOverride`. The lower-level API keeps it.
+    const { status, text } = await httpPostForm(tokenUrl, headers, params.toString());
+    if (status < 200 || status >= 300) {
       throw new AuthenticationError(
-        `OIDC token request failed (${response.status}): ${detail}`,
+        `OIDC token request failed (${status}): ${text}`,
       );
     }
-
-    const data = (await response.json()) as { access_token: string };
+    const data = JSON.parse(text) as { access_token: string };
     this.token = data.access_token;
   }
 
@@ -148,14 +221,39 @@ export class CliApiClient {
       headers["Content-Type"] = "application/json";
     }
 
-    const fetchOptions: RequestInit = { method, headers };
+    // Follow 30x redirects manually so the Authorization header is preserved
+    // across scheme upgrades. The default `fetch` redirect handler strips
+    // Authorization on cross-origin redirects, and HTTP→HTTPS is treated as
+    // cross-origin — that's what bit the OIDC self-tests: the Hub on plain
+    // HTTP issues a 301 to its own HTTPS once `addon-ssl` is active, and
+    // every authenticated /api/* request then arrived at HTTPS without the
+    // Bearer, returning 401. We only follow same-origin (host) redirects
+    // here; that's the only shape proxvex Hubs ever emit (its own HTTP→
+    // HTTPS pinning) and prevents accidentally leaking the token to an
+    // unrelated host.
+    const fetchOptions: RequestInit = { method, headers, redirect: "manual" };
     if (body !== undefined) {
       fetchOptions.body = JSON.stringify(body);
     }
 
     let response: Response;
+    let currentUrl = url;
+    const maxRedirects = 3;
     try {
-      response = await fetch(url, fetchOptions);
+      for (let i = 0; i <= maxRedirects; i++) {
+        response = await fetch(currentUrl, fetchOptions);
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location");
+          if (!location) break;
+          const next = new URL(location, currentUrl).toString();
+          const sameHost = new URL(next).hostname === new URL(currentUrl).hostname;
+          if (!sameHost) break;
+          currentUrl = next;
+          continue;
+        }
+        break;
+      }
+      response = response!;
     } catch (err: any) {
       throw new ConnectionError(
         `Cannot connect to ${this.baseUrl}: ${err?.message || err}`,

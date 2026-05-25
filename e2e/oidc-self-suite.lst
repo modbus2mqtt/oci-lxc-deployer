@@ -1,0 +1,17 @@
+# OIDC self-upgrade/reconfigure test chain — runs serially on the same Hub.
+#
+# Workflow:
+#   1. zitadel/default            (provides DEPLOYER_OIDC_* in oidc_default stack)
+#   2. enable HTTPS + OIDC        (Hub HTTP → HTTPS+OIDC)
+#   3. upgrade Hub                (image-bump while HTTPS+OIDC stays on)
+#   4. disable HTTPS + OIDC       (Hub HTTPS+OIDC → HTTP)
+#
+# Invocation:
+#   /livetest --config <instance> @e2e/oidc-self-suite.lst
+#
+# Each `--config`-run starts with step2b rollback → fresh Hub-LXC without
+# OIDC. Tests run serially via depends_on. ~25–30 min total.
+zitadel/default
+proxvex/self-reconfigure-enable-https-oidc
+proxvex/self-upgrade-via-clone-with-oidc
+proxvex/self-reconfigure-disable-https-oidc

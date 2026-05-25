@@ -1,0 +1,13 @@
+{
+  "task": "reconfigure",
+  "depends_on": ["zitadel/default"],
+  "wait_seconds": 120,
+  "cli_timeout": 900,
+  "consumes_source": "in-place",
+  "target_deployer_instance": true,
+  "run_in_ve": true,
+  "expect_clone_lifecycle": true,
+  "selectedAddons": ["addon-ssl", "addon-oidc"],
+  "params": [],
+  "description": "Self-reconfigure that ENABLES addon-ssl + addon-oidc on the running Hub. Pre-state: Hub on HTTP without OIDC. Pipeline: Hub clones itself → temp clone runs reconfigure (with selectedAddons) against the source Hub → new CT replaces old Hub → new CT boots with OIDC_ENABLED=true + SSL cert mountpoint. Post-state: Hub serves HTTPS, /api/* requires OIDC. Runner-side Stage-G machine-token kicks in: after Zitadel install the executor reads DEPLOYER_OIDC_MACHINE_* from oidc_default stack and uses them for the bundle pull against the now-OIDC-protected new CT."
+}

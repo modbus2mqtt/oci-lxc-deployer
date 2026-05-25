@@ -12,6 +12,10 @@
       "default": "docker-registry-mirror"
     },
     {
+      "id": "mirror_mode",
+      "value": "proxy"
+    },
+    {
       "id": "oci_image",
       "value": "distribution/distribution:{{oci_image_tag}}"
     },
@@ -53,7 +57,7 @@
     },
     {
       "id": "ssl_additional_san",
-      "value": "DNS:registry-1.docker.io,DNS:index.docker.io"
+      "default": "DNS:registry-1.docker.io,DNS:index.docker.io"
     },
     {
       "id": "wait_for_network",

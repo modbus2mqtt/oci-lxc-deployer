@@ -36,6 +36,22 @@ fi
 log "Unlocking $VMID (if locked)..."
 pct unlock "$VMID" >&2 2>/dev/null || true
 
+# F.6: Capture the clone's LXC console log BEFORE destroy. It records
+# init/cgroup/oom events that a clean `pct destroy` would erase along
+# with the rootfs — invaluable when the clone hangs on a `pct exec` and
+# the bundle alone can't explain why. Resolve the path from pct config
+# (proxvex CTs write `lxc.console.logfile: /var/log/lxc/<hostname>-<vmid>.log`)
+# and base64-encode it into stdout so the orchestrator can pass it
+# verbatim through the JSON-only output channel.
+CONSOLE_LOG=""
+CONSOLE_LOG_PATH=$(pct config "$VMID" 2>/dev/null | grep -a "^lxc.console.logfile:" | awk '{print $2}' || true)
+if [ -n "$CONSOLE_LOG_PATH" ] && [ -f "$CONSOLE_LOG_PATH" ]; then
+  CONSOLE_LOG=$(base64 -w0 < "$CONSOLE_LOG_PATH" 2>/dev/null || base64 < "$CONSOLE_LOG_PATH" | tr -d '\n')
+  log "Captured console log: $CONSOLE_LOG_PATH ($(wc -c < "$CONSOLE_LOG_PATH") bytes)"
+else
+  log "Console log not found (path=${CONSOLE_LOG_PATH:-unset}) — skipping capture"
+fi
+
 log "Stopping clone $VMID (graceful shutdown, timeout 15s, fall back to kill)..."
 # Use `pct shutdown --timeout N --forceStop 1`: `pct stop --timeout` is not
 # accepted by `pct` on this PVE (`pct stop` is the forceful path and takes
@@ -52,4 +68,4 @@ pct destroy "$VMID" --purge --destroy-unreferenced-disks 1 >&2 \
   || fail "pct destroy $VMID failed"
 
 log "Clone $VMID destroyed"
-printf '[{"id":"clone_destroyed","value":"true"}]'
+printf '[{"id":"clone_destroyed","value":"true"},{"id":"clone_console_log_b64","value":"%s"}]' "$CONSOLE_LOG"

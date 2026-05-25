@@ -101,6 +101,44 @@ export interface TestScenario {
    * Installation scenarios ignore this field.
    */
   consumes_source?: "isolate" | "in-place" | "shared";
+
+  /**
+   * When true, the runner resolves `previous_vm_id` by finding the CT on
+   * the PVE host that carries the `proxvex:deployer-instance` marker
+   * (i.e. the running deployer/Hub). Used for the self-upgrade test where
+   * the target is whatever CT is currently the deployer — vmid is not
+   * known statically. Skips the standard hostname-based existingVm
+   * discovery.
+   */
+  target_deployer_instance?: boolean;
+
+  /**
+   * When true, the runner expects this scenario to destroy the deployer-CT
+   * mid-run and have a new CT take over its IP+hostname (self-upgrade-via-
+   * clone). Used as documentation for now; future runner extensions may
+   * use it to trigger additional post-test verification (clone-bundle
+   * pull, etc.).
+   */
+  expect_clone_lifecycle?: boolean;
+
+  /**
+   * When true, the scenario MUST run against the deployer-LXC inside the
+   * nested VM (nested-deployer mode, via `--config <instance>`), not
+   * against the local-backend Spoke. Used for self-upgrade tests where
+   * the local Node-process "Deployer" can't meaningfully clone itself.
+   * In default mode the runner skips the scenario with a hint to re-run
+   * via `--config <instance>`.
+   */
+  run_in_ve?: boolean;
+
+  /**
+   * Addons to deactivate via the CLI's `--disable-addons` flag (passes
+   * through as `disabledAddons` body param). Triggers the corresponding
+   * `conf-disable-<addon>-app.sh` pre_start templates on reconfigure.
+   * Used by the disable-OIDC test to actively strip OIDC_* env vars from
+   * /config/proxvex.env.
+   */
+  disabledAddons?: string[];
 }
 
 /** Discovered scenario with resolved identity */
