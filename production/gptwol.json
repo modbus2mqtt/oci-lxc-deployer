@@ -1,0 +1,11 @@
+{
+  "application": "gptwol",
+  "task": "installation",
+  "params": [
+    { "name": "vm_id_start", "value": 600 },
+    { "name": "acme_san", "value": "gptwol.ohnewarum.de" },
+    { "name": "bearer_audience", "value": "gptwol-api" }
+  ],
+  "selectedAddons": ["addon-oidc", "addon-oauth2-proxy", "addon-ssl", "addon-acme"],
+  "stackIds": ["oidc_production", "cloudflare_production"]
+}

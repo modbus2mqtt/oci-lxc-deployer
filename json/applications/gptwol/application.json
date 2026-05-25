@@ -20,9 +20,10 @@
   "tags": [
     "infrastructure"
   ],
-  "supported_addons": ["addon-oidc"],
+  "supported_addons": ["addon-oidc", "addon-oauth2-proxy", "addon-ssl", "addon-acme"],
   "oidc_roles": [
-    { "key": "admin", "display_name": "Administrator" }
+    { "key": "admin", "display_name": "Administrator" },
+    { "key": "wake", "display_name": "Wake-on-LAN Caller" }
   ],
   "stacktype": "oidc"
 }

@@ -1,0 +1,94 @@
+name: Wake-test (gptwol M2M API)
+
+# Manual-only workflow that exercises the gptwol M2M Bearer-JWT wake path
+# end-to-end:
+#   1. Obtain a JWT via client_credentials from Zitadel (auth.ohnewarum.de)
+#   2. POST it as Bearer to https://gptwol.ohnewarum.de/api/wake/<host>
+#   3. Wait for the target host to respond to ping
+#
+# Designed to run on a private fork (e.g. volkmarnissen/proxvex) where the
+# operator has populated these repository secrets via
+# production/setup-runner-wake-auth.sh:
+#
+#   WAKE_CLIENT_ID            — Machine User clientId
+#   WAKE_CLIENT_SECRET        — Machine User clientSecret
+#   ZITADEL_ISSUER_URL        — e.g. https://auth.ohnewarum.de
+#   WAKE_AUDIENCE_PROJECT_ID  — Zitadel project ID hosting the gptwol-api app
+#
+# Optional inputs let the operator point at a different target host or a
+# different gptwol public URL (useful when testing a staging deployment).
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_host:
+        description: "Host to wake (used in /api/wake/<target_host>)"
+        required: true
+        default: "ubuntupve"
+      gptwol_url:
+        description: "Public gptwol base URL"
+        required: true
+        default: "https://gptwol.ohnewarum.de"
+      probe_dns:
+        description: "DNS name to ping to verify wake (optional; empty = skip ping)"
+        required: false
+        default: "ubuntupve.lan"
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Acquire JWT from Zitadel
+        id: tok
+        env:
+          ISSUER:    ${{ secrets.ZITADEL_ISSUER_URL }}
+          CLIENT_ID: ${{ secrets.WAKE_CLIENT_ID }}
+          SECRET:    ${{ secrets.WAKE_CLIENT_SECRET }}
+          AUD_PID:   ${{ secrets.WAKE_AUDIENCE_PROJECT_ID }}
+        run: |
+          set -e
+          if [ -z "$ISSUER" ] || [ -z "$CLIENT_ID" ] || [ -z "$SECRET" ] || [ -z "$AUD_PID" ]; then
+            echo "::error::Missing required secrets. Run production/setup-runner-wake-auth.sh and copy WAKE_CLIENT_ID, WAKE_CLIENT_SECRET, ZITADEL_ISSUER_URL, WAKE_AUDIENCE_PROJECT_ID into repository secrets."
+            exit 1
+          fi
+          SCOPE="openid urn:zitadel:iam:org:project:id:${AUD_PID}:aud urn:zitadel:iam:org:projects:roles"
+          JWT=$(curl -fsS -X POST "${ISSUER}/oauth/v2/token" \
+            -u "${CLIENT_ID}:${SECRET}" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "scope=${SCOPE}" \
+            | jq -r .access_token)
+          if [ -z "$JWT" ] || [ "$JWT" = "null" ]; then
+            echo "::error::Token endpoint returned no access_token"
+            exit 1
+          fi
+          echo "::add-mask::$JWT"
+          echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
+          echo "JWT acquired (${#JWT} chars)"
+
+      - name: Call gptwol /api/wake/${{ inputs.target_host }}
+        env:
+          JWT:    ${{ steps.tok.outputs.jwt }}
+          URL:    ${{ inputs.gptwol_url }}/api/wake/${{ inputs.target_host }}
+        run: |
+          set -e
+          echo "POST $URL"
+          curl -fsS -X POST -H "Authorization: Bearer $JWT" "$URL"
+          echo
+          echo "Wake request accepted by gptwol"
+
+      - name: Probe target until reachable
+        if: ${{ inputs.probe_dns != '' }}
+        env:
+          PROBE: ${{ inputs.probe_dns }}
+        run: |
+          set -e
+          for i in $(seq 1 60); do
+            if ping -c 1 -W 1 "$PROBE" >/dev/null 2>&1; then
+              echo "${PROBE} responded after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::${PROBE} did not respond within 120s"
+          exit 1
