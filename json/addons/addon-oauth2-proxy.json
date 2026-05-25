@@ -1,0 +1,64 @@
+{
+  "name": "OAuth2 Proxy (JWT Bearer)",
+  "description": "Wraps the application with oauth2-proxy as an on-start hook. Validates incoming Authorization: Bearer JWTs against Zitadel JWKS, proxies validated requests to the application's internal HTTP port, and locks the app port via iptables. Adds M2M Bearer authentication to applications that only support browser-OIDC or have no native auth.",
+  "tags": [
+    "security",
+    "authentication"
+  ],
+  "parameters": [
+    "bearer_audience",
+    "bearer_listen_port",
+    "bearer_upstream_port",
+    "alpine_mirror",
+    "debian_mirror"
+  ],
+  "dependencies": [
+    { "application": "zitadel" }
+  ],
+  "properties": [
+    {
+      "id": "addon_volumes",
+      "value": "proxvex=/etc/proxvex,0755,0:0"
+    },
+    {
+      "id": "has_on_start_hooks",
+      "value": "true"
+    },
+    {
+      "id": "bearer_listen_port",
+      "default": "8443"
+    },
+    {
+      "id": "bearer_upstream_port",
+      "default": "{{ http_port }}"
+    }
+  ],
+  "installation": {
+    "pre_start": [
+      { "name": "150-conf-create-storage-volumes-for-lxc.json", "position": "end" },
+      { "name": "172-conf-register-bearer-api.json", "position": "end" },
+      { "name": "166-conf-write-on-start-scripts.json", "position": "end" },
+      { "name": "165-conf-register-hookscript.json", "position": "end" }
+    ],
+    "post_start": [
+      "344-post-install-oauth2-proxy-on-start.json"
+    ]
+  },
+  "reconfigure": {
+    "pre_start": [
+      { "name": "150-conf-create-storage-volumes-for-lxc.json", "position": "end" },
+      { "name": "172-conf-register-bearer-api.json", "position": "end" },
+      { "name": "166-conf-write-on-start-scripts.json", "position": "end" },
+      { "name": "165-conf-register-hookscript.json", "position": "end" }
+    ],
+    "post_start": [
+      "344-post-install-oauth2-proxy-on-start.json"
+    ]
+  },
+  "disable": {
+    "pre_start": [
+      "167-conf-remove-on-start-scripts.json"
+    ]
+  },
+  "notes_key": "oauth2-proxy"
+}

@@ -1,0 +1,8 @@
+{
+  "selectedAddons": ["addon-oauth2-proxy"],
+  "depends_on": ["zitadel/default"],
+  "stack_name": "default",
+  "params": [
+    { "name": "bearer_audience", "value": "oauth2-proxy-testbed" }
+  ]
+}

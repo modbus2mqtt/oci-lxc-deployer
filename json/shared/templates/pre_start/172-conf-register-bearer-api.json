@@ -1,0 +1,30 @@
+{
+  "execute_on": "ve",
+  "name": "Register Bearer API in Zitadel",
+  "description": "Creates (or finds) a Zitadel project + API application for the bearer_audience. The API app's clientId becomes the audience that oauth2-proxy validates against. Used by addon-oauth2-proxy.",
+  "parameters": [
+    "ZITADEL_HOST",
+    "ZITADEL_PROTO",
+    "ZITADEL_PORT",
+    "ZITADEL_SSL_PROTO",
+    "ZITADEL_SSL_PORT",
+    "ZITADEL_PAT",
+    "DEPLOYER_OIDC_MACHINE_CLIENT_ID",
+    "DEPLOYER_OIDC_MACHINE_CLIENT_SECRET",
+    "DEPLOYER_OIDC_ISSUER_URL",
+    "hostname",
+    "bearer_audience"
+  ],
+  "commands": [
+    {
+      "name": "Register Bearer API",
+      "script": "conf-register-bearer-api.sh",
+      "library": "pve-common.sh",
+      "outputs": [
+        "bearer_audience_client_id",
+        "bearer_audience_project_id",
+        "oidc_issuer_url"
+      ]
+    }
+  ]
+}
