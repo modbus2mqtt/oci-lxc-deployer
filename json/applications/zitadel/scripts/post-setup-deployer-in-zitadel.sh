@@ -29,6 +29,19 @@ COMPOSE_PROJECT="{{ compose_project }}"
 SSL_MODE="{{ ssl_mode }}"
 ZITADEL_EXTERNALDOMAIN="{{ ZITADEL_EXTERNALDOMAIN }}"
 
+# Mirror routing for pkg-common.sh's pkg_install — when these are set, the
+# library auto-rewrites /etc/apk/repositories or /etc/apt/sources.list to
+# go through the fast LAN mirrors configured in the project parameters.
+# Without this, apt-get install ... goes to deb.debian.org directly via
+# double-NAT and the deployer's idle-timeout watchdog kills the SSH session
+# mid-download (observed: setup-deployer-in-zitadel.sh dies between Get:6
+# and Get:7 of 14.8 MB curl-dependency downloads).
+ALPINE_MIRROR="{{ alpine_mirror }}"
+DEBIAN_MIRROR="{{ debian_mirror }}"
+[ "$ALPINE_MIRROR" = "NOT_DEFINED" ] && ALPINE_MIRROR=""
+[ "$DEBIAN_MIRROR" = "NOT_DEFINED" ] && DEBIAN_MIRROR=""
+export ALPINE_MIRROR DEBIAN_MIRROR
+
 [ "$PROJECT_DOMAIN_SUFFIX" = "NOT_DEFINED" ] && PROJECT_DOMAIN_SUFFIX=""
 [ "$COMPOSE_PROJECT" = "NOT_DEFINED" ] && COMPOSE_PROJECT=""
 [ "$SSL_MODE" = "NOT_DEFINED" ] && SSL_MODE=""

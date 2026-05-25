@@ -7,7 +7,9 @@
     "project_domain_suffix",
     "compose_project",
     "ssl_mode",
-    "ZITADEL_EXTERNALDOMAIN"
+    "ZITADEL_EXTERNALDOMAIN",
+    "alpine_mirror",
+    "debian_mirror"
   ],
   "commands": [
     {

@@ -26,11 +26,7 @@
     },
     {
       "id": "bearer_listen_port",
-      "default": "8443"
-    },
-    {
-      "id": "bearer_upstream_port",
-      "default": "{{ http_port }}"
+      "value": "8443"
     }
   ],
   "installation": {
