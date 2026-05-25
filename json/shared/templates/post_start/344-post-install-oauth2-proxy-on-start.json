@@ -1,0 +1,23 @@
+{
+  "execute_on": "hook",
+  "name": "Install OAuth2 Proxy Hook",
+  "description": "Deploys an on-start hook that runs oauth2-proxy in JWT-Bearer-only mode. Validates against Zitadel JWKS, proxies to the app's internal port, locks the app port via iptables. The hook lives in /etc/proxvex/on_start.d/ and runs on every container start (and once now via hook_trigger_now).",
+  "skip_if_all_missing": [
+    "bearer_audience_client_id"
+  ],
+  "parameters": [
+    "bearer_audience_client_id",
+    "bearer_listen_port",
+    "bearer_upstream_port",
+    "http_port",
+    "oidc_issuer_url",
+    "alpine_mirror",
+    "debian_mirror"
+  ],
+  "commands": [
+    {
+      "script": "oauth2-proxy-hook.sh",
+      "description": "Deploy oauth2-proxy on-start hook (runs at deploy + every container start)"
+    }
+  ]
+}
