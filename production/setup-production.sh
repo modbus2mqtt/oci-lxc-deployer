@@ -56,6 +56,7 @@ github-runner=ubuntupve
 ghcr-registry-mirror=ubuntupve
 docker-mirror-test=ubuntupve
 zot-mirror=ubuntupve
+wolproxy=pve1.cluster
 "
 
 host_for_app() {
