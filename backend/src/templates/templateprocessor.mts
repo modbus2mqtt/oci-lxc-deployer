@@ -40,6 +40,7 @@ import { EnumValuesResolver } from "./enum-values-resolver.mjs";
 import { TemplateValidator } from "./template-validator.mjs";
 import { TemplateOutputProcessor } from "./template-output-processor.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
+import { resolveFormDefaults } from "./resolve-form-defaults.mjs";
 
 export type {
   IProcessTemplateOpts,
@@ -849,11 +850,12 @@ export class TemplateProcessor extends EventEmitter {
     const taskMatches = (param: IParameter): boolean =>
       !param.tasks || param.tasks.length === 0 || param.tasks.includes(task);
 
+    let filtered: IParameter[];
     if (loaded.parameterTrace && loaded.parameterTrace.length > 0) {
       const traceById = new Map(
         loaded.parameterTrace.map((entry) => [entry.id, entry]),
       );
-      return loaded.parameters.filter((param) => {
+      filtered = loaded.parameters.filter((param) => {
         // Internal parameters are never user-input — keep them out of the UI feed.
         if (param.internal) return false;
         if (!taskMatches(param)) return false;
@@ -865,19 +867,31 @@ export class TemplateProcessor extends EventEmitter {
           ? trace.source === "missing" || trace.source === "default"
           : true;
       });
+    } else {
+      // Fallback: Only parameters whose id is not in resolvedParams.param
+      filtered = loaded.parameters.filter((param) => {
+        if (param.internal) return false;
+        if (!taskMatches(param)) return false;
+        return (
+          undefined ==
+          loaded.resolvedParams.find(
+            (rp) => rp.id == param.id && rp.template != param.template,
+          )
+        );
+      });
     }
-
-    // Fallback: Only parameters whose id is not in resolvedParams.param
-    return loaded.parameters.filter((param) => {
-      if (param.internal) return false;
-      if (!taskMatches(param)) return false;
-      return (
-        undefined ==
-        loaded.resolvedParams.find(
-          (rp) => rp.id == param.id && rp.template != param.template,
-        )
-      );
-    });
+    // Resolve `{{ var }}` placeholders inside `default` values against the
+    // application's properties + the full (unfiltered) parameter list, so the
+    // frontend never receives literal template strings as form pre-fills.
+    // Stack-injected refs (e.g. `{{ POSTGRES_PASSWORD }}`) stay as `{{ }}` —
+    // their producer hasn't run yet and the form should keep the marker
+    // visible. See resolve-form-defaults.mts.
+    return resolveFormDefaults(
+      filtered,
+      loaded.parameters,
+      loaded.application?.properties,
+      undefined,
+    );
   }
 
   async getParameters(
