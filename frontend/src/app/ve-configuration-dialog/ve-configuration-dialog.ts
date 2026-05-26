@@ -798,19 +798,32 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
 
   private applyParameterFile(json: { task?: string; params: { name: string; value: string | number | boolean }[]; selectedAddons?: string[]; stackIds?: string[] }): void {
     const applyValues = () => {
-      for (const p of json.params) {
-        const control = this.form.get(p.name);
-        if (control) {
-          control.setValue(p.value);
-        }
-      }
-      // Select addons if specified
+      // Toggle addons FIRST. Their parameters (e.g. addon-oauth2-proxy's
+      // required `bearer_audience`) live inside the addon FormGroup created
+      // by applyAddonToggle — if we set values before toggling, the lookup
+      // below finds nothing and the addon's required-control ends up empty,
+      // surfacing as "Invalid: <addon-id>" in the form.
       if (json.selectedAddons) {
         for (const addonId of json.selectedAddons) {
           if (!this.selectedAddons().includes(addonId)) {
             this.toggleAddon(addonId, true);
           }
         }
+      }
+      for (const p of json.params) {
+        // Top-level first; if not found, search inside selected addon
+        // FormGroups for a child control with this name. Addon-owned params
+        // (like bearer_audience) are nested under `addon-oauth2-proxy.*`,
+        // so this.form.get(p.name) alone misses them.
+        let control = this.form.get(p.name);
+        if (!control) {
+          for (const addonId of this.selectedAddons()) {
+            const fg = this.form.get(addonId);
+            const nested = fg?.get(p.name);
+            if (nested) { control = nested; break; }
+          }
+        }
+        control?.setValue(p.value);
       }
       // Select stacks if specified
       if (json.stackIds) {
