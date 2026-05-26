@@ -855,7 +855,8 @@ fi
 # Step 14: Deploy github-runner (default target: ubuntupve, see APP_HOST)
 # ================================================================
 if should_run 14; then
-  banner 14 "Deploy github-runner ($(host_for_app github-runner))"
+  GH_RUNNER_HOST="$(host_for_app github-runner)"
+  banner 14 "Deploy github-runner (${GH_RUNNER_HOST})"
   if [ ! -f "$SCRIPT_DIR/github-runner.json" ]; then
     echo "  WARN: $SCRIPT_DIR/github-runner.json not found — skipping."
     echo "        Create it with REPO_URL/ACCESS_TOKEN/RUNNER_NAME/LABELS, e.g.:"
@@ -872,7 +873,23 @@ if should_run 14; then
         }
 EX
   else
-    "$SCRIPT_DIR/deploy.sh" --host "$(host_for_app github-runner)" github-runner.json
+    "$SCRIPT_DIR/deploy.sh" --host "$GH_RUNNER_HOST" github-runner.json
+
+    # 14a. Enable Wake-on-LAN on the host that runs the gh-runner LXC.
+    # UEFI/BIOS WoL alone is insufficient; the NIC needs `ethtool -s wol g`
+    # before poweroff. Idempotent systemd unit handles both boot+shutdown.
+    echo ""
+    echo "--- Step 14a: enable WoL on ${GH_RUNNER_HOST} ---"
+    "$SCRIPT_DIR/setup-wol-on-host.sh" "$GH_RUNNER_HOST"
+
+    # 14b. Bootstrap PVE API role + user + token + scoped ACL for the
+    # gh-runner LXC's REST access. Token-secret is emitted on stdout
+    # only on first creation (or --rotate). The operator captures it
+    # and injects it as lxc.environment into the gh-runner LXC (or
+    # passes via production/github-runner.json on next re-deploy).
+    echo ""
+    echo "--- Step 14b: setup PVE runner token on ${GH_RUNNER_HOST} ---"
+    "$SCRIPT_DIR/setup-pve-runner-token.sh" "$GH_RUNNER_HOST"
   fi
 fi
 
