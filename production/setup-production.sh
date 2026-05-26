@@ -124,7 +124,8 @@ print_steps() {
     18  Deploy docker-mirror-test (target: $(host_for_app docker-mirror-test)) [test infra; parallel to step 5]
     19  Deploy zot-mirror (target: $(host_for_app zot-mirror)) [pull-through cache for ghcr.io; cert SAN already covers Docker Hub for Phase B]
     20  Deploy gptwol (Wake-on-LAN UI + M2M API via addon-oauth2-proxy)
-    21  Create runner-wake-svc Machine User in Zitadel (outputs WAKE_CLIENT_ID/SECRET for GitHub Actions)
+    21  Deploy wolproxy (stable JSON API for WoL+ping, M2M Bearer JWT)
+    22  Create runner-wake-svc Machine User in Zitadel (outputs WAKE_CLIENT_ID/SECRET for GitHub Actions)
 STEPS
 }
 
@@ -854,7 +855,8 @@ fi
 # Step 14: Deploy github-runner (default target: ubuntupve, see APP_HOST)
 # ================================================================
 if should_run 14; then
-  banner 14 "Deploy github-runner ($(host_for_app github-runner))"
+  GH_RUNNER_HOST="$(host_for_app github-runner)"
+  banner 14 "Deploy github-runner (${GH_RUNNER_HOST})"
   if [ ! -f "$SCRIPT_DIR/github-runner.json" ]; then
     echo "  WARN: $SCRIPT_DIR/github-runner.json not found — skipping."
     echo "        Create it with REPO_URL/ACCESS_TOKEN/RUNNER_NAME/LABELS, e.g.:"
@@ -871,7 +873,23 @@ if should_run 14; then
         }
 EX
   else
-    "$SCRIPT_DIR/deploy.sh" --host "$(host_for_app github-runner)" github-runner.json
+    "$SCRIPT_DIR/deploy.sh" --host "$GH_RUNNER_HOST" github-runner.json
+
+    # 14a. Enable Wake-on-LAN on the host that runs the gh-runner LXC.
+    # UEFI/BIOS WoL alone is insufficient; the NIC needs `ethtool -s wol g`
+    # before poweroff. Idempotent systemd unit handles both boot+shutdown.
+    echo ""
+    echo "--- Step 14a: enable WoL on ${GH_RUNNER_HOST} ---"
+    "$SCRIPT_DIR/setup-wol-on-host.sh" "$GH_RUNNER_HOST"
+
+    # 14b. Bootstrap PVE API role + user + token + scoped ACL for the
+    # gh-runner LXC's REST access. Token-secret is emitted on stdout
+    # only on first creation (or --rotate). The operator captures it
+    # and injects it as lxc.environment into the gh-runner LXC (or
+    # passes via production/github-runner.json on next re-deploy).
+    echo ""
+    echo "--- Step 14b: setup PVE runner token on ${GH_RUNNER_HOST} ---"
+    "$SCRIPT_DIR/setup-pve-runner-token.sh" "$GH_RUNNER_HOST"
   fi
 fi
 
@@ -1039,16 +1057,37 @@ if should_run 20; then
 fi
 
 # ================================================================
-# Step 21: Create the runner-wake-svc Machine User in Zitadel and grant
-# it the `wake` role on the gptwol project. Prints WAKE_CLIENT_ID,
-# WAKE_CLIENT_SECRET, ZITADEL_ISSUER_URL, WAKE_AUDIENCE_PROJECT_ID for the
-# operator to copy into the GitHub fork's Secrets.
+# Step 21: Deploy wolproxy — minimal WoL+ping JSON API
+#
+# Same auth pattern as gptwol (addon-oauth2-proxy + nginx vhost, Bearer
+# JWT against Zitadel JWKS for audience `wolproxy-api`), but a stable,
+# documented API (`POST /wake?mac=...`, `GET /status?ip=...`) instead of
+# gptwol's UI-form backend. Shutdown is intentionally not part of
+# wolproxy — power-down happens via PVE REST from the self-hosted job
+# that has the scoped PVE token.
+#
+# Prerequisites:
+#   - nginx (Step 8) — vhost wolproxy.conf written by setup-nginx.sh
+#   - zitadel (Step 10) — OIDC provider for Bearer-JWT validation
+#   - addon-acme + Cloudflare stack (Step 6) — for the wolproxy.ohnewarum.de cert
+# ================================================================
+if should_run 21; then
+  banner 21 "Deploy wolproxy"
+  "$SCRIPT_DIR/deploy.sh" --host "$(host_for_app wolproxy)" wolproxy.json
+fi
+
+# ================================================================
+# Step 22: Create the runner-wake-svc Machine User in Zitadel and grant
+# it the `wake` role on both the gptwol and wolproxy projects. Prints
+# WAKE_CLIENT_ID, WAKE_CLIENT_SECRET, ZITADEL_ISSUER_URL,
+# WAKE_AUDIENCE_PROJECT_ID for the operator to copy into the GitHub
+# fork's Secrets.
 #
 # Idempotent: re-running rotates the client_secret (operator must paste
 # the new value into GitHub Secrets).
 # ================================================================
-if should_run 21; then
-  banner 21 "Setup runner-wake-svc (GitHub Actions Bearer auth)"
+if should_run 22; then
+  banner 22 "Setup runner-wake-svc (GitHub Actions Bearer auth)"
   "$SCRIPT_DIR/setup-runner-wake-auth.sh"
 fi
 
@@ -1074,4 +1113,6 @@ echo "  Test Mirror: 192.168.4.49 (docker-mirror-test, ubuntupve, test infra)"
 echo "  Zot Mirror:  192.168.4.50 (zot-mirror, ubuntupve, ghcr.io pull-through)"
 echo "  gptwol:      LAN: http://gptwol:5000  (Browser OIDC login)"
 echo "               Public: https://gptwol.ohnewarum.de/api/wake/<host>  (Bearer JWT only)"
+echo "  wolproxy:    LAN: http://wolproxy:5000  (no UI, JSON API)"
+echo "               Public: https://wolproxy.ohnewarum.de/{wake,status,health}  (Bearer JWT only)"
 echo ""

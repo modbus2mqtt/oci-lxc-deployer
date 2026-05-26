@@ -115,6 +115,7 @@ add_dns auth.ohnewarum.de         "$ROUTER_ALT_IP"
 add_dns git.ohnewarum.de          "$ROUTER_ALT_IP"
 add_dns nebenkosten.ohnewarum.de  "$ROUTER_ALT_IP"
 add_dns gptwol.ohnewarum.de       "$ROUTER_ALT_IP"
+add_dns wolproxy.ohnewarum.de     "$ROUTER_ALT_IP"
 
 # MQTT domain → Router alt IP (LAN only, no WAN port forward)
 add_dns mqtt.ohnewarum.de         "$ROUTER_ALT_IP"

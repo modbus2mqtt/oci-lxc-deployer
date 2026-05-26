@@ -1,0 +1,21 @@
+{
+  "name": "Wolproxy",
+  "description": "Stable JSON API for Wake-on-LAN and reachability checks. Two endpoints: POST /wake?mac=...&broadcast=... sends a Magic Packet; GET /status?ip=... pings a host. No UI, no state. Public endpoint protected by addon-oauth2-proxy + Bearer JWT (Zitadel client_credentials).",
+  "extends": "oci-image",
+  "icon": "icon.png",
+  "properties": [
+    { "id": "hostname", "default": "wolproxy" },
+    { "id": "envs", "default": "TZ=Europe/Berlin" },
+    { "id": "rootfs_storage", "default": "local-zfs" },
+    { "id": "oci_image", "value": "ghcr.io/proxvex/wolproxy:{{oci_image_tag}}" },
+    { "id": "uid", "value": "1000" },
+    { "id": "username", "value": "wolproxy" },
+    { "id": "http_port", "value": "5000" }
+  ],
+  "installation": {},
+  "tags": [
+    "infrastructure"
+  ],
+  "supported_addons": ["addon-oauth2-proxy", "addon-ssl", "addon-acme"],
+  "stacktype": "oidc"
+}

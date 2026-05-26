@@ -1,0 +1,61 @@
+name: Build and publish wolproxy image
+
+# Builds the standalone wolproxy container (Flask Mini-Server with /wake,
+# /status, /shutdown). The image is consumed both by the production
+# proxvex-LXC on pve1 and by local validation runs (e2e/validate-wolproxy.sh).
+#
+# Runs on GitHub-hosted runners to avoid the chicken-and-egg case where
+# the only LXC capable of doing WoL is itself behind WoL.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'json/applications/wolproxy/Dockerfile'
+      - 'json/applications/wolproxy/app.py'
+      - '.github/workflows/wolproxy-image-publish.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/wolproxy
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ./json/applications/wolproxy
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Container Registry Link
+        run: |
+          echo "::notice title=wolproxy::Image available at: https://github.com/${{ github.repository }}/pkgs/container/wolproxy"

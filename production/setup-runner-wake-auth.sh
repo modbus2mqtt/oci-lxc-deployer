@@ -91,6 +91,19 @@ if [ -z "$API_PROJECT_ID" ]; then
 fi
 echo "  Found gptwol-api project (ID ${API_PROJECT_ID})"
 
+# --- 2b. Find wolproxy-api project (created by addon-oauth2-proxy on wolproxy deploy) ---
+# Optional: wolproxy may not be deployed yet on first run. Treat absence
+# as a warning, not an error — gptwol-only setup remains valid.
+echo "Searching for 'wolproxy-api' project (second audience, optional)..."
+WOLPROXY_API_RESPONSE=$(zitadel_api POST "/management/v1/projects/_search" \
+  '{"queries":[{"nameQuery":{"name":"wolproxy-api","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
+WOLPROXY_API_PROJECT_ID=$(echo "$WOLPROXY_API_RESPONSE" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+if [ -z "$WOLPROXY_API_PROJECT_ID" ]; then
+  echo "  WARN: 'wolproxy-api' project not found — skipping (deploy wolproxy first if needed)."
+else
+  echo "  Found wolproxy-api project (ID ${WOLPROXY_API_PROJECT_ID})"
+fi
+
 # --- 3. Find or create runner-wake-svc Machine User ---
 SVC_USERNAME="runner-wake-svc"
 echo "Searching for Machine User '${SVC_USERNAME}'..."
@@ -148,7 +161,10 @@ echo ""
 echo "  WAKE_CLIENT_ID      = ${WAKE_CLIENT_ID}"
 echo "  WAKE_CLIENT_SECRET  = ${WAKE_CLIENT_SECRET}"
 echo "  ZITADEL_ISSUER_URL  = ${ZITADEL_API_BASE}"
-echo "  WAKE_AUDIENCE_PROJECT_ID = ${API_PROJECT_ID}"
+echo "  WAKE_AUDIENCE_PROJECT_ID = ${API_PROJECT_ID}                # gptwol-api"
+if [ -n "$WOLPROXY_API_PROJECT_ID" ]; then
+  echo "  WOLPROXY_AUDIENCE_PROJECT_ID = ${WOLPROXY_API_PROJECT_ID}  # wolproxy-api"
+fi
 echo ""
 echo "Workflow usage (token endpoint + /api/wake call):"
 echo ""

@@ -1,0 +1,6 @@
+[
+  {
+    "roleid": "ProxvexLivetest",
+    "privs": "VM.Audit,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback"
+  }
+]

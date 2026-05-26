@@ -1,0 +1,11 @@
+{
+  "description": "Install wolproxy with addon-oauth2-proxy + addon-ssl. Verifies that oauth2-proxy starts in HTTPS mode (because addon-ssl ships internal-CA certs), listens on bearer_listen_port (8443), validates against the Zitadel-registered wolproxy-api audience, and locks the upstream wolproxy port (5000) to loopback via iptables. zitadel/default is a dependency so the addon's pre_start registers the Bearer-API audience in Zitadel. wolproxy has no UI of its own (only /wake, /status, /health) — addon-oidc is intentionally not part of this stack.",
+  "selectedAddons": ["addon-oauth2-proxy", "addon-ssl"],
+  "depends_on": ["zitadel/default"],
+  "stack_name": "default",
+  "params": [
+    { "name": "bearer_audience", "value": "wolproxy-api" },
+    { "name": "ssl_mode", "value": "certs" }
+  ],
+  "wait_seconds": 30
+}
