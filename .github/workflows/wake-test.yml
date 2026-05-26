@@ -1,34 +1,39 @@
-name: Wake-test (gptwol M2M API)
+name: Wake-test (wolproxy M2M API)
 
-# Manual-only workflow that exercises the gptwol M2M Bearer-JWT wake path
+# Manual-only workflow that exercises the wolproxy M2M Bearer-JWT wake path
 # end-to-end:
 #   1. Obtain a JWT via client_credentials from Zitadel (auth.ohnewarum.de)
-#   2. POST it as Bearer to https://gptwol.ohnewarum.de/api/wake/<host>
+#      with the wolproxy-api audience claim.
+#   2. POST it as Bearer to https://wolproxy.ohnewarum.de/wake?mac=...
 #   3. Wait for the target host to respond to ping
 #
 # Designed to run on a private fork (e.g. volkmarnissen/proxvex) where the
 # operator has populated these repository secrets via
 # production/setup-runner-wake-auth.sh:
 #
-#   WAKE_CLIENT_ID            — Machine User clientId
-#   WAKE_CLIENT_SECRET        — Machine User clientSecret
-#   ZITADEL_ISSUER_URL        — e.g. https://auth.ohnewarum.de
-#   WAKE_AUDIENCE_PROJECT_ID  — Zitadel project ID hosting the gptwol-api app
+#   WAKE_CLIENT_ID                 — Machine User clientId
+#   WAKE_CLIENT_SECRET             — Machine User clientSecret
+#   ZITADEL_ISSUER_URL             — e.g. https://auth.ohnewarum.de
+#   WOLPROXY_AUDIENCE_PROJECT_ID   — Zitadel project ID hosting the wolproxy-api app
 #
-# Optional inputs let the operator point at a different target host or a
-# different gptwol public URL (useful when testing a staging deployment).
+# Why wolproxy and not gptwol: gptwol's /api/wake/<host>-form endpoint is
+# UI-form backend with no stable contract. wolproxy provides a documented
+# JSON API (POST /wake?mac=..., GET /status?ip=...) maintained by us.
 
 on:
   workflow_dispatch:
     inputs:
-      target_host:
-        description: "Host to wake (used in /api/wake/<target_host>)"
+      target_mac:
+        description: "MAC address of the host to wake (e.g. aa:bb:cc:dd:ee:ff)"
         required: true
-        default: "ubuntupve"
-      gptwol_url:
-        description: "Public gptwol base URL"
+      target_broadcast:
+        description: "LAN broadcast address (e.g. 192.168.1.255)"
         required: true
-        default: "https://gptwol.ohnewarum.de"
+        default: "255.255.255.255"
+      wolproxy_url:
+        description: "Public wolproxy base URL"
+        required: true
+        default: "https://wolproxy.ohnewarum.de"
       probe_dns:
         description: "DNS name to ping to verify wake (optional; empty = skip ping)"
         required: false
@@ -45,11 +50,11 @@ jobs:
           ISSUER:    ${{ secrets.ZITADEL_ISSUER_URL }}
           CLIENT_ID: ${{ secrets.WAKE_CLIENT_ID }}
           SECRET:    ${{ secrets.WAKE_CLIENT_SECRET }}
-          AUD_PID:   ${{ secrets.WAKE_AUDIENCE_PROJECT_ID }}
+          AUD_PID:   ${{ secrets.WOLPROXY_AUDIENCE_PROJECT_ID }}
         run: |
           set -e
           if [ -z "$ISSUER" ] || [ -z "$CLIENT_ID" ] || [ -z "$SECRET" ] || [ -z "$AUD_PID" ]; then
-            echo "::error::Missing required secrets. Run production/setup-runner-wake-auth.sh and copy WAKE_CLIENT_ID, WAKE_CLIENT_SECRET, ZITADEL_ISSUER_URL, WAKE_AUDIENCE_PROJECT_ID into repository secrets."
+            echo "::error::Missing required secrets. Run production/setup-runner-wake-auth.sh (after wolproxy deploy) and copy WAKE_CLIENT_ID, WAKE_CLIENT_SECRET, ZITADEL_ISSUER_URL, WOLPROXY_AUDIENCE_PROJECT_ID into repository secrets."
             exit 1
           fi
           SCOPE="openid urn:zitadel:iam:org:project:id:${AUD_PID}:aud urn:zitadel:iam:org:projects:roles"
@@ -66,16 +71,16 @@ jobs:
           echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
           echo "JWT acquired (${#JWT} chars)"
 
-      - name: Call gptwol /api/wake/${{ inputs.target_host }}
+      - name: Call wolproxy /wake
         env:
-          JWT:    ${{ steps.tok.outputs.jwt }}
-          URL:    ${{ inputs.gptwol_url }}/api/wake/${{ inputs.target_host }}
+          JWT: ${{ steps.tok.outputs.jwt }}
+          URL: ${{ inputs.wolproxy_url }}/wake?mac=${{ inputs.target_mac }}&broadcast=${{ inputs.target_broadcast }}
         run: |
           set -e
           echo "POST $URL"
           curl -fsS -X POST -H "Authorization: Bearer $JWT" "$URL"
           echo
-          echo "Wake request accepted by gptwol"
+          echo "Wake request accepted by wolproxy"
 
       - name: Probe target until reachable
         if: ${{ inputs.probe_dns != '' }}

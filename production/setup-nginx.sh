@@ -174,8 +174,39 @@ ${SSL_DIRECTIVES}
 }
 EOF
 
+# wolproxy: stable JSON API for WoL+ping, Bearer-only public endpoint.
+# Same pattern as gptwol — addon-oauth2-proxy on wolproxy:8443 validates
+# Authorization: Bearer JWTs against Zitadel JWKS, then proxies to the
+# internal wolproxy port 5000. Unlike gptwol no UI exists, so we expose
+# /wake, /status, /health — every other path 404. LAN tooling reaches
+# wolproxy directly at http://wolproxy:5000.
+cat > "$TMPDIR/wolproxy.conf" <<EOF
+server {
+    listen ${LISTEN_PORT} ssl;
+    listen [::]:${LISTEN_PORT} ssl;
+    server_name wolproxy.ohnewarum.de;
+${SSL_DIRECTIVES}
+    location ~ ^/(wake|status|health)\$ {
+        proxy_pass https://wolproxy:8443;
+        proxy_http_version 1.1;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate ${CERT_DIR}/chain.pem;
+        proxy_ssl_server_name on;
+        proxy_ssl_name wolproxy;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization \$http_authorization;
+    }
+    location / {
+        return 404;
+    }
+}
+EOF
+
 # Push config files into container
-for conf in default.conf ohnewarum.conf nebenkosten.conf auth.conf git.conf gptwol.conf; do
+for conf in default.conf ohnewarum.conf nebenkosten.conf auth.conf git.conf gptwol.conf wolproxy.conf; do
   pct push "$NGINX_VMID" "$TMPDIR/$conf" "/etc/nginx/conf.d/$conf"
   echo "  Pushed $conf"
 done
@@ -240,3 +271,4 @@ echo "  Nebenkosten:  https://nebenkosten.ohnewarum.de (Placeholder)"
 echo "  Zitadel:      https://auth.ohnewarum.de"
 echo "  Gitea:        https://git.ohnewarum.de"
 echo "  gptwol API:   https://gptwol.ohnewarum.de/api/wake/<host> (M2M Bearer JWT only)"
+echo "  wolproxy:     https://wolproxy.ohnewarum.de/{wake,status,health} (M2M Bearer JWT only)"
