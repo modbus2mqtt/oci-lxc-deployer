@@ -19,6 +19,7 @@ import { ITemplateProcessorLoadResult } from "../templates/templateprocessor.mjs
 import { ApplicationOverviewBuilder } from "../services/application-overview-builder.mjs";
 import { MarkdownReader } from "@src/markdown-reader.mjs";
 import { sendErrorResponse, asyncHandler } from "./webapp-error-utils.mjs";
+import { resolveFormDefaults } from "../templates/resolve-form-defaults.mjs";
 
 type ReturnResponse = <T>(
   res: express.Response,
@@ -385,6 +386,24 @@ export function registerApplicationRoutes(
           application,
           installedAddonIds,
         );
+
+      // Resolve `{{ var }}` placeholders inside each addon parameter's
+      // `default` against the application's own properties + parameters.
+      // Without this, addon defaults like `mtls_cns: "{{ hostname }}"` reach
+      // the form as literal strings, the user submits unchanged, and the
+      // backend (e.g. signClientCert) chokes on the unresolved placeholder.
+      // Same fix as in TemplateProcessor.getUnresolvedParameters; addons go
+      // through a different endpoint and need the resolver applied here.
+      for (const addon of compatibleAddons) {
+        if (addon.parameters?.length) {
+          addon.parameters = resolveFormDefaults(
+            addon.parameters,
+            [...(application.parameters ?? []), ...addon.parameters],
+            application.properties,
+            undefined,
+          );
+        }
+      }
 
       // Per-application addon notice: if the app's application.md has a
       // section named after the addon id (e.g. "## addon-mtls"), surface it
