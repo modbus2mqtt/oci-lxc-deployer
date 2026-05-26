@@ -94,7 +94,10 @@
       "Bash(/Users/volkmar/proxvex-green/production/setup-production.sh)",
       "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 root@pve1.cluster ' *)",
       "Bash(sh -n /Users/volkmar/proxvex-green/production/deploy.sh)",
-      "Bash(sh -n /Users/volkmar/proxvex-green/production/setup-pve-host.sh)"
+      "Bash(sh -n /Users/volkmar/proxvex-green/production/setup-pve-host.sh)",
+      "Bash(echo \"---exit: $?---\")",
+      "Bash(kill 84899)",
+      "Bash(lsof -nP -iTCP:3301 -sTCP:LISTEN)"
     ]
   },
   "hooks": {
