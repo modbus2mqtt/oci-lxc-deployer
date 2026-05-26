@@ -224,15 +224,16 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
         );
         this.formManager.enableHostnameTracking();
 
-        // Sync pre-selected addons that were loaded before formManager existed
-        // (loadCompatibleAddons may complete before getUnresolvedParameters)
+        // Sync pre-selected addons that were toggled before formManager
+        // existed (loadCompatibleAddons may complete before getUnresolved-
+        // Parameters and call applyAddonToggle in the formManager-undefined
+        // window — see formManager?. guard at the end of applyAddonToggle).
+        // Only formManager.setSelectedAddons() is needed here: the addon
+        // form controls themselves are already attached as FormGroups by
+        // applyAddonToggle, with defaults resolved via initAddonFormGroups
+        // (which honours appProperty.default — required for apps that pin
+        // oidc_redirect_uri to a hostname-based template).
         if (this.selectedAddons().length > 0) {
-          for (const addonId of this.selectedAddons()) {
-            const addon = this.availableAddons.find(a => a.id === addonId);
-            if (addon?.parameters) {
-              this.formManager.addAddonControls(addon.parameters);
-            }
-          }
           this.formManager.setSelectedAddons(this.selectedAddons());
         }
       },
@@ -325,7 +326,7 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
               try {
                 this.applyAddonToggle(addonId, true, addon);
               } catch (err) {
-                console.error(`Failed to pre-select addon ${addonId}(error ignored, works anyhow):`, err);
+                console.error(`Failed to pre-select addon ${addonId}:`, err);
               }
             }
           }
@@ -556,8 +557,11 @@ export class VeConfigurationDialog implements OnInit, OnDestroy {
         this.form.removeControl(addonId);
       }
     }
-    // Update manager's addon list for install()
-    this.formManager.setSelectedAddons(this.selectedAddons());
+    // Update manager's addon list for install(). Guarded because
+    // applyAddonToggle is invoked from loadCompatibleAddons' pre-select loop,
+    // which can race ahead of loadParameters (where formManager is created).
+    // The loadParameters callback resyncs setSelectedAddons() after the race.
+    this.formManager?.setSelectedAddons(this.selectedAddons());
     // Re-check dependencies (addons may add/remove dependencies)
     this.checkDependencies();
     // Recompute effective stacktypes (addons may add/remove stacktype requirements)
