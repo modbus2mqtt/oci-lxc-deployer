@@ -1,0 +1,11 @@
+{
+  "description": "Install gptwol with addon-oauth2-proxy + addon-ssl. Verifies that oauth2-proxy starts in HTTPS mode (because addon-ssl ships internal-CA certs), listens on bearer_listen_port (8443), validates against the Zitadel-registered gptwol-api audience, and locks the upstream gptwol port (5000) to loopback via iptables. zitadel/default is a dependency so the addon's pre_start registers the Bearer-API audience in Zitadel. addon-oidc (the browser-flow OIDC of gptwol's web UI) is covered by gptwol/reconf-oidc — combining both addons in a livetest would force the CLI to do OIDC client_credentials against the port-forwarded Zitadel TLS endpoint (port 1443), which mismatches the internal HTTP-only URL the rewrite assumes. The production setup uses the public auth.ohnewarum.de URL where this mismatch doesn't apply.",
+  "selectedAddons": ["addon-oauth2-proxy", "addon-ssl"],
+  "depends_on": ["zitadel/default"],
+  "stack_name": "default",
+  "params": [
+    { "name": "bearer_audience", "value": "gptwol-api" },
+    { "name": "ssl_mode", "value": "certs" }
+  ],
+  "wait_seconds": 30
+}

@@ -250,6 +250,30 @@ pkg_install() {
 
   _pkg_acquire_lock
 
+  # Auto-apply mirror configuration when the caller exports ALPINE_MIRROR /
+  # DEBIAN_MIRROR before invoking pkg_install. This routes apt/apk through
+  # the fast LAN mirror configured in the project parameters (see
+  # 050-set-project-parameters.json: alpine_mirror, debian_mirror).
+  # Without this routing, apt downloads go to deb.debian.org over the
+  # double-NAT path and frequently exceed the deployer's idle-timeout
+  # watchdog during slower downloads.
+  # Each function is idempotent and a no-op if the URL is empty or the OS
+  # doesn't match.
+  if [ "$PKG_CACHE_UPDATED" != "1" ]; then
+    case "$PKG_OS_TYPE" in
+      alpine)
+        if [ -n "${ALPINE_MIRROR:-}" ]; then
+          pkg_set_alpine_mirror "$ALPINE_MIRROR" || true
+        fi
+        ;;
+      debian|ubuntu)
+        if [ -n "${DEBIAN_MIRROR:-}" ]; then
+          pkg_set_debian_mirror "$DEBIAN_MIRROR" || true
+        fi
+        ;;
+    esac
+  fi
+
   # Update cache while holding the lock (skip if already done)
   if [ "$PKG_CACHE_UPDATED" != "1" ]; then
     pkg_wait_for_network || { _pkg_release_lock; return 1; }
@@ -495,6 +519,74 @@ ${_mirror_url}/v${_alpine_version}/community
 EOF
 
   echo "Set Alpine mirror to: $_mirror_url" >&2
+
+  # Force cache update after mirror change
+  PKG_CACHE_UPDATED=0
+  return 0
+}
+
+# ============================================================================
+# 11. pkg_set_debian_mirror(mirror_url)
+# Sets the Debian/Ubuntu package mirror URL by rewriting /etc/apt/sources.list
+# Arguments:
+#   mirror_url - Full URL to mirror (e.g., "http://mirror.example.com/debian/")
+# Returns: 0 on success, non-zero on error
+# ============================================================================
+pkg_set_debian_mirror() {
+  _mirror_url="$1"
+
+  pkg_detect_os || return 1
+
+  case "$PKG_OS_TYPE" in
+    debian|ubuntu) ;;
+    *)
+      echo "Warning: pkg_set_debian_mirror only applies to Debian/Ubuntu" >&2
+      return 0
+      ;;
+  esac
+
+  if [ -z "$_mirror_url" ]; then
+    echo "Error: Mirror URL is required" >&2
+    return 1
+  fi
+
+  # Resolve the release codename (trixie, bookworm, jammy, ...) from
+  # /etc/os-release so the rewritten sources.list keeps targeting the same
+  # release the container is on.
+  _codename=""
+  if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    _codename="${VERSION_CODENAME:-}"
+  fi
+  if [ -z "$_codename" ]; then
+    echo "Warning: VERSION_CODENAME not found in /etc/os-release; using 'stable'" >&2
+    _codename="stable"
+  fi
+
+  # Strip trailing slash from mirror URL for consistent concatenation.
+  _mirror_url="${_mirror_url%/}"
+
+  cat > /etc/apt/sources.list <<EOF
+deb ${_mirror_url} ${_codename} main
+deb ${_mirror_url} ${_codename}-updates main
+EOF
+
+  # Many Debian images on PVE 9.1+ keep extra sources under
+  # /etc/apt/sources.list.d/debian.sources (deb822 format) pointing at
+  # deb.debian.org. Disable those so the mirror redirect actually takes
+  # effect — otherwise apt still hits the upstream during update.
+  if [ -d /etc/apt/sources.list.d ]; then
+    for src in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+      [ -e "$src" ] || continue
+      case "$src" in
+        */mirror.*|*proxvex*) continue ;;  # leave operator-managed mirror files alone
+      esac
+      mv "$src" "${src}.bak" 2>/dev/null || true
+    done
+  fi
+
+  echo "Set Debian mirror to: $_mirror_url ($_codename)" >&2
 
   # Force cache update after mirror change
   PKG_CACHE_UPDATED=0
