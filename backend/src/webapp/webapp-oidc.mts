@@ -355,10 +355,17 @@ export function registerOidcRoutes(
       }
 
       try {
-        // Build the full callback URL from request
-        const currentUrl = new URL(
-          `${req.protocol}://${req.get("host")}${req.originalUrl}`,
-        );
+        // Build currentUrl from the configured callback URL + the inbound
+        // query string. req.get("host") is unreliable behind any reverse
+        // proxy that rewrites the Host header (dev: ng-serve with
+        // changeOrigin; prod: nginx default, Cloudflare Tunnel, …). Using
+        // oidcConfig.callbackUrl guarantees the redirect_uri sent in the
+        // token-exchange request matches what the authorize request used —
+        // Zitadel rejects otherwise with invalid_grant "redirect_uri does
+        // not correspond".
+        const queryIdx = req.originalUrl.indexOf("?");
+        const queryString = queryIdx >= 0 ? req.originalUrl.slice(queryIdx) : "";
+        const currentUrl = new URL(oidcConfig.callbackUrl + queryString);
 
         const tokenResponse = await client.authorizationCodeGrant(
           oidcConfig.config,

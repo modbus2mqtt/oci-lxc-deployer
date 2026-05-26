@@ -94,7 +94,17 @@
       "Bash(/Users/volkmar/proxvex-green/production/setup-production.sh)",
       "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 root@pve1.cluster ' *)",
       "Bash(sh -n /Users/volkmar/proxvex-green/production/deploy.sh)",
-      "Bash(sh -n /Users/volkmar/proxvex-green/production/setup-pve-host.sh)"
+      "Bash(sh -n /Users/volkmar/proxvex-green/production/setup-pve-host.sh)",
+      "Bash(echo \"---exit: $?---\")",
+      "Bash(kill 84899)",
+      "Bash(lsof -nP -iTCP:3301 -sTCP:LISTEN)",
+      "Bash(ps -p 53806 -o pid,ppid,etime,command)",
+      "Bash(ps -p 62969 -o pid,ppid,etime,command)",
+      "Bash(kill 53806)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(curl -sk --max-time 10 -o /dev/null -w \"tarball=%{http_code}\\\\nfinal_url=%{url_effective}\\\\n\" \"https://proxvex:3443/api/hub/repositories.tar.gz\")",
+      "Bash(curl -sk --max-time 10 -D - -o /dev/null \"https://proxvex:3443/api/hub/repositories.tar.gz\")",
+      "Bash(kill 72834)"
     ]
   },
   "hooks": {
