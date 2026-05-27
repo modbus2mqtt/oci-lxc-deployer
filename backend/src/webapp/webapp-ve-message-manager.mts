@@ -277,17 +277,26 @@ export class WebAppVeMessageManager {
    * Inject a batch of execution messages adopted from another deployer
    * (clone-cleanup-service uses this after a self-upgrade-via-clone). The
    * messages are placed into the group for (application, task, restartKey),
-   * dedup'd by `index`. Listeners are not notified — the messages are
-   * historical, already terminated when adopted. Used so that the new
-   * deployer-CT can serve `/api/ve/execute?restartKey=<key>` with the full
-   * task history from the clone, letting the test runner / UI see the
-   * finished message after the original deployer was replaced.
+   * dedup'd by `index`.
+   *
+   * When `notifyListeners` is true (default false), each newly-added message
+   * fans out to SSE listeners — required after a CT replacement where the
+   * Frontend reconnects to the new CT and would otherwise only see the
+   * snapshot, never receiving "new" frames for messages that were adopted
+   * just before its reconnect. Listeners are NOT notified for already-known
+   * messages (deduped by index).
+   *
+   * @param notifyListeners default false (backwards-compatible). Pass true
+   *   when adopting clone messages on the post-replace CT so connected
+   *   Frontends see the adopted Stage 1-5 + script messages even if they
+   *   reconnect after `injectMessages` completes.
    */
   injectMessages(
     application: string,
     task: string,
     restartKey: string,
     messages: readonly IVeExecuteMessage[],
+    notifyListeners: boolean = false,
   ): void {
     const group = this.findOrCreateMessageGroup(application, task, restartKey);
     const existingIndices = new Set<number>();
@@ -298,6 +307,9 @@ export class WebAppVeMessageManager {
       if (typeof msg.index === "number" && existingIndices.has(msg.index)) continue;
       group.messages.push(msg);
       if (typeof msg.index === "number") existingIndices.add(msg.index);
+      if (notifyListeners) {
+        this.notifyListeners(msg, application, task);
+      }
     }
     const messageKey = `${application}/${task}`;
     this.messageTimestamps.set(messageKey, Date.now());

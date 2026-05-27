@@ -28,6 +28,7 @@ import type { VeExecution } from "@src/ve-execution/ve-execution.mjs";
 import {
   determineExecutionMode,
   ExecutionMode,
+  getNextMessageIndex,
 } from "@src/ve-execution/ve-execution-constants.mjs";
 import { listManagedContainers } from "@src/services/container-list-service.mjs";
 
@@ -369,15 +370,48 @@ export class WebAppVeRouteHandlers {
           if (this.debugCollector) {
             this.debugCollector.start(outerRestartKey, application, task, outerDebugLevel);
           }
+          // Self-upgrade stages emit Hub-side progress markers into the
+          // outer task stream so the operator (CLI / Frontend SSE) sees
+          // what is happening during the ~1-2 min clone-bring-up phase
+          // BEFORE the mirror starts pulling Clone-side script messages.
+          // Without these emissions there is dead silence from POST-time
+          // to triggerUpgradeViaClone-return (see "first few minutes
+          // no messages" observation).
+          const emitStage = (stage: number, stderr: string): void => {
+            try {
+              this.messageManager.handleExecutionMessage(
+                {
+                  command: `Self-upgrade [${stage}/5]`,
+                  exitCode: 0,
+                  stderr,
+                  result: null,
+                  partial: false,
+                  finished: false,
+                  index: getNextMessageIndex(),
+                  restartKey: outerRestartKey,
+                },
+                application,
+                task,
+                outerRestartKey,
+              );
+            } catch (err: any) {
+              this.logger.warn(`Failed to emit self-upgrade stage ${stage} marker — non-fatal`, { error: err?.message });
+            }
+          };
+
           const clone = await cloneSelfAsTempDeployer(previousVmid, veContextKey, deployerUrl, outerRestartKey);
+          emitStage(1, `Clone CT ${clone.cloneVmid} created from source ${clone.sourceVmid} (hostname=${clone.cloneHostname})`);
           await startClone(clone.cloneVmid, clone.veContextKey, outerRestartKey);
+          emitStage(2, `Clone CT ${clone.cloneVmid} booted`);
           // DHCP-mode clones return an empty cloneIp from the create
           // script — the IP is leased when the CT comes up. Discover it
           // by reading /proc/net/fib_trie from inside the running clone.
           if (!clone.cloneIp) {
             clone.cloneIp = await discoverCloneIp(clone.cloneVmid, clone.veContextKey, 30_000, outerRestartKey);
           }
+          emitStage(3, `Clone IP discovered: ${clone.cloneIp}`);
           await waitForCloneApi(clone.cloneIp);
+          emitStage(4, `Clone API ready at http://${clone.cloneIp}:3080`);
           const result = await triggerUpgradeViaClone(
             clone.cloneIp,
             veContextKey,
@@ -390,6 +424,7 @@ export class WebAppVeRouteHandlers {
             30_000,
             outerRestartKey,
           );
+          emitStage(5, `Upgrade task dispatched to clone (clone-side restartKey=${result.restartKey}); mirroring clone messages from now on`);
           // E.8: outer key IS the unified key. The Hub forwarded it to
           // the Clone in the body.outer_restart_key; the Clone's route
           // handler used it as restartKeyOverride; therefore

@@ -644,6 +644,18 @@ export class WebAppDebugCollector {
         : "sh"
       : "text";
 
+    // When the command processor merged libraries (global VE lib + template
+    // library) before the script body, the marker line separates them. We
+    // detect it and show only the script body — the libraries dominate the
+    // file length (~50-200 lines each) and rarely change between runs.
+    // The body's 1-based line number in the merged content is surfaced so
+    // `set -x` line refs in the trace below stay decodable.
+    const layout = splitScriptFromLibraries(script.redactedScript);
+    const scriptBody = layout ? layout.body : script.redactedScript;
+    const layoutInfo = layout
+      ? `_Merged-content layout: libraries occupy lines 1–${layout.libraryEndLine} (${layout.libraryEndLine} lines, hidden). Script body starts at line ${layout.bodyStartLine} — use this offset when reading \`set -x\` line refs in the trace._`
+      : "";
+
     const machineTrace = traceEvents.map((e) => {
       if (e.source === "logger") {
         return {
@@ -692,8 +704,9 @@ export class WebAppDebugCollector {
       `- [Post-Trace](#post-trace)`,
       ``,
       section("Redacted Script"),
+      ...(layoutInfo ? [layoutInfo, ``] : []),
       "```" + lang,
-      script.redactedScript,
+      scriptBody,
       "```",
       ``,
       section("Trace (chronological)"),
@@ -730,6 +743,60 @@ function slugify(name: string, fallbackIdx: number): string {
 
 function escapeMd(s: string): string {
   return s.replace(/\|/g, "\\|");
+}
+
+/**
+ * Split a merged script (libraries prepended to body via the command
+ * processor) into its layout pieces, so the debug-bundle Markdown can
+ * show just the body and surface the line offset for `set -x` trace
+ * references.
+ *
+ * The command processor's layout (see ve-execution-command-processor.mts
+ * `loadCommandContent`):
+ *
+ *     <globalLib?>\n\n<templateLib?>\n\n# --- Script starts here ---\n<body>
+ *
+ * Or for `command:` (no scriptContent):
+ *
+ *     <globalLib?>\n\n<templateLib?>\n\n# --- Command starts here ---\n<body>
+ *
+ * Returns null when neither marker is present (e.g. no libraries were
+ * prepended, or the merged-content format changed). Callers should fall
+ * back to rendering the full `redactedScript`.
+ */
+function splitScriptFromLibraries(merged: string): {
+  body: string;
+  /** 1-based line number of the last library line (everything 1..N is hidden). */
+  libraryEndLine: number;
+  /** 1-based line number where the script body begins in the merged content. */
+  bodyStartLine: number;
+} | null {
+  const MARKERS = [
+    "# --- Script starts here ---",
+    "# --- Command starts here ---",
+  ];
+  for (const marker of MARKERS) {
+    const idx = merged.indexOf(marker);
+    if (idx < 0) continue;
+    // Count complete lines from the start up to and including the marker
+    // line's trailing newline. `linesUpToMarker` = number of \n in that
+    // slice, which equals the 1-based line number of the marker line.
+    const markerEnd = idx + marker.length;
+    const upTo = merged.slice(0, markerEnd + 1); // include the \n after the marker
+    const linesUpToMarker = (upTo.match(/\n/g) ?? []).length;
+    // libraryEndLine = marker line - 1 - 1 (subtract marker + the blank
+    // separator immediately before it). Clamp at 0 in case the merged form
+    // has no library content at all (shouldn't happen — marker is only
+    // inserted when libraries are present).
+    const libraryEndLine = Math.max(0, linesUpToMarker - 2);
+    const bodyStartLine = linesUpToMarker + 1;
+    const restAfterMarker = merged.slice(markerEnd);
+    const body = restAfterMarker.startsWith("\n")
+      ? restAfterMarker.slice(1)
+      : restAfterMarker;
+    return { body, libraryEndLine, bodyStartLine };
+  }
+  return null;
 }
 
 /**

@@ -1,6 +1,6 @@
 //
 
-import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IVeExecuteMessage, ISingleExecuteMessagesResponse, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, IStacktypesResponse, IStacksResponse, IStackResponse, IStack, IFrameworkApplicationDataBody, ICertificateStatusResponse, IPostCertRenewBody, IPostCertRenewResponse, IPostCaImportBody, ICaInfoResponse, ICertificateStatus, IPostGenerateCertBody, IGenerateCertResponse, IAutoRenewalStatus, ILogRotationStatus, IReplacedCleanupStatus, ILockedContainer, ILockedCleanupResult, IDependencyCheckResponse, IContainerVersionsResponse, IApplicationOverviewResponse, IStackRestorePreviewRequest, IStackRestorePreviewResponse } from '../shared/types';
+import { ApiUri, ISsh, IApplicationsResponse, ISshConfigsResponse, ISshConfigKeyResponse, ISshCheckResponse, IUnresolvedParametersResponse, IDeleteSshConfigResponse, IPostVeConfigurationResponse, IPostVeConfigurationBody, IPostAddonInstallBody, IPostSshConfigResponse, IVeExecuteMessagesResponse, IVeExecuteMessage, IFrameworkNamesResponse, IFrameworkParametersResponse, IPostFrameworkCreateApplicationBody, IPostFrameworkCreateApplicationResponse, IPostFrameworkFromImageBody, IPostFrameworkFromImageResponse, IApplicationFrameworkDataResponse, IInstallationsResponse, IVeConfigurationResponse, ITemplateProcessorLoadResult, IEnumValuesResponse, IPostEnumValuesBody, ITagsConfigResponse, ICompatibleAddonsResponse, IStacktypesResponse, IStacksResponse, IStackResponse, IStack, IFrameworkApplicationDataBody, ICertificateStatusResponse, IPostCertRenewBody, IPostCertRenewResponse, IPostCaImportBody, ICaInfoResponse, ICertificateStatus, IPostGenerateCertBody, IGenerateCertResponse, IAutoRenewalStatus, ILogRotationStatus, IReplacedCleanupStatus, ILockedContainer, ILockedCleanupResult, IDependencyCheckResponse, IContainerVersionsResponse, IApplicationOverviewResponse, IStackRestorePreviewRequest, IStackRestorePreviewResponse } from '../shared/types';
 import { ICreateStackResponse } from '../shared/types-frontend';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
@@ -273,39 +273,87 @@ export class VeConfigurationService {
 
   /**
    * SSE stream for real-time execution message updates.
-   * Emits 'snapshot' (full state) on connect, then 'message' for each new message.
+   *
+   * Emits 'snapshot' (full state) on connect, then 'message' for each new
+   * message. Auto-reconnects on CLOSED with exponential backoff capped at
+   * 30s — required for self-upgrade/reconfigure flows where the deployer
+   * CT gets replaced mid-task: the old EventSource dies definitively, and
+   * without reconnect the UI would freeze on the last seen state.
+   *
+   * Dedup: consumers see every message that the server emitted, but
+   * subscribers should treat `msg.index` as the canonical identity to
+   * dedup across snapshot/message events and across reconnects (each
+   * reconnect re-emits a snapshot containing already-seen messages).
    */
   streamExecuteMessages(): Observable<
     | { type: 'snapshot'; data: IVeExecuteMessagesResponse }
     | { type: 'message'; data: { application: string; task: string; message: IVeExecuteMessage } }
   > {
     return new Observable(subscriber => {
-      let baseUrl: string;
-      try { baseUrl = this.resolveVeContext(ApiUri.VeExecuteStream); }
-      catch (err) { subscriber.error(err); return; }
-      const eventSource = new EventSource(baseUrl);
+      let eventSource: EventSource | null = null;
+      let closed = false;
+      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+      // Start at 1s, double on each consecutive failure, cap at 30s.
+      let backoffMs = 1000;
 
-      eventSource.addEventListener('snapshot', (event: MessageEvent) => {
-        try {
-          const parsed = JSON.parse(event.data) as IVeExecuteMessagesResponse;
-          subscriber.next({ type: 'snapshot', data: parsed });
-        } catch { /* ignore parse errors */ }
-      });
+      const connect = (): void => {
+        if (closed) return;
+        let baseUrl: string;
+        try { baseUrl = this.resolveVeContext(ApiUri.VeExecuteStream); }
+        catch (err) { subscriber.error(err); return; }
+        eventSource = new EventSource(baseUrl);
 
-      eventSource.addEventListener('message', (event: MessageEvent) => {
-        try {
-          const parsed = JSON.parse(event.data) as { application: string; task: string; message: IVeExecuteMessage };
-          subscriber.next({ type: 'message', data: parsed });
-        } catch { /* ignore parse errors */ }
-      });
+        eventSource.addEventListener('open', () => {
+          // Successful open — reset backoff so the next failure starts at 1s.
+          backoffMs = 1000;
+        });
 
-      eventSource.onerror = () => {
-        if (eventSource.readyState === EventSource.CLOSED) {
-          subscriber.complete();
-        }
+        eventSource.addEventListener('snapshot', (event: MessageEvent) => {
+          try {
+            const parsed = JSON.parse(event.data) as IVeExecuteMessagesResponse;
+            subscriber.next({ type: 'snapshot', data: parsed });
+          } catch { /* ignore parse errors */ }
+        });
+
+        eventSource.addEventListener('message', (event: MessageEvent) => {
+          try {
+            const parsed = JSON.parse(event.data) as { application: string; task: string; message: IVeExecuteMessage };
+            subscriber.next({ type: 'message', data: parsed });
+          } catch { /* ignore parse errors */ }
+        });
+
+        eventSource.onerror = () => {
+          if (closed) return;
+          if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+            // Server closed the stream (CT replaced, network blip, …).
+            // Schedule reconnect rather than completing the Observable —
+            // the consumer should keep observing the same task across CT
+            // replacement (hostname/IP stay the same after the swap).
+            eventSource.close();
+            eventSource = null;
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              backoffMs = Math.min(backoffMs * 2, 30_000);
+              connect();
+            }, backoffMs);
+          }
+          // For non-CLOSED errors EventSource auto-reconnects internally; no action needed.
+        };
       };
 
-      return () => eventSource.close();
+      connect();
+
+      return () => {
+        closed = true;
+        if (reconnectTimer !== null) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      };
     });
   }
 

@@ -268,7 +268,11 @@ async function pullAndAdoptMessages(
   }
   // E.8: inject under the SAME unified key. `/api/<ve>/ve/execute` on
   // the new CT now lists the same group the Clone was running.
-  mm.injectMessages(group.application, group.task, restartKey, group.messages as never);
+  // notifyListeners=true so a Frontend that reconnected to this new CT
+  // mid-adoption sees adopted messages fan out via SSE (rather than only
+  // catching the on-connect snapshot — which would miss any message
+  // adopted after the reconnect HTTP response was sent).
+  mm.injectMessages(group.application, group.task, restartKey, group.messages as never, true);
   logger.info("Clone messages adopted into local manager", {
     cloneIp,
     restartKey,
