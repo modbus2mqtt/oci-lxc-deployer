@@ -23,6 +23,7 @@
     { "id": "local_https_port", "value": "3443" },
     { "id": "volume_backup", "value": "true" },
     { "id": "ssl_mode", "value": "native" },
+    { "id": "ssl.needs_server_cert", "value": "true" },
     { "id": "ssl.needs_ca_cert", "value": "true" },
     { "id": "mtls.check_file_paths", "value": "/ssl/mtls/modbus2mqtt/cert.pem" },
     { "id": "oidc_redirect_uri", "default": "https://{{hostname}}/api/auth/callback" },
