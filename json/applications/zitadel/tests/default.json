@@ -11,6 +11,10 @@
     {
       "name": "ssl_mode",
       "value": "none"
+    },
+    {
+      "name": "ZITADEL_EXTERNALDOMAIN",
+      "value": "{{ hostname }}"
     }
   ]
 }
