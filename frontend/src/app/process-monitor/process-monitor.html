@@ -2,7 +2,7 @@
 
 @if (messages && messages.length > 0) {
   <mat-accordion [multi]="true">
-    @for (group of messages; track group.application + group.task) {
+    @for (group of messages; track group.restartKey ?? (group.application + group.task)) {
       <mat-expansion-panel [expanded]="shouldBeExpanded(group)">
         <mat-expansion-panel-header>
           <mat-panel-title>
@@ -39,8 +39,8 @@
                   Restart from Beginning
                 </button>
               }
-              <button class="action-btn download-btn" (click)="downloadLogs(group)" title="Download logs as JSON">
-                Download Logs
+              <button class="action-btn download-btn" (click)="downloadDiagnosis(group)" title="Download diagnosis bundle (logs + backend debug bundle) as ZIP">
+                Download Diagnosis
               </button>
             </div>
           </div>
@@ -74,8 +74,8 @@
             } @else {
               <div class="action-buttons">
                 <button class="action-btn" type="button" (click)="close()">Close</button>
-                <button class="action-btn download-btn" (click)="downloadLogs(group)" title="Download logs as JSON">
-                  Download Logs
+                <button class="action-btn download-btn" (click)="downloadDiagnosis(group)" title="Download diagnosis bundle (logs + backend debug bundle) as ZIP">
+                  Download Diagnosis
                 </button>
               </div>
             }

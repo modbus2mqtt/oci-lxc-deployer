@@ -139,6 +139,74 @@ describe("resolveFormDefaults", () => {
     );
   });
 
+  it("addon-mtls scenario: mtls_cns default resolves against app hostname property", () => {
+    // Simulates the actual node-red + addon-mtls reconfigure path. The addon
+    // parameter has the parameter-definitions.json default "{{ hostname }}".
+    // The app pins hostname via properties; resolver should produce a usable
+    // CN before the form ever pre-fills.
+    const addonParams: IParameter[] = [p("mtls_cns", "{{ hostname }}")];
+    const appProperties: IOutputObject[] = [
+      { id: "hostname", default: "node-red" },
+      // Other unrelated properties that should not affect resolution
+      { id: "ssl.needs_ca_cert", value: "true" },
+    ];
+    const result = resolveFormDefaults(
+      addonParams,
+      addonParams,
+      appProperties,
+      undefined,
+    );
+    expect(result[0].default).toBe("node-red");
+  });
+
+  it("addon-oidc scenario: oidc_redirect_uri inherits app property URL template and resolves", () => {
+    // Mimics what the /compatible-addons endpoint now does after merging
+    // application.properties into addon parameter defaults: the addon's
+    // oidc_redirect_uri.default starts as the app's URL template (here
+    // pre-merged into the param, mirroring the route handler's first pass),
+    // then resolveFormDefaults substitutes hostname.
+    const addonParams: IParameter[] = [
+      p("oidc_redirect_uri", "https://{{ hostname }}/auth/strategy/callback"),
+    ];
+    const appProperties: IOutputObject[] = [
+      { id: "hostname", default: "node-red" },
+    ];
+    const result = resolveFormDefaults(
+      addonParams,
+      addonParams,
+      appProperties,
+      undefined,
+    );
+    expect(result[0].default).toBe(
+      "https://node-red/auth/strategy/callback",
+    );
+  });
+
+  it("partial-resolve: hostname known, project_domain_suffix injected at deploy", () => {
+    // node-red has hostname in properties but NOT project_domain_suffix
+    // (that's a veContext-level setting). Resolver substitutes hostname and
+    // preserves the remaining placeholder for the script-side 2-pass resolver
+    // to handle at deploy time.
+    const addonParams: IParameter[] = [
+      p(
+        "oidc_post_logout_uri",
+        "https://{{ hostname }}{{ project_domain_suffix }}",
+      ),
+    ];
+    const appProperties: IOutputObject[] = [
+      { id: "hostname", default: "node-red" },
+    ];
+    const result = resolveFormDefaults(
+      addonParams,
+      addonParams,
+      appProperties,
+      undefined,
+    );
+    expect(result[0].default).toBe(
+      "https://node-red{{ project_domain_suffix }}",
+    );
+  });
+
   it("aborts after 5 iterations on accidental cycle (safety bound)", () => {
     // a → b → a — would loop forever without the bound. Behaviour: leaves
     // the placeholder in place (substitution oscillates, then halts).

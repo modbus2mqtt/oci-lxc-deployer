@@ -5,8 +5,28 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { CommonModule } from '@angular/common';
-import { Subscription } from 'rxjs';
+import { HttpClient } from '@angular/common/http';
+import { Subscription, firstValueFrom } from 'rxjs';
+import JSZip from 'jszip';
 import { IVeExecuteMessagesResponse, ISingleExecuteMessagesResponse, IParameterValue, IVeExecuteMessage, IPlannedStep } from '../../shared/types';
+
+/**
+ * localStorage shape for the cross-redirect diagnosis rescue. One entry per
+ * restartKey; the auto-download cleans up entries on success or after
+ * PENDING_MAX_AGE_MS / PENDING_MAX_ATTEMPTS exhaustion. Surviving entries are
+ * picked up by `tryAutoDownloadPendingDiagnosis` on the next page load.
+ */
+interface IPendingDiagnosisEntry {
+  restartKey: string;
+  application: string;
+  task: string;
+  /** ms-since-epoch when the entry was first written. */
+  timestamp: number;
+  /** Successful HTTP fetch attempts since persisting. Bounded by PENDING_MAX_ATTEMPTS. */
+  attempts: number;
+  /** Set after a successful zip download — entry is removed on the next sweep. */
+  downloaded: boolean;
+}
 import { VeConfigurationService } from '../ve-configuration.service';
 import { StderrDialogComponent } from './stderr-dialog.component';
 import { CommandsTableComponent } from '../shared/components/commands-table/commands-table';
@@ -29,6 +49,7 @@ export class ProcessMonitor implements OnInit, OnDestroy {
   private countdownInterval?: number;
   private initialExpandedState = new Map<string, boolean>();
   private veConfigurationService = inject(VeConfigurationService);
+  private http = inject(HttpClient);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private zone = inject(NgZone);
@@ -52,6 +73,11 @@ export class ProcessMonitor implements OnInit, OnDestroy {
       this.storedVmInstallKeys[state.restartKey] = state.vmInstallKey;
     }
     this.startStreaming();
+    // Self-upgrade rescue: if a previous task on the OLD deployer marked its
+    // diagnosis as "pending" (via persistPendingDiagnosis at completion),
+    // try to fetch it from THIS deployer now. After the redirect the NEW CT
+    // serves the adopted Clone bundle under the same restartKey.
+    this.tryAutoDownloadPendingDiagnosis();
   }
 
   ngOnDestroy(): void {
@@ -220,6 +246,19 @@ export class ProcessMonitor implements OnInit, OnDestroy {
     const anyInProgress = this.messages.some(g => this.isInProgress(g));
     if (!anyInProgress && this.sseSubscription) {
       this.stopStreaming();
+      // On completion: stash each group's restartKey + metadata in
+      // localStorage so a redirect (self-upgrade) doesn't lose the handle
+      // to the diagnosis bundle. Then trigger one immediate download attempt
+      // from THIS deployer — works for normal tasks and for self-upgrade IF
+      // the OUTER's clone-bundle adoption (self-upgrade-orchestrator) has
+      // already landed by the time we get here. On failure (404), the entry
+      // stays pending; ngOnInit after redirect re-tries against the NEW CT.
+      for (const group of this.messages) {
+        if (group.restartKey) {
+          this.persistPendingDiagnosis(group);
+          void this.tryDownloadDiagnosisOnce(group.restartKey, group.application, group.task);
+        }
+      }
       if (!this.redirectUrl) {
         for (const group of this.messages) {
           const finishedMsg = group.messages.find(m => m.finished && m.redirectUrl);
@@ -232,6 +271,137 @@ export class ProcessMonitor implements OnInit, OnDestroy {
           }
         }
       }
+    }
+  }
+
+  // ---- Pending-diagnosis localStorage rescue (cross-redirect download) ----
+
+  private static readonly PENDING_KEY = 'proxvex_pending_diagnosis_v1';
+  private static readonly PENDING_MAX_AGE_MS = 30 * 60_000; // backend retention
+  private static readonly PENDING_MAX_ATTEMPTS = 5;
+  /** restartKeys already probed in THIS page session — prevents the OLD-entry
+   *  404 from spamming the console on every checkAllFinished tick. After a
+   *  hard reload the set is empty and we get one fresh attempt per entry. */
+  private attemptedThisSession = new Set<string>();
+
+  private persistPendingDiagnosis(group: ISingleExecuteMessagesResponse): void {
+    if (!group.restartKey) return;
+    try {
+      const list = this.readPendingList();
+      const without = list.filter(e => e.restartKey !== group.restartKey);
+      without.push({
+        restartKey: group.restartKey,
+        application: group.application,
+        task: group.task,
+        timestamp: Date.now(),
+        attempts: 0,
+        downloaded: false,
+      });
+      // Drop entries older than retention window to keep storage tidy.
+      const fresh = without.filter(
+        e => Date.now() - e.timestamp < ProcessMonitor.PENDING_MAX_AGE_MS,
+      );
+      localStorage.setItem(ProcessMonitor.PENDING_KEY, JSON.stringify(fresh));
+    } catch {
+      // localStorage can throw (quota, private browsing); never block on it.
+    }
+  }
+
+  private readPendingList(): IPendingDiagnosisEntry[] {
+    try {
+      const raw = localStorage.getItem(ProcessMonitor.PENDING_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private writePendingList(list: IPendingDiagnosisEntry[]): void {
+    try {
+      localStorage.setItem(ProcessMonitor.PENDING_KEY, JSON.stringify(list));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private markDownloaded(restartKey: string): void {
+    const list = this.readPendingList().filter(e => e.restartKey !== restartKey);
+    this.writePendingList(list);
+  }
+
+  private incrementAttempt(restartKey: string): void {
+    const list = this.readPendingList();
+    const entry = list.find(e => e.restartKey === restartKey);
+    if (entry) {
+      entry.attempts++;
+      this.writePendingList(list);
+    }
+  }
+
+  /** Try to fetch+download the diagnosis for a known restartKey. No-op on 404. */
+  private async tryDownloadDiagnosisOnce(
+    restartKey: string,
+    application: string,
+    task: string,
+  ): Promise<void> {
+    // De-dupe within the page session: each restartKey gets one attempt per
+    // page-load. Without this, checkAllFinished (fires per SSE batch) re-tries
+    // every group's restartKey on every tick — and stale entries in
+    // this.messages keep producing 404s in the console.
+    if (this.attemptedThisSession.has(restartKey)) return;
+    this.attemptedThisSession.add(restartKey);
+    try {
+      const key = encodeURIComponent(restartKey);
+      const manifest = await firstValueFrom(
+        this.http.get<{ files?: string[] }>(`/api/ve/debug/${key}`),
+      );
+      const files = manifest?.files ?? [];
+      if (files.length === 0) {
+        this.incrementAttempt(restartKey);
+        return;
+      }
+      // Build a synthetic group-like object so downloadDiagnosis can reuse
+      // its zip-building logic. messages/plannedSteps may be missing here
+      // (after a hard redirect the in-memory state is gone) — downloadDiagnosis
+      // tolerates empty arrays in those fields.
+      const matched = this.messages?.find(g => g.restartKey === restartKey);
+      const groupLike = matched ?? {
+        application, task, restartKey,
+        messages: [], plannedSteps: [],
+      } as ISingleExecuteMessagesResponse;
+      await this.downloadDiagnosis(groupLike);
+      this.markDownloaded(restartKey);
+    } catch {
+      // 404 (bundle not ready yet) or network failure — keep entry pending,
+      // bump attempts so we eventually give up.
+      this.incrementAttempt(restartKey);
+    }
+  }
+
+  /** Called from ngOnInit. Walks pending entries, fetches what's ready. */
+  private tryAutoDownloadPendingDiagnosis(): void {
+    const list = this.readPendingList();
+    const now = Date.now();
+    const stale: string[] = [];
+    for (const entry of list) {
+      if (entry.downloaded) { stale.push(entry.restartKey); continue; }
+      if (now - entry.timestamp >= ProcessMonitor.PENDING_MAX_AGE_MS) {
+        stale.push(entry.restartKey);
+        continue;
+      }
+      if (entry.attempts >= ProcessMonitor.PENDING_MAX_ATTEMPTS) {
+        stale.push(entry.restartKey);
+        continue;
+      }
+      void this.tryDownloadDiagnosisOnce(
+        entry.restartKey, entry.application, entry.task,
+      );
+    }
+    if (stale.length > 0) {
+      const remaining = list.filter(e => !stale.includes(e.restartKey));
+      this.writePendingList(remaining);
     }
   }
 
@@ -496,20 +666,88 @@ export class ProcessMonitor implements OnInit, OnDestroy {
     return group.messages.filter(m => m.exitCode === 0 && !m.finished).length;
   }
 
-  downloadLogs(group: ISingleExecuteMessagesResponse): void {
-    const data = {
+  /**
+   * Bundles everything that helps debug a task — execution logs (the previous
+   * downloadLogs payload) plus the backend's debug bundle (same files the
+   * livetest runner pulls into `livetest-results/<runId>/<scenarioId>/`).
+   *
+   * The backend bundle is fetched via `GET /api/ve/debug/<restartKey>` (lists
+   * files) and `GET /api/ve/debug/<restartKey>/<file>` (file content). It's
+   * only populated when the task ran with `debug_level != "off"` — UI-
+   * triggered runs default to `extLog` in the route handler, so the bundle
+   * is usually available. Bundle is in-memory on the backend with a 30-min
+   * retention; expect 404s on older runs.
+   *
+   * Output is a zip:
+   *   logs.json           — execution log (same shape as the old export)
+   *   README.txt          — short note + status of the backend bundle fetch
+   *   debug/<files…>      — backend debug bundle (when available)
+   */
+  async downloadDiagnosis(group: ISingleExecuteMessagesResponse): Promise<void> {
+    const logsBlob = {
       application: group.application,
       task: group.task,
       exportedAt: new Date().toISOString(),
       status: this.hasError(group) ? 'error' : 'success',
+      restartKey: group.restartKey,
+      vmInstallKey: group.vmInstallKey,
       plannedSteps: group.plannedSteps ?? [],
       messages: group.messages,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+
+    const zip = new JSZip();
+    zip.file('logs.json', JSON.stringify(logsBlob, null, 2));
+
+    let bundleNote: string;
+    let bundleFileCount = 0;
+    if (group.restartKey) {
+      try {
+        const key = encodeURIComponent(group.restartKey);
+        const manifest = await firstValueFrom(
+          this.http.get<{ files?: string[] }>(`/api/ve/debug/${key}`)
+        );
+        const files = manifest?.files ?? [];
+        for (const file of files) {
+          try {
+            const content = await firstValueFrom(
+              this.http.get(`/api/ve/debug/${key}/${file}`, {
+                responseType: 'text',
+              })
+            );
+            zip.file(`debug/${file}`, content);
+            bundleFileCount++;
+          } catch {
+            // Skip individual file failures — keep what we have so the user
+            // still gets a partial bundle rather than a hard failure.
+          }
+        }
+        bundleNote = bundleFileCount > 0
+          ? `Backend debug bundle: ${bundleFileCount} file(s) included under debug/.\nStart at debug/index.md for the per-script trace.`
+          : 'Backend debug bundle was empty (debug_level=off or bundle expired).';
+      } catch {
+        bundleNote = 'Backend debug bundle unavailable — debug_level was off, or the 30-min retention window expired.';
+      }
+    } else {
+      bundleNote = 'No restartKey on this task — backend debug bundle skipped.';
+    }
+    zip.file('README.txt',
+      `Diagnosis bundle\n` +
+      `================\n` +
+      `Application : ${group.application}\n` +
+      `Task        : ${group.task}\n` +
+      `Status      : ${this.hasError(group) ? 'error' : 'success'}\n` +
+      `Exported at : ${new Date().toISOString()}\n` +
+      `RestartKey  : ${group.restartKey ?? '—'}\n\n` +
+      `Contents:\n` +
+      `  logs.json       — execution log (commands + stdout/stderr per step)\n` +
+      `  debug/          — backend debug bundle (when available)\n\n` +
+      bundleNote + '\n');
+
+    const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${group.application}-${group.task}-logs.json`;
+    a.download = `${group.application}-${group.task}-diagnosis.zip`;
     a.click();
     URL.revokeObjectURL(url);
   }

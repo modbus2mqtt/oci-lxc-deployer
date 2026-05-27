@@ -585,6 +585,25 @@ export async function mirrorCloneTaskMessages(opts: {
           messageCount: group.messages.length,
           durationMs: Date.now() - startedAt,
         });
+        // Best-effort: pull the Clone's debug bundle into the OUTER's own
+        // collector before SIGTERM lands. Gives the still-connected browser
+        // a small window (between this point and OUTER shutdown) to fetch
+        // the full diagnosis via `/api/ve/debug/<restartKey>` from this
+        // OUTER — without having to wait the ~9 min until the NEW CT is up
+        // and clone-cleanup-service.finalizeCloneCleanupIfPending runs the
+        // primary adoption. Failures are logged but do not block: the NEW
+        // CT will still adopt the bundle on its first boot.
+        try {
+          const { pullAndAdoptBundle } = await import(
+            "./clone-cleanup-service.mjs"
+          );
+          await pullAndAdoptBundle(cloneIp, restartKey);
+        } catch (err: any) {
+          logger.warn(
+            "OUTER-side clone-bundle adoption failed (NEW CT will adopt at boot)",
+            { restartKey, error: err?.message },
+          );
+        }
         return;
       }
     }
