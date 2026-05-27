@@ -2,7 +2,7 @@
   "execute_on": "ve",
   "name": "Map Serial Device",
   "description": "Map serial device to VM",
-  "implements": "serial_tty",
+  "reconfigurable": true,
   "skip_if_all_missing": [
     "host_device_path"
   ],

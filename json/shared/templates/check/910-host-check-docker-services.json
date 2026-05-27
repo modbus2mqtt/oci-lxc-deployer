@@ -2,7 +2,6 @@
   "execute_on": "ve",
   "name": "Check Docker Services",
   "description": "Checks all Docker services are running and healthy inside the container. Waits for healthchecks to pass.",
-  "implements": "docker",
   "parameters": [
     "startup_timeout"
   ],

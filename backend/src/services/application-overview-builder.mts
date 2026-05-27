@@ -388,8 +388,6 @@ export class ApplicationOverviewBuilder {
           skipReason = `skip_if_all_missing: [${tmplData.skip_if_all_missing.join(", ")}]`;
         } else if (tmplData?.skip_if_property_set) {
           skipReason = `skip_if_property_set: ${tmplData.skip_if_property_set}`;
-        } else if (tmplData?.implements) {
-          skipReason = `implements: ${tmplData.implements} (not supported)`;
         }
       }
 
@@ -457,7 +455,6 @@ export class ApplicationOverviewBuilder {
         skipReason,
         skipIfAllMissing: tmplData?.skip_if_all_missing,
         skipIfPropertySet: tmplData?.skip_if_property_set,
-        implements: tmplData?.implements,
         scriptName,
         scriptPath,
         scriptOrigin,

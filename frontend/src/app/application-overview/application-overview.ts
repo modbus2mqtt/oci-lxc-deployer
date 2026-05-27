@@ -225,7 +225,6 @@ export class ApplicationOverview implements OnInit {
     if (t.skipped && t.skipReason) d.push({ label: 'Skip reason', value: t.skipReason, type: 'warn' });
     if (t.skipIfAllMissing?.length && !t.skipped) d.push({ label: 'Conditional', value: 'skip_if_all_missing: ' + t.skipIfAllMissing.join(', ') });
     if (t.skipIfPropertySet && !t.skipped) d.push({ label: 'Conditional', value: 'skip_if_property_set: ' + t.skipIfPropertySet });
-    if (t.implements) d.push({ label: 'Implements', value: t.implements });
     if (t.outputs.length > 0) d.push({ label: 'Outputs', value: t.outputs.join(', ') });
     if (t.parameters.length > 0) d.push({ label: 'Parameters', value: t.parameters.join(', ') });
     return d;

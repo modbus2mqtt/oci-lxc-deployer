@@ -224,14 +224,6 @@ export class TemplateProcessor extends EventEmitter {
       }
     }
 
-    // Build applicationFlags from supports array for implements checks
-    const applicationFlags: Record<string, boolean> = {};
-    if (application?.supports) {
-      for (const flag of application.supports) {
-        applicationFlags[flag] = true;
-      }
-    }
-
     for (const tmpl of templates) {
       const templateCategory = this.resolver.extractTemplateCategory(tmpl);
       let ptOpts: IProcessTemplateOpts = {
@@ -258,7 +250,6 @@ export class TemplateProcessor extends EventEmitter {
         outputSources,
         templateCategory,
         pendingPropertyDefaults,
-        applicationFlags,
       };
       if (veContext !== undefined) {
         ptOpts.veContext = veContext;
@@ -503,14 +494,6 @@ export class TemplateProcessor extends EventEmitter {
           `Template "${this.resolver.extractTemplateName(opts.template)}" has executable commands (script, command, or template) but is missing required "execute_on" property.`,
         ),
       );
-    }
-
-    // implements: if template declares a feature flag, check if application supports it.
-    // Silently excluded — not tracked, not shown, not skipped.
-    if (tmplData.implements) {
-      if (!opts.applicationFlags?.[tmplData.implements]) {
-        return;
-      }
     }
 
     // Check if template should be skipped due to missing parameters

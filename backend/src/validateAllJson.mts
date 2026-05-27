@@ -730,6 +730,82 @@ export async function validateAllJson(localPathArg?: string): Promise<void> {
     console.log(`✔ persists_container_state coherence`);
   }
 
+  // === 7. Validate reconfigurable coherence ===
+  // Templates marked `reconfigurable: true` implement a hardware/LXC action
+  // (USB passthrough, idmap, …) tied to user-visible parameters. They must
+  // run on reconfigure too — otherwise changing such a parameter silently
+  // does nothing because the clone keeps the old device wiring. The rule:
+  // if an application's own installation block references a reconfigurable
+  // template, its own reconfigure block must reference it as well.
+  type ReconfigurableError = { app: string; template: string };
+  const reconfigurableErrors: ReconfigurableError[] = [];
+
+  const reconfigurableTemplates = new Set<string>();
+  for (const { ref, data } of repositories.listAllTemplates()) {
+    if (data.reconfigurable === true) {
+      const name = ref.name.endsWith(".json") ? ref.name : `${ref.name}.json`;
+      reconfigurableTemplates.add(name);
+    }
+  }
+
+  if (reconfigurableTemplates.size > 0) {
+    const extractRefs = (node: unknown, acc: Set<string>): void => {
+      if (typeof node === "string") {
+        if (node.endsWith(".json")) acc.add(path.basename(node));
+      } else if (Array.isArray(node)) {
+        for (const item of node) extractRefs(item, acc);
+      } else if (node && typeof node === "object") {
+        const obj = node as { name?: unknown };
+        if (typeof obj.name === "string" && obj.name.endsWith(".json")) {
+          acc.add(path.basename(obj.name));
+        }
+        for (const v of Object.values(node as Record<string, unknown>)) extractRefs(v, acc);
+      }
+    };
+
+    const persistence = pm.getPersistence();
+    for (const app of apps) {
+      let appData: Record<string, unknown>;
+      try {
+        appData = persistence.readApplicationFile(app.id) as unknown as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(appData, "installation")) continue;
+      const installationRefs = new Set<string>();
+      extractRefs(appData.installation, installationRefs);
+      const usedReconfigurable = Array.from(installationRefs).filter((r) =>
+        reconfigurableTemplates.has(r),
+      );
+      if (usedReconfigurable.length === 0) continue;
+
+      const reconfigureRefs = new Set<string>();
+      if (Object.prototype.hasOwnProperty.call(appData, "reconfigure")) {
+        extractRefs(appData.reconfigure, reconfigureRefs);
+      }
+      for (const m of usedReconfigurable) {
+        if (!reconfigureRefs.has(m)) {
+          reconfigurableErrors.push({ app: app.id, template: m });
+        }
+      }
+    }
+  }
+
+  if (reconfigurableErrors.length > 0) {
+    hasError = true;
+    console.error(
+      `✖ reconfigurable coherence (${reconfigurableErrors.length} issue(s))`,
+    );
+    for (const e of reconfigurableErrors) {
+      console.error(
+        `  ✖ ${e.app}: ${e.template} is reconfigurable, referenced in installation but missing from reconfigure`,
+      );
+    }
+  } else {
+    console.log(`✔ reconfigurable coherence`);
+  }
+
   // === Summary ===
   console.log("");
   if (hasError) {

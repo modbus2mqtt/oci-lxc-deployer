@@ -124,11 +124,6 @@
     "reconfigure": {
       "$ref": "categorized-templatelist"
     },
-    "supports": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Feature flags this application supports (e.g. 'serial_tty', 'docker'). Merged with parent via extends. Templates with 'implements' are only included when the application has the matching value."
-    },
     "check": {
       "$ref": "categorized-templatelist"
     },
