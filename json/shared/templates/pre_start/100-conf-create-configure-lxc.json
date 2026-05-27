@@ -23,7 +23,10 @@
     "searchdomain",
     "startup_order",
     "startup_up",
-    "startup_down"
+    "startup_down",
+    "mapped_uid",
+    "mapped_gid",
+    "permission_fix_paths"
   ],
   "commands": [
     {
@@ -42,6 +45,10 @@
       "name": "Setup GID mapping",
       "script": "conf-setup-lxc-gid-mapping.py",
       "library": "setup_lxc_idmap_common.py"
+    },
+    {
+      "name": "Fix Rootfs Permissions",
+      "script": "conf-fix-permissions.sh"
     },
     {
       "name": "Set Static IP for LXC",
