@@ -166,6 +166,15 @@ export class VeConfigurationService {
   postVeConfiguration(application: string, task: string, params: VeConfigurationParam[], changedParams?: VeConfigurationParam[], selectedAddons?: string[], disabledAddons?: string[], stackIds?: string[], installedAddons?: string[]): Observable<{ success: boolean; restartKey?: string; vmInstallKey?: string }> {
     const url = ApiUri.VeConfiguration
       .replace(':application', encodeURIComponent(application));
+    // Ensure a debug bundle is collected for every UI-triggered task so the
+    // "Download Diagnosis" button on the process-monitor has something to
+    // pull. Backend's readDebugLevelFromInputs defaults to "off"; we override
+    // here so the auto-download path is always armed. CLI/livetest set this
+    // explicitly themselves, so they're unaffected. Users can still override
+    // with a higher level by passing debug_level in params (e.g. "script").
+    if (!params.some(p => p.name === 'debug_level')) {
+      params = [...params, { name: 'debug_level', value: 'extLog' }];
+    }
     const body: IPostVeConfigurationBody = { task, params };
     if (changedParams && changedParams.length > 0) {
       body.changedParams = changedParams;

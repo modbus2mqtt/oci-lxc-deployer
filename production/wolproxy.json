@@ -3,9 +3,8 @@
   "task": "installation",
   "params": [
     { "name": "vm_id_start", "value": 610 },
-    { "name": "acme_san", "value": "wolproxy.ohnewarum.de" },
     { "name": "bearer_audience", "value": "wolproxy-api" }
   ],
-  "selectedAddons": ["addon-oauth2-proxy", "addon-ssl", "addon-acme"],
-  "stackIds": ["cloudflare_production"]
+  "selectedAddons": ["addon-oauth2-proxy", "addon-ssl"],
+  "stackIds": ["oidc_production"]
 }

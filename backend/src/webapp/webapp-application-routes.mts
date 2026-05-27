@@ -394,15 +394,37 @@ export function registerApplicationRoutes(
       // backend (e.g. signClientCert) chokes on the unresolved placeholder.
       // Same fix as in TemplateProcessor.getUnresolvedParameters; addons go
       // through a different endpoint and need the resolver applied here.
+      //
+      // First merge any application-property override (per-app default for an
+      // addon parameter, e.g. node-red pins `oidc_redirect_uri` to a hostname-
+      // based URL via `properties[]`) into the addon parameter's default —
+      // otherwise the resolver has nothing to substitute into (the parameter-
+      // definition itself often has no `default`), and the frontend's own
+      // merge-on-the-fly would re-introduce the literal template at form
+      // pre-fill time.
       for (const addon of compatibleAddons) {
-        if (addon.parameters?.length) {
-          addon.parameters = resolveFormDefaults(
-            addon.parameters,
-            [...(application.parameters ?? []), ...addon.parameters],
-            application.properties,
-            undefined,
-          );
+        if (!addon.parameters?.length) continue;
+        for (const param of addon.parameters) {
+          const appProp = application.properties?.find((pr) => pr.id === param.id);
+          if (!appProp) continue;
+          if (
+            appProp.value !== undefined &&
+            !Array.isArray(appProp.value) &&
+            (typeof appProp.value === "string" ||
+              typeof appProp.value === "number" ||
+              typeof appProp.value === "boolean")
+          ) {
+            param.default = appProp.value;
+          } else if (appProp.default !== undefined) {
+            param.default = appProp.default;
+          }
         }
+        addon.parameters = resolveFormDefaults(
+          addon.parameters,
+          [...(application.parameters ?? []), ...addon.parameters],
+          application.properties,
+          undefined,
+        );
       }
 
       // Per-application addon notice: if the app's application.md has a

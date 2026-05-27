@@ -126,7 +126,24 @@ export async function finalizeCloneCleanupIfPending(localPath: string): Promise<
   }
 }
 
-async function pullAndAdoptBundle(cloneIp: string, restartKey: string): Promise<void> {
+/**
+ * Pulls a debug bundle from a clone deployer at `http://${cloneIp}:3080` and
+ * injects it into the local DebugCollector under the same `restartKey`.
+ *
+ * Called from two places:
+ *   1. `finalizeCloneCleanupIfPending` on the NEW CT's first boot — adopts the
+ *      bundle into the post-upgrade deployer so the operator can pull it via
+ *      `GET /api/ve/debug/<restartKey>` after the redirect lands.
+ *   2. `mirrorCloneTaskMessages` on the OUTER deployer the moment the Clone
+ *      reports "finished" — adopts the bundle BEFORE the OUTER shuts down,
+ *      giving the operator's still-connected browser a ~6 s window to pull
+ *      the diagnosis via the OUTER's `/api/ve/debug/...` route. This is the
+ *      "redundant rescue" path; (1) is still the primary canonical adoption.
+ *
+ * Returns silently on 404 / empty manifest / network failure — bundle adoption
+ * is best-effort and must never block the upgrade flow itself.
+ */
+export async function pullAndAdoptBundle(cloneIp: string, restartKey: string): Promise<void> {
   const port = 3080;
   // Fetch the manifest using the unified restartKey.
   const manifest = await httpGetJson<{ files?: string[] }>(
