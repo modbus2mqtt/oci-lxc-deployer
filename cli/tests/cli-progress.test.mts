@@ -124,4 +124,53 @@ describe("CliProgress", () => {
     expect(result.success).toBe(true);
     expect(mockClient.getExecuteMessages).toHaveBeenCalledTimes(3);
   });
+
+  it("should surface fetch failures on stderr including reason and retry count", async () => {
+    mockClient.getExecuteMessages
+      .mockRejectedValueOnce(new Error("ECONNREFUSED 192.168.4.24:1080"))
+      .mockResolvedValueOnce([
+        {
+          messages: [
+            { command: "step1", commandtext: "Step 1", exitCode: 0, finished: true, vmId: 1 },
+          ],
+        },
+      ]);
+
+    const stderrWrite = vi.mocked(process.stderr.write);
+    stderrWrite.mockClear();
+
+    const progress = createProgress({ timeout: 30 });
+    await progress.poll();
+
+    const stderrOutput = stderrWrite.mock.calls
+      .map((call) => String(call[0]))
+      .join("");
+    expect(stderrOutput).toContain("Hub not responding");
+    expect(stderrOutput).toContain("ECONNREFUSED");
+    expect(stderrOutput).toMatch(/retry 1\/\d+/);
+  });
+
+  it("should emit a heartbeat after the configured silent interval", async () => {
+    // Resolve every poll with an empty message list — the inner loop
+    // never finds a `finished: true` message, so heartbeat path fires
+    // until the test-level timeout (5 s) trips and TimeoutError throws.
+    mockClient.getExecuteMessages.mockResolvedValue([{ messages: [] }]);
+
+    const stderrWrite = vi.mocked(process.stderr.write);
+    stderrWrite.mockClear();
+
+    const progress = new CliProgress(
+      mockClient as unknown as CliApiClient,
+      "ve_pve1",
+      { quiet: false, json: false, timeout: 5, heartbeatIntervalMs: 1 },
+    );
+
+    await expect(progress.poll()).rejects.toThrow(TimeoutError);
+
+    const stderrOutput = stderrWrite.mock.calls
+      .map((call) => String(call[0]))
+      .join("");
+    expect(stderrOutput).toContain("Still polling");
+    expect(stderrOutput).toMatch(/no progress for \d+s/);
+  });
 });
