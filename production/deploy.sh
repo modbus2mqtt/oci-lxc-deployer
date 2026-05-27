@@ -95,10 +95,31 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Auto-detect: HTTPS (port 3443) or HTTP (port 3080)
-if curl -sk --connect-timeout 3 "https://${DEPLOYER_HOST}:3443/api/applications" >/dev/null 2>&1; then
-  SERVER="https://${DEPLOYER_HOST}:3443"
-else
+# Auto-detect: prefer HTTPS (port 3443), fall back to HTTP (port 3080) only
+# when there is NO HTTPS listener at all — that's the early-bootstrap phase
+# before Zitadel and addon-ssl have been deployed. Once HTTPS exists, sticking
+# with 3080 would silently route every POST through the 301-redirect-only
+# listener (the proxvex CLI does not follow POST 301s → `HTTP 000`), which
+# was the bug we hit when a transient TLS-handshake glitch made the old
+# 3-second curl probe drop straight into the fallback. Use `%{http_code}`
+# to distinguish "no response at all" (code=000) from "reachable but
+# unauthenticated" (code=401), and retry on transient failures.
+SERVER=""
+for attempt in 1 2 3; do
+  status=$(curl -sk --connect-timeout 10 -o /dev/null -w "%{http_code}" \
+    "https://${DEPLOYER_HOST}:3443/api/applications" 2>/dev/null)
+  if [ -n "$status" ] && [ "$status" != "000" ]; then
+    SERVER="https://${DEPLOYER_HOST}:3443"
+    break
+  fi
+  if [ $attempt -lt 3 ]; then
+    echo "  HTTPS probe attempt ${attempt}/3 returned code=${status:-EMPTY}; retrying..." >&2
+    sleep 2
+  fi
+done
+if [ -z "$SERVER" ]; then
+  # No HTTPS listener after 3 attempts → bootstrap phase (pre-Zitadel/SSL).
+  # HTTP :3080 is the actual deployer, not a redirect yet, at this stage.
   SERVER="http://${DEPLOYER_HOST}:3080"
 fi
 echo "Using deployer at ${SERVER}"
