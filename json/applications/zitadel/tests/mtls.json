@@ -11,6 +11,10 @@
     {
       "name": "mtls_cns",
       "value": "zitadel\npostgres"
+    },
+    {
+      "name": "ZITADEL_EXTERNALDOMAIN",
+      "value": "{{ hostname }}"
     }
   ],
   "cleanup": {
