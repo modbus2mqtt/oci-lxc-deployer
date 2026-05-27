@@ -520,6 +520,15 @@ export async function mirrorCloneTaskMessages(opts: {
   const startedAt = Date.now();
   let seenIndices = new Set<number>();
   let consecutiveErrors = 0;
+  // Hub emitted its own Stage 1-5 markers before the mirror started.
+  // Those markers consumed indices 0..N on the Hub's group. The Clone's
+  // pipeline starts indexing from 0 too — without an offset, every Clone
+  // message would collide with a Hub stage marker (handleFinalMessage
+  // merges by index → Clone msg overwrites Stage marker, or vice versa).
+  // We compute the offset once on the first batch by looking at the
+  // current max-index in the Hub-side group and adding 1. Set to null
+  // until established so the first batch wins regardless of arrival order.
+  let cloneIndexOffset: number | null = null;
 
   logger.info("Mirroring clone task messages", { cloneIp, veContextKey, application, task, restartKey });
 
@@ -554,16 +563,51 @@ export async function mirrorCloneTaskMessages(opts: {
 
     const group = groups.find((g) => g.restartKey === restartKey);
     if (group) {
+      // Establish the offset once, lazily, from the Hub-side group's
+      // current max index. Done here (after we know the Clone is alive
+      // and has at least one message) so we capture every Stage marker
+      // emitted by the route handler before the mirror started.
+      if (cloneIndexOffset === null && group.messages.length > 0) {
+        const hubGroup = messageManager.messages.find(
+          (g) =>
+            g.application === application &&
+            g.task === task &&
+            g.restartKey === restartKey,
+        );
+        const hubMax = hubGroup
+          ? Math.max(
+              -1,
+              ...hubGroup.messages.map((m) =>
+                typeof m.index === "number" ? m.index : -1,
+              ),
+            )
+          : -1;
+        cloneIndexOffset = hubMax + 1;
+        logger.info("Clone-message index offset established", {
+          restartKey,
+          cloneIndexOffset,
+          hubMax,
+        });
+      }
       for (const msg of group.messages) {
-        // Dedupe by index — re-polling returns already-seen messages.
+        // Dedupe by Clone-side index — re-polling returns already-seen
+        // messages. seenIndices tracks Clone-side indices, NOT the
+        // remapped Hub-side ones.
         const idx = msg.index;
         if (typeof idx === "number") {
           if (seenIndices.has(idx)) continue;
           seenIndices.add(idx);
         }
+        // Remap Clone-side index to the Hub-side index space by adding
+        // the offset captured above. Messages without an index pass
+        // through unchanged.
+        const remapped: IVeExecuteMessage =
+          typeof idx === "number" && cloneIndexOffset !== null
+            ? { ...(msg as IVeExecuteMessage), index: idx + cloneIndexOffset }
+            : (msg as IVeExecuteMessage);
         try {
           messageManager.handleExecutionMessage(
-            msg as IVeExecuteMessage,
+            remapped,
             application,
             task,
             restartKey,
