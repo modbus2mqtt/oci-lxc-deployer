@@ -4,8 +4,6 @@
   "commands": [
     {
       "properties": [
-        { "id": "vm_id_start", "default": "100" },
-        { "id": "oidc_issuer_url", "default": "" },
         { "id": "acme_san", "default": "" },
         { "id": "alpine_mirror", "value": "https://mirror1.hs-esslingen.de/Mirrors/alpine" },
         { "id": "debian_mirror", "value": "http://mirror.23m.com/debian/" },
