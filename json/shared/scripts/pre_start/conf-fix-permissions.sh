@@ -78,7 +78,25 @@ if [ -z "$ROOTFS_PATH" ] || [ ! -d "$ROOTFS_PATH" ]; then
     exit 1
 fi
 
-echo "fix-permissions: vm_id=$VMID rootfs=$ROOTFS_PATH container_uid=$CONTAINER_UID gid=$CONTAINER_GID -> mapped_uid=$MAPPED_UID:$TARGET_GID paths='$FIX_PATHS'" >&2
+# pct create extracts an unprivileged container's OCI image with the subuid
+# shift applied: image-uid 0 → host-uid STANDARD_START (100000), image-uid N
+# → host-uid STANDARD_START + N. So a Dockerfile that did `chown -R 1000:1000
+# /home/app` lands on the host as /home/app owned by 101000:101000.
+# The idmap then either passes through that container-uid (passthrough: host
+# 1000 ↔ container 1000) or keeps it shifted (host 101000 ↔ container 1001).
+# In the passthrough case, the in-rootfs file ownership disagrees with the
+# active mapping → the running container-process at uid 1000 sees the file
+# as owned by uid 1001 and write attempts fail.
+# Fix: also chown the files that landed at the shifted uid back to the host
+# side mapped_uid.
+STANDARD_START=100000
+EXTRACT_UID=$((STANDARD_START + CONTAINER_UID))
+EXTRACT_GID=""
+if [ -n "$CONTAINER_GID" ] && [ "$CONTAINER_GID" != "NOT_DEFINED" ] && [ "$CONTAINER_GID" != "0" ]; then
+    EXTRACT_GID=$((STANDARD_START + CONTAINER_GID))
+fi
+
+echo "fix-permissions: vm_id=$VMID rootfs=$ROOTFS_PATH container_uid=$CONTAINER_UID(extract=$EXTRACT_UID) gid=$CONTAINER_GID(extract=$EXTRACT_GID) -> mapped_uid=$MAPPED_UID:$TARGET_GID paths='$FIX_PATHS'" >&2
 
 # IFS=space so we split FIX_PATHS on spaces (template variable comes as one
 # string).
@@ -95,16 +113,21 @@ for path in "$@"; do
         echo "fix-permissions: skipping non-existent $full" >&2
         continue
     fi
-    # Pass 1: any file currently owned by the container-side uid → fix to mapped_uid:mapped_gid.
+    # Pass 1: files currently at the raw container-side uid (unshifted extract
+    # or already-fixed-but-need-remap state).
     n_uid=$(find "$full" -uid "$CONTAINER_UID" -exec chown "$MAPPED_UID:$TARGET_GID" {} + -print 2>/dev/null | wc -l | tr -d ' ')
-    echo "fix-permissions: chowned $n_uid entries (uid=$CONTAINER_UID) under $full -> $MAPPED_UID:$TARGET_GID" >&2
+    # Pass 2: files at the subuid-shifted uid (pct create with subuid shift —
+    # the common case for unprivileged containers carrying a Dockerfile chown).
+    n_uid_ext=$(find "$full" -uid "$EXTRACT_UID" -exec chown "$MAPPED_UID:$TARGET_GID" {} + -print 2>/dev/null | wc -l | tr -d ' ')
+    echo "fix-permissions: chowned $n_uid (uid=$CONTAINER_UID) + $n_uid_ext (uid=$EXTRACT_UID) under $full -> $MAPPED_UID:$TARGET_GID" >&2
 
-    # Pass 2: file is group-owned by container-side gid but NOT uid-matched
-    # (e.g. files chgrp'd to the app group without chown to the app user).
+    # Pass 3+4: gid-only matches (file group-owned by app gid but uid is e.g.
+    # root/system). Only meaningful when gid differs from uid.
     if [ -n "$CONTAINER_GID" ] && [ "$CONTAINER_GID" != "$CONTAINER_UID" ] \
        && [ "$CONTAINER_GID" != "NOT_DEFINED" ] && [ "$CONTAINER_GID" != "0" ]; then
-        n_gid=$(find "$full" -gid "$CONTAINER_GID" ! -uid "$CONTAINER_UID" -exec chgrp "$TARGET_GID" {} + -print 2>/dev/null | wc -l | tr -d ' ')
-        echo "fix-permissions: chgrped $n_gid additional entries (gid=$CONTAINER_GID, uid != $CONTAINER_UID) under $full -> :$TARGET_GID" >&2
+        n_gid=$(find "$full" -gid "$CONTAINER_GID" ! -uid "$CONTAINER_UID" ! -uid "$EXTRACT_UID" -exec chgrp "$TARGET_GID" {} + -print 2>/dev/null | wc -l | tr -d ' ')
+        n_gid_ext=$(find "$full" -gid "$EXTRACT_GID" ! -uid "$CONTAINER_UID" ! -uid "$EXTRACT_UID" -exec chgrp "$TARGET_GID" {} + -print 2>/dev/null | wc -l | tr -d ' ')
+        echo "fix-permissions: chgrped $n_gid (gid=$CONTAINER_GID) + $n_gid_ext (gid=$EXTRACT_GID) under $full -> :$TARGET_GID" >&2
     fi
 done
 

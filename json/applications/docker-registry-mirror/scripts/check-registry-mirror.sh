@@ -33,10 +33,21 @@ fi
 
 MIRROR_IP=""
 if [ -n "$VMID" ]; then
+  # Try static IP from pct config first.
   MIRROR_IP=$(pct config "$VMID" 2>/dev/null \
     | sed -nE 's/^net0:.*[ ,]ip=([0-9.]+)\/[0-9]+.*$/\1/p' | head -1)
   if [ -z "$MIRROR_IP" ]; then
-    add_error "LXC: VMID $VMID has no static IPv4 in net0 — cannot probe directly"
+    # DHCP fallback: query the running container's runtime IP.
+    MIRROR_IP=$(pct exec "$VMID" -- ip -4 -o addr show eth0 2>/dev/null \
+      | awk '{print $4}' | cut -d/ -f1 | head -1)
+  fi
+  if [ -z "$MIRROR_IP" ]; then
+    # Last fallback: dnsmasq lease file on the nested VM (host-managed=1 NAT
+    # bridge writes leases here keyed by hostname).
+    MIRROR_IP=$(awk -v h="$MIRROR_HOST" '$4==h {print $3; exit}' /var/lib/misc/dnsmasq.leases 2>/dev/null)
+  fi
+  if [ -z "$MIRROR_IP" ]; then
+    add_error "LXC: VMID $VMID has no resolvable IPv4 — neither static (pct config) nor DHCP (pct exec / dnsmasq.leases)"
   else
     echo "LXC: ${MIRROR_HOST} = VMID ${VMID} @ ${MIRROR_IP}" >&2
   fi
