@@ -10,6 +10,7 @@
       "subnet": "10.99.1",
       "bridge": "vmbr1",
       "filesystem": "zfs",
+      "deployerPort": "3201",
       "snapshot": {
         "enabled": true
       },
@@ -45,7 +46,7 @@
       "bridge": "vmbr3",
       "filesystem": "zfs",
       "deployerHost": "localhost",
-      "deployerPort": "${DEPLOYER_PORT:-3301}",
+      "deployerPort": "3301",
       "snapshot": {
         "enabled": true
       },
@@ -61,7 +62,7 @@
           "port": 2808,
           "hostname": "zitadel-default",
           "ip": "10.0.0.226",
-          "containerPort": 1443
+          "containerPort": 8080
         },
         {
           "port": 2810,

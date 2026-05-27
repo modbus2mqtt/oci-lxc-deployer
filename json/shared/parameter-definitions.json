@@ -814,6 +814,14 @@
       "required": true,
       "group": "Application"
     },
+    "permission_fix_paths": {
+      "name": "Paths to fix permissions for after pct create + idmap",
+      "type": "string",
+      "default": "/",
+      "required": false,
+      "internal": true,
+      "description": "Space-separated list of paths inside the LXC rootfs to walk after pct create + idmap setup. For each path, files already owned by the container's uid/gid are re-chowned to the host-side mapped_uid:mapped_gid. Default '/' covers the whole rootfs; files owned by other users (root, system uids) stay untouched. Apps that only need a narrow fix (e.g. wolproxy: '/home/wolproxy /app') can override this property."
+    },
     "pg_client_cert": {
       "name": "PostgreSQL Client Certificate Auth (mTLS)",
       "type": "boolean",
