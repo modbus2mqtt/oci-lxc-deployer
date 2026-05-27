@@ -27,10 +27,22 @@ load_config() {
         exit 1
     fi
 
-    # Get instance: argument > E2E_INSTANCE env var > config.json default
+    # Get instance: argument > E2E_INSTANCE env var > DEPLOYER_PORT match > config.json default
+    # DEPLOYER_PORT is set by each workspace's terminal env (yellow=3301,
+    # green=3201). Matching it against instances[].deployerPort prevents
+    # accidentally running e2e/step* against the wrong worktree when the
+    # caller forgets the positional arg.
     if [ -z "$instance" ]; then
         if [ -n "$E2E_INSTANCE" ]; then
             instance="$E2E_INSTANCE"
+        elif [ -n "$DEPLOYER_PORT" ]; then
+            instance=$(jq -r --arg port "$DEPLOYER_PORT" '
+              .instances | to_entries | map(select(.value.deployerPort == $port)) | .[0].key // empty
+            ' "$CONFIG_FILE")
+            if [ -z "$instance" ]; then
+                echo "[WARN] DEPLOYER_PORT=$DEPLOYER_PORT does not match any instance.deployerPort; falling back to default" >&2
+                instance=$(jq -r '.default' "$CONFIG_FILE")
+            fi
         else
             instance=$(jq -r '.default' "$CONFIG_FILE")
         fi
