@@ -130,6 +130,15 @@ cd frontend && pnpm run lint:fix && pnpm run build && pnpm test
 2. `pnpm run build` - Verify compilation
 3. `pnpm test` - Run tests
 
+**Output handling:** Redirect test/build output to a temp file, then summarize from there — do not pipe directly to `head`/`tail`. The full log must remain available for later `grep` when a test fails or you need to inspect a specific suite:
+
+```bash
+cd backend && pnpm test > /tmp/pnpm-test-$$.log 2>&1; tail -40 /tmp/pnpm-test-$$.log
+# later: grep -n "FAIL\|✖\|Error" /tmp/pnpm-test-$$.log
+```
+
+Same pattern applies to `pnpm run lint:fix` and `pnpm run build` when output is long.
+
 **What to test:**
 - Services with complex logic (parsing, validation, transformation)
 - Critical user flows (create application, docker-compose setup)

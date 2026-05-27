@@ -54,8 +54,6 @@ export interface IApplicationBase {
   parameterOverrides?: IParameterOverride[];
   verification?: IApplicationVerification | undefined;
   dependencies?: { application: string }[];
-  /** Feature flags this application supports (e.g. 'serial_tty', 'docker'). Merged with parent via extends. */
-  supports?: string[];
   /** Zitadel role definitions for OIDC authentication. Required when 'addon-oidc' is in supported_addons. */
   oidc_roles?: { key: string; display_name: string; group?: string }[];
   /** If true, the application is not shown in the applications list but can appear in the installed list. */
@@ -273,8 +271,8 @@ export interface ITemplate {
   hook_trigger_now?: boolean;
   skip_if_all_missing?: string[];
   skip_if_property_set?: string;
-  implements?: string;
   persists_container_state?: boolean;
+  reconfigurable?: boolean;
   name: string;
   description?: string;
   parameters?: IParameter[];
@@ -1086,7 +1084,6 @@ export interface IApplicationOverviewTemplate {
   skipReason?: string | undefined;
   skipIfAllMissing?: string[] | undefined;
   skipIfPropertySet?: string | undefined;
-  implements?: string | undefined;
   addedByAddon?: string | undefined;
   scriptName?: string | undefined;
   scriptPath?: string | undefined;

@@ -45,13 +45,13 @@
       "type": "boolean",
       "description": "Marks templates that mutate persistent container state (files inside the LXC, e.g. /etc/docker/daemon.json, /etc/hosts entries, on-start hook scripts). The container-state-templates validator (backend/scripts/validateContainerStateTemplates.mjs) requires every application that references such a template in any of installation/upgrade/reconfigure to reference it in ALL three — otherwise an upgrade or reconfigure silently drops the change and the container drifts."
     },
+    "reconfigurable": {
+      "type": "boolean",
+      "description": "Marks templates that implement a hardware/LXC action (USB device passthrough, idmap, etc.) driven by user-visible parameters. Such templates must also run on reconfigure so that changing a complex parameter (e.g. host_device_path) actually re-applies the action against the cloned target container. Auto-wiring in application-persistence-handler appends every reconfigurable template referenced in installation.<phase> to reconfigure.<phase> unless the application's reconfigure block uses no_extend: true. The frontend may surface a 'reconfigure-relevant' hint on the parameters listed under such a template."
+    },
     "skip_if_property_set": {
       "type": "string",
       "description": "Parameter ID. If this parameter is set (exists in resolvedParams), the template will be skipped."
-    },
-    "implements": {
-      "type": "string",
-      "description": "Feature flag name. Template is only included when the application has this value in its supports array. Unlike skip conditions, the template is silently excluded (not tracked, not shown)."
     },
     "name": {
       "type": "string",

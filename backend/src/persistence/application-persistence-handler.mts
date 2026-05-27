@@ -563,15 +563,6 @@ export class ApplicationPersistenceHandler {
               ]),
             ];
           }
-          // Merge supports: parent + child, deduplicated
-          if (parent.supports?.length || appData.supports?.length) {
-            appData.supports = [
-              ...new Set([
-                ...(parent.supports ?? []),
-                ...(appData.supports ?? []),
-              ]),
-            ];
-          }
           // Inherit properties: parent as base, child overrides by id
           if (parent.properties?.length) {
             const childIds = new Set((appData.properties ?? []).map((p) => p.id));

@@ -43,8 +43,6 @@ export interface IProcessTemplateOpts {
     { template: string; kind: "outputs" | "properties" }
   >; // Output provenance
   pendingPropertyDefaults?: import("./template-output-processor.mjs").PropertyDefaultEntry[];
-  /** Application-level feature flags from supports array, used for implements checks */
-  applicationFlags?: Record<string, boolean>;
 }
 
 export interface IParameterWithTemplate extends IParameter {
