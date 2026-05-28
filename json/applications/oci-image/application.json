@@ -36,7 +36,8 @@
     ],
     "post_start": [
       "305-post-set-pkg-mirror.json",
-      "350-host-check-hook-log.json"
+      "350-host-check-hook-log.json",
+      "351-post-emit-endpoint-config.json"
     ]
   },
   "upgrade": {
@@ -62,7 +63,8 @@
     ],
     "post_start": [
       "305-post-set-pkg-mirror.json",
-      "350-host-check-hook-log.json"
+      "350-host-check-hook-log.json",
+      "351-post-emit-endpoint-config.json"
     ],
     "replace_ct": [
       "900-replace-ct.json"
@@ -88,7 +90,8 @@
       "210-wait-for-container-ready.json"
     ],
     "post_start": [
-      "350-host-check-hook-log.json"
+      "350-host-check-hook-log.json",
+      "351-post-emit-endpoint-config.json"
     ],
     "replace_ct": [
       "900-replace-ct.json"
