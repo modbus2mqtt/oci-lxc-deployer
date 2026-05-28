@@ -28,6 +28,7 @@
       "190-host-write-lxc-notes.json"
     ],
     "pre_start_finalize": [
+      "351-post-emit-endpoint-config.json",
       "100-conf-unmount-volumes.json"
     ],
     "start": [
@@ -36,8 +37,7 @@
     ],
     "post_start": [
       "305-post-set-pkg-mirror.json",
-      "350-host-check-hook-log.json",
-      "351-post-emit-endpoint-config.json"
+      "350-host-check-hook-log.json"
     ]
   },
   "upgrade": {
@@ -55,6 +55,7 @@
       "190-host-write-lxc-notes.json"
     ],
     "pre_start_finalize": [
+      "351-post-emit-endpoint-config.json",
       "100-conf-unmount-volumes.json"
     ],
     "start": [
@@ -63,8 +64,7 @@
     ],
     "post_start": [
       "305-post-set-pkg-mirror.json",
-      "350-host-check-hook-log.json",
-      "351-post-emit-endpoint-config.json"
+      "350-host-check-hook-log.json"
     ],
     "replace_ct": [
       "900-replace-ct.json"
@@ -83,6 +83,7 @@
       "190-host-write-lxc-notes.json"
     ],
     "pre_start_finalize": [
+      "351-post-emit-endpoint-config.json",
       "100-conf-unmount-volumes.json"
     ],
     "start": [
@@ -90,8 +91,7 @@
       "210-wait-for-container-ready.json"
     ],
     "post_start": [
-      "350-host-check-hook-log.json",
-      "351-post-emit-endpoint-config.json"
+      "350-host-check-hook-log.json"
     ],
     "replace_ct": [
       "900-replace-ct.json"
