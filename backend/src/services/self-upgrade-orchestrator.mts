@@ -285,8 +285,12 @@ echo '[{"id":"started","value":"true"}]'
 export async function waitForCloneApi(
   cloneIp: string,
   port = 3080,
-  timeoutMs = 90_000,
+  timeoutMs = 300_000,
 ): Promise<{ version: string; gitHash?: string }> {
+  // 90s was too tight: under a parallel `/livetest --all` the host is busy
+  // installing other LXCs (zfs send/recv contention) and the clone-deployer
+  // takes 2–3 min to come up cold. 300s covers that worst case while still
+  // failing fast on a truly stuck clone.
   const start = Date.now();
   let lastError = "";
   while (Date.now() - start < timeoutMs) {
@@ -372,6 +376,15 @@ export async function triggerUpgradeViaClone(
     // letting 185-host-resolve-dependency-hosts find the dependency container.
     ...(stackIds && stackIds.length > 0 ? { stackIds } : {}),
     [ORCHESTRATED_FLAG]: true,
+    // Forward the resolved stack(s) from the Hub-side request so the
+    // Clone's reconfigure pipeline can run 185-host-resolve-dependency-
+    // hosts (the script reads {{ stack_id }} / {{ all_stack_ids }}, fails
+    // with "Dependencies require a stack_name but none is set" if both
+    // are empty). Without these the Clone gets only `params` +
+    // `selectedAddons` and re-derives no stacks — depended-on apps then
+    // resolve to NOT_DEFINED.
+    ...(stackId ? { stackId } : {}),
+    ...(stackIds && stackIds.length > 0 ? { stackIds } : {}),
     // E.8: Hub forwards its outer restartKey to the Clone. The Clone's
     // route handler picks this up and forces setupExecution to use it
     // instead of generating a new one — so the Clone's whole reconfigure
