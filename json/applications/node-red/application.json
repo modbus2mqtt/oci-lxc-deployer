@@ -14,7 +14,11 @@
     { "id": "ssl.needs_server_cert", "value": "true" },
     {
       "id": "oidc_redirect_uri",
-      "default": "https://{{hostname}}/auth/strategy/callback"
+      "default": "https://{{hostname}}{{project_domain_suffix}}:1880/auth/strategy/callback"
+    },
+    {
+      "id": "oidc_post_logout_uri",
+      "default": "https://{{hostname}}{{project_domain_suffix}}:1880/"
     }
   ],
   "installation": {
