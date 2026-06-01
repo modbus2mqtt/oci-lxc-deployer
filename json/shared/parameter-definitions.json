@@ -506,6 +506,14 @@
       "group": "Application",
       "advanced": true
     },
+    "extra_envs": {
+      "name": "Extra Environment Variables",
+      "type": "string",
+      "default": "",
+      "required": false,
+      "internal": true,
+      "description": "Newline-separated KEY=value overlay merged on top of `envs` (overlay keys override/extend the base block; same format and `{{ }}` templating as `envs`). CLI/production-only channel to override individual env vars without restating the whole `envs` string — the frontend edits `envs` directly, so this is `internal`. Applied at install/reconfigure by conf-oci-lxc-configuration.py; empty by default."
+    },
     "expected_versions": {
       "name": "Expected Versions",
       "type": "string",
@@ -543,20 +551,6 @@
       "name": "GITEA_ADMIN_PASSWORD",
       "type": "string",
       "internal": true
-    },
-    "gitea_domain": {
-      "name": "Gitea Domain",
-      "type": "string",
-      "default": "localhost",
-      "group": "Application",
-      "description": "Public host Gitea serves under (GITEA__server__DOMAIN / SSH_DOMAIN). Defaults to localhost; override per environment (e.g. git.ohnewarum.de) when the container sits behind a reverse proxy whose public host differs from the container hostname."
-    },
-    "gitea_root_url": {
-      "name": "Gitea Root URL",
-      "type": "string",
-      "default": "http://localhost:3000",
-      "group": "Application",
-      "description": "Full external base URL Gitea uses for web/mail/webhook/OAuth links (GITEA__server__ROOT_URL). Defaults to http://localhost:3000; override per environment (e.g. https://git.ohnewarum.de/) to silence the ROOT_URL mismatch warning."
     },
     "group": {
       "name": "Group Name",

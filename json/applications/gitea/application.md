@@ -16,8 +16,11 @@ Self-hosted Git service with web UI, code review, team collaboration, package re
 | `hostname` | `gitea` | Container hostname |
 | `volumes` | `data` → `/data` | Single persistent volume holding repositories, DB sidecar files, **and** `app.ini` |
 | `volume_storage` | `local-zfs` | Proxmox storage for data volumes |
-| `gitea_domain` | `localhost` | Public host (`GITEA__server__DOMAIN`/`SSH_DOMAIN`); override per environment |
-| `gitea_root_url` | `http://localhost:3000` | Public base URL (`GITEA__server__ROOT_URL`); override per environment |
+
+The base `envs` ship generic defaults (`DOMAIN`/`ROOT_URL` = `localhost`).
+For a public deployment behind a reverse proxy (where the public host differs
+from the container hostname), override the relevant keys via **`extra_envs`**
+rather than restating the whole `envs` block — see _Configuration_ below.
 
 The container runs as UID 1000 (git user). Environment variables configure the PostgreSQL connection, admin user, and server settings.
 
@@ -40,13 +43,14 @@ Consequences:
 - The image generates `app.ini` from its template **only if it does not yet
   exist**; it never overwrites an existing file. `environment-to-ini` then
   overlays the `GITEA__` env values on top — so a key driven by env
-  **self-heals on each restart** (e.g. changing `gitea_root_url` updates
-  `ROOT_URL` in `app.ini` at the next start).
-- **To change a server setting:** set/override the corresponding env var
-  (e.g. the `gitea_domain` / `gitea_root_url` params, or add a
-  `GITEA__section__KEY` line to `envs`), then **redeploy or reconfigure** so
-  the new env reaches the container. The value lands in `app.ini` on the next
-  container start.
+  **self-heals on each restart** (e.g. overriding `GITEA__server__ROOT_URL`
+  updates `ROOT_URL` in `app.ini` at the next start).
+- **To change a server setting:** add/override the `GITEA__section__KEY` in the
+  `extra_envs` overlay (CLI/production) or edit the base `envs` (frontend),
+  then **redeploy or reconfigure** so the new env reaches the container. The
+  value lands in `app.ini` on the next container start. Example
+  (`production/gitea.json`): `extra_envs` =
+  `GITEA__server__ROOT_URL=https://git.ohnewarum.de/`.
 - **Manual edits** to `/data/gitea/conf/app.ini` inside the container are
   possible, but any key that is **also** set via a `GITEA__` env var is
   **overwritten again** on the next start by `environment-to-ini`. To make a

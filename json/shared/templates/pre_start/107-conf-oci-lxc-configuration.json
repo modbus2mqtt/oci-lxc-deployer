@@ -7,6 +7,7 @@
     "hostname",
     "initial_command",
     "envs",
+    "extra_envs",
     "wait_for_network"
   ],
   "commands": [

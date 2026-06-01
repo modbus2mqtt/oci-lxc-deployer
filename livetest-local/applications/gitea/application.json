@@ -4,11 +4,17 @@
   "installation": {
     "pre_start": [
       { "name": "188-conf-init-gitea-testdb.json", "category": "pre_start" }
+    ],
+    "post_start": [
+      { "name": "356-post-check-gitea-rooturl.json", "category": "post_start", "position": "end" }
     ]
   },
   "reconfigure": {
     "pre_start": [
       { "name": "188-conf-init-gitea-testdb.json", "category": "pre_start" }
+    ],
+    "post_start": [
+      { "name": "356-post-check-gitea-rooturl.json", "category": "post_start", "position": "end" }
     ]
   }
 }

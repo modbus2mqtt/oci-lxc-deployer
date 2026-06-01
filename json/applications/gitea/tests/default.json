@@ -1,4 +1,7 @@
 {
+  "params": [
+    { "name": "extra_envs", "value": "GITEA__server__ROOT_URL=https://localhost:1234" }
+  ],
   "selectedAddons": [
     "addon-oidc"
   ]

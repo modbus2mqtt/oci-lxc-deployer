@@ -10,8 +10,7 @@
     { "name": "local_https_port", "value": 1443 },
     { "name": "oidc_redirect_uri", "value": "https://git.ohnewarum.de/user/oauth2/zitadel/callback" },
     { "name": "oidc_post_logout_uri", "value": "https://git.ohnewarum.de/" },
-    { "name": "gitea_domain", "value": "git.ohnewarum.de" },
-    { "name": "gitea_root_url", "value": "https://git.ohnewarum.de/" },
+    { "name": "extra_envs", "value": "GITEA__server__DOMAIN=git.ohnewarum.de\nGITEA__server__SSH_DOMAIN=git.ohnewarum.de\nGITEA__server__ROOT_URL=https://git.ohnewarum.de/" },
     { "name": "mtls_cns", "value": "gitea" }
   ],
   "selectedAddons": ["addon-oidc", "addon-ssl", "addon-mtls"],

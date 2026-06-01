@@ -10,6 +10,11 @@ hostname = "{{ hostname }}"
 initial_command = """{{ initial_command }}"""
 wait_for_network = """{{ wait_for_network }}"""
 envs_str = """{{ envs }}"""
+# extra_envs overlays envs: keys here override/extend the base envs block.
+# Lets CLI/production set individual env vars without restating the whole
+# envs string (the frontend edits the full string directly, so this channel
+# is CLI-only in practice). Empty / NOT_DEFINED → no-op.
+extra_envs_str = """{{ extra_envs }}"""
 
 if not vm_id or vm_id == "NOT_DEFINED":
     print("Error: vm_id is not set", file=sys.stderr)
@@ -45,6 +50,17 @@ def parse_envs(envs_content):
             env_dict[key] = value
     return env_dict
 
+# Merge base envs with the extra_envs overlay (overlay keys win).
+def merged_envs():
+    merged = parse_envs(envs_str)
+    overlay = parse_envs(extra_envs_str)
+    if overlay:
+        for key, value in overlay.items():
+            action = "Override" if key in merged else "Add"
+            print(f"{action} env from extra_envs: {key}={value}", file=sys.stderr)
+        merged.update(overlay)
+    return merged
+
 # 1. Handle lxc.console.logpath
 if not os.path.exists(log_dir):
     try:
@@ -78,8 +94,8 @@ print(f"Set lxc.console.logfile: {log_file}", file=sys.stderr)
 
 # 2. Handle initial_command with substitution
 if initial_command and initial_command != "NOT_DEFINED":
-    env_dict = parse_envs(envs_str)
-    
+    env_dict = merged_envs()
+
     # Perform substitution
     # Use safe_substitute to avoid errors if a variable is missing
     # But shell style might use ${VAR} which Template supports
@@ -100,8 +116,9 @@ if initial_command and initial_command != "NOT_DEFINED":
         print(f"Error substituting variables in command: {e}", file=sys.stderr)
 
 # 3. Handle environment variables
-# Set lxc.environment entries from envs, removing lxc.environment.runtime duplicates
-env_dict = parse_envs(envs_str)
+# Set lxc.environment entries from envs (+ extra_envs overlay), removing
+# lxc.environment.runtime duplicates
+env_dict = merged_envs()
 if env_dict:
     # Collect existing lxc.environment keys (preserve user-created entries)
     existing_env_keys = set()
