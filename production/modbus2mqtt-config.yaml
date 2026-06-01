@@ -1,23 +1,38 @@
-# modbus2mqtt configuration for production
+# modbus2mqtt configuration for production.
 #
-# Uploaded by the post_start template 0-rest-upload-config.json after the
-# container starts. The exact YAML schema follows the modbus2mqtt source
-# (set by the user during their REST endpoint integration).
+# Schema: flat top-level mqtt* keys (mqttserverurl, mqttcaFile, …).
+# Nested {mqtt: {url: …}} wird vom App ignoriert und triggert
+# "no mqttserverurl defined" beim Boot.
 #
-# MQTT broker connection: mTLS against eclipse-mosquitto.local using a
-# dedicated addon-mtls client certificate (CN=modbus2mqtt) provisioned into
-# /ssl/mtls/modbus2mqtt/ inside the container (ssl.needs_server_cert=false).
-mqtt:
-  url: mqtts://eclipse-mosquitto.local:8883
+# Uploaded by template 155-write-modbus2mqtt-config über
+# upload_pre_start_file nach /config/modbus2mqtt/modbus2mqtt.yaml,
+# BEVOR die LXC startet.
+#
+# Broker eclipse-mosquitto:8883 — bare hostname (LAN-DNS), SNI-Override
+# zwingt TLS-Cert-Prüfung gegen den von addon-ssl für eclipse-mosquitto
+# ausgestellten CN `eclipse-mosquitto.local`. Client-Cert aus addon-mtls
+# in /ssl/mtls/modbus2mqtt/.
+version: "0.1"
+mqttbasetopic: modbus2mqtt
+mqttdiscoveryprefix: homeassistant
+mqttdiscoverylanguage: en
+mqttusehassio: false
+mqttcaFile: /ssl/mtls/modbus2mqtt/chain.pem
+mqttcertFile: /ssl/mtls/modbus2mqtt/cert.pem
+mqttkeyFile: /ssl/mtls/modbus2mqtt/privkey.pem
+mqttconnect:
+  mqttserverurl: mqtts://eclipse-mosquitto:8883
   clientId: modbus2mqtt
-  tls:
-    ca: /ssl/mtls/modbus2mqtt/chain.pem
-    cert: /ssl/mtls/modbus2mqtt/cert.pem
-    key: /ssl/mtls/modbus2mqtt/privkey.pem
-    servername: eclipse-mosquitto.local
-    rejectUnauthorized: true
+  clean: true
+  connectTimeout: 60000
+  servername: eclipse-mosquitto.local
+  rejectUnauthorized: true
+httpport: 3000
+fakeModbus: false
+filelocation: /data
+rootUrl: https://modbus2mqtt:3443/
+debugComponents: mqttconnector
+tcpBridgePort: 502
 
-# Modbus device declarations go here. Refer to the modbus2mqtt docs for the
-# exact schema. Example placeholder:
+# Modbus-Geräte hierhin (siehe modbus2mqtt-Docs für Schema).
 # devices: []
-devices: []

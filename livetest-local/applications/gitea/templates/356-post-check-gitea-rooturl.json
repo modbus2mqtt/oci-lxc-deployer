@@ -1,0 +1,14 @@
+{
+  "name": "Gitea app.ini ROOT_URL Check",
+  "description": "TEST-ONLY. Runs inside the gitea LXC after start. Asserts that a ROOT_URL requested via the `extra_envs` overlay actually landed in /data/gitea/conf/app.ini — end-to-end proof of the extra_envs → envs merge → environment-to-ini → app.ini chain. Skips (passes) when the scenario sets no custom ROOT_URL.",
+  "execute_on": "lxc",
+  "parameters": [
+    "extra_envs"
+  ],
+  "commands": [
+    {
+      "name": "Gitea app.ini ROOT_URL Check",
+      "script": "post-check-gitea-rooturl.sh"
+    }
+  ]
+}

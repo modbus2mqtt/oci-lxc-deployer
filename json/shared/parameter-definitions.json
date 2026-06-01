@@ -506,6 +506,14 @@
       "group": "Application",
       "advanced": true
     },
+    "extra_envs": {
+      "name": "Extra Environment Variables",
+      "type": "string",
+      "default": "",
+      "required": false,
+      "internal": true,
+      "description": "Newline-separated KEY=value overlay merged on top of `envs` (overlay keys override/extend the base block; same format and `{{ }}` templating as `envs`). CLI/production-only channel to override individual env vars without restating the whole `envs` string — the frontend edits `envs` directly, so this is `internal`. Applied at install/reconfigure by conf-oci-lxc-configuration.py; empty by default."
+    },
     "expected_versions": {
       "name": "Expected Versions",
       "type": "string",
