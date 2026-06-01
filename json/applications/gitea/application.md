@@ -4,7 +4,6 @@ Self-hosted Git service with web UI, code review, team collaboration, package re
 
 ## Prerequisites
 
-- Stacktype: `postgres`, `gitea` — shares database password with PostgreSQL, provides Gitea admin credentials
 - Dependency: `postgres` must be installed in the same stack
 - The database `gitea` is created automatically via the shared `create-postgres-database` template
 
@@ -15,10 +14,48 @@ Self-hosted Git service with web UI, code review, team collaboration, package re
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `hostname` | `gitea` | Container hostname |
-| `volumes` | `data`, `config` | Git repositories and Gitea configuration |
+| `volumes` | `data` → `/data` | Single persistent volume holding repositories, DB sidecar files, **and** `app.ini` |
 | `volume_storage` | `local-zfs` | Proxmox storage for data volumes |
+| `gitea_domain` | `localhost` | Public host (`GITEA__server__DOMAIN`/`SSH_DOMAIN`); override per environment |
+| `gitea_root_url` | `http://localhost:3000` | Public base URL (`GITEA__server__ROOT_URL`); override per environment |
 
 The container runs as UID 1000 (git user). Environment variables configure the PostgreSQL connection, admin user, and server settings.
+
+> **Note:** The gitea image's `GITEA_CUSTOM` is `/data/gitea`, so all state —
+> including `app.ini` — lives under `/data`. The single `data` volume must
+> therefore be mounted at `/data` (not `/var/lib/gitea`); otherwise the
+> container loses its config and repositories on recreation.
+
+## Configuration (app.ini)
+
+Gitea's effective config file is **`/data/gitea/conf/app.ini`** (on the
+persistent `data` volume). proxvex does **not** write this file directly —
+it sets container environment variables in the `envs` parameter using Gitea's
+`GITEA__<section>__<KEY>` convention (double underscore separates section and
+key). On **every** container start the image runs `environment-to-ini`
+(`gitea config edit-ini`), which writes exactly those keys into `app.ini`.
+
+Consequences:
+
+- The image generates `app.ini` from its template **only if it does not yet
+  exist**; it never overwrites an existing file. `environment-to-ini` then
+  overlays the `GITEA__` env values on top — so a key driven by env
+  **self-heals on each restart** (e.g. changing `gitea_root_url` updates
+  `ROOT_URL` in `app.ini` at the next start).
+- **To change a server setting:** set/override the corresponding env var
+  (e.g. the `gitea_domain` / `gitea_root_url` params, or add a
+  `GITEA__section__KEY` line to `envs`), then **redeploy or reconfigure** so
+  the new env reaches the container. The value lands in `app.ini` on the next
+  container start.
+- **Manual edits** to `/data/gitea/conf/app.ini` inside the container are
+  possible, but any key that is **also** set via a `GITEA__` env var is
+  **overwritten again** on the next start by `environment-to-ini`. To make a
+  manual value stick, either remove the matching env line from `envs` or set
+  the value via env instead.
+- **No live reload:** server settings (`ROOT_URL`, `DOMAIN`, …) are read at
+  startup. Applying a change requires a (graceful) restart of the gitea
+  process — under the image's s6 supervision that effectively means restarting
+  the container/service; `SIGHUP` graceful restart is unreliable here.
 
 ### Admin User
 
