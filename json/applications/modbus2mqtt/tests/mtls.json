@@ -15,10 +15,6 @@
     {
       "name": "mtls_cns",
       "value": "modbus2mqtt"
-    },
-    {
-      "name": "ssl.needs_server_cert",
-      "value": "false"
     }
   ],
   "depends_on": [

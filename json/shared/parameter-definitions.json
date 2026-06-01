@@ -439,6 +439,13 @@
       "default": "",
       "internal": true
     },
+    "app_external_url": {
+      "name": "External Base URL",
+      "type": "string",
+      "default": "",
+      "internal": true,
+      "description": "Browser-facing base URL (scheme://host[:port]) of this application. Auto-derived by the deployer from addon-ssl (https/http), hostname and the app's port. Apps compose URLs like the OIDC redirect as {{app_external_url}}<app-specific-path>. Override via a parameter for reverse-proxy or public-domain setups."
+    },
     "DEPLOYER_OIDC_MACHINE_CLIENT_ID": {
       "name": "Deployer OIDC Machine Client ID",
       "type": "string",
