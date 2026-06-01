@@ -6,11 +6,11 @@
   "properties": [
     {
       "id": "oidc_redirect_uri",
-      "default": "https://{{hostname}}{{project_domain_suffix}}/api/auth/callback"
+      "default": "{{app_external_url}}/api/auth/callback"
     },
     {
       "id": "oidc_post_logout_uri",
-      "default": "https://{{hostname}}{{project_domain_suffix}}"
+      "default": "{{app_external_url}}"
     }
   ],
   "installation": {

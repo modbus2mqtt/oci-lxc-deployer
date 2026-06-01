@@ -868,6 +868,44 @@ export class WebAppVeRouteHandlers {
       defaults.set("deployer_base_url", deployerUrl);
       defaults.set("ve_context_key", veContextKey);
 
+      // Browser-facing base URL of the application (scheme://host[:port]).
+      // OIDC redirect/logout (and any app needing its own external URL) are
+      // built as {{app_external_url}}<app-specific-path>, so this single
+      // computed value fixes both the protocol (https only when addon-ssl is
+      // active) and the port, which a static application.json default cannot
+      // express. Injected as a concrete string — not a templated default —
+      // because chained defaults do not re-resolve on the CLI/production path
+      // (only the frontend re-runs the chain). User params still override it
+      // for reverse-proxy / public-domain setups.
+      {
+        const lookupEffective = (name: string): string | undefined => {
+          const fromParam = body.params?.find(p => p.name === name);
+          if (
+            fromParam &&
+            fromParam.value !== undefined &&
+            String(fromParam.value) !== ""
+          ) {
+            return String(fromParam.value);
+          }
+          const fromDefault = defaults.get(name);
+          return fromDefault !== undefined && String(fromDefault) !== ""
+            ? String(fromDefault)
+            : undefined;
+        };
+        const sslActive = selectedAddons.includes("addon-ssl");
+        const scheme = sslActive ? "https" : "http";
+        const host = lookupEffective("hostname");
+        const port = sslActive
+          ? lookupEffective("local_https_port")
+          : lookupEffective("http_port");
+        if (host) {
+          defaults.set(
+            "app_external_url",
+            port ? `${scheme}://${host}:${port}` : `${scheme}://${host}`,
+          );
+        }
+      }
+
       // Inject oci_image_tag from versions.sh if available, otherwise extract from oci_image property.
       // During fresh install, this is overwritten by the image download script output.
       // During reconfigure, image scripts don't run, so this default is used for notes.

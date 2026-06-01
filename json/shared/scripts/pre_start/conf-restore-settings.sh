@@ -206,6 +206,20 @@ if grep -qaE '^mp[0-9]+: ' "$OLD_CONF"; then
   rm -f "$MP_LIST_TMP"
 fi
 
+# --- Restore serial / USB device mapping --------------------------------
+# The fresh container from `pct create` has no lxc.mount.entry /
+# lxc.cgroup2.devices.allow lines, so a serial device mapped on the old
+# container (e.g. /dev/ttyUSB0) would vanish after upgrade. conf-map-serial
+# only re-creates it when host_device_path is supplied again, and that
+# parameter is not persisted across upgrades. Carry the mapping over here
+# (idempotent), and re-stamp the optional replug watcher onto the new VMID.
+# migrate_device_mapping comes from the prepended device-mapping-common.sh.
+if grep -qE '^lxc\.(mount\.entry|cgroup2\.devices\.allow)[:=]' "$OLD_CONF" 2>/dev/null; then
+  log "Migrating serial/USB device mapping from $OLD_VMID to $NEW_VMID"
+  migrate_device_mapping "$OLD_VMID" "$NEW_VMID"
+  CHANGED=1
+fi
+
 if [ "$CHANGED" -eq 1 ]; then
   log "Settings restored from container $OLD_VMID to $NEW_VMID"
 else

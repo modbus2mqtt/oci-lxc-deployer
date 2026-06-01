@@ -5,7 +5,8 @@
     { "name": "vm_id_start", "value": 600 },
     { "name": "upload_modbus2mqtt_config_content", "value": "file:modbus2mqtt-config.yaml" },
     { "name": "mtls_cns", "value": "modbus2mqtt" },
-    { "name": "ssl.needs_server_cert", "value": "false" }
+    { "name": "host_device_path", "value": "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0" },
+    { "name": "install_replug_watcher", "value": "true" }
   ],
   "selectedAddons": ["addon-oidc", "addon-ssl", "addon-mtls"],
   "stackIds": ["oidc_production"]
