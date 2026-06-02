@@ -1,0 +1,32 @@
+#!/bin/sh
+# Resolve the Node.js version pinned in the project's .nvmrc and exec it.
+#
+# Used as the VS Code debugger's `runtimeExecutable` so the debugger runs the
+# SAME Node version as CI (which reads .nvmrc via actions/setup-node) and the
+# integrated terminal (nvm's .nvmrc auto-switch). This keeps .nvmrc the single
+# source of truth for the Node version — no version string duplicated anywhere.
+#
+# All arguments (and NODE_OPTIONS, e.g. the js-debug bootloader) are passed
+# through unchanged to the resolved node binary.
+set -e
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+NVMRC="$REPO_ROOT/.nvmrc"
+
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+# shellcheck disable=SC1091
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
+
+NODE_BIN=""
+if [ -f "$NVMRC" ] && command -v nvm >/dev/null 2>&1; then
+  NODE_BIN="$(nvm which "$(cat "$NVMRC")" 2>/dev/null || true)"
+fi
+
+# Fall back to whatever node is on PATH if the pinned version isn't installed.
+if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+  echo "node-via-nvmrc: pinned version from $NVMRC not found via nvm; falling back to PATH node" >&2
+  NODE_BIN="$(command -v node)"
+fi
+
+exec "$NODE_BIN" "$@"
