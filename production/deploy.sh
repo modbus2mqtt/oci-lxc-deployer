@@ -560,6 +560,7 @@ ensure_stack
 case "${1:-all}" in
   docker-registry-mirror) deploy_app docker-registry-mirror ;;
   ghcr-registry-mirror)   deploy_app ghcr-registry-mirror ;;
+  mcr-registry-mirror)    deploy_app mcr-registry-mirror ;;
   postgres) deploy_app postgres ;;
   nginx)    deploy_app nginx ;;
   zitadel)  deploy_app postgres; deploy_app zitadel 900 ;;
@@ -587,5 +588,5 @@ case "${1:-all}" in
       run_cli "$1" --timeout 600
     fi
     ;;
-  *) echo "Usage: $0 [docker-registry-mirror|ghcr-registry-mirror|postgres|nginx|zitadel|gitea|eclipse-mosquitto|all|<file.json>]"; exit 1 ;;
+  *) echo "Usage: $0 [docker-registry-mirror|ghcr-registry-mirror|mcr-registry-mirror|postgres|nginx|zitadel|gitea|eclipse-mosquitto|all|<file.json>]"; exit 1 ;;
 esac
