@@ -268,6 +268,72 @@ export class WebAppVeRouteHandlers {
   }
 
   /**
+   * Augment `allStackIds` (mutated in place) with the stack ids of the
+   * selected addons' stacktypes, so dependency resolution can find containers
+   * living in addon stacks. Only fills in stacktypes not already covered — and
+   * prefers the stack whose name suffix matches an existing stack id (e.g. for
+   * gitea/ssl with body stacks ["postgres_ssl", "gitea_ssl"], pick "oidc_ssl"
+   * rather than every oidc_*). Pulling in unrelated variants (oidc_default,
+   * oidc_upgrade) would make 185-host-resolve-dependency-hosts match the wrong
+   * container. Reads the live stack registry, so it must run on a deployer that
+   * actually owns the addon stacks (the Hub) — the self-upgrade clone forwards
+   * the result rather than re-deriving against its empty copy.
+   */
+  private async augmentStackIdsWithAddons(
+    allStackIds: string[],
+    selectedAddons: string[],
+  ): Promise<void> {
+    if (selectedAddons.length === 0) return;
+    try {
+      const addonSvc = this.pm.getAddonService();
+      // Stacktypes already represented in allStackIds.
+      const coveredStacktypes = new Set<string>();
+      // The "stack name" component is the part after the first underscore;
+      // e.g. "postgres_ssl" → "ssl". Use it to pick same-variant addon
+      // stacks instead of any existing one.
+      const preferredStackNames = new Set<string>();
+      const stackProviderForLookup = this.pm.getStackProvider();
+      for (const sid of allStackIds) {
+        const stack = await stackProviderForLookup.getStack(sid);
+        if (stack?.stacktype) {
+          const stTypes = Array.isArray(stack.stacktype)
+            ? stack.stacktype
+            : [stack.stacktype];
+          for (const st of stTypes) coveredStacktypes.add(st);
+        }
+        if (stack?.name) preferredStackNames.add(stack.name);
+        else {
+          const idx = sid.indexOf("_");
+          if (idx > 0) preferredStackNames.add(sid.slice(idx + 1));
+        }
+      }
+      for (const addonId of selectedAddons) {
+        try {
+          const addon = addonSvc.getAddon(addonId);
+          if (addon?.stacktype) {
+            const addonTypes = Array.isArray(addon.stacktype) ? addon.stacktype : [addon.stacktype];
+            for (const st of addonTypes) {
+              if (coveredStacktypes.has(st)) continue;
+              const stacks = await stackProviderForLookup.listStacks(st);
+              // Prefer same-variant; fall back to any if no match.
+              const matching = stacks.filter((s) =>
+                preferredStackNames.has(s.name),
+              );
+              const toAdd = matching.length > 0 ? matching : stacks;
+              for (const stack of toAdd) {
+                if (!allStackIds.includes(stack.id)) {
+                  allStackIds.push(stack.id);
+                }
+              }
+              coveredStacktypes.add(st);
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+
+  /**
    * Handles POST /api/ve-configuration/:application/:veContext (task in body)
    */
   async handleVeConfiguration(
@@ -413,6 +479,18 @@ export class WebAppVeRouteHandlers {
           emitStage(3, `Clone IP discovered: ${clone.cloneIp}`);
           await waitForCloneApi(clone.cloneIp);
           emitStage(4, `Clone API ready at http://${clone.cloneIp}:3080`);
+          // Derive the addon stack ids HERE, on the Hub, where the stack
+          // registry is populated (e.g. zitadel/default registered the
+          // oidc_default stack). The clone is a `pct clone` of the pre-OIDC
+          // source and would resolve no oidc_* stack on its own, so its
+          // 185-host-resolve-dependency-hosts would fail ("require a stack_name
+          // but none is set"). Forwarding the resolved ids lets the clone seed
+          // allStackIds from body.stackIds instead of re-deriving.
+          const cloneStackIds = [...(body.stackIds ?? [])];
+          if (body.stackId && !cloneStackIds.includes(body.stackId)) {
+            cloneStackIds.unshift(body.stackId);
+          }
+          await this.augmentStackIdsWithAddons(cloneStackIds, body.selectedAddons ?? []);
           const result = await triggerUpgradeViaClone(
             clone.cloneIp,
             veContextKey,
@@ -424,6 +502,7 @@ export class WebAppVeRouteHandlers {
             3080,
             30_000,
             outerRestartKey,
+            cloneStackIds,
           );
           emitStage(5, `Upgrade task dispatched to clone (clone-side restartKey=${result.restartKey}); mirroring clone messages from now on`);
           // E.8: outer key IS the unified key. The Hub forwarded it to
@@ -601,62 +680,12 @@ export class WebAppVeRouteHandlers {
       }
 
       // Add addon stacktypes to allStackIds so dependency resolution can find
-      // containers in addon stacks. Only fill in stacktypes that aren't
-      // already covered by body.stackIds — and prefer the stack whose name
-      // suffix matches an existing stack id (e.g. for gitea/ssl with body
-      // stacks ["postgres_ssl", "gitea_ssl"], pick "oidc_ssl" rather than
-      // every oidc_*). Pulling in unrelated variants (oidc_default, oidc_upgrade)
-      // would make 185-host-resolve-dependency-hosts match the wrong container.
-      const addonStackIds = body.selectedAddons ?? [];
-      if (addonStackIds.length > 0) {
-        try {
-          const addonSvc = this.pm.getAddonService();
-          // Stacktypes already represented in allStackIds.
-          const coveredStacktypes = new Set<string>();
-          // The "stack name" component is the part after the first underscore;
-          // e.g. "postgres_ssl" → "ssl". Use it to pick same-variant addon
-          // stacks instead of any existing one.
-          const preferredStackNames = new Set<string>();
-          const stackProviderForLookup = this.pm.getStackProvider();
-          for (const sid of allStackIds) {
-            const stack = await stackProviderForLookup.getStack(sid);
-            if (stack?.stacktype) {
-              const stTypes = Array.isArray(stack.stacktype)
-                ? stack.stacktype
-                : [stack.stacktype];
-              for (const st of stTypes) coveredStacktypes.add(st);
-            }
-            if (stack?.name) preferredStackNames.add(stack.name);
-            else {
-              const idx = sid.indexOf("_");
-              if (idx > 0) preferredStackNames.add(sid.slice(idx + 1));
-            }
-          }
-          for (const addonId of addonStackIds) {
-            try {
-              const addon = addonSvc.getAddon(addonId);
-              if (addon?.stacktype) {
-                const addonTypes = Array.isArray(addon.stacktype) ? addon.stacktype : [addon.stacktype];
-                for (const st of addonTypes) {
-                  if (coveredStacktypes.has(st)) continue;
-                  const stacks = await stackProviderForLookup.listStacks(st);
-                  // Prefer same-variant; fall back to any if no match.
-                  const matching = stacks.filter((s) =>
-                    preferredStackNames.has(s.name),
-                  );
-                  const toAdd = matching.length > 0 ? matching : stacks;
-                  for (const stack of toAdd) {
-                    if (!allStackIds.includes(stack.id)) {
-                      allStackIds.push(stack.id);
-                    }
-                  }
-                  coveredStacktypes.add(st);
-                }
-              }
-            } catch { /* ignore */ }
-          }
-        } catch { /* ignore */ }
-      }
+      // containers in addon stacks. Extracted into augmentStackIdsWithAddons so
+      // the self-upgrade clone-dispatch path can derive the SAME stack ids on
+      // the Hub (which holds the populated stack registry) and forward them to
+      // the clone (whose registry is a copy of the pre-OIDC source and would
+      // otherwise resolve no oidc_* stack).
+      await this.augmentStackIdsWithAddons(allStackIds, body.selectedAddons ?? []);
 
       const firstStackId = allStackIds[0];
       if (firstStackId) {
