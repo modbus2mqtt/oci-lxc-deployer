@@ -889,6 +889,34 @@ mkdir -p "${secure_volume_path}/.ssh"
 chown "${mapped_uid}:${mapped_gid}" "${secure_volume_path}/.ssh"
 chmod 700 "${secure_volume_path}/.ssh"
 
+# Fix rootfs ownership. `pct create` extracted the OCI image with the plain
+# subuid shift (image-uid N -> host 100000+N) BEFORE the passthrough idmap for
+# the app uid was configured. With a passthrough entry for LXC_UID, the shifted
+# range resumes one slot later, so files the image chowned to LXC_UID (e.g.
+# /home/lxc, landing at host 100000+LXC_UID) map to container LXC_UID+1 inside.
+# The lxc-user deployer then cannot write its own home (~/.ssh -> EACCES) and
+# loses VE-host SSH after a container swap. Normal app deploys fix this via
+# conf-fix-permissions.sh (template 100), but the deployer's own install path
+# does not run it — so do the equivalent here. Re-chown rootfs files owned by
+# the container uid OR the extracted (shifted) uid to mapped_uid:mapped_gid.
+# -h so the baked /home/lxc/.ssh symlink is re-owned (not its /secure target).
+if [ -n "${LXC_UID}" ] && [ "${LXC_UID}" != "0" ]; then
+  _rootfs_volid=$(pct config "${vm_id}" 2>/dev/null \
+    | awk '/^rootfs:/ {sub(/^rootfs:[[:space:]]+/, ""); split($0, a, ","); print a[1]; exit}')
+  _rootfs_path=$(pvesm path "${_rootfs_volid}" 2>/dev/null || true)
+  if [ -n "${_rootfs_path}" ] && [ -d "${_rootfs_path}" ]; then
+    _extract_uid=$((100000 + LXC_UID))
+    _extract_gid=$((100000 + LXC_GID))
+    log "Fixing rootfs ownership under ${_rootfs_path} (uid ${LXC_UID}/${_extract_uid} -> ${mapped_uid}, gid ${LXC_GID}/${_extract_gid} -> ${mapped_gid})"
+    find "${_rootfs_path}" \( -uid "${LXC_UID}" -o -uid "${_extract_uid}" \) \
+      -exec chown -h "${mapped_uid}:${mapped_gid}" {} + 2>/dev/null || true
+    find "${_rootfs_path}" \( -gid "${LXC_GID}" -o -gid "${_extract_gid}" \) \
+      -exec chgrp -h "${mapped_gid}" {} + 2>/dev/null || true
+  else
+    log "WARNING: could not resolve rootfs path for ${vm_id}; skipping rootfs ownership fix"
+  fi
+fi
+
 # Setup SSH access — all host-side writes into the secure volume, done BEFORE
 # `pct start` so the container sees the keys on first boot (and so the writes
 # land on the mounted volume, not on a post-unmount stale host directory).
