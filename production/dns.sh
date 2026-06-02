@@ -20,6 +20,7 @@ REGISTRY_MIRROR_IP="192.168.4.45"
 MOSQUITTO_IP="192.168.4.44"
 ZOT_MIRROR_IP="192.168.4.50"
 PROXVEX_IP="192.168.4.51"
+MCR_MIRROR_IP="192.168.4.52"
 ROUTER_ALT_IP="192.168.1.1"
 
 MANAGED_TAG="prod-setup"
@@ -103,6 +104,7 @@ add_dns nginx                  "$NGINX_IP"
 add_dns docker-registry-mirror "$REGISTRY_MIRROR_IP"
 add_dns eclipse-mosquitto      "$MOSQUITTO_IP"
 add_dns zot-mirror             "$ZOT_MIRROR_IP"
+add_dns mcr-mirror             "$MCR_MIRROR_IP"
 add_dns proxvex                "$PROXVEX_IP"
 # Internal apps use DHCP — dnsmasq resolves hostnames automatically:
 #   proxvex, postgres, zitadel, gitea
