@@ -184,7 +184,7 @@ _pct_create() {
     $NS_ARG \
     $SD_ARG \
     $ARCH_ARG \
-    $STARTUP_ARG 2>"$PCT_ERR"
+    $STARTUP_ARG 1>&2 2>"$PCT_ERR"
 }
 
 # Pull the matching PVE task log for this VMID. pct create is mostly a wrapper
