@@ -334,6 +334,43 @@ export class WebAppVeRouteHandlers {
   }
 
   /**
+   * Collect the addon-stack values a clone-side reconfigure needs but cannot
+   * resolve from its own (isolated) stack store, so they can be forwarded as
+   * params to the clone. The self-upgrade clone is a `pct clone` of the source
+   * deployer: it knows the oidc_* stack id (forwarded via body.stackIds) but
+   * not the stack's entries/provides — e.g. DEPLOYER_OIDC_MACHINE_CLIENT_ID/
+   * SECRET, DEPLOYER_OIDC_ISSUER_URL, DEPLOYER_OIDC_PROJECT_ID, which the
+   * Setup OIDC Client template needs to mint a Zitadel client. The Hub holds
+   * those (zitadel/default registered them), so resolve them here and forward.
+   * Only OIDC-prefixed keys are forwarded — the clone resolves everything else
+   * (e.g. ZITADEL_HOST via 185-host-resolve-dependency-hosts) on its own.
+   */
+  private async collectCloneStackParams(
+    stackIds: string[],
+  ): Promise<Array<{ name: string; value: string }>> {
+    const FORWARD_PREFIXES = ["DEPLOYER_OIDC_", "TEST_DEPLOYER_OIDC_"];
+    const out: Array<{ name: string; value: string }> = [];
+    const seen = new Set<string>();
+    try {
+      const sp = this.pm.getStackProvider();
+      for (const sid of stackIds) {
+        const stack = await sp.getStack(sid);
+        if (!stack) continue;
+        const all = [...(stack.entries ?? []), ...(stack.provides ?? [])];
+        for (const kv of all) {
+          const name = kv.name;
+          if (seen.has(name)) continue;
+          if (!FORWARD_PREFIXES.some((p) => name.startsWith(p))) continue;
+          if (kv.value === undefined || kv.value === null || kv.value === "") continue;
+          out.push({ name, value: String(kv.value) });
+          seen.add(name);
+        }
+      }
+    } catch { /* best-effort — clone falls back to its own resolution */ }
+    return out;
+  }
+
+  /**
    * Handles POST /api/ve-configuration/:application/:veContext (task in body)
    */
   async handleVeConfiguration(
@@ -491,12 +528,22 @@ export class WebAppVeRouteHandlers {
             cloneStackIds.unshift(body.stackId);
           }
           await this.augmentStackIdsWithAddons(cloneStackIds, body.selectedAddons ?? []);
+          // Forward the addon-stack values (e.g. DEPLOYER_OIDC_MACHINE_*) the
+          // clone cannot resolve from its isolated stack store. Params already
+          // carry secrets to the clone (deploy-params baseline), so this is
+          // consistent. Don't clobber values the caller passed explicitly.
+          const cloneParams = [...(body.params ?? [])];
+          for (const inj of await this.collectCloneStackParams(cloneStackIds)) {
+            if (!cloneParams.some((p) => p.name === inj.name)) {
+              cloneParams.push(inj);
+            }
+          }
           const result = await triggerUpgradeViaClone(
             clone.cloneIp,
             veContextKey,
             application,
             task as TaskType,
-            body.params ?? [],
+            cloneParams,
             previousVmid,
             body.selectedAddons ?? [],
             3080,
