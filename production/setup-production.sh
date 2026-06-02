@@ -183,10 +183,6 @@ Options:
                         exists, destroy it before re-deploying. Without
                         this flag the step is skipped with a warning to
                         preserve the cached image volume.
-  --force-mcr-mirror    In step 23, if a 'mcr-mirror' container already
-                        exists, destroy it before re-deploying. Without
-                        this flag the step is skipped with a warning to
-                        preserve the cached image volume.
   -h, --help            Show this help and exit
 
 Without arguments, only the step list (below) is printed. Use --help for the
@@ -230,7 +226,6 @@ FORCE_DRM=0
 FORCE_NGINX=0
 FORCE_DRM_TEST=0
 FORCE_ZOT=0
-FORCE_MCR=0
 SCOPE_FLAGS=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -250,7 +245,6 @@ while [ $# -gt 0 ]; do
     --force-nginx) FORCE_NGINX=1; shift ;;
     --force-docker-mirror-test) FORCE_DRM_TEST=1; shift ;;
     --force-zot-mirror) FORCE_ZOT=1; shift ;;
-    --force-mcr-mirror) FORCE_MCR=1; shift ;;
     *) echo "Unknown argument: $1" >&2; echo "" >&2; usage >&2; exit 1 ;;
   esac
 done
@@ -1103,43 +1097,18 @@ fi
 # ================================================================
 # Step 23: Deploy mcr-mirror — pull-through cache for mcr.microsoft.com
 #
-# Test/CI infra (parallel to steps 18/19). distribution/distribution with
-# REGISTRY_PROXY_REMOTEURL=https://mcr.microsoft.com (anonymous upstream, no
-# proxy creds) and cert SAN DNS:mcr.microsoft.com. Removes the double-NAT
-# bottleneck when the nested VM pulls large mcr images (e.g.
+# Test/CI infra (parallel to steps 17/18/19). A separate derived application
+# (mcr-registry-mirror, extends docker-registry-mirror; anonymous mcr upstream,
+# cert SAN DNS:mcr.microsoft.com) is provisioned onto the deployer + deployed
+# by setup-mcr-mirror.sh — same pattern as step 17 / setup-ghcr-mirror.sh.
+# Removes the double-NAT bottleneck for large mcr images (e.g.
 # mcr.microsoft.com/playwright, ~2 GB): step2a DNS-redirects mcr.microsoft.com
-# to this mirror's IP, so the nested VM pulls over the LAN while the mirror
-# fetches from mcr over ubuntupve's direct internet.
-#
-# Idempotency: skip if container exists. --force-mcr-mirror destroys +
-# redeploys (purges the cache volume; it refills on demand from mcr).
+# to this mirror, so the nested VM pulls over the LAN while the mirror fetches
+# from mcr over the host's direct internet.
 # ================================================================
 if should_run 23; then
-  mcr_target=$(host_for_app mcr-mirror)
-  banner 23 "Deploy mcr-mirror (${mcr_target})"
-  mcr_existing=$(pve_ssh_at "$mcr_target" \
-    "pct list | awk '\$NF==\"mcr-mirror\"{print \$1}'" 2>/dev/null || true)
-  if [ -n "$mcr_existing" ] && [ "$FORCE_MCR" -ne 1 ]; then
-    echo ""
-    echo "  ============================================================"
-    echo "  Container 'mcr-mirror' already exists on ${mcr_target}"
-    echo "  (VMID: ${mcr_existing}). Skipping step 23 to preserve the"
-    echo "  cached image volume."
-    echo "  Force redeploy: $0 --force-mcr-mirror --step 23"
-    echo "  ============================================================"
-    echo ""
-  else
-    if [ -n "$mcr_existing" ]; then
-      echo "  --force-mcr-mirror: destroying existing container(s) [${mcr_existing}]..."
-      for vmid in $mcr_existing; do
-        pve_ssh_at "$mcr_target" "pct stop ${vmid} 2>/dev/null; pct destroy ${vmid} --purge --force" || {
-          echo "ERROR: failed to destroy VM ${vmid} (mcr-mirror) on ${mcr_target}" >&2
-          exit 1
-        }
-      done
-    fi
-    "$SCRIPT_DIR/deploy.sh" --host "$mcr_target" mcr-mirror.json
-  fi
+  banner 23 "Deploy mcr-mirror ($(host_for_app mcr-mirror))"
+  pve_ssh "sh production/setup-mcr-mirror.sh"
 fi
 
 # ================================================================
