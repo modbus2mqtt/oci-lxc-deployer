@@ -11,6 +11,7 @@ import { determineExecutionMode } from "@src/ve-execution/ve-execution-constants
 export async function listManagedContainers(
   pm: PersistenceManager,
   veContext: IVEContext,
+  filterVmId?: number,
 ): Promise<IManagedOciContainer[]> {
   const repositories = pm.getRepositories();
   const scriptContent = repositories.getScript({
@@ -40,11 +41,19 @@ export async function listManagedContainers(
     outputs: ["containers"],
   };
 
+  // When a single vmid is requested (e.g. the application-overview page only
+  // needs one container's installed values), pass it as filter_vm_id so the
+  // list script parses just that config instead of every config on the host.
+  const defaults = new Map<string, string | number | boolean>();
+  if (filterVmId !== undefined) {
+    defaults.set("filter_vm_id", String(filterVmId));
+  }
+
   const ve = new VeExecution(
     [cmd],
     [],
     veContext,
-    new Map(),
+    defaults,
     undefined,
     determineExecutionMode(),
   );

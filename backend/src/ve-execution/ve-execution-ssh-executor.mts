@@ -522,8 +522,27 @@ export class VeExecutionSshExecutor {
     eventEmitter.emit("message", msg);
 
     if (exitCode !== 0) {
+      // The captured stdout is the script's own output (after our marker). On a
+      // non-zero exit — especially with empty stderr (e.g. a script that emitted
+      // its JSON to stdout but exited non-zero, or died mid-output, or printed a
+      // non-JSON line) — stdout is the only diagnostic we have. Surface it so a
+      // failure is never blank. Strip the marker for readability.
+      let captured = stdout.trim();
+      if (uniqueMarker) {
+        const i = captured.indexOf(uniqueMarker);
+        if (i >= 0) captured = captured.slice(i + uniqueMarker.length).trim();
+      }
+      const MAX = 4000;
+      const stdoutPreview =
+        captured.length > MAX
+          ? `${captured.slice(0, MAX)}\n…[truncated, ${captured.length} chars total]`
+          : captured;
+      const stderrPart = stderr.trim() || "(stderr empty)";
       throw new Error(
-        `Command "${tmplCommand.name}" failed with exit code ${exitCode}: ${stderr}`,
+        `Command "${tmplCommand.name}" failed with exit code ${exitCode}: ${stderrPart}` +
+          (stdoutPreview
+            ? `\n--- script stdout (after marker) ---\n${stdoutPreview}\n--- end of stdout ---`
+            : "\n(stdout empty after marker — the script produced no output before exiting)"),
       );
     }
     return msg;

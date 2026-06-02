@@ -25,8 +25,8 @@ from pathlib import Path
 # - is_managed_container(conf_text) -> bool
 
 
-def get_all_statuses(timeout: float = 8.0) -> dict[int, str]:
-    """Return {vmid: status} for every container known to pct.
+def get_all_statuses(timeout: float = 8.0) -> dict[int, dict[str, str]]:
+    """Return {vmid: {"status": ..., "lock": ...}} for every pct container.
 
     Calling `pct status <vmid>` per container is slow on a real cluster
     (~1.6s per call) and stalls on any container that holds a transient
@@ -41,9 +41,12 @@ def get_all_statuses(timeout: float = 8.0) -> dict[int, str]:
         500        running                 postgres
         504        stopped    migrate      gitea
 
-    The Lock column is always empty for unlocked containers, so splitting
-    on whitespace gives `[vmid, status, ...]` — we only need the first
-    two columns.
+    The Lock column is empty for unlocked containers, so whitespace-splitting
+    yields `[vmid, status, name]` (3 cols) when unlocked and
+    `[vmid, status, lock, name]` (4 cols) when locked. Container names are
+    single tokens, so a 4th column means the 3rd is the lock. The lock is
+    surfaced so the UI can disable upgrade/reconfigure on a locked container
+    (cloning/reconfiguring a locked source fails deep in the pipeline).
     """
     try:
         result = subprocess.run(
@@ -57,7 +60,7 @@ def get_all_statuses(timeout: float = 8.0) -> dict[int, str]:
     if result.returncode != 0:
         return {}
 
-    statuses: dict[int, str] = {}
+    statuses: dict[int, dict[str, str]] = {}
     for raw in result.stdout.splitlines():
         line = raw.strip()
         if not line:
@@ -66,14 +69,25 @@ def get_all_statuses(timeout: float = 8.0) -> dict[int, str]:
         if len(parts) < 2 or not parts[0].isdigit():
             continue  # header row or unexpected format
         try:
-            statuses[int(parts[0])] = parts[1]
+            vmid = int(parts[0])
         except ValueError:
             continue
+        # Lock column present only when 4+ tokens (vmid status lock name).
+        lock = parts[2] if len(parts) >= 4 else ""
+        statuses[vmid] = {"status": parts[1], "lock": lock}
     return statuses
 
 
 def main() -> None:
     base_dir = Path(os.environ.get("LXC_MANAGER_PVE_LXC_DIR", "/etc/pve/lxc"))
+
+    # Optional single-container filter. When set to a numeric vmid, only that
+    # container's config is parsed — the application-overview page needs just
+    # one container's installed values and listing/parsing every config on a
+    # large cluster is wasteful. Any non-numeric value (unset, empty, the
+    # literal placeholder, NOT_DEFINED) means "list all" (the default).
+    filter_raw = "{{ filter_vm_id }}".strip()
+    filter_vm_id = filter_raw if filter_raw.isdigit() else ""
 
     containers: list[dict] = []
 
@@ -82,6 +96,8 @@ def main() -> None:
         for conf_path in sorted(base_dir.glob("*.conf"), key=lambda p: p.name):
             vmid_str = conf_path.stem
             if not vmid_str.isdigit():
+                continue
+            if filter_vm_id and vmid_str != filter_vm_id:
                 continue
 
             try:
@@ -163,8 +179,12 @@ def main() -> None:
         # distinguish "really stopped" from "couldn't determine". "unknown"
         # only fires if `pct list` itself failed or omitted the VM (rare —
         # the conf exists but the cluster manager has not picked it up yet).
+        # lock is the pct lock (migrate/backup/snapshot/…) or "" when free;
+        # the UI uses it to disable upgrade/reconfigure on a locked source.
         for item in containers:
-            item["status"] = all_statuses.get(item["vm_id"], "unknown")
+            info = all_statuses.get(item["vm_id"])
+            item["status"] = info["status"] if info else "unknown"
+            item["lock"] = info["lock"] if info else ""
 
     # Return output in VeExecution format: IOutput[]
     print(json.dumps([{"id": "containers", "value": json.dumps(containers)}]))
