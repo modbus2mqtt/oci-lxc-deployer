@@ -54,15 +54,22 @@ def build_hidden_markers(vmid, oci_image_visible="", app_id="", app_name="",
                          version="", deployer_url="", ve_context="",
                          icon_base64="", icon_mime_type="",
                          username="", uid="", gid="",
-                         is_deployer=False, stack_ids=None):
+                         is_deployer=False, stack_ids=None,
+                         deploy_params_b64=""):
     """Build hidden HTML comment markers for machine parsing.
 
     stack_ids: list of full stack IDs the container is a member of (e.g.
     ["postgres_production", "oidc_production"]). One ``stack-id <id>``
     marker is emitted per entry, allowing per-stack dependency lookups.
+
+    deploy_params_b64: base64-encoded JSON snapshot of the deploy POST payload.
+    Emitted as a single hidden marker so a later reconfigure can restore the
+    install-time parameter baseline. Pass "" to omit (size-fallback tier 3).
     """
     lines = []
     lines.append("<!-- proxvex:managed -->")
+    if deploy_params_b64:
+        lines.append("<!-- proxvex:deploy-params data:application/json;base64,%s -->" % deploy_params_b64)
     if is_deployer:
         lines.append("<!-- proxvex:deployer-instance -->")
     if oci_image_visible:
@@ -121,12 +128,24 @@ def build_links_section(vmid, deployer_url, ve_context, link_text="Logs"):
     return lines
 
 
-def write_notes(vmid, notes_content_with_icon, notes_content_without_icon):
-    """Write notes to LXC container via pct set, handling size limits and JSON output."""
+def write_notes(vmid, notes_content_with_icon, notes_content_without_icon,
+                notes_content_without_deploy_params=None):
+    """Write notes to LXC container via pct set, handling size limits and JSON output.
+
+    Size-fallback tiers (deploy-params snapshot is prioritized over the inline
+    icon, since the icon is decorative while the snapshot drives reconfigure):
+      1. with icon + deploy-params
+      2. without icon + deploy-params   (preferred when tight)
+      3. without icon + without deploy-params  (last resort; reconfigure
+         baseline unavailable for this container — logged)
+    """
     notes_content = notes_content_with_icon
     if len(notes_content) > PVE_DESCRIPTION_LIMIT:
         print("Notes exceed %d chars (%d), omitting inline icon" % (PVE_DESCRIPTION_LIMIT, len(notes_content)), file=sys.stderr)
         notes_content = notes_content_without_icon
+    if len(notes_content) > PVE_DESCRIPTION_LIMIT and notes_content_without_deploy_params is not None:
+        print("Notes still exceed %d chars (%d) without icon — omitting deploy-params snapshot; reconfigure baseline unavailable for this container" % (PVE_DESCRIPTION_LIMIT, len(notes_content)), file=sys.stderr)
+        notes_content = notes_content_without_deploy_params
 
     try:
         result = subprocess.run(

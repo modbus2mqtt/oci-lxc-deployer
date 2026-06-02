@@ -31,6 +31,7 @@ import {
   getNextMessageIndex,
 } from "@src/ve-execution/ve-execution-constants.mjs";
 import { listManagedContainers } from "@src/services/container-list-service.mjs";
+import { getContainerConfig } from "@src/services/container-config-service.mjs";
 
 /**
  * Route handler logic for VE configuration endpoints.
@@ -533,6 +534,47 @@ export class WebAppVeRouteHandlers {
       const executionMode = determineExecutionMode();
       const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
 
+      // ── Reconfigure deploy-params baseline ─────────────────────────────
+      // On reconfigure, seed a parameter baseline from the snapshot persisted
+      // in the previous container's notes (proxvex:deploy-params marker), so
+      // install-time customizations the request does not re-send keep their
+      // value instead of resetting to application/parameter-definition defaults.
+      // Request params override the baseline; any read/decode failure or an
+      // older container without the marker leaves today's behavior unchanged.
+      if (task === "reconfigure") {
+        const prevVmIdParam = body.params?.find(
+          (p) => p.name === "previous_vm_id",
+        );
+        const prevVmId = prevVmIdParam ? Number(prevVmIdParam.value) : NaN;
+        if (!Number.isNaN(prevVmId)) {
+          try {
+            const prevCfg = await getContainerConfig(
+              this.pm,
+              veCtxToUse,
+              prevVmId,
+            );
+            const baseline = this.parameterProcessor.decodeDeployParams(
+              prevCfg?.deploy_params_b64,
+            );
+            if (baseline) {
+              body.params = this.parameterProcessor.mergeDeployBaseline(
+                body.params,
+                baseline,
+              );
+              this.logger.info(
+                "Applied deploy-params baseline from previous container",
+                { previous_vm_id: prevVmId, baselineParams: baseline.params.length },
+              );
+            }
+          } catch (err: any) {
+            this.logger.warn(
+              "Could not read deploy-params baseline; continuing without it",
+              { previous_vm_id: prevVmId, error: err?.message ?? String(err) },
+            );
+          }
+        }
+      }
+
       // Always use all params for execution — changedParams is only relevant for
       // the restart flow (separate code path). Using changedParams here would lose
       // unchanged preset values (e.g. previous_vm_id) that templates still need.
@@ -878,6 +920,11 @@ export class WebAppVeRouteHandlers {
       // (only the frontend re-runs the chain). User params still override it
       // for reverse-proxy / public-domain setups.
       {
+        const appProperties = (loaded.application?.properties ?? []) as Array<{
+          id: string;
+          value?: unknown;
+          default?: unknown;
+        }>;
         const lookupEffective = (name: string): string | undefined => {
           const fromParam = body.params?.find(p => p.name === name);
           if (
@@ -886,6 +933,21 @@ export class WebAppVeRouteHandlers {
             String(fromParam.value) !== ""
           ) {
             return String(fromParam.value);
+          }
+          // Application property VALUE wins over the parameter-definition
+          // default in the `defaults` map. Property values (e.g. modbus2mqtt's
+          // `local_https_port: "3443"`) flow through the resolved-params pipeline
+          // and never enter `defaults`, which instead holds the param-definition
+          // fallback (1443) — so without this, app_external_url would build the
+          // OIDC redirect with the wrong port. Prefer value, then property default.
+          const fromProp = appProperties.find(p => p.id === name);
+          if (fromProp) {
+            if (fromProp.value !== undefined && String(fromProp.value) !== "") {
+              return String(fromProp.value);
+            }
+            if (fromProp.default !== undefined && String(fromProp.default) !== "") {
+              return String(fromProp.default);
+            }
           }
           const fromDefault = defaults.get(name);
           return fromDefault !== undefined && String(fromDefault) !== ""
@@ -948,6 +1010,23 @@ export class WebAppVeRouteHandlers {
       if (selectedAddons.length > 0) {
         defaults.set("selected_addons", selectedAddons.join(","));
       }
+
+      // Persist the submitted deploy payload as a base64-JSON snapshot embedded
+      // (invisibly) in the container notes. A later reconfigure reads it back to
+      // restore install-time parameter values that the request does not re-send
+      // — see mergeDeployBaseline below and the `proxvex:deploy-params` marker.
+      // Built from body.params (post-baseline-merge) AFTER the addon delta merge
+      // so the persisted addon lists are the effective ones.
+      defaults.set(
+        "deploy_params_b64",
+        this.parameterProcessor.buildDeployParamsSnapshot(
+          body.params,
+          loaded.parameters,
+          selectedAddons,
+          disabledAddons,
+          allStackIds,
+        ),
+      );
 
       const contextManager =
         this.pm.getContextManager();

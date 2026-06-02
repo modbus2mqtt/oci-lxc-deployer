@@ -33,6 +33,8 @@ GID_MARKER_RE = re.compile(r"(?:proxvex):gid\s+(.+?)\s*-->", re.IGNORECASE)
 STACK_ID_MARKER_RE = re.compile(r"(?:proxvex):stack-id\s+(.+?)\s*-->", re.IGNORECASE)
 REPLACED_AT_MARKER_RE = re.compile(r"(?:proxvex):replaced-at\s+(.+?)\s*-->", re.IGNORECASE)
 REPLACED_BY_MARKER_RE = re.compile(r"(?:proxvex):replaced-by\s+(.+?)\s*-->", re.IGNORECASE)
+# Base64 JSON snapshot of the deploy POST payload (alphabet incl. +/=).
+DEPLOY_PARAMS_MARKER_RE = re.compile(r"(?:proxvex):deploy-params\s+data:application/json;base64,([A-Za-z0-9+/=]+)\s*-->", re.IGNORECASE)
 
 # --- Regex patterns for LXC config parsing ---
 
@@ -116,6 +118,10 @@ class LxcConfig:
     replaced_by: Optional[str] = None  # VMID of the replacement
     lock: Optional[str] = None         # current PVE lock state, if any
 
+    # Base64 JSON snapshot of the deploy POST payload (proxvex:deploy-params
+    # marker). Kept raw; decoded TS-side and used as the reconfigure baseline.
+    deploy_params_b64: Optional[str] = None
+
     # LXC config entries
     id_mappings: List[IdMapping] = field(default_factory=list)
     mount_points: List[MountPoint] = field(default_factory=list)
@@ -162,6 +168,8 @@ class LxcConfig:
             result["replaced_by"] = self.replaced_by
         if self.lock:
             result["lock"] = self.lock
+        if self.deploy_params_b64:
+            result["deploy_params_b64"] = self.deploy_params_b64
         if self.memory is not None:
             result["memory"] = self.memory
         if self.cores is not None:
@@ -412,6 +420,13 @@ def parse_lxc_config(conf_text: str) -> LxcConfig:
     config.replaced_by = (
         _extract_from_patterns(decoded, [REPLACED_BY_MARKER_RE]) or
         _extract_from_patterns(normalized, [REPLACED_BY_MARKER_RE])
+    )
+
+    # Parse the deploy-params base64 snapshot from notes (decoded first, since
+    # PVE URL-encodes the base64 +/= characters in the stored description).
+    config.deploy_params_b64 = (
+        _extract_from_patterns(decoded, [DEPLOY_PARAMS_MARKER_RE]) or
+        _extract_from_patterns(normalized, [DEPLOY_PARAMS_MARKER_RE])
     )
 
     # Parse lock state from raw config.

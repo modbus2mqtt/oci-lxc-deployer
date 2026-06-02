@@ -113,6 +113,7 @@ describe("host-write-docker-compose-notes.py / build_notes", () => {
     uid: "0",
     gid: "0",
     stack_id: "postgres_production",
+    deploy_params_b64: "",
   };
 
   it("includes the hidden log-url marker when deployer_base_url + ve_context_key are set", () => {

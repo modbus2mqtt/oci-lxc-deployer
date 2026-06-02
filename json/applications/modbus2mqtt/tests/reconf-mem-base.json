@@ -1,0 +1,21 @@
+{
+  "params": [
+    {
+      "name": "oci_image_tag",
+      "value": "latest"
+    },
+    {
+      "name": "memory",
+      "value": 768
+    },
+    {
+      "name": "upload_modbus2mqtt_config_content",
+      "value": "file:config-plain.zip"
+    }
+  ],
+  "depends_on": [
+    "eclipse-mosquitto/default"
+  ],
+  "wait_seconds": 30,
+  "description": "Install base for the deploy-params reconfigure test: plain modbus2mqtt (no addons, no OIDC) with a NON-default memory (768 MB). The reconf-mem scenario reconfigures this WITHOUT re-sending memory; the deploy-params baseline must preserve 768 instead of resetting to the 512 default."
+}

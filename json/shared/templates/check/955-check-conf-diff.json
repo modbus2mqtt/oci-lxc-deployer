@@ -1,0 +1,21 @@
+{
+  "execute_on": "ve",
+  "name": "Check Config Diff",
+  "skip_if_all_missing": [
+    "previous_vm_id"
+  ],
+  "description": "Reconfigure diagnostics: diffs the backed-up previous container .conf (from 103-host-backup-previous-container-conf.json) against the finalized new .conf and writes the differences to stderr, so they are captured in the diagnostic bundle and visible to the user.\n\nInformational only — always reports PASS, never fails the deploy. Only runs when previous_vm_id is set (reconfigure/replace flows).",
+  "parameters": [
+    "previous_vm_id",
+    "vm_id"
+  ],
+  "commands": [
+    {
+      "name": "Check Config Diff",
+      "script": "host-check-conf-diff.sh",
+      "outputs": [
+        "check_conf_diff"
+      ]
+    }
+  ]
+}

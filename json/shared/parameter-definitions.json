@@ -594,6 +594,11 @@
       "required": false,
       "internal": true
     },
+    "deploy_params_b64": {
+      "name": "Deploy Params Snapshot",
+      "type": "string",
+      "internal": true
+    },
     "icon_base64": {
       "name": "Icon Base64",
       "type": "string",
