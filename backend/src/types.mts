@@ -605,6 +605,10 @@ export interface IManagedOciContainer {
   application_name?: string;
   version?: string;
   status?: string;
+  /** pct lock held by the container (migrate/backup/snapshot/…), or ""/undefined
+   * when free. A locked container must not be offered for upgrade/reconfigure —
+   * cloning/reconfiguring a locked source fails deep in the pipeline. */
+  lock?: string;
   addons?: string[];
   is_deployer_instance?: boolean;
   username?: string;

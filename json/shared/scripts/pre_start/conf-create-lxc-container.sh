@@ -167,37 +167,73 @@ fi
 # Note: The error "newuidmap: uid range [0-65536) -> [100000-165536) not allowed"
 # occurs because Proxmox tries to use idmap during template extraction.
 # This happens even though we don't want idmap - uid/gid are only for volume permissions.
-# shellcheck disable=SC2086
-pct create "$VMID" "$TEMPLATE_PATH" \
-  --rootfs "$ROOTFS" \
-  --hostname "{{ hostname }}" \
-  --memory "{{ memory }}" \
-  --net0 name=eth0,bridge="{{ bridge }}",ip=dhcp \
-  --ostype "{{ ostype }}" \
-  --unprivileged 1 \
-  --onboot 1 \
-  $NS_ARG \
-  $SD_ARG \
-  $ARCH_ARG \
-  $STARTUP_ARG >&2
-RC=$?
+OSTYPE_VAL="{{ ostype }}"
+PCT_ERR=$(mktemp)
+
+_pct_create() {
+  # $1 = ostype to use
+  # shellcheck disable=SC2086
+  pct create "$VMID" "$TEMPLATE_PATH" \
+    --rootfs "$ROOTFS" \
+    --hostname "{{ hostname }}" \
+    --memory "{{ memory }}" \
+    --net0 name=eth0,bridge="{{ bridge }}",ip=dhcp \
+    --ostype "$1" \
+    --unprivileged 1 \
+    --onboot 1 \
+    $NS_ARG \
+    $SD_ARG \
+    $ARCH_ARG \
+    $STARTUP_ARG 2>"$PCT_ERR"
+}
 
 # Pull the matching PVE task log for this VMID. pct create is mostly a wrapper
 # around an async PVE-API task — the real error message (e.g. "Disk quota
-# exceeded", "newuidmap not allowed", quota issues during tar extraction)
-# typically lands in the task log, not on pct's own stderr. Without this we
-# silently lose root-cause info when the backend hits SSH timeout / disconnect.
-NODE=$(hostname -s 2>/dev/null || hostname)
-UPID=$(pvesh get "/nodes/${NODE}/tasks" --vmid "$VMID" --typefilter vzcreate --limit 1 --output-format json 2>/dev/null \
-  | grep -oE '"upid"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 \
-  | sed -E 's/.*"upid"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
-if [ -n "$UPID" ]; then
+# exceeded", "newuidmap not allowed", "got unexpected ostype", quota issues
+# during tar extraction) typically lands in the task log, not on pct's own
+# stderr. Echoes the log to stderr AND appends it to $PCT_ERR so the ostype
+# retry below can inspect it. Without this we silently lose root-cause info
+# when the backend hits SSH timeout / disconnect.
+_pull_task_log() {
+  NODE=$(hostname -s 2>/dev/null || hostname)
+  UPID=$(pvesh get "/nodes/${NODE}/tasks" --vmid "$VMID" --typefilter vzcreate --limit 1 --output-format json 2>/dev/null \
+    | grep -oE '"upid"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 \
+    | sed -E 's/.*"upid"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
+  [ -n "$UPID" ] || return 0
   echo "--- PVE task log: $UPID ---" >&2
   pvesh get "/nodes/${NODE}/tasks/${UPID}/log" --output-format json 2>/dev/null \
     | grep -oE '"t"[[:space:]]*:[[:space:]]*"[^"]*"' \
-    | sed -E 's/.*"t"[[:space:]]*:[[:space:]]*"(.*)"$/\1/' >&2 || true
+    | sed -E 's/.*"t"[[:space:]]*:[[:space:]]*"(.*)"$/\1/' \
+    | tee -a "$PCT_ERR" >&2 || true
   echo "--- end PVE task log ---" >&2
+}
+
+_pct_create "$OSTYPE_VAL"
+RC=$?
+cat "$PCT_ERR" >&2
+_pull_task_log
+
+# OCI archives carry their own ostype. Our skopeo-label heuristic in
+# host-get-oci-image.py can guess wrong (it defaults to "alpine" when no
+# distro keyword is present in the image labels), so a debian/ubuntu-based
+# image fails with: "got unexpected ostype (debian != alpine)". pct knows the
+# real ostype from the rootfs and names it in that error — retry once with the
+# ostype pct detected instead of failing the whole deploy.
+if [ $RC -ne 0 ]; then
+  DETECTED_OSTYPE=$(sed -nE 's/.*got unexpected ostype \(([a-z]+) != [a-z]+\).*/\1/p' "$PCT_ERR" | head -1)
+  if [ -n "$DETECTED_OSTYPE" ] && [ "$DETECTED_OSTYPE" != "$OSTYPE_VAL" ]; then
+    echo "ostype mismatch: image rootfs is '$DETECTED_OSTYPE', not detected '$OSTYPE_VAL' — retrying pct create with --ostype $DETECTED_OSTYPE" >&2
+    # A partial container may linger from the failed attempt; remove it first.
+    pct destroy "$VMID" --purge --force >&2 2>/dev/null || true
+    : > "$PCT_ERR"
+    _pct_create "$DETECTED_OSTYPE"
+    RC=$?
+    cat "$PCT_ERR" >&2
+    _pull_task_log
+    OSTYPE_VAL="$DETECTED_OSTYPE"
+  fi
 fi
+rm -f "$PCT_ERR"
 
 if [ $RC -ne 0 ]; then
   echo "Failed to create LXC container!" >&2

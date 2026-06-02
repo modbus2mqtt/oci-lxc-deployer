@@ -48,4 +48,11 @@
     background: #fbe9e7;
     color: #c62828;
   }
+
+  &.locked {
+    background: #fff3e0;
+    color: #e65100;
+    margin-left: 0.4rem;
+    cursor: help;
+  }
 }

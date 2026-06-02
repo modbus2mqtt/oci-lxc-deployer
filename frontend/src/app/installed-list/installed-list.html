@@ -36,6 +36,11 @@
           [class.stopped]="it.status === 'stopped'"
           [ngClass]="getCardClassesForInstallation(it)">{{ it.status }}</span>
       }
+      @if (it.lock) {
+        <span class="status-badge locked"
+          matTooltip="Container is locked (pct {{ it.lock }}) — upgrade/reconfigure stay disabled until it clears (pct unlock {{ it.vm_id }})"
+          matTooltipPosition="above">🔒 {{ it.lock }}</span>
+      }
     </div>
 
     <div class="card-body">
@@ -56,10 +61,12 @@
     <div class="card-actions">
       @if (!it.is_host) {
         <button type="button" (click)="startUpgrade(it)"
+          [disabled]="!!it.lock"
           matTooltip="Creates a new container with the latest image, then replaces the old one"
           matTooltipPosition="above">Upgrade</button>
       }
-      <button type="button" class="secondary" (click)="editAddons(it)">Reconfigure</button>
+      <button type="button" class="secondary" (click)="editAddons(it)"
+        [disabled]="!!it.lock">Reconfigure</button>
       @if (it.application_id) {
         <button type="button" class="secondary" [routerLink]="['/application-overview', it.application_id]"
           [queryParams]="{ vm_id: it.vm_id, veContext: veContextKey }">Overview</button>

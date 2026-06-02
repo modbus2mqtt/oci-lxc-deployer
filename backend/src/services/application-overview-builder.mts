@@ -59,7 +59,7 @@ export class ApplicationOverviewBuilder {
     let installedContainer: IManagedOciContainer | undefined;
     if (veContext && vmId !== undefined) {
       try {
-        const containers = await listManagedContainers(this.pm, veContext);
+        const containers = await listManagedContainers(this.pm, veContext, vmId);
         installedContainer = containers.find((c) => c.vm_id === vmId);
       } catch {
         // Non-fatal: overview works without installed values
