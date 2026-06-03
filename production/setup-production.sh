@@ -56,7 +56,6 @@ github-runner=ubuntupve
 ghcr-registry-mirror=ubuntupve
 docker-mirror-test=ubuntupve
 zot-mirror=ubuntupve
-mcr-mirror=ubuntupve
 wolproxy=pve1.cluster
 "
 
@@ -128,7 +127,6 @@ print_steps() {
     20  Deploy gptwol (Wake-on-LAN UI + M2M API via addon-oauth2-proxy)
     21  Deploy wolproxy (stable JSON API for WoL+ping, M2M Bearer JWT)
     22  Create runner-wake-svc Machine User in Zitadel (outputs WAKE_CLIENT_ID/SECRET for GitHub Actions)
-    23  Deploy mcr-mirror (target: $(host_for_app mcr-mirror)) [test infra; pull-through cache for mcr.microsoft.com, e.g. playwright images]
 STEPS
 }
 
@@ -1092,23 +1090,6 @@ fi
 if should_run 22; then
   banner 22 "Setup runner-wake-svc (GitHub Actions Bearer auth)"
   "$SCRIPT_DIR/setup-runner-wake-auth.sh"
-fi
-
-# ================================================================
-# Step 23: Deploy mcr-mirror — pull-through cache for mcr.microsoft.com
-#
-# Test/CI infra (parallel to steps 17/18/19). A separate derived application
-# (mcr-registry-mirror, extends docker-registry-mirror; anonymous mcr upstream,
-# cert SAN DNS:mcr.microsoft.com) is provisioned onto the deployer + deployed
-# by setup-mcr-mirror.sh — same pattern as step 17 / setup-ghcr-mirror.sh.
-# Removes the double-NAT bottleneck for large mcr images (e.g.
-# mcr.microsoft.com/playwright, ~2 GB): step2a DNS-redirects mcr.microsoft.com
-# to this mirror, so the nested VM pulls over the LAN while the mirror fetches
-# from mcr over the host's direct internet.
-# ================================================================
-if should_run 23; then
-  banner 23 "Deploy mcr-mirror ($(host_for_app mcr-mirror))"
-  pve_ssh "sh production/setup-mcr-mirror.sh"
 fi
 
 # ================================================================
