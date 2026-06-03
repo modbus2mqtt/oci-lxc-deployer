@@ -28,7 +28,7 @@ OCI_mariadb_TAG="${OCI_mariadb_TAG:-11}"                      # mariadb
 OCI_phpmyadmin_TAG="${OCI_phpmyadmin_TAG:-5.2.3}"             # phpmyadmin
 OCI_docker_registry_mirror_TAG="${OCI_docker_registry_mirror_TAG:-3.0.0}" # distribution/distribution
 OCI_zot_mirror_TAG="${OCI_zot_mirror_TAG:-v2.1.5}"            # ghcr.io/project-zot/zot-linux-amd64 (paused: PVE 9.1.x OCI extractor bug, see memory project_zot_mirror_blocked)
-OCI_playwright_TAG="${OCI_playwright_TAG:-v1.57.0-noble}"     # mcr.microsoft.com/playwright (synced from frontend/package.json)
+OCI_playwright_TAG="${OCI_playwright_TAG:-v1.57.0-noble}"     # ghcr.io/proxvex/playwright (mirror of mcr.microsoft.com/playwright via .github/workflows/playwright-image-mirror.yml; tag synced from frontend/package.json)
 OCI_oauth2_proxy_testbed_TAG="${OCI_oauth2_proxy_testbed_TAG:-alpine}" # nginx:alpine (testbed for addon-oauth2-proxy; shell-having image needed for on_start hook)
 OCI_wolproxy_TAG="${OCI_wolproxy_TAG:-latest}"               # ghcr.io/proxvex/wolproxy (stable JSON API for WoL+ping)
 

@@ -297,13 +297,10 @@ ZOT_MIRROR_HOST="${ZOT_MIRROR_HOST:-zot-mirror}"
 # zot-mirror (192.168.4.50) as the ghcr.io target.
 GHCR_MIRROR_IP="${GHCR_MIRROR_IP:-192.168.4.48}"
 GHCR_MIRROR_HOST="${GHCR_MIRROR_HOST:-ghcr-mirror}"
-# mcr.microsoft.com pull-through is served by the `mcr-mirror` app (extends
-# docker-registry-mirror = distribution, REGISTRY_PROXY_REMOTEURL=
-# https://mcr.microsoft.com, cert SAN DNS:mcr.microsoft.com). Deployed on
-# ubuntupve via production/setup-production.sh --step 23 at 192.168.4.52.
-# Removes the double-NAT bottleneck for large mcr images (e.g. playwright).
-MCR_MIRROR_IP="${MCR_MIRROR_IP:-192.168.4.52}"
-MCR_MIRROR_HOST="${MCR_MIRROR_HOST:-mcr-mirror}"
+# Note: mcr.microsoft.com needs no dedicated mirror. The playwright image
+# (the only mcr consumer) is re-hosted to ghcr.io/proxvex/playwright via
+# .github/workflows/playwright-image-mirror.yml, so it pulls through the
+# ghcr mirror above like every other image.
 # STEP2A_SKIP_ZOT_MIRROR=1 bypasses the ghcr-mirror reachability check so the
 # mirrors-ready snapshot can still be created even when the mirror is down.
 # ghcr.io pulls will then fail at install-time for any consumer that needs
@@ -330,32 +327,6 @@ else
           on the outer PVE host — see step1-create-vm.sh).
         - Or rerun with STEP2A_SKIP_ZOT_MIRROR=1 to create the snapshot anyway."
     success "ghcr-mirror reachable at ${GHCR_MIRROR_IP} (TLS via proxvex CA)"
-fi
-
-# Step 4b: Verify the mcr-mirror (mcr.microsoft.com pull-through) is reachable.
-# STEP2A_SKIP_MCR_MIRROR=1 bypasses the check so the snapshot can still be
-# created when the mirror is down (mcr.microsoft.com pulls then fall back to a
-# direct double-NAT fetch — slow/flaky for large images, but not fatal here).
-if [ "${STEP2A_SKIP_MCR_MIRROR:-}" = "1" ]; then
-    info "STEP2A_SKIP_MCR_MIRROR=1 — skipping mcr-mirror reachability check"
-else
-    header "Verifying mcr-mirror (${MCR_MIRROR_HOST} @ ${MCR_MIRROR_IP})"
-    for i in $(seq 1 10); do
-        nested_ssh "curl -sf --connect-timeout 5 \
-            --resolve mcr.microsoft.com:443:${MCR_MIRROR_IP} \
-            https://mcr.microsoft.com/v2/ >/dev/null 2>&1" && break
-        sleep 1
-    done
-    nested_ssh "curl -sf --connect-timeout 5 \
-        --resolve mcr.microsoft.com:443:${MCR_MIRROR_IP} \
-        https://mcr.microsoft.com/v2/ >/dev/null 2>&1" \
-        || error "mcr-mirror (${MCR_MIRROR_IP}) unreachable from nested VM.
-        - Install it: ./production/setup-production.sh --step 23
-          (deploys the mcr-mirror app on ubuntupve at 192.168.4.52).
-        - Check the LXC is running:
-            ssh root@ubuntupve 'pct list | grep ${MCR_MIRROR_HOST}'
-        - Or rerun with STEP2A_SKIP_MCR_MIRROR=1 to create the snapshot anyway."
-    success "mcr-mirror reachable at ${MCR_MIRROR_IP} (TLS via proxvex CA)"
 fi
 
 # Step 5: dnsmasq + skopeo registries.conf so the nested VM (and any inner
@@ -396,11 +367,6 @@ GHCR_REDIRECT_BLOCK="# ghcr.io -> ghcr-registry-mirror IP (distribution pull-thr
 address=/ghcr.io/${GHCR_MIRROR_IP}
 address=/ghcr.io/::"
 GHCR_TARGET_DESC="${GHCR_MIRROR_IP}"
-MCR_REDIRECT_BLOCK="# mcr.microsoft.com -> mcr-mirror IP (distribution pull-through,
-# mcr.microsoft.com upstream). Install via production/setup-production.sh
-# --step 23. Cert SAN includes DNS:mcr.microsoft.com so TLS validates cleanly.
-address=/mcr.microsoft.com/${MCR_MIRROR_IP}
-address=/mcr.microsoft.com/::"
 header "Wiring dnsmasq registry redirects + mirror hostnames"
 nested_ssh "
     cfg=/etc/dnsmasq.d/e2e-nat.conf
@@ -429,7 +395,6 @@ address=/${TEST_MIRROR_HOST}/::
 address=/${ZOT_MIRROR_HOST}/${ZOT_MIRROR_IP}
 address=/${ZOT_MIRROR_HOST}/::
 ${GHCR_REDIRECT_BLOCK}
-${MCR_REDIRECT_BLOCK}
 # NOTE: no docker.io -> IP redirect here. docker.io pulls are routed by
 # skopeo's [[registry.mirror]] in /etc/containers/registries.conf to the
 # \`${TEST_MIRROR_HOST}\` hostname (resolved above to ${TEST_MIRROR_IP}),
