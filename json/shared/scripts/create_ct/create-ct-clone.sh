@@ -192,6 +192,14 @@ if [ -f "$TARGET_CONF" ] && grep -q "lxc.console.logfile:" "$TARGET_CONF"; then
   log "Updated lxc.console.logfile VMID: $SOURCE_VMID -> $TARGET_VMID"
 fi
 
+# Re-stamp the serial replug watcher onto the new VMID. `pct clone` already
+# carried over the lxc.mount.entry / lxc.cgroup2.devices.allow lines, but the
+# host-side udev rule + systemd unit are keyed by VMID and still point at the
+# source container — without this the device would no longer rebind into the
+# clone after a USB hot-replug. migrate_device_mapping (idempotent for the
+# already-cloned lxc lines) comes from the prepended device-mapping-common.sh.
+migrate_device_mapping "$SOURCE_VMID" "$TARGET_VMID"
+
 # Override the searchdomain Proxmox would otherwise inherit from the host's
 # `hostname -d`. See conf-create-lxc-container.sh for the rationale —
 # inherited search suffixes break bare-hostname DNS resolution from inside

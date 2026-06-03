@@ -1,0 +1,21 @@
+{
+  "execute_on": "ve",
+  "name": "Backup Previous LXC Config",
+  "skip_if_all_missing": [
+    "previous_vm_id"
+  ],
+  "description": "Reconfigure/replace safety net: copies the previous container's /etc/pve/lxc/<previous_vm_id>.conf to /var/lib/proxvex/conf-backups/<vm_id>/ before the old container is modified or destroyed.\n\nOnly runs when previous_vm_id is set (reconfigure/replace flows). Captures out-of-band pct-config edits that the deploy-params baseline cannot restore. Paired with the check-phase 955-check-conf-diff.json which diffs this backup against the finalized new .conf.",
+  "parameters": [
+    "previous_vm_id",
+    "vm_id"
+  ],
+  "commands": [
+    {
+      "name": "Backup Previous LXC Config",
+      "script": "host-backup-previous-container-conf.sh",
+      "outputs": [
+        "conf_backup_path"
+      ]
+    }
+  ]
+}

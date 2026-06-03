@@ -6,11 +6,11 @@
   "properties": [
     {
       "id": "oidc_redirect_uri",
-      "default": "https://{{hostname}}{{project_domain_suffix}}/api/auth/callback"
+      "default": "{{app_external_url}}/api/auth/callback"
     },
     {
       "id": "oidc_post_logout_uri",
-      "default": "https://{{hostname}}{{project_domain_suffix}}"
+      "default": "{{app_external_url}}"
     }
   ],
   "installation": {
@@ -74,6 +74,7 @@
     ],
     "pre_start": [
       "set-reconfigure-defaults.json",
+      "103-host-backup-previous-container-conf.json",
       "108-host-push-ca-to-container.json",
       "150-conf-create-storage-volumes-for-lxc.json",
       "185-host-resolve-dependency-hosts.json",
@@ -100,6 +101,7 @@
       "940-host-check-file-exists.json",
       "945-check-https-cert.json",
       "950-host-check-tls-connect.json",
+      "955-check-conf-diff.json",
       "965-check-oidc-discovery.json",
       "975-check-oidc-redirect-ready.json",
       "990-host-check-volume-consistency.json"

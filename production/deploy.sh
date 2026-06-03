@@ -444,7 +444,11 @@ deploy_app() {
 
 # Resolve previous_vm_id for upgrade/reconfigure tasks by querying the
 # deployer's installations API for managed containers with the given
-# application_id. Errors out if zero or more-than-one are found — for
+# application_id, then narrowing to the one that is currently *running*.
+# Production runs exactly one running instance per application; stale
+# stopped/half-migrated containers from earlier upgrades (e.g. an old
+# modbus2mqtt left 'stopped' beside the live one) are ignored. Errors out
+# if zero or more-than-one *running* containers are found — for genuine
 # multi-instance setups the operator must specify previous_vm_id manually
 # in the params file. Echoes the VMID on stdout when exactly one is found.
 resolve_previous_vmid() {
@@ -473,17 +477,33 @@ for entry in data:
         if vm is not None:
             print(vm)
 " 2>/dev/null)
-  local count
-  count=$(echo "$matches" | grep -c .)
-  if [ "$count" -eq 0 ]; then
+  matches=$(echo "$matches" | grep -E '^[0-9]+$' | sort -u)
+  if [ -z "$matches" ]; then
     echo "ERROR: no managed container found for application_id=$app on $PVE_HOST" >&2
     return 1
   fi
-  if [ "$count" -gt 1 ]; then
-    echo "ERROR: multiple managed containers found for application_id=$app on $PVE_HOST (VMIDs: $matches) — set previous_vm_id explicitly in the params JSON to disambiguate" >&2
+  # Narrow to running containers. Among the managed instances, exactly one
+  # must be running in production — this disambiguates when stale stopped or
+  # half-migrated containers from earlier upgrades linger on the host.
+  local running="" vm st
+  for vm in $matches; do
+    st=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "root@${PVE_HOST}" \
+      "pct status $vm 2>/dev/null" | awk '{print $2}')
+    if [ "$st" = "running" ]; then
+      running="${running:+$running }$vm"
+    fi
+  done
+  local rcount
+  rcount=$(echo "$running" | tr ' ' '\n' | grep -c .)
+  if [ "$rcount" -eq 0 ]; then
+    echo "ERROR: no *running* container for application_id=$app on $PVE_HOST (managed VMIDs: $(echo $matches)) — start the target instance or set previous_vm_id explicitly" >&2
     return 1
   fi
-  echo "$matches"
+  if [ "$rcount" -gt 1 ]; then
+    echo "ERROR: multiple running containers for application_id=$app on $PVE_HOST (VMIDs: $running) — stop the stale ones or set previous_vm_id explicitly to disambiguate" >&2
+    return 1
+  fi
+  echo "$running"
 }
 
 # Auto-inject previous_vm_id into the params JSON for upgrade/reconfigure

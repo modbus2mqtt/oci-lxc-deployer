@@ -6,8 +6,12 @@ end-to-end tests — not a user-installable service. Marked `hidden: true`.
 
 ## How it works
 
-- Base image: `mcr.microsoft.com/playwright:v1.59.1-noble` (Ubuntu Noble with
-  preinstalled Chromium, Firefox, WebKit and all system dependencies).
+- Base image: `ghcr.io/proxvex/playwright` (Ubuntu Noble with preinstalled
+  Chromium, Firefox, WebKit and all system dependencies) — a re-hosted mirror
+  of `mcr.microsoft.com/playwright`, published by
+  `.github/workflows/playwright-image-mirror.yml`. Re-hosted to ghcr so it
+  pulls through the existing ghcr mirror in CI instead of needing a dedicated
+  mcr pull-through cache.
 - The container's PID 1 is set via `lxc.init.cmd` (using the `initial_command`
   property), which directly starts `npx playwright run-server` — no systemd or
   service manager required.

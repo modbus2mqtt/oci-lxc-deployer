@@ -31,6 +31,7 @@ import {
   getNextMessageIndex,
 } from "@src/ve-execution/ve-execution-constants.mjs";
 import { listManagedContainers } from "@src/services/container-list-service.mjs";
+import { getContainerConfig } from "@src/services/container-config-service.mjs";
 
 /**
  * Route handler logic for VE configuration endpoints.
@@ -267,6 +268,109 @@ export class WebAppVeRouteHandlers {
   }
 
   /**
+   * Augment `allStackIds` (mutated in place) with the stack ids of the
+   * selected addons' stacktypes, so dependency resolution can find containers
+   * living in addon stacks. Only fills in stacktypes not already covered — and
+   * prefers the stack whose name suffix matches an existing stack id (e.g. for
+   * gitea/ssl with body stacks ["postgres_ssl", "gitea_ssl"], pick "oidc_ssl"
+   * rather than every oidc_*). Pulling in unrelated variants (oidc_default,
+   * oidc_upgrade) would make 185-host-resolve-dependency-hosts match the wrong
+   * container. Reads the live stack registry, so it must run on a deployer that
+   * actually owns the addon stacks (the Hub) — the self-upgrade clone forwards
+   * the result rather than re-deriving against its empty copy.
+   */
+  private async augmentStackIdsWithAddons(
+    allStackIds: string[],
+    selectedAddons: string[],
+  ): Promise<void> {
+    if (selectedAddons.length === 0) return;
+    try {
+      const addonSvc = this.pm.getAddonService();
+      // Stacktypes already represented in allStackIds.
+      const coveredStacktypes = new Set<string>();
+      // The "stack name" component is the part after the first underscore;
+      // e.g. "postgres_ssl" → "ssl". Use it to pick same-variant addon
+      // stacks instead of any existing one.
+      const preferredStackNames = new Set<string>();
+      const stackProviderForLookup = this.pm.getStackProvider();
+      for (const sid of allStackIds) {
+        const stack = await stackProviderForLookup.getStack(sid);
+        if (stack?.stacktype) {
+          const stTypes = Array.isArray(stack.stacktype)
+            ? stack.stacktype
+            : [stack.stacktype];
+          for (const st of stTypes) coveredStacktypes.add(st);
+        }
+        if (stack?.name) preferredStackNames.add(stack.name);
+        else {
+          const idx = sid.indexOf("_");
+          if (idx > 0) preferredStackNames.add(sid.slice(idx + 1));
+        }
+      }
+      for (const addonId of selectedAddons) {
+        try {
+          const addon = addonSvc.getAddon(addonId);
+          if (addon?.stacktype) {
+            const addonTypes = Array.isArray(addon.stacktype) ? addon.stacktype : [addon.stacktype];
+            for (const st of addonTypes) {
+              if (coveredStacktypes.has(st)) continue;
+              const stacks = await stackProviderForLookup.listStacks(st);
+              // Prefer same-variant; fall back to any if no match.
+              const matching = stacks.filter((s) =>
+                preferredStackNames.has(s.name),
+              );
+              const toAdd = matching.length > 0 ? matching : stacks;
+              for (const stack of toAdd) {
+                if (!allStackIds.includes(stack.id)) {
+                  allStackIds.push(stack.id);
+                }
+              }
+              coveredStacktypes.add(st);
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+
+  /**
+   * Collect the addon-stack values a clone-side reconfigure needs but cannot
+   * resolve from its own (isolated) stack store, so they can be forwarded as
+   * params to the clone. The self-upgrade clone is a `pct clone` of the source
+   * deployer: it knows the oidc_* stack id (forwarded via body.stackIds) but
+   * not the stack's entries/provides — e.g. DEPLOYER_OIDC_MACHINE_CLIENT_ID/
+   * SECRET, DEPLOYER_OIDC_ISSUER_URL, DEPLOYER_OIDC_PROJECT_ID, which the
+   * Setup OIDC Client template needs to mint a Zitadel client. The Hub holds
+   * those (zitadel/default registered them), so resolve them here and forward.
+   * Only OIDC-prefixed keys are forwarded — the clone resolves everything else
+   * (e.g. ZITADEL_HOST via 185-host-resolve-dependency-hosts) on its own.
+   */
+  private async collectCloneStackParams(
+    stackIds: string[],
+  ): Promise<Array<{ name: string; value: string }>> {
+    const FORWARD_PREFIXES = ["DEPLOYER_OIDC_", "TEST_DEPLOYER_OIDC_"];
+    const out: Array<{ name: string; value: string }> = [];
+    const seen = new Set<string>();
+    try {
+      const sp = this.pm.getStackProvider();
+      for (const sid of stackIds) {
+        const stack = await sp.getStack(sid);
+        if (!stack) continue;
+        const all = [...(stack.entries ?? []), ...(stack.provides ?? [])];
+        for (const kv of all) {
+          const name = kv.name;
+          if (seen.has(name)) continue;
+          if (!FORWARD_PREFIXES.some((p) => name.startsWith(p))) continue;
+          if (kv.value === undefined || kv.value === null || kv.value === "") continue;
+          out.push({ name, value: String(kv.value) });
+          seen.add(name);
+        }
+      }
+    } catch { /* best-effort — clone falls back to its own resolution */ }
+    return out;
+  }
+
+  /**
    * Handles POST /api/ve-configuration/:application/:veContext (task in body)
    */
   async handleVeConfiguration(
@@ -412,17 +516,40 @@ export class WebAppVeRouteHandlers {
           emitStage(3, `Clone IP discovered: ${clone.cloneIp}`);
           await waitForCloneApi(clone.cloneIp);
           emitStage(4, `Clone API ready at http://${clone.cloneIp}:3080`);
+          // Derive the addon stack ids HERE, on the Hub, where the stack
+          // registry is populated (e.g. zitadel/default registered the
+          // oidc_default stack). The clone is a `pct clone` of the pre-OIDC
+          // source and would resolve no oidc_* stack on its own, so its
+          // 185-host-resolve-dependency-hosts would fail ("require a stack_name
+          // but none is set"). Forwarding the resolved ids lets the clone seed
+          // allStackIds from body.stackIds instead of re-deriving.
+          const cloneStackIds = [...(body.stackIds ?? [])];
+          if (body.stackId && !cloneStackIds.includes(body.stackId)) {
+            cloneStackIds.unshift(body.stackId);
+          }
+          await this.augmentStackIdsWithAddons(cloneStackIds, body.selectedAddons ?? []);
+          // Forward the addon-stack values (e.g. DEPLOYER_OIDC_MACHINE_*) the
+          // clone cannot resolve from its isolated stack store. Params already
+          // carry secrets to the clone (deploy-params baseline), so this is
+          // consistent. Don't clobber values the caller passed explicitly.
+          const cloneParams = [...(body.params ?? [])];
+          for (const inj of await this.collectCloneStackParams(cloneStackIds)) {
+            if (!cloneParams.some((p) => p.name === inj.name)) {
+              cloneParams.push(inj);
+            }
+          }
           const result = await triggerUpgradeViaClone(
             clone.cloneIp,
             veContextKey,
             application,
             task as TaskType,
-            body.params ?? [],
+            cloneParams,
             previousVmid,
             body.selectedAddons ?? [],
             3080,
             30_000,
             outerRestartKey,
+            cloneStackIds,
           );
           emitStage(5, `Upgrade task dispatched to clone (clone-side restartKey=${result.restartKey}); mirroring clone messages from now on`);
           // E.8: outer key IS the unified key. The Hub forwarded it to
@@ -533,6 +660,47 @@ export class WebAppVeRouteHandlers {
       const executionMode = determineExecutionMode();
       const sshCommand = executionMode === ExecutionMode.TEST ? "sh" : "ssh";
 
+      // ── Reconfigure deploy-params baseline ─────────────────────────────
+      // On reconfigure, seed a parameter baseline from the snapshot persisted
+      // in the previous container's notes (proxvex:deploy-params marker), so
+      // install-time customizations the request does not re-send keep their
+      // value instead of resetting to application/parameter-definition defaults.
+      // Request params override the baseline; any read/decode failure or an
+      // older container without the marker leaves today's behavior unchanged.
+      if (task === "reconfigure") {
+        const prevVmIdParam = body.params?.find(
+          (p) => p.name === "previous_vm_id",
+        );
+        const prevVmId = prevVmIdParam ? Number(prevVmIdParam.value) : NaN;
+        if (!Number.isNaN(prevVmId)) {
+          try {
+            const prevCfg = await getContainerConfig(
+              this.pm,
+              veCtxToUse,
+              prevVmId,
+            );
+            const baseline = this.parameterProcessor.decodeDeployParams(
+              prevCfg?.deploy_params_b64,
+            );
+            if (baseline) {
+              body.params = this.parameterProcessor.mergeDeployBaseline(
+                body.params,
+                baseline,
+              );
+              this.logger.info(
+                "Applied deploy-params baseline from previous container",
+                { previous_vm_id: prevVmId, baselineParams: baseline.params.length },
+              );
+            }
+          } catch (err: any) {
+            this.logger.warn(
+              "Could not read deploy-params baseline; continuing without it",
+              { previous_vm_id: prevVmId, error: err?.message ?? String(err) },
+            );
+          }
+        }
+      }
+
       // Always use all params for execution — changedParams is only relevant for
       // the restart flow (separate code path). Using changedParams here would lose
       // unchanged preset values (e.g. previous_vm_id) that templates still need.
@@ -559,62 +727,12 @@ export class WebAppVeRouteHandlers {
       }
 
       // Add addon stacktypes to allStackIds so dependency resolution can find
-      // containers in addon stacks. Only fill in stacktypes that aren't
-      // already covered by body.stackIds — and prefer the stack whose name
-      // suffix matches an existing stack id (e.g. for gitea/ssl with body
-      // stacks ["postgres_ssl", "gitea_ssl"], pick "oidc_ssl" rather than
-      // every oidc_*). Pulling in unrelated variants (oidc_default, oidc_upgrade)
-      // would make 185-host-resolve-dependency-hosts match the wrong container.
-      const addonStackIds = body.selectedAddons ?? [];
-      if (addonStackIds.length > 0) {
-        try {
-          const addonSvc = this.pm.getAddonService();
-          // Stacktypes already represented in allStackIds.
-          const coveredStacktypes = new Set<string>();
-          // The "stack name" component is the part after the first underscore;
-          // e.g. "postgres_ssl" → "ssl". Use it to pick same-variant addon
-          // stacks instead of any existing one.
-          const preferredStackNames = new Set<string>();
-          const stackProviderForLookup = this.pm.getStackProvider();
-          for (const sid of allStackIds) {
-            const stack = await stackProviderForLookup.getStack(sid);
-            if (stack?.stacktype) {
-              const stTypes = Array.isArray(stack.stacktype)
-                ? stack.stacktype
-                : [stack.stacktype];
-              for (const st of stTypes) coveredStacktypes.add(st);
-            }
-            if (stack?.name) preferredStackNames.add(stack.name);
-            else {
-              const idx = sid.indexOf("_");
-              if (idx > 0) preferredStackNames.add(sid.slice(idx + 1));
-            }
-          }
-          for (const addonId of addonStackIds) {
-            try {
-              const addon = addonSvc.getAddon(addonId);
-              if (addon?.stacktype) {
-                const addonTypes = Array.isArray(addon.stacktype) ? addon.stacktype : [addon.stacktype];
-                for (const st of addonTypes) {
-                  if (coveredStacktypes.has(st)) continue;
-                  const stacks = await stackProviderForLookup.listStacks(st);
-                  // Prefer same-variant; fall back to any if no match.
-                  const matching = stacks.filter((s) =>
-                    preferredStackNames.has(s.name),
-                  );
-                  const toAdd = matching.length > 0 ? matching : stacks;
-                  for (const stack of toAdd) {
-                    if (!allStackIds.includes(stack.id)) {
-                      allStackIds.push(stack.id);
-                    }
-                  }
-                  coveredStacktypes.add(st);
-                }
-              }
-            } catch { /* ignore */ }
-          }
-        } catch { /* ignore */ }
-      }
+      // containers in addon stacks. Extracted into augmentStackIdsWithAddons so
+      // the self-upgrade clone-dispatch path can derive the SAME stack ids on
+      // the Hub (which holds the populated stack registry) and forward them to
+      // the clone (whose registry is a copy of the pre-OIDC source and would
+      // otherwise resolve no oidc_* stack).
+      await this.augmentStackIdsWithAddons(allStackIds, body.selectedAddons ?? []);
 
       const firstStackId = allStackIds[0];
       if (firstStackId) {
@@ -868,6 +986,64 @@ export class WebAppVeRouteHandlers {
       defaults.set("deployer_base_url", deployerUrl);
       defaults.set("ve_context_key", veContextKey);
 
+      // Browser-facing base URL of the application (scheme://host[:port]).
+      // OIDC redirect/logout (and any app needing its own external URL) are
+      // built as {{app_external_url}}<app-specific-path>, so this single
+      // computed value fixes both the protocol (https only when addon-ssl is
+      // active) and the port, which a static application.json default cannot
+      // express. Injected as a concrete string — not a templated default —
+      // because chained defaults do not re-resolve on the CLI/production path
+      // (only the frontend re-runs the chain). User params still override it
+      // for reverse-proxy / public-domain setups.
+      {
+        const appProperties = (loaded.application?.properties ?? []) as Array<{
+          id: string;
+          value?: unknown;
+          default?: unknown;
+        }>;
+        const lookupEffective = (name: string): string | undefined => {
+          const fromParam = body.params?.find(p => p.name === name);
+          if (
+            fromParam &&
+            fromParam.value !== undefined &&
+            String(fromParam.value) !== ""
+          ) {
+            return String(fromParam.value);
+          }
+          // Application property VALUE wins over the parameter-definition
+          // default in the `defaults` map. Property values (e.g. modbus2mqtt's
+          // `local_https_port: "3443"`) flow through the resolved-params pipeline
+          // and never enter `defaults`, which instead holds the param-definition
+          // fallback (1443) — so without this, app_external_url would build the
+          // OIDC redirect with the wrong port. Prefer value, then property default.
+          const fromProp = appProperties.find(p => p.id === name);
+          if (fromProp) {
+            if (fromProp.value !== undefined && String(fromProp.value) !== "") {
+              return String(fromProp.value);
+            }
+            if (fromProp.default !== undefined && String(fromProp.default) !== "") {
+              return String(fromProp.default);
+            }
+          }
+          const fromDefault = defaults.get(name);
+          return fromDefault !== undefined && String(fromDefault) !== ""
+            ? String(fromDefault)
+            : undefined;
+        };
+        const sslActive = selectedAddons.includes("addon-ssl");
+        const scheme = sslActive ? "https" : "http";
+        const host = lookupEffective("hostname");
+        const port = sslActive
+          ? lookupEffective("local_https_port")
+          : lookupEffective("http_port");
+        if (host) {
+          defaults.set(
+            "app_external_url",
+            port ? `${scheme}://${host}:${port}` : `${scheme}://${host}`,
+          );
+        }
+      }
+
       // Inject oci_image_tag from versions.sh if available, otherwise extract from oci_image property.
       // During fresh install, this is overwritten by the image download script output.
       // During reconfigure, image scripts don't run, so this default is used for notes.
@@ -910,6 +1086,23 @@ export class WebAppVeRouteHandlers {
       if (selectedAddons.length > 0) {
         defaults.set("selected_addons", selectedAddons.join(","));
       }
+
+      // Persist the submitted deploy payload as a base64-JSON snapshot embedded
+      // (invisibly) in the container notes. A later reconfigure reads it back to
+      // restore install-time parameter values that the request does not re-send
+      // — see mergeDeployBaseline below and the `proxvex:deploy-params` marker.
+      // Built from body.params (post-baseline-merge) AFTER the addon delta merge
+      // so the persisted addon lists are the effective ones.
+      defaults.set(
+        "deploy_params_b64",
+        this.parameterProcessor.buildDeployParamsSnapshot(
+          body.params,
+          loaded.parameters,
+          selectedAddons,
+          disabledAddons,
+          allStackIds,
+        ),
+      );
 
       const contextManager =
         this.pm.getContextManager();

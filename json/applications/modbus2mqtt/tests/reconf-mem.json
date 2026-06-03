@@ -1,0 +1,9 @@
+{
+  "task": "reconfigure",
+  "depends_on": [
+    "modbus2mqtt/reconf-mem-base"
+  ],
+  "stack_name": "default",
+  "wait_seconds": 30,
+  "description": "Reconfigure modbus2mqtt/reconf-mem-base WITHOUT re-sending the custom memory (768) or the config upload. Verifies the deploy-params baseline (proxvex:deploy-params notes marker) restores install-time params: the new container must keep memory=768, not reset to the 512 default. Also exercises the 103 .conf backup and the 955 conf-diff check."
+}

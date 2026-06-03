@@ -1,9 +1,8 @@
 import express from "express";
-import { ApiUri, ICommand } from "@src/types.mjs";
+import { ApiUri } from "@src/types.mjs";
 import { ContextManager } from "../context-manager.mjs";
 import { PersistenceManager } from "../persistence/persistence-manager.mjs";
-import { VeExecution } from "../ve-execution/ve-execution.mjs";
-import { determineExecutionMode } from "../ve-execution/ve-execution-constants.mjs";
+import { getContainerConfig } from "../services/container-config-service.mjs";
 import { sendErrorResponse } from "./webapp-error-utils.mjs";
 
 export function registerContainerConfigRoutes(
@@ -31,56 +30,7 @@ export function registerContainerConfigRoutes(
         return;
       }
 
-      const repositories = pm.getRepositories();
-      const scriptContent = repositories.getScript({
-        name: "get-container-config.py",
-        scope: "shared",
-        category: "list",
-      });
-      if (!scriptContent) {
-        res.status(500).json({
-          error:
-            "get-container-config.py not found (expected in local/shared/scripts/list or json/shared/scripts/list)",
-        });
-        return;
-      }
-
-      const libraryContent = repositories.getScript({
-        name: "lxc_config_parser_lib.py",
-        scope: "shared",
-        category: "library",
-      });
-      if (!libraryContent) {
-        res.status(500).json({
-          error:
-            "lxc_config_parser_lib.py not found (expected in local/shared/scripts/library or json/shared/scripts/library)",
-        });
-        return;
-      }
-
-      const cmd: ICommand = {
-        name: "Get Container Config",
-        execute_on: "ve",
-        script: "get-container-config.py",
-        scriptContent,
-        libraryContent,
-        outputs: ["config"],
-      };
-
-      const ve = new VeExecution(
-        [cmd],
-        [{ id: "previous_vm_id", value: vmId }],
-        veContext,
-        new Map(),
-        undefined,
-        determineExecutionMode(),
-      );
-      await ve.run(null);
-      const configRaw = ve.outputs.get("config");
-      const parsed =
-        typeof configRaw === "string" && configRaw.trim().length > 0
-          ? JSON.parse(configRaw)
-          : {};
+      const parsed = await getContainerConfig(pm, veContext, vmId);
       res.status(200).json(parsed);
     } catch (err: any) {
       sendErrorResponse(res, err);

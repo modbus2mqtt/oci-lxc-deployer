@@ -297,6 +297,10 @@ ZOT_MIRROR_HOST="${ZOT_MIRROR_HOST:-zot-mirror}"
 # zot-mirror (192.168.4.50) as the ghcr.io target.
 GHCR_MIRROR_IP="${GHCR_MIRROR_IP:-192.168.4.48}"
 GHCR_MIRROR_HOST="${GHCR_MIRROR_HOST:-ghcr-mirror}"
+# Note: mcr.microsoft.com needs no dedicated mirror. The playwright image
+# (the only mcr consumer) is re-hosted to ghcr.io/proxvex/playwright via
+# .github/workflows/playwright-image-mirror.yml, so it pulls through the
+# ghcr mirror above like every other image.
 # STEP2A_SKIP_ZOT_MIRROR=1 bypasses the ghcr-mirror reachability check so the
 # mirrors-ready snapshot can still be created even when the mirror is down.
 # ghcr.io pulls will then fail at install-time for any consumer that needs
@@ -373,6 +377,7 @@ nested_ssh "
         sed -i '/^address=\\/registry-1\\.docker\\.io\\//d' \"\$cfg\"
         sed -i '/^address=\\/index\\.docker\\.io\\//d' \"\$cfg\"
         sed -i '/^address=\\/ghcr\\.io\\//d' \"\$cfg\"
+        sed -i '/^address=\\/mcr\\.microsoft\\.com\\//d' \"\$cfg\"
         sed -i '/^address=\\/${TEST_MIRROR_HOST}\\//d' \"\$cfg\"
         sed -i '/^address=\\/${ZOT_MIRROR_HOST}\\//d' \"\$cfg\"
     fi

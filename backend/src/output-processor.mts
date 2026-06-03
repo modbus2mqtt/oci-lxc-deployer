@@ -128,22 +128,24 @@ export class OutputProcessor {
       return; // No outputs to parse
     }
 
+    // Strip banner text by finding the unique marker we prepended; everything
+    // before the marker is banner text (SSH MOTD, etc.). Done OUTSIDE the try
+    // so `cleaned` stays in scope for the catch — on a parse failure we must be
+    // able to report the exact text that failed.
+    let cleaned = stdout.trim();
+    if (uniqueMarker) {
+      const markerIndex = cleaned.indexOf(uniqueMarker);
+      if (markerIndex >= 0) {
+        // Remove everything up to and including the marker and the newline after it
+        cleaned = cleaned.slice(markerIndex + uniqueMarker.length).trim();
+      }
+    }
+
+    if (cleaned.length === 0) {
+      return; // Nothing left after cleaning
+    }
+
     try {
-      // Strip banner text by finding the unique marker we prepended
-      // Everything before the marker is banner text (SSH MOTD, etc.)
-      let cleaned = stdout.trim();
-      if (uniqueMarker) {
-        const markerIndex = cleaned.indexOf(uniqueMarker);
-        if (markerIndex >= 0) {
-          // Remove everything up to and including the marker and the newline after it
-          cleaned = cleaned.slice(markerIndex + uniqueMarker.length).trim();
-        }
-      }
-
-      if (cleaned.length === 0) {
-        return; // Nothing left after cleaning
-      }
-
       const parsed = JSON.parse(cleaned);
       // Validate against schema; may be one of:
       // - IOutput
@@ -231,7 +233,28 @@ export class OutputProcessor {
         tmplCommand.name || "unnamed",
       );
     } catch (e) {
-      // Re-throw with context
+      // A bare JSON SyntaxError ("Unexpected token … in JSON at position N")
+      // is useless without the text that failed. Surface the offending stdout
+      // (the bytes after the marker) plus the exception so the operator can see
+      // exactly what the script emitted — a stray non-JSON line, an unescaped
+      // quote/newline in a value, a partial heredoc, a script that died
+      // mid-output, etc. Scripts must keep stdout JSON-only; this makes a
+      // violation diagnosable instead of a blank failure. Schema/validation
+      // errors already describe the data problem, so only JSON.parse
+      // SyntaxErrors need enriching.
+      if (e instanceof SyntaxError) {
+        const MAX = 4000;
+        const preview =
+          cleaned.length > MAX
+            ? `${cleaned.slice(0, MAX)}\n…[truncated, ${cleaned.length} chars total]`
+            : cleaned;
+        throw new Error(
+          `Failed to parse JSON output of command "${tmplCommand.name || "unnamed"}": ${e.message}\n` +
+            `--- script stdout that failed to parse (JSON expected, after marker) ---\n` +
+            `${preview}\n--- end of stdout ---`,
+        );
+      }
+      // Re-throw non-parse (e.g. schema validation) errors unchanged.
       throw e;
     }
   }

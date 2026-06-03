@@ -605,6 +605,10 @@ export interface IManagedOciContainer {
   application_name?: string;
   version?: string;
   status?: string;
+  /** pct lock held by the container (migrate/backup/snapshot/…), or ""/undefined
+   * when free. A locked container must not be offered for upgrade/reconfigure —
+   * cloning/reconfiguring a locked source fails deep in the pipeline. */
+  lock?: string;
   addons?: string[];
   is_deployer_instance?: boolean;
   username?: string;
@@ -622,8 +626,25 @@ export interface IManagedOciContainer {
    * spans postgres/oidc/cloudflare → three stack ids). Used by the dependency
    * check to match containers per the dep's stacktype. */
   stack_ids?: string[];
+  /** Base64-encoded JSON snapshot of the deploy POST payload, persisted in the
+   * container notes (`proxvex:deploy-params` marker). Decoded into an
+   * IDeployParamsSnapshot and used as the parameter baseline on reconfigure so
+   * install-time customizations are not reset to application defaults. */
+  deploy_params_b64?: string;
   /** True for PVE host entries (not LXC containers). */
   is_host?: boolean;
+}
+
+/** Decoded form of the `proxvex:deploy-params` notes marker. Snapshot of the
+ * deploy POST payload, persisted at deploy time and reused as the parameter
+ * baseline on a later reconfigure (request params override the baseline). */
+export interface IDeployParamsSnapshot {
+  /** Schema version — readers reject unknown versions and fall back to no baseline. */
+  v: number;
+  params: { name: string; value: IParameterValue }[];
+  selectedAddons?: string[];
+  disabledAddons?: string[];
+  stackIds?: string[];
 }
 
 export type IInstallationsResponse = IManagedOciContainer[];
