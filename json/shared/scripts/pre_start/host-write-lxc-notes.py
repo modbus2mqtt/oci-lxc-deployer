@@ -22,9 +22,11 @@ IS_DEPLOYER_RAW = "{{ is_deployer }}"
 # whose embedded double quotes would break a double-quoted Python string
 # literal. Single quotes leave the inner " untouched.
 ALL_STACK_IDS_RAW = '{{ all_stack_ids }}'
+# Base64 (no quotes/special chars), safe in a double-quoted literal.
+DEPLOY_PARAMS_B64 = "{{ deploy_params_b64 }}"
 
 
-def build_notes(include_icon):
+def build_notes(include_icon, include_deploy_params=True):
     app_id = normalize_value(APP_ID_RAW)
     app_name = normalize_value(APP_NAME_RAW)
     version = normalize_value(VERSION_RAW)
@@ -38,6 +40,7 @@ def build_notes(include_icon):
     gid = normalize_value(GID_RAW)
     oci_image_raw = normalize_value(OCI_IMAGE_RAW)
     stack_ids = parse_stack_ids(ALL_STACK_IDS_RAW)
+    deploy_params_b64 = normalize_value(DEPLOY_PARAMS_B64) if include_deploy_params else ""
 
     oci_image_visible = strip_oci_prefix(oci_image_raw)
 
@@ -49,6 +52,7 @@ def build_notes(include_icon):
         ve_context=ve_context, icon_base64=icon_base64,
         icon_mime_type=icon_mime_type, username=username, uid=uid, gid=gid,
         is_deployer=is_deployer, stack_ids=stack_ids,
+        deploy_params_b64=deploy_params_b64,
     )
 
     lines += build_visible_header(
@@ -71,7 +75,8 @@ def build_notes(include_icon):
 def main():
     notes_with_icon = build_notes(include_icon=True)
     notes_without_icon = build_notes(include_icon=False)
-    write_notes(VMID, notes_with_icon, notes_without_icon)
+    notes_without_deploy_params = build_notes(include_icon=False, include_deploy_params=False)
+    write_notes(VMID, notes_with_icon, notes_without_icon, notes_without_deploy_params)
 
 
 if __name__ == "__main__":

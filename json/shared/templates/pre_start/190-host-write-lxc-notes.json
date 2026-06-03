@@ -20,7 +20,8 @@
     "gid",
     "is_deployer",
     "stack_id",
-    "all_stack_ids"
+    "all_stack_ids",
+    "deploy_params_b64"
   ],
   "commands": [
     {

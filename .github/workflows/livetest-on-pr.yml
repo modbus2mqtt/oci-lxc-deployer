@@ -95,7 +95,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Enable pnpm via corepack
         run: |
           corepack enable
@@ -107,6 +107,11 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           LOG_LEVEL: error
+          # Run from repo root, so point tsx at backend/tsconfig.json — its
+          # `paths` map the `@src/*.mjs → src/*.mts` aliases used across the
+          # backend source compute-affected-tests.mts imports. Without this
+          # tsx uses the root tsconfig and fails ERR_MODULE_NOT_FOUND.
+          TSX_TSCONFIG_PATH: backend/tsconfig.json
         run: |
           set -e
           # workflow_dispatch with explicit filter bypasses compute.
@@ -191,7 +196,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
 
       - name: Enable pnpm via corepack
         run: |

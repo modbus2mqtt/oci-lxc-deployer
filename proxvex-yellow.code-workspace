@@ -71,6 +71,7 @@
     "configurations": [
       {
         "name": "Launch Backend",
+        "runtimeExecutable": "${workspaceFolder:backend}/../scripts/node-via-nvmrc",
         "program": "${workspaceFolder:backend}/dist/proxvex.mjs",
         "preLaunchTask": "build backend",
         "request": "launch",
@@ -99,6 +100,7 @@
       },
       {
         "name": "Launch backend (prod)",
+        "runtimeExecutable": "${workspaceFolder:backend}/../scripts/node-via-nvmrc",
         "program": "${workspaceFolder:backend}/dist/proxvex.mjs",
         "preLaunchTask": "build backend",
         "request": "launch",
@@ -124,6 +126,7 @@
       },
       {
         "name": "Launch OIDC Backend",
+        "runtimeExecutable": "${workspaceFolder:backend}/../scripts/node-via-nvmrc",
         "program": "${workspaceFolder:backend}/dist/proxvex.mjs",
         "preLaunchTask": "build backend",
         "request": "launch",

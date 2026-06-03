@@ -1,6 +1,0 @@
-{
-  "selectedAddons": [],
-  "task": "reconfigure",
-  "depends_on": ["nginx/reconf-addons-on"],
-  "description": "Reconfigure: disable both SSL + OIDC addons"
-}

@@ -71,6 +71,7 @@ function generateNotes(): string {
     uid: "0",
     gid: "0",
     stack_id: "postgres_production",
+    deploy_params_b64: "",
   };
 
   for (const [key, value] of Object.entries(vars)) {

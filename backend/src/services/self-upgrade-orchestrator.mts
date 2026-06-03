@@ -335,6 +335,7 @@ export async function triggerUpgradeViaClone(
   port = 3080,
   timeoutMs = 30_000,
   outerRestartKey?: string,
+  stackIds?: string[],
 ): Promise<{ restartKey: string; cloneStatus: number }> {
   // Ensure the clone has the source's VE context configured. The clone
   // is a `pct clone` of the source CT, which carries over /config/
@@ -365,6 +366,11 @@ export async function triggerUpgradeViaClone(
     task,
     params: paramsWithPrev,
     selectedAddons,
+    // Stack ids resolved on the Hub (which owns the addon stack registry).
+    // The clone's registry is a copy of the pre-OIDC source, so it cannot
+    // re-derive oidc_* stacks itself — it seeds allStackIds from this instead,
+    // letting 185-host-resolve-dependency-hosts find the dependency container.
+    ...(stackIds && stackIds.length > 0 ? { stackIds } : {}),
     [ORCHESTRATED_FLAG]: true,
     // E.8: Hub forwards its outer restartKey to the Clone. The Clone's
     // route handler picks this up and forces setupExecution to use it

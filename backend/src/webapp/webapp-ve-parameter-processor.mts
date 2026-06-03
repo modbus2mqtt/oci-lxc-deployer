@@ -5,6 +5,7 @@ import {
   IPostVeConfigurationBody,
   IParameter,
   IParameterValue,
+  IDeployParamsSnapshot,
   TaskType,
 } from "@src/types.mjs";
 import fs from "fs";
@@ -100,6 +101,133 @@ export class WebAppVeParameterProcessor {
       }
     }
     return defaults;
+  }
+
+  /**
+   * Per-deploy identity / transient parameter names that must NOT be carried
+   * into a later reconfigure baseline — they identify the container instance or
+   * the current run, and reusing them would be wrong (e.g. restoring a stale
+   * previous_vm_id). Excluded from the persisted snapshot.
+   */
+  private static readonly SNAPSHOT_EXCLUDED_NAMES = new Set<string>([
+    "vm_id",
+    "previous_vm_id",
+    "stack_id",
+    "all_stack_ids",
+    "debug_level",
+    "deploy_params_b64",
+  ]);
+
+  /**
+   * Builds the base64-encoded JSON snapshot of the submitted deploy payload,
+   * persisted into the container notes (`proxvex:deploy-params` marker) so a
+   * later reconfigure can reuse the originally-deployed parameter values.
+   *
+   * Source is the raw `body.params` (before processParameters injects file/cert
+   * blobs), so large upload/cert payloads never enter the snapshot. By project
+   * decision the snapshot stores everything else INCLUDING secure params.
+   * Excluded: per-deploy identity/transient keys (see SNAPSHOT_EXCLUDED_NAMES),
+   * empty values, and `upload` params (their value is a transient `local:` path
+   * whose content already lives on the migrated volume — restoring the stale
+   * reference would break processParameters).
+   *
+   * Returns "" when there is nothing worth persisting.
+   */
+  buildDeployParamsSnapshot(
+    params: IPostVeConfigurationBody["params"],
+    loadedParameters: IParameter[],
+    selectedAddons: string[],
+    disabledAddons: string[],
+    stackIds: string[],
+  ): string {
+    const keep = (params ?? []).filter((p) => {
+      if (WebAppVeParameterProcessor.SNAPSHOT_EXCLUDED_NAMES.has(p.name)) {
+        return false;
+      }
+      if (p.value === undefined || p.value === null || String(p.value) === "") {
+        return false;
+      }
+      const def = loadedParameters.find((d) => d.id === p.name);
+      if (def?.upload) {
+        return false;
+      }
+      return true;
+    });
+
+    if (
+      keep.length === 0 &&
+      selectedAddons.length === 0 &&
+      disabledAddons.length === 0 &&
+      stackIds.length === 0
+    ) {
+      return "";
+    }
+
+    const snapshot: IDeployParamsSnapshot = {
+      v: 1,
+      params: keep.map((p) => ({ name: p.name, value: p.value })),
+      selectedAddons,
+      disabledAddons,
+      stackIds,
+    };
+    return Buffer.from(JSON.stringify(snapshot), "utf8").toString("base64");
+  }
+
+  /**
+   * Decodes a `proxvex:deploy-params` base64 marker into an
+   * IDeployParamsSnapshot. Returns undefined for any failure (absent,
+   * malformed base64/JSON, or unknown schema version) so callers fall back to
+   * today's behavior (no baseline).
+   */
+  decodeDeployParams(b64?: string): IDeployParamsSnapshot | undefined {
+    if (!b64) {
+      return undefined;
+    }
+    try {
+      const json = Buffer.from(b64, "base64").toString("utf8");
+      const parsed = JSON.parse(json) as IDeployParamsSnapshot;
+      if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.params)) {
+        return undefined;
+      }
+      return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Merges a persisted deploy snapshot into the current request params as a
+   * baseline: start from the snapshot params, then overlay the request params
+   * by name (request wins). Baseline-only params are appended; a request entry
+   * with an empty value does not clobber the baseline. An undefined baseline is
+   * an identity no-op.
+   *
+   * Precedence (highest first): request params > snapshot baseline > defaults
+   * map > parameter-definition default (the last two are unchanged downstream).
+   */
+  mergeDeployBaseline(
+    requestParams: IPostVeConfigurationBody["params"],
+    baseline: IDeployParamsSnapshot | undefined,
+  ): IPostVeConfigurationBody["params"] {
+    const request = requestParams ?? [];
+    if (!baseline?.params?.length) {
+      return request;
+    }
+    const byName = new Map<string, { name: string; value: IParameterValue }>();
+    for (const p of baseline.params) {
+      byName.set(p.name, { name: p.name, value: p.value });
+    }
+    for (const p of request) {
+      // An empty request value must not overwrite a real baseline value.
+      if (
+        byName.has(p.name) &&
+        (p.value === undefined || p.value === null || String(p.value) === "")
+      ) {
+        continue;
+      }
+      byName.set(p.name, { name: p.name, value: p.value });
+    }
+    return Array.from(byName.values());
   }
 
   /**

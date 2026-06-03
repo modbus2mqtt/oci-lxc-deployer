@@ -4,7 +4,7 @@
   "extends": "oci-image",
   "properties": [
     { "id": "hostname", "default": "playwright" },
-    { "id": "oci_image", "value": "mcr.microsoft.com/playwright:{{oci_image_tag}}" },
+    { "id": "oci_image", "value": "ghcr.io/proxvex/playwright:{{oci_image_tag}}" },
     { "id": "disk_size", "default": "8" },
     { "id": "memory", "default": "2048" },
     { "id": "playwright_port", "default": "3000" },

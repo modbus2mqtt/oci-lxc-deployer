@@ -1,0 +1,80 @@
+name: Mirror Playwright image to GHCR
+
+# Re-hosts mcr.microsoft.com/playwright into ghcr.io/<owner>/playwright.
+#
+# Why: the playwright application is an oci-image whose upstream lives on
+# mcr.microsoft.com (~2 GB). Production can pull mcr directly, but the
+# livetest nested VM reaches registries through pull-through mirrors and
+# mcr.microsoft.com is the only registry NOT mirrored — pulling it across
+# the double-NAT times out. ghcr.io IS mirrored (zot-mirror), and we already
+# own the ghcr.io/<owner> namespace, so mirroring the image there lets
+# playwright pull through the existing ghcr mirror like every other image —
+# no dedicated mcr-mirror LXC required.
+#
+# The tag tracks json/shared/scripts/library/versions.sh (OCI_playwright_TAG,
+# itself synced from frontend/package.json). The mirror is a plain
+# `skopeo copy --all` — no rebuild — so it faithfully re-hosts Microsoft's
+# image (Playwright is Apache-2.0; the image is freely redistributable).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Playwright tag to mirror (default: read from versions.sh)'
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    paths:
+      - 'json/shared/scripts/library/versions.sh'
+      - '.github/workflows/playwright-image-mirror.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/playwright
+  SRC_IMAGE: mcr.microsoft.com/playwright
+
+jobs:
+  mirror-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve playwright tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            # OCI_playwright_TAG="${OCI_playwright_TAG:-v1.57.0-noble}"  → v1.57.0-noble
+            TAG=$(sed -n 's/.*OCI_playwright_TAG:-\([^}"]*\).*/\1/p' \
+                  json/shared/scripts/library/versions.sh | head -1)
+          fi
+          if [ -z "$TAG" ]; then
+            echo "Could not resolve playwright tag from versions.sh" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Mirroring tag: $TAG"
+
+      - name: Install skopeo
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | skopeo login "${{ env.REGISTRY }}" -u "${{ github.actor }}" --password-stdin
+
+      - name: Mirror image (all architectures)
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          skopeo copy --all \
+            "docker://${{ env.SRC_IMAGE }}:${TAG}" \
+            "docker://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}"
+
+      - name: Container Registry Link
+        run: |
+          echo "::notice title=playwright::Mirrored ${{ env.SRC_IMAGE }}:${{ steps.tag.outputs.tag }} → https://github.com/${{ github.repository }}/pkgs/container/playwright"

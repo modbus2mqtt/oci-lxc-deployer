@@ -75,3 +75,4 @@ e2e/.known_hosts-*
 
 # Per-task debug bundles fetched by deploy.sh on CLI failure
 production/diagnostics/
+.claude/scheduled_tasks.lock

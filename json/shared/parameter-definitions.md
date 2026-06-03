@@ -2378,6 +2378,10 @@ Templates / frameworks referencing this parameter:
 - json/shared/templates/replace_ct/900-replace-ct.json (via docker-compose, oci-image)
 -->
 
+## deploy_params_b64
+
+Auto-injected by backend: base64-encoded JSON snapshot of the deploy POST payload, embedded as a hidden `proxvex:deploy-params` marker in the container notes. A later reconfigure reads it back to restore install-time parameter values the request does not re-send.
+
 ## icon_base64
 
 Auto-injected by backend: Base64-encoded application icon<!--
