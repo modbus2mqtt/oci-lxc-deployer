@@ -35,6 +35,12 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           LOG_LEVEL: error
+          # Run from repo root, so point tsx at backend/tsconfig.json — its
+          # `paths` map the `@src/*.mjs → src/*.mts` aliases used across the
+          # backend source the script imports (e.g. templateprocessor.mts →
+          # @src/jsonvalidator.mjs). Without this tsx uses the root tsconfig
+          # and fails with ERR_MODULE_NOT_FOUND on the first aliased import.
+          TSX_TSCONFIG_PATH: backend/tsconfig.json
         run: |
           set -e
           git diff --name-only "origin/${{ github.base_ref }}...HEAD" > /tmp/changed.txt
