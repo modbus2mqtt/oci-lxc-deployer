@@ -347,6 +347,7 @@ export enum ApiUri {
   CertificateDomainSuffix = "/api/:veContext/ve/certificates/domain-suffix",
   CertificateCaDownload = "/api/:veContext/ve/certificates/ca/download",
   CertificateGenerate = "/api/:veContext/ve/certificates/generate",
+  CertificateClientGenerate = "/api/:veContext/ve/certificates/client-generate",
   CertificatesAll = "/api/certificates",
   CertificateAutoRenewal = "/api/certificates/auto-renewal",
   CertificateAutoRenewalCheck = "/api/certificates/auto-renewal/check",
@@ -1151,6 +1152,17 @@ export interface IGenerateCertResponse {
   fqdn: string;
   key: string;       // Base64 PEM
   fullchain: string; // Base64 PEM
+}
+
+export interface IPostGenerateClientCertBody {
+  cn: string;
+}
+
+export interface IGenerateClientCertResponse {
+  cn: string;
+  key: string;    // Base64 PEM (client private key)
+  cert: string;   // Base64 PEM (client certificate)
+  caCert: string; // Base64 PEM (issuing CA certificate)
 }
 
 export interface IAutoRenewalStatus {
