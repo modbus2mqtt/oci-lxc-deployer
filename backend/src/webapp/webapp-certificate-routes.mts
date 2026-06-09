@@ -8,6 +8,8 @@ import {
   IPostCaImportBody,
   IPostGenerateCertBody,
   IGenerateCertResponse,
+  IPostGenerateClientCertBody,
+  IGenerateClientCertResponse,
   ICommand,
 } from "@src/types.mjs";
 import { ContextManager } from "../context-manager.mjs";
@@ -418,6 +420,48 @@ export function registerCertificateRoutes(
         fqdn,
         key: generated.key,
         fullchain,
+      };
+      res.status(200).json(payload);
+    } catch (err: any) {
+      sendErrorResponse(res, err);
+    }
+  });
+
+  // POST /api/ve/certificates/client-generate/:veContext - Generate a CA-signed
+  // client (authentication) certificate for a given Common Name.
+  app.post(ApiUri.CertificateClientGenerate, express.json(), async (req, res) => {
+    try {
+      const veContextKey = String(req.params.veContext || "").trim();
+      if (!veContextKey) {
+        res.status(400).json({ error: "Missing veContext" });
+        return;
+      }
+
+      const body = req.body as IPostGenerateClientCertBody;
+      const cn = typeof body.cn === "string" ? body.cn.trim() : "";
+      if (!cn) {
+        res.status(400).json({ error: "Missing or invalid cn" });
+        return;
+      }
+      if (!/^[A-Za-z0-9._-]+$/.test(cn)) {
+        res.status(400).json({ error: "Invalid cn: only letters, digits, '.', '_' and '-' are allowed" });
+        return;
+      }
+
+      const caService = new CertificateAuthorityService(storageContext);
+      if (!(await caService.hasCA(veContextKey))) {
+        res.status(400).json({ error: "No CA configured. Generate or import a CA first." });
+        return;
+      }
+
+      const generated = await caService.signClientCert(veContextKey, cn);
+      const ca = (await caService.getCA(veContextKey))!;
+
+      const payload: IGenerateClientCertResponse = {
+        cn,
+        key: generated.key,
+        cert: generated.cert,
+        caCert: ca.cert,
       };
       res.status(200).json(payload);
     } catch (err: any) {

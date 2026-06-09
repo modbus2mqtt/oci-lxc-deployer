@@ -26,8 +26,8 @@
     { "id": "ssl.needs_server_cert", "value": "true" },
     { "id": "ssl.needs_ca_cert", "value": "true" },
     { "id": "mtls.check_file_paths", "value": "/ssl/mtls/modbus2mqtt/cert.pem" },
-    { "id": "oidc_redirect_uri", "default": "{{app_external_url}}/api/auth/callback" },
-    { "id": "oidc_post_logout_uri", "default": "{{app_external_url}}/" },
+    { "id": "oidc_redirect_uri", "default": "https://{{hostname}}{{project_domain_suffix}}:{{local_https_port}}/api/auth/callback" },
+    { "id": "oidc_post_logout_uri", "default": "https://{{hostname}}{{project_domain_suffix}}:{{local_https_port}}/" },
     { "id": "oidc_required_role", "value": "admin" }
   ],
   "installation": {
