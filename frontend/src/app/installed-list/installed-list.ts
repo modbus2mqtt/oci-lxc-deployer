@@ -57,6 +57,36 @@ export class InstalledList implements OnInit {
     return slug ? [`status-${slug}`] : [];
   };
 
+  // Upgrade clones the *running* source, lets the clone pull the new image,
+  // then hands the source's identity (IP, mountpoints) to the replacement. A
+  // stopped (or otherwise non-running) source can't be cloned into a live
+  // replacement, and a locked source fails deep in the pipeline — so the
+  // Upgrade action is only offered for running, unlocked containers.
+  canUpgrade = (item: IManagedOciContainer): boolean =>
+    !item.lock && item.status === 'running';
+
+  // Reason shown in the Upgrade button's tooltip; doubles as the disabled-state
+  // explanation so the user knows what to fix (start the container / wait for
+  // the lock to clear) instead of facing a dead button.
+  upgradeTooltip = (item: IManagedOciContainer): string => {
+    if (item.lock) return `Container is locked (pct ${item.lock}) — upgrade disabled until it clears`;
+    if (item.status !== 'running') return 'Container must be running to upgrade — start it first';
+    return 'Creates a new container with the latest image, then replaces the old one';
+  };
+
+  // Reconfigure clones the source the same way Upgrade does, so a non-running
+  // container can't be reconfigured either. Host entries (is_host) are the
+  // exception: a PVE host is configured in place, never cloned, so only its
+  // lock state matters.
+  canReconfigure = (item: IManagedOciContainer): boolean =>
+    !item.lock && (!!item.is_host || item.status === 'running');
+
+  reconfigureTooltip = (item: IManagedOciContainer): string => {
+    if (item.lock) return `Container is locked (pct ${item.lock}) — reconfigure disabled until it clears`;
+    if (!item.is_host && item.status !== 'running') return 'Container must be running to reconfigure — start it first';
+    return 'Change addons / parameters and re-deploy';
+  };
+
   ngOnInit(): void {
     this.veContextKey = this.route.snapshot.paramMap.get('veContextKey') ?? this.svc.getVeContextKey();
     this.cacheService.getInstallations().subscribe({
@@ -72,6 +102,11 @@ export class InstalledList implements OnInit {
   }
 
   startUpgrade(installation: IManagedOciContainer) {
+    // Defensive guard: the button is disabled for non-running/locked sources,
+    // but a stale cached status could still let a click through. Never dispatch
+    // an upgrade against a source that can't be cloned into a live replacement.
+    if (!this.canUpgrade(installation)) return;
+
     const dialogRef = this.dialog.open(UpgradeVersionDialog, {
       width: '500px',
       data: { installation },
@@ -101,6 +136,9 @@ export class InstalledList implements OnInit {
   }
 
   editAddons(installation: IManagedOciContainer) {
+    // Defensive guard mirroring the disabled button — never start a reconfigure
+    // against a non-running (or locked) container, which can't be cloned.
+    if (!this.canReconfigure(installation)) return;
 
     // Build query params
     const queryParams: Record<string, string | number | undefined> = {

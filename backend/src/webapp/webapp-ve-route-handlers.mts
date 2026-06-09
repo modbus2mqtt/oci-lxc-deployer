@@ -51,6 +51,27 @@ export class WebAppVeRouteHandlers {
   private certificateInjector: WebAppVeCertificateInjector;
   private logger = createLogger("ve-route-handlers");
 
+  /**
+   * In-flight task guard keyed by `${veContextKey}::${hostname}`. A
+   * configuration task (install/upgrade/reconfigure) mutates the identity of a
+   * single hostname — its static IP, mountpoints, OIDC client, certificates.
+   * Two tasks touching the same hostname concurrently race: the incident that
+   * motivated this guard was two proxvex self-upgrades dispatched ~50s apart,
+   * both for hostname "proxvex", each cloning the deployer — the two clones
+   * then fought over the same static IP and the deployer came up only
+   * intermittently. While one task holds the lock, a second task for the same
+   * (veContext, hostname) is rejected with 409 instead of interleaving.
+   *
+   * In-memory only and intentionally so: a deployer restart clears it, which is
+   * correct because no task survives a restart. Release happens when the task
+   * settles — the self-upgrade orchestration returns (method-level finally), or
+   * the background VeExecution promise settles (onSettled, regular path).
+   */
+  private readonly activeHostnameTasks = new Map<
+    string,
+    { application: string; task: string; startedAt: number }
+  >();
+
   constructor(
     private messageManager: WebAppVeMessageManager,
     private restartManager: WebAppVeRestartManager,
@@ -204,6 +225,43 @@ export class WebAppVeRouteHandlers {
         previousVmId,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+  }
+
+  /**
+   * Best-effort hostname for the per-hostname concurrency guard, resolved as
+   * early as possible — before any clone/orchestration work — so the guard
+   * covers both the self-upgrade and the regular pipeline. `install` carries
+   * `hostname` directly; `upgrade`/`reconfigure` carry `previous_vm_id`, so we
+   * look the source container's hostname up from the managed list.
+   *
+   * Returns undefined when neither route yields a name; the caller then skips
+   * locking (fail-open) rather than blocking every unkeyable task. A list
+   * fetch failure is likewise non-fatal — the worst case is the pre-existing
+   * behavior (no guard), never a wrongly-rejected task.
+   */
+  private async resolveTaskHostname(
+    body: IPostVeConfigurationBody,
+    veContext: IVEContext,
+  ): Promise<string | undefined> {
+    const direct = body.params?.find((p) => p.name === "hostname")?.value;
+    if (direct !== undefined && direct !== null && String(direct).trim() !== "") {
+      return String(direct).trim();
+    }
+    const prevVal = body.params?.find((p) => p.name === "previous_vm_id")?.value;
+    if (prevVal === undefined || prevVal === null || String(prevVal).trim() === "") {
+      return undefined;
+    }
+    const previousVmId = String(prevVal);
+    try {
+      const containers = await listManagedContainers(this.pm, veContext);
+      return containers.find((c) => String(c.vm_id) === previousVmId)?.hostname || undefined;
+    } catch (err) {
+      this.logger.warn(
+        "Concurrency guard: could not resolve hostname from previous_vm_id; proceeding without lock",
+        { previousVmId, error: err instanceof Error ? err.message : String(err) },
+      );
+      return undefined;
     }
   }
 
@@ -398,6 +456,14 @@ export class WebAppVeRouteHandlers {
       };
     }
 
+    // Per-hostname concurrency guard state. Declared out here (not inside the
+    // try) so the method-level `finally` can release the lock on every exit.
+    // `lockReleaseDeferred` flips to true once the background VeExecution takes
+    // over release (regular path); until then every early return / throw must
+    // release so a failed dispatch never leaves a hostname permanently blocked.
+    let lockKey: string | undefined;
+    let lockReleaseDeferred = false;
+
     try {
       // Load application (provides commands)
       const storageContext =
@@ -412,6 +478,41 @@ export class WebAppVeRouteHandlers {
         };
       }
       const veCtxToUse: IVEContext = ctx as IVEContext;
+
+      // ── Per-hostname concurrency guard ─────────────────────────────────
+      // Resolve the target hostname and reject the request if another task is
+      // already mutating it. Placed before the self-upgrade branch so it
+      // protects the clone-orchestration path too (that path was the source of
+      // the dual-clone IP collision). The get → check → set below runs without
+      // an intervening await, so it is atomic against the event loop: two
+      // concurrent requests for the same hostname cannot both acquire.
+      const taskHostname = await this.resolveTaskHostname(body, veCtxToUse);
+      if (taskHostname) {
+        lockKey = `${veContextKey}::${taskHostname}`;
+        const active = this.activeHostnameTasks.get(lockKey);
+        if (active) {
+          // Do not release the foreign lock on the way out — it belongs to the
+          // in-flight task, not this rejected one.
+          lockReleaseDeferred = true;
+          this.logger.warn("Rejected concurrent task on busy hostname", {
+            hostname: taskHostname,
+            veContextKey,
+            incoming: `${task} ${application}`,
+            active: `${active.task} ${active.application}`,
+            activeForMs: Date.now() - active.startedAt,
+          });
+          return {
+            success: false,
+            error: `A "${active.task}" task for hostname "${taskHostname}" is already running. Wait for it to finish before starting another task on the same hostname.`,
+            statusCode: 409,
+          };
+        }
+        this.activeHostnameTasks.set(lockKey, {
+          application,
+          task,
+          startedAt: Date.now(),
+        });
+      }
 
       // ── Self-upgrade-via-clone orchestration ──────────────────────────
       // For proxvex upgrade/reconfigure where the previous_vm_id is the
@@ -1226,14 +1327,33 @@ export class WebAppVeRouteHandlers {
         async (completedExec) => {
           await this.collectAndStoreProvides(completedExec, allStackIds, application, storageContext);
         },
+        // Release the per-hostname lock once the background execution settles
+        // (success OR failure). The pipeline runs for minutes; holding the lock
+        // for its whole lifetime is exactly the point — a parallel task on the
+        // same hostname stays blocked until this one is done.
+        () => {
+          if (lockKey) this.activeHostnameTasks.delete(lockKey);
+        },
       );
 
+      // Hand lock ownership to the background execution above; the method-level
+      // finally must NOT release it on this synchronous return.
+      lockReleaseDeferred = true;
       return {
         success: true,
         restartKey,
       };
     } catch (err: any) {
       return this.buildErrorResult(err);
+    } finally {
+      // Release the hostname lock on every exit the background execution did
+      // NOT take ownership of: early errors, the self-upgrade orchestration
+      // returns, and any throw. Skipped when lockReleaseDeferred is set (the
+      // regular path handed release to onSettled, or this was a 409 rejection
+      // that must not touch the foreign lock).
+      if (!lockReleaseDeferred && lockKey) {
+        this.activeHostnameTasks.delete(lockKey);
+      }
     }
   }
 

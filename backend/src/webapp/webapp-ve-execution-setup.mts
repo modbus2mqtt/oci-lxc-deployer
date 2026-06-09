@@ -180,6 +180,7 @@ export class WebAppVeExecutionSetup {
     restartManager: WebAppVeRestartManager,
     fallbackRestartInfo: IRestartInfo,
     onComplete?: (exec: VeExecution) => void,
+    onSettled?: () => void,
   ): void {
     exec
       .run(null)
@@ -196,6 +197,12 @@ export class WebAppVeExecutionSetup {
         console.error("Execution error:", err.message);
         // Store minimal restartInfo so user can retry from beginning
         restartManager.storeRestartInfo(restartKey, fallbackRestartInfo);
+      })
+      // Runs after both resolve and reject — the reliable terminal hook for
+      // callers that must clean up regardless of outcome (e.g. release a
+      // per-hostname concurrency lock held for the task's whole lifetime).
+      .finally(() => {
+        if (onSettled) onSettled();
       });
   }
 
