@@ -16,7 +16,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { FormsModule } from '@angular/forms';
 import { VeConfigurationService } from '../ve-configuration.service';
 import { ErrorHandlerService } from '../shared/services/error-handler.service';
-import { ICertificateStatus, ICaInfoResponse, IGenerateCertResponse, IAutoRenewalStatus, ILogRotationStatus, IReplacedCleanupStatus, ILockedContainer } from '../../shared/types';
+import { ICertificateStatus, ICaInfoResponse, IGenerateCertResponse, IGenerateClientCertResponse, IAutoRenewalStatus, ILogRotationStatus, IReplacedCleanupStatus, ILockedContainer } from '../../shared/types';
 
 @Component({
   selector: 'app-certificate-management-dialog',
@@ -366,7 +366,46 @@ import { ICertificateStatus, ICaInfoResponse, IGenerateCertResponse, IAutoRenewa
           </div>
         </mat-tab>
 
-        <!-- Tab 3: Maintenance -->
+        <!-- Tab 3: Authentication Certificates -->
+        <mat-tab label="Authentication Certificates">
+          <div class="tab-content">
+
+            <!-- Generate Client Certificate -->
+            <mat-card appearance="outlined">
+              <mat-card-header>
+                <mat-card-title>Generate Authentication Certificate</mat-card-title>
+              </mat-card-header>
+              <mat-card-content>
+                <p class="hint-text">Generate a CA-signed client certificate (extendedKeyUsage = clientAuth) for mTLS / user authentication. The Common Name identifies the client.</p>
+                <div class="generate-form">
+                  <mat-form-field appearance="outline" class="hostname-field">
+                    <mat-label>Common Name (CN)</mat-label>
+                    <input matInput [ngModel]="generateClientCn()" (ngModelChange)="generateClientCn.set($event)"
+                      placeholder="alice">
+                    <mat-hint>Allowed: letters, digits, '.', '_', '-'</mat-hint>
+                  </mat-form-field>
+                  <button mat-flat-button color="primary" (click)="generateClientCert()"
+                    [disabled]="!generateClientCn() || !caInfo()?.exists || generatingClientCert()">
+                    @if (generatingClientCert()) {
+                      <mat-spinner diameter="18"></mat-spinner>
+                    } @else {
+                      <ng-container>
+                        <mat-icon>verified_user</mat-icon>
+                        Generate & Download
+                      </ng-container>
+                    }
+                  </button>
+                </div>
+                @if (!caInfo()?.exists) {
+                  <p class="hint-text warn">A Certificate Authority must be configured first.</p>
+                }
+              </mat-card-content>
+            </mat-card>
+
+          </div>
+        </mat-tab>
+
+        <!-- Tab 4: Maintenance -->
         <mat-tab label="Maintenance">
           <div class="tab-content">
             <mat-card appearance="outlined">
@@ -743,6 +782,9 @@ export class CertificateManagementDialog implements OnInit {
 
   generateHostname = signal('');
   generatingCert = signal(false);
+
+  generateClientCn = signal('');
+  generatingClientCert = signal(false);
 
   loadingCa = signal(false);
   loadingPve = signal(false);
@@ -1148,6 +1190,42 @@ export class CertificateManagementDialog implements OnInit {
       const a = document.createElement('a');
       a.href = url;
       a.download = `${res.fqdn}-${file.name}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  generateClientCert(): void {
+    const cn = this.generateClientCn().trim();
+    if (!cn) return;
+
+    this.generatingClientCert.set(true);
+    this.configService.postGenerateClientCert(cn).subscribe({
+      next: (res) => {
+        this.downloadGeneratedClientCert(res);
+        this.generatingClientCert.set(false);
+        this.generateClientCn.set('');
+      },
+      error: (err) => {
+        this.errorHandler.handleError('Failed to generate authentication certificate', err);
+        this.generatingClientCert.set(false);
+      }
+    });
+  }
+
+  private downloadGeneratedClientCert(res: IGenerateClientCertResponse): void {
+    const files: { name: string; content: string }[] = [
+      { name: 'client.crt', content: atob(res.cert) },
+      { name: 'client.key', content: atob(res.key) },
+      { name: 'ca.pem', content: atob(res.caCert) },
+    ];
+
+    for (const file of files) {
+      const blob = new Blob([file.content], { type: 'application/x-pem-file' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${res.cn}-${file.name}`;
       a.click();
       URL.revokeObjectURL(url);
     }
