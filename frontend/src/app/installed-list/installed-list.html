@@ -61,12 +61,14 @@
     <div class="card-actions">
       @if (!it.is_host) {
         <button type="button" (click)="startUpgrade(it)"
-          [disabled]="!!it.lock"
-          matTooltip="Creates a new container with the latest image, then replaces the old one"
+          [disabled]="!canUpgrade(it)"
+          [matTooltip]="upgradeTooltip(it)"
           matTooltipPosition="above">Upgrade</button>
       }
       <button type="button" class="secondary" (click)="editAddons(it)"
-        [disabled]="!!it.lock">Reconfigure</button>
+        [disabled]="!canReconfigure(it)"
+        [matTooltip]="reconfigureTooltip(it)"
+        matTooltipPosition="above">Reconfigure</button>
       @if (it.application_id) {
         <button type="button" class="secondary" [routerLink]="['/application-overview', it.application_id]"
           [queryParams]="{ vm_id: it.vm_id, veContext: veContextKey }">Overview</button>

@@ -129,6 +129,85 @@ describe("WebAppVE API", () => {
     });
   });
 
+  describe("per-hostname concurrency guard", () => {
+    // App whose single command sleeps, so the background VeExecution holds the
+    // per-hostname lock long enough for a colliding request to be observed.
+    function writeSlowApp(sleepSeconds: number): void {
+      helper.writeApplication("slowapp", {
+        name: "Slow App",
+        description: "App with a slow command",
+        installation: { post_start: ["set-parameters.json"] },
+      });
+      helper.writeTemplate("slowapp", "set-parameters.json", {
+        execute_on: "ve",
+        name: "Set Parameters",
+        description: "Set parameters",
+        parameters: [
+          { id: "hostname", name: "hostname", type: "string", required: true, description: "Hostname" },
+        ],
+        commands: [
+          {
+            name: "Slow Command",
+            command: `sleep ${sleepSeconds}; echo '[{"id": "test", "value": "ok"}]'`,
+          },
+        ],
+      });
+    }
+
+    function postInstall(hostname: string) {
+      const url = ApiUri.VeConfiguration.replace(":application", "slowapp").replace(
+        ":veContext",
+        veContextKey,
+      );
+      return request(app)
+        .post(url)
+        .send({
+          task: "installation",
+          params: [{ name: "hostname", value: hostname }],
+          changedParams: [{ name: "hostname", value: hostname }],
+        } as IPostVeConfigurationBody);
+    }
+
+    it("rejects a second task on the same hostname with 409 while one is in flight", async () => {
+      writeSlowApp(2);
+
+      const first = await postInstall("busyhost");
+      expect(first.status).toBe(200);
+      expect(first.body.success).toBe(true);
+
+      // Second task for the SAME hostname collides with the in-flight one.
+      const second = await postInstall("busyhost");
+      expect(second.status).toBe(409);
+      expect(second.body.success).toBe(false);
+      expect(second.body.error).toContain("busyhost");
+
+      // A task on a DIFFERENT hostname is unaffected.
+      const other = await postInstall("freehost");
+      expect(other.status).toBe(200);
+    });
+
+    it("releases the lock once the in-flight task completes", async () => {
+      writeSlowApp(0.3);
+
+      const first = await postInstall("recyclable");
+      expect(first.status).toBe(200);
+
+      // Poll until the lock is released (background exec settled), then the same
+      // hostname must be accepted again. Bounded so a real regression fails fast.
+      let accepted = false;
+      for (let i = 0; i < 40 && !accepted; i++) {
+        const retry = await postInstall("recyclable");
+        if (retry.status === 200) {
+          accepted = true;
+          break;
+        }
+        expect(retry.status).toBe(409);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(accepted).toBe(true);
+    });
+  });
+
   describe("GET /api/:veContext/ve/execute", () => {
     it("should return messages successfully", async () => {
       const url = ApiUri.VeExecute.replace(":veContext", veContextKey);

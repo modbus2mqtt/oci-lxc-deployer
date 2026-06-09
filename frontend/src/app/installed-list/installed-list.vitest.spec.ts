@@ -70,4 +70,51 @@ describe('InstalledList component (vitest)', () => {
     const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>('.card-actions button'));
     expect(buttons.length).toBeGreaterThanOrEqual(2);
   });
+
+  describe('Upgrade / Reconfigure availability', () => {
+    let cmp: InstalledList;
+    beforeEach(() => {
+      cmp = TestBed.createComponent(InstalledList).componentInstance;
+    });
+
+    it('allows upgrade only for running, unlocked containers', () => {
+      expect(cmp.canUpgrade({ vm_id: 1, oci_image: 'x', status: 'running' })).toBe(true);
+      expect(cmp.canUpgrade({ vm_id: 1, oci_image: 'x', status: 'stopped' })).toBe(false);
+      expect(cmp.canUpgrade({ vm_id: 1, oci_image: 'x' })).toBe(false); // status undefined
+      expect(cmp.canUpgrade({ vm_id: 1, oci_image: 'x', status: 'running', lock: 'migrate' })).toBe(false);
+    });
+
+    it('blocks reconfigure for stopped containers but always allows it for hosts', () => {
+      expect(cmp.canReconfigure({ vm_id: 1, oci_image: 'x', status: 'running' })).toBe(true);
+      expect(cmp.canReconfigure({ vm_id: 1, oci_image: 'x', status: 'stopped' })).toBe(false);
+      // Host entries are configured in place (never cloned) → status is irrelevant.
+      expect(cmp.canReconfigure({ vm_id: 0, oci_image: '', is_host: true })).toBe(true);
+      // …but a locked host is still off-limits.
+      expect(cmp.canReconfigure({ vm_id: 0, oci_image: '', is_host: true, lock: 'backup' })).toBe(false);
+    });
+
+    it('explains the disabled reason in the tooltip', () => {
+      expect(cmp.upgradeTooltip({ vm_id: 1, oci_image: 'x', status: 'stopped' })).toContain('must be running');
+      expect(cmp.upgradeTooltip({ vm_id: 1, oci_image: 'x', status: 'running', lock: 'migrate' })).toContain('locked');
+      expect(cmp.reconfigureTooltip({ vm_id: 1, oci_image: 'x', status: 'stopped' })).toContain('must be running');
+    });
+
+    it('does not dispatch an upgrade for a stopped container', () => {
+      cmp.startUpgrade({ vm_id: 1, oci_image: 'x', status: 'stopped' });
+      expect(svc.postVeUpgrade).not.toHaveBeenCalled();
+    });
+
+    it('disables the Upgrade button in the DOM when the container is not running', async () => {
+      cacheService.getInstallations = vi.fn(() =>
+        of([{ vm_id: 9, hostname: 'down-01', oci_image: 'ghcr.io/acme/x:1', icon: '', status: 'stopped' }]),
+      );
+      const fixture = TestBed.createComponent(InstalledList);
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const upgradeBtn = Array.from(el.querySelectorAll<HTMLButtonElement>('.card-actions button')).find(
+        (b) => b.textContent?.trim() === 'Upgrade',
+      );
+      expect(upgradeBtn?.disabled).toBe(true);
+    });
+  });
 });
