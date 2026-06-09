@@ -18,7 +18,7 @@ OCI_proxvex_TAG="${OCI_proxvex_TAG:-latest}"                 # ghcr.io/proxvex/p
 OCI_github_runner_TAG="${OCI_github_runner_TAG:-latest}"     # ghcr.io/proxvex/github-actions-runner
 OCI_gptwol_TAG="${OCI_gptwol_TAG:-7.1.5}"                    # misterbabou/gptwol
 OCI_node_red_TAG="${OCI_node_red_TAG:-4.1.8}"                # nodered/node-red
-OCI_modbus2mqtt_TAG="${OCI_modbus2mqtt_TAG:-0.6.0}"           # ghcr.io/modbus2mqtt/modbus2mqtt
+OCI_modbus2mqtt_TAG="${OCI_modbus2mqtt_TAG:-latest}"         # ghcr.io/modbus2mqtt/modbus2mqtt
 OCI_eclipse_mosquitto_TAG="${OCI_eclipse_mosquitto_TAG:-2}"   # eclipse-mosquitto
 OCI_gitea_TAG="${OCI_gitea_TAG:-1.25.5}"                      # gitea/gitea
 OCI_postgres_TAG="${OCI_postgres_TAG:-16-alpine}"             # postgres
@@ -28,7 +28,7 @@ OCI_mariadb_TAG="${OCI_mariadb_TAG:-11}"                      # mariadb
 OCI_phpmyadmin_TAG="${OCI_phpmyadmin_TAG:-5.2.3}"             # phpmyadmin
 OCI_docker_registry_mirror_TAG="${OCI_docker_registry_mirror_TAG:-3.0.0}" # distribution/distribution
 OCI_zot_mirror_TAG="${OCI_zot_mirror_TAG:-v2.1.5}"            # ghcr.io/project-zot/zot-linux-amd64 (paused: PVE 9.1.x OCI extractor bug, see memory project_zot_mirror_blocked)
-OCI_playwright_TAG="${OCI_playwright_TAG:-v1.57.0-noble}"     # ghcr.io/proxvex/playwright (mirror of mcr.microsoft.com/playwright via .github/workflows/playwright-image-mirror.yml; tag synced from frontend/package.json)
+OCI_playwright_TAG="${OCI_playwright_TAG:-v1.57.0-noble}"     # mcr.microsoft.com/playwright (synced from frontend/package.json)
 OCI_oauth2_proxy_testbed_TAG="${OCI_oauth2_proxy_testbed_TAG:-alpine}" # nginx:alpine (testbed for addon-oauth2-proxy; shell-having image needed for on_start hook)
 OCI_wolproxy_TAG="${OCI_wolproxy_TAG:-latest}"               # ghcr.io/proxvex/wolproxy (stable JSON API for WoL+ping)
 
