@@ -1,19 +1,17 @@
 {
   "name": "Cloudflare Tunnel",
-  "description": "Cloudflared connector for a remotely-managed Cloudflare Tunnel. Establishes an outbound-only connection to Cloudflare's edge; all ingress/public-hostname routing (e.g. git.ohnewarum.de, auth.ohnewarum.de, ohnewarum.de) is configured in the Cloudflare Zero Trust dashboard, not in this application.",
-  "extends": "oci-image",
-  "properties": [
-    { "id": "hostname", "default": "cloudflare-tunnel" },
-    { "id": "oci_image", "value": "cloudflare/cloudflared:{{oci_image_tag}}" },
-    { "id": "uid", "value": "0" },
-    { "id": "gid", "value": "0" },
-    { "id": "username", "value": "root" },
-    { "id": "memory", "default": "256" },
-    { "id": "disk_size", "default": "2" },
-    { "id": "envs", "default": "TUNNEL_TOKEN={{ TUNNEL_TOKEN }}\nTUNNEL_NO_AUTOUPDATE=true" },
-    { "id": "initial_command", "value": "/usr/local/bin/cloudflared tunnel --no-autoupdate run" }
+  "description": "Cloudflared connector for a remotely-managed Cloudflare Tunnel, run as a Docker Compose service. Establishes an outbound-only connection to Cloudflare's edge; all ingress/public-hostname routing (e.g. git.ohnewarum.de, auth.ohnewarum.de, ohnewarum.de) is configured in the Cloudflare Zero Trust dashboard, not in this application.",
+  "extends": "docker-compose",
+  "tags": [
+    "network",
+    "infrastructure"
   ],
   "supported_addons": [],
+  "properties": [
+    { "id": "hostname", "default": "cloudflare-tunnel" },
+    { "id": "compose_project", "value": "cloudflare-tunnel" },
+    { "id": "compose_file", "value": "c2VydmljZXM6CiAgY2xvdWRmbGFyZWQ6CiAgICBpbWFnZTogY2xvdWRmbGFyZS9jbG91ZGZsYXJlZDoke0RPQ0tFUl9jbG91ZGZsYXJlX3R1bm5lbF9UQUd9CiAgICByZXN0YXJ0OiB1bmxlc3Mtc3RvcHBlZAogICAgbmV0d29ya19tb2RlOiBob3N0CiAgICBjb21tYW5kOiB0dW5uZWwgcnVuCiAgICBlbnZpcm9ubWVudDoKICAgICAgVFVOTkVMX1RPS0VOOiAie3sgVFVOTkVMX1RPS0VOIH19Igo=" }
+  ],
   "stacktype": "cloudflare-tunnel",
   "stack_usage": [
     {
@@ -21,102 +19,17 @@
       "vars": [
         {
           "name": "TUNNEL_TOKEN",
-          "replacement": "lxc-config-env",
-          "lxc_var_name": "TUNNEL_TOKEN"
+          "replacement": "compose-env",
+          "compose_key": "TUNNEL_TOKEN"
         }
       ]
     }
   ],
-  "installation": {
-    "no_extend": true,
-    "image": [
-      "011-host-get-oci-image.json"
-    ],
-    "create_ct": [
-      { "name": "050-set-project-parameters.json", "category": "create_ct" },
-      { "name": "185-host-resolve-dependency-hosts.json", "category": "pre_start" },
-      { "name": "100-conf-create-configure-lxc.json", "category": "pre_start" }
-    ],
-    "pre_start": [
-      "108-host-push-ca-to-container.json",
-      "107-conf-oci-lxc-configuration.json",
-      "190-host-write-lxc-notes.json"
-    ],
-    "pre_start_finalize": [
-      "100-conf-unmount-volumes.json"
-    ],
-    "start": [
-      "200-start-lxc.json"
-    ],
-    "post_start": [
-      "350-host-check-hook-log.json"
-    ]
-  },
-  "upgrade": {
-    "no_extend": true,
-    "image": [
-      "011-host-get-oci-image.json"
-    ],
-    "create_ct": [
-      { "name": "050-set-project-parameters.json", "category": "create_ct" },
-      { "name": "100-conf-create-configure-lxc.json", "category": "pre_start" }
-    ],
-    "pre_start": [
-      "108-host-push-ca-to-container.json",
-      "101-conf-restore-settings.json",
-      "107-conf-oci-lxc-configuration.json",
-      "190-host-write-lxc-notes.json"
-    ],
-    "pre_start_finalize": [
-      "100-conf-unmount-volumes.json"
-    ],
-    "start": [
-      "200-start-lxc.json"
-    ],
-    "post_start": [
-      "350-host-check-hook-log.json"
-    ],
-    "replace_ct": [
-      "900-replace-ct.json"
-    ]
-  },
-  "reconfigure": {
-    "no_extend": true,
-    "create_ct": [
-      "100-create-ct-clone.json"
-    ],
-    "pre_start": [
-      "set-reconfigure-defaults.json",
-      "103-host-backup-previous-container-conf.json",
-      "108-host-push-ca-to-container.json",
-      "150-conf-create-storage-volumes-for-lxc.json",
-      "185-host-resolve-dependency-hosts.json",
-      "190-host-write-lxc-notes.json"
-    ],
-    "pre_start_finalize": [
-      "100-conf-unmount-volumes.json"
-    ],
-    "start": [
-      "200-start-lxc.json"
-    ],
-    "post_start": [
-      "350-host-check-hook-log.json"
-    ],
-    "replace_ct": [
-      "900-replace-ct.json"
-    ]
-  },
   "check": {
-    "no_extend": true,
     "check": [
-      "900-host-check-container.json",
       "check-tunnel-connected.json"
     ]
   },
-  "tags": [
-    "network",
-    "infrastructure"
-  ],
   "url": "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/",
   "documentation": "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/local-management/as-a-service/docker/",
   "source": "https://github.com/cloudflare/cloudflared"

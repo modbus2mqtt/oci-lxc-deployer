@@ -1,0 +1,8 @@
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:${DOCKER_cloudflare_tunnel_TAG}
+    restart: unless-stopped
+    network_mode: host
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: "{{ TUNNEL_TOKEN }}"
