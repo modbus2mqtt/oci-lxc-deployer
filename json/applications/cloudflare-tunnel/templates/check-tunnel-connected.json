@@ -1,9 +1,8 @@
 {
   "execute_on": "ve",
   "name": "Check Tunnel Connected",
-  "description": "Reads the LXC console log on the PVE host and waits for cloudflared's 'Registered tunnel connection' line, confirming the connector authenticated and reached the Cloudflare edge. Runs entirely host-side because the cloudflared image is distroless (no shell inside the container).",
+  "description": "Greps the cloudflared container's docker logs (via pct exec on the PVE host) for 'Registered tunnel connection', confirming the connector authenticated and reached the Cloudflare edge. This is the positive health signal — the framework's docker-services check only reports the service as 'running', which restart: unless-stopped would also show during a crash-loop.",
   "parameters": [
-    "hostname",
     "vm_id"
   ],
   "commands": [
