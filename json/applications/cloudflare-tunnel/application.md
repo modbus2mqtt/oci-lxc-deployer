@@ -20,10 +20,19 @@ The connector token is injected as the `TUNNEL_TOKEN` environment variable in th
 
 > **⚠️ Token type.** A Cloudflare Tunnel **connector** token (base64 JSON from the Zero Trust dashboard / `cloudflared tunnel token <name>`) is **not** the same as the Cloudflare **DNS API** token (`CF_TOKEN`) used by `addon-acme`. They are kept in separate stacktypes (`cloudflare-tunnel` vs `cloudflare`) on purpose.
 
+## Origin CA (internal HTTPS validation)
+
+The tunnel's public hostnames route to **internal HTTPS origins** (e.g. `git.ohnewarum.de` → internal Gitea, `auth.ohnewarum.de` → internal Zitadel) whose certificates are signed by the project's internal CA. For cloudflared to validate those origins with **TLS verification ON**, it needs that CA.
+
+`addon-ssl` is therefore **required**. In `ssl_mode: certs` with `ssl.needs_ca_cert: true` / `ssl.needs_server_cert: false`, the addon provisions only the CA chain — `chain.pem` — into the `certs` volume (no server cert; the connector has no inbound TLS). The compose file mounts that `certs` volume read-only at `/etc/ssl/addon`, and the service sets `TUNNEL_ORIGIN_CA_POOL=/etc/ssl/addon/chain.pem`.
+
+In the Cloudflare Zero Trust dashboard, per public hostname: **No TLS Verify = Off** and **Origin Server Name** = the public hostname (so the origin cert's SAN matches the SNI → validation passes).
+
 ## Setup
 
 1. Create a stack of type **Cloudflare Tunnel** and set `TUNNEL_TOKEN` to your connector token.
-2. Install `cloudflare-tunnel` and **bind that stack**. Without a bound stack, `{{ TUNNEL_TOKEN }}` resolves to `NOT_DEFINED` and cloudflared rejects the (empty) token.
+2. Install `cloudflare-tunnel` with **`addon-ssl` enabled** (required) and **bind the stack**. Without a bound stack, `{{ TUNNEL_TOKEN }}` resolves to `NOT_DEFINED` and cloudflared rejects the (empty) token.
+3. In the Zero Trust dashboard, configure the public hostnames → internal origins with TLS verify on and the correct Origin Server Name.
 
 ## Testing
 
