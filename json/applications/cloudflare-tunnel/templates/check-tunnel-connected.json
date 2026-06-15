@@ -1,0 +1,18 @@
+{
+  "execute_on": "ve",
+  "name": "Check Tunnel Connected",
+  "description": "Reads the LXC console log on the PVE host and waits for cloudflared's 'Registered tunnel connection' line, confirming the connector authenticated and reached the Cloudflare edge. Runs entirely host-side because the cloudflared image is distroless (no shell inside the container).",
+  "parameters": [
+    "hostname",
+    "vm_id"
+  ],
+  "commands": [
+    {
+      "name": "Check tunnel registered",
+      "script": "check-tunnel-connected.sh",
+      "outputs": [
+        "tunnel_connected"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "requires_env": ["CF_TUNNEL_TOKEN_TEST"],
+  "params": [
+    { "name": "TUNNEL_TOKEN", "value": "${CF_TUNNEL_TOKEN_TEST}" }
+  ],
+  "wait_seconds": 30,
+  "description": "End-to-end smoke test for the cloudflared connector. Requires env var CF_TUNNEL_TOKEN_TEST set to a real Cloudflare Tunnel *connector* token (base64 JSON from the Zero Trust dashboard / `cloudflared tunnel token <name>` — NOT a DNS API token). The value is supplied to the cloudflare-tunnel stack's TUNNEL_TOKEN variable. Without it the runner drops the scenario (requires_env). With it set, the install pipeline pulls cloudflare/cloudflared at the tag pinned in versions.sh (OCI_cloudflare_tunnel_TAG), creates the distroless LXC, starts it with the token wired into the TUNNEL_TOKEN env var, and the host-side check-tunnel-connected check waits for cloudflared's 'Registered tunnel connection' line in the LXC console log. Pipeline success means the tunnel authenticated and reached the Cloudflare edge."
+}
