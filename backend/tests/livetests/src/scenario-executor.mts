@@ -1408,6 +1408,75 @@ export async function executeScenarios(
         await flushRunnerEvents(ctx);
       }
 
+      // Phase-2 OIDC suite: pick up endpoint-state outputs emitted by
+      // template 351-post-emit-endpoint-config from the message stream.
+      //
+      // Critical ordering: 351 runs in `post_start` AND as the first step
+      // of `replace_ct` in oci-image's upgrade/reconfigure pipeline. The
+      // replace_ct re-emit is what the CLI subprocess actually needs — it
+      // fires immediately before `900-replace-ct` runs `pct stop` on the
+      // old Hub, giving the CLI's pendingEndpointUrl capture (cli-progress
+      // failover) a final poll window before its URL goes dark. Either
+      // emit lands in cliResult.messages, so the runner watcher below
+      // updates apiUrl correctly regardless of whether the CLI managed
+      // to reach the new Hub mid-task or not.
+      //
+      // We therefore run the watcher BEFORE the success/failure branch,
+      // so the apiUrl + auth state are correct for the next scenario in
+      // an OIDC-suite chain regardless of whether THIS scenario's CLI
+      // managed to reach the new Hub or not.
+      {
+        const ep: { url?: string; requiresOidc?: string; issuer?: string } = {};
+        for (const msg of cliResult.messages) {
+          if (!msg.result) continue;
+          // result may carry a leading LXC_MANAGER_JSON_START_MARKER_<id>\n
+          // prefix from the SSH-executor's marker mechanism (banner-strip
+          // line). The marker is supposed to be stripped server-side before
+          // emit, but isn't for some script paths — slice from the first '['
+          // so we parse the JSON payload regardless.
+          const raw = msg.result;
+          const jsonStart = raw.indexOf("[");
+          if (jsonStart < 0) continue;
+          try {
+            const parsed = JSON.parse(raw.slice(jsonStart));
+            if (!Array.isArray(parsed)) continue;
+            for (const item of parsed) {
+              if (item && typeof item === "object" && typeof item.id === "string") {
+                if (item.id === "endpoint_url") ep.url = String(item.value ?? "");
+                else if (item.id === "endpoint_requires_oidc") ep.requiresOidc = String(item.value ?? "");
+                else if (item.id === "endpoint_oidc_issuer") ep.issuer = String(item.value ?? "");
+              }
+            }
+          } catch { /* not JSON */ }
+        }
+        if (ep.url) {
+          const needsOidc = ep.requiresOidc === "true";
+          const urlChanged = ep.url !== apiUrl;
+          const oidcChanged = needsOidc !== !!oidcCredentials;
+          if (urlChanged || oidcChanged) {
+            logInfo(`Endpoint state shift: ${apiUrl} → ${ep.url} (OIDC ${needsOidc ? "required" : "cleared"})`);
+            apiUrl = ep.url;
+            if (!needsOidc) {
+              oidcCredentials = undefined;
+              runnerAuth.oidcCreds = undefined;
+              runnerAuth.token = undefined;
+              runnerAuth.tokenExp = undefined;
+            } else if (!oidcCredentials) {
+              oidcCredentials = await loadOidcCredsFromStack(step.stackName);
+              if (oidcCredentials) {
+                logOk(`Test OIDC deployer credentials loaded post-switch from oidc_${step.stackName}`);
+              }
+            }
+            // Keep TestResultWriter in sync so the bundle fetch (POSTed
+            // after this scenario's write()) goes against the new URL.
+            // Without this, debug bundles for a self-reconfigure scenario
+            // are always "unavailable — bundle expired" because the writer
+            // tries the dead old URL.
+            resultWriter?.setApiUrl(apiUrl);
+          }
+        }
+      }
+
       // expect2fail: if the scenario declares specific templates expected
       // to fail with specific exit codes, evaluate those expectations against
       // the per-template messages. When all expectations are met (and no

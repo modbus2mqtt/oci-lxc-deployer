@@ -172,6 +172,13 @@ PCT_ERR=$(mktemp)
 
 _pct_create() {
   # $1 = ostype to use
+  #
+  # `pct create` extracts the OCI tarball into the rootfs synchronously and
+  # produces no intermediate output. For larger images (~500MB+) this takes
+  # more than the livetest runner's 120s no-output watchdog, which then kills
+  # us mid-extract. Run pct create in the background and emit a stderr
+  # heartbeat every 30s so the watchdog sees that we're still alive. pct's own
+  # stderr still lands in $PCT_ERR so the ostype-retry below can inspect it.
   # shellcheck disable=SC2086
   pct create "$VMID" "$TEMPLATE_PATH" \
     --rootfs "$ROOTFS" \
@@ -184,7 +191,16 @@ _pct_create() {
     $NS_ARG \
     $SD_ARG \
     $ARCH_ARG \
-    $STARTUP_ARG 1>&2 2>"$PCT_ERR"
+    $STARTUP_ARG 1>&2 2>"$PCT_ERR" &
+  _pct_pid=$!
+  _hb_started=$(date +%s)
+  while kill -0 "$_pct_pid" 2>/dev/null; do
+    sleep 30
+    kill -0 "$_pct_pid" 2>/dev/null || break
+    echo "pct create $VMID: still running ($(($(date +%s) - _hb_started))s elapsed)" >&2
+  done
+  wait "$_pct_pid"
+  return $?
 }
 
 # Pull the matching PVE task log for this VMID. pct create is mostly a wrapper

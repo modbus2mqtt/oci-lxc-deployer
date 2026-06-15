@@ -282,6 +282,41 @@ echo ""
 [ "$api_ok" = "true" ] || error "Deployer API not reachable after VM restart"
 success "Deployer API is ready"
 
+# Step 11: Pre-install slow dependencies (currently: playwright/default and
+# its transitive zitadel/default + postgres/default).
+#
+# Why here, after the deployer-installed snapshot:
+#   - playwright/default pulls mcr.microsoft.com/playwright:v1.57.0-noble
+#     (~1.5GB). No local registry mirror for mcr.microsoft.com exists, so
+#     the pull goes over the double-NAT to Microsoft's CDN — easily 5+ min.
+#   - During `/livetest --all` the runner kills any sub-step that produces
+#     no stdout for 120s; the skopeo download is silent until each blob
+#     boundary, so a single ~1GB layer triggers a kill mid-extract.
+#   - step2b runs as a plain shell script with no watchdog, so the pull
+#     and full install completes here.
+#   - live-test-runner.mts creates dep-<app>-<variant> qm snapshots on
+#     successful install. Subsequent `/livetest --all` runs roll back to
+#     those snapshots instead of re-installing — fast and watchdog-safe.
+#
+# We patch e2e/config.json to nested-deployer mode (drop deployerHost +
+# deployerPort) so the runner targets the in-VM Hub, not a local Spoke
+# (no Spoke is running here), and restore on exit.
+header "Pre-installing slow-dep container (playwright/default + transitive deps)"
+PRE_INSTALL_BAK="$(mktemp -t step2b-cfg.XXXXXX)"
+cp "$CONFIG_FILE" "$PRE_INSTALL_BAK"
+trap 'cp "$PRE_INSTALL_BAK" "$CONFIG_FILE"; rm -f "$PRE_INSTALL_BAK"' EXIT INT TERM
+jq --arg i "$E2E_INSTANCE" \
+    'del(.instances[$i].deployerHost) | del(.instances[$i].deployerPort)' \
+    "$PRE_INSTALL_BAK" > "$CONFIG_FILE"
+
+(cd "$PROJECT_ROOT" && npx tsx backend/tests/livetests/src/live-test-runner.mts "$E2E_INSTANCE" playwright/default) \
+    || error "Pre-install of playwright/default failed — see livetest-results/ for diagnostics"
+
+cp "$PRE_INSTALL_BAK" "$CONFIG_FILE"
+rm -f "$PRE_INSTALL_BAK"
+trap - EXIT INT TERM
+success "playwright/default + deps pre-installed (dep-*-default qm snapshots present)"
+
 TOTAL_TIME=$(elapsed)
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"

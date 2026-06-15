@@ -158,6 +158,33 @@ export class CliApiClient {
     }
   }
 
+  /** Returns the current base URL (for poll-loop fallback detection). */
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
+  /** Hot-swap the base URL while a polling loop is mid-run.
+   *
+   * Used by CliProgress to fail over from the pre-self-upgrade endpoint
+   * (e.g. http://ubuntupve:1280) to the post-replace endpoint
+   * (https://ubuntupve:1643) when the original Hub-LXC dies during a
+   * self-reconfigure-enable-https-oidc scenario. The new URL comes from
+   * the `endpoint_url` output emitted by template
+   * 351-post-emit-endpoint-config, which runs in post_start (BEFORE the
+   * replace_ct phase) so the CLI receives it through the still-alive
+   * Hub before the polling URL itself goes dark. */
+  setBaseUrl(newUrl: string): void {
+    this.baseUrl = newUrl.replace(/\/+$/, "");
+  }
+
+  /** Clear the cached bearer so the next request re-mints via
+   *  authenticateOidc(). Use when an endpoint shift moves us from
+   *  unauthenticated HTTP to OIDC-required HTTPS — the existing token
+   *  may have been minted lazily-or-not-at-all under the old endpoint. */
+  resetToken(): void {
+    this.token = undefined;
+  }
+
   /**
    * Fetch a JWT via OIDC Client Credentials Grant.
    * Called once before the first API request if oidcCredentials are set.

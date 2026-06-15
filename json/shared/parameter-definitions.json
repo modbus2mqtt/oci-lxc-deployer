@@ -497,6 +497,30 @@
       "internal": true,
       "project": true
     },
+    "endpoint_oidc_issuer": {
+      "name": "Endpoint OIDC Issuer",
+      "type": "string",
+      "default": "",
+      "required": false,
+      "internal": true,
+      "description": "OIDC issuer URL the runner-facing endpoint expects bearer tokens from. Empty when the endpoint does not require OIDC. Emitted by 351-post-emit-endpoint-config so the livetest runner can mint tokens for subsequent CLI calls."
+    },
+    "endpoint_requires_oidc": {
+      "name": "Endpoint Requires OIDC",
+      "type": "string",
+      "default": "false",
+      "required": false,
+      "internal": true,
+      "description": "\"true\" if the deployer endpoint requires a Bearer JWT on every request (post-self-reconfigure-enable-https-oidc state); \"false\" otherwise. Emitted by 351-post-emit-endpoint-config so the livetest runner can switch auth mode without probing."
+    },
+    "endpoint_url": {
+      "name": "Endpoint URL",
+      "type": "string",
+      "default": "",
+      "required": false,
+      "internal": true,
+      "description": "Full external URL the runner should use to reach the deployer after this scenario. Recomputed from /etc/pve/lxc/<vm_id>.conf truth (SSL mountpoint + OIDC_ENABLED env). Emitted by 351-post-emit-endpoint-config; the livetest runner delta-detects against its current apiUrl and updates only on change."
+    },
     "env_file": {
       "name": "Environment File (.env)",
       "type": "string",

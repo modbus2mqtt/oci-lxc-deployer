@@ -28,6 +28,7 @@
       "190-host-write-lxc-notes.json"
     ],
     "pre_start_finalize": [
+      "351-post-emit-endpoint-config.json",
       "100-conf-unmount-volumes.json"
     ],
     "start": [
@@ -54,6 +55,7 @@
       "190-host-write-lxc-notes.json"
     ],
     "pre_start_finalize": [
+      "351-post-emit-endpoint-config.json",
       "100-conf-unmount-volumes.json"
     ],
     "start": [
@@ -81,6 +83,7 @@
       "190-host-write-lxc-notes.json"
     ],
     "pre_start_finalize": [
+      "351-post-emit-endpoint-config.json",
       "100-conf-unmount-volumes.json"
     ],
     "start": [
