@@ -127,6 +127,7 @@ print_steps() {
     20  Deploy gptwol (Wake-on-LAN UI + M2M API via addon-oauth2-proxy)
     21  Deploy wolproxy (stable JSON API for WoL+ping, M2M Bearer JWT)
     22  Create runner-wake-svc Machine User in Zitadel (outputs WAKE_CLIENT_ID/SECRET for GitHub Actions)
+    23  Deploy zigbee2mqtt (Zigbee coordinator: Sonoff ZBDongle on ttyACM0)
 STEPS
 }
 
@@ -1093,6 +1094,22 @@ if should_run 22; then
 fi
 
 # ================================================================
+# Step 23: Deploy zigbee2mqtt
+#   Bridges the Sonoff ZBDongle Zigbee coordinator to MQTT. The host serial
+#   port (/dev/serial/by-id/usb-ITEAD_SONOFF_Zigbee_3.0_USB_Dongle_Plus_V2_…,
+#   ttyACM0) is deliberately a DIFFERENT stick than modbus2mqtt's 1a86 CH340
+#   (ttyUSB0) — both live on the same PVE host. Native HTTPS (addon-ssl) plus
+#   mTLS to eclipse-mosquitto (addon-mtls). MQTT broker URL + serial port are
+#   pre-seeded via extra_envs (ZIGBEE2MQTT_CONFIG_*) so the bridge comes up
+#   already configured; everything else is tuned via the web frontend.
+#   No OIDC — zigbee2mqtt's frontend has no OpenID Connect support.
+# ================================================================
+if should_run 23; then
+  banner 23 "Deploy zigbee2mqtt"
+  "$SCRIPT_DIR/deploy.sh" --host "$(host_for_app zigbee2mqtt)" zigbee2mqtt.json
+fi
+
+# ================================================================
 # Done
 # ================================================================
 echo ""
@@ -1108,7 +1125,8 @@ echo "  Gitea:       192.168.4.43 (git.ohnewarum.de)"
 echo "  Mosquitto:   192.168.4.44 (mqtt.ohnewarum.de)"
 echo "  Registry:    192.168.4.45 (docker-registry-mirror, pve1)"
 echo "  Node-RED:    192.168.4.46 (node-red.local)"
-echo "  Modbus2MQTT: 192.168.4.47 (modbus2mqtt.local)"
+echo "  Modbus2MQTT: 192.168.4.47 (modbus2mqtt.local, serial: 1a86 CH340 / ttyUSB0)"
+echo "  Zigbee2MQTT: zigbee2mqtt.local (auto-IP, serial: Sonoff ZBDongle / ttyACM0)"
 echo "  GHCR Mirror: 192.168.4.48 (ghcr-mirror, ubuntupve, test infra)"
 echo "  Test Mirror: 192.168.4.49 (docker-mirror-test, ubuntupve, test infra)"
 echo "  Zot Mirror:  192.168.4.50 (zot-mirror, ubuntupve, ghcr.io pull-through)"
