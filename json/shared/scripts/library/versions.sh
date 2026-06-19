@@ -21,6 +21,7 @@ OCI_gptwol_TAG="${OCI_gptwol_TAG:-7.1.5}"                    # misterbabou/gptwo
 OCI_node_red_TAG="${OCI_node_red_TAG:-4.1.8}"                # nodered/node-red
 OCI_modbus2mqtt_TAG="${OCI_modbus2mqtt_TAG:-latest}"         # ghcr.io/modbus2mqtt/modbus2mqtt
 OCI_eclipse_mosquitto_TAG="${OCI_eclipse_mosquitto_TAG:-2}"   # eclipse-mosquitto
+OCI_zigbee2mqtt_TAG="${OCI_zigbee2mqtt_TAG:-latest}"         # ghcr.io/koenkk/zigbee2mqtt
 OCI_gitea_TAG="${OCI_gitea_TAG:-1.25.5}"                      # gitea/gitea
 OCI_postgres_TAG="${OCI_postgres_TAG:-16-alpine}"             # postgres
 OCI_pgadmin_TAG="${OCI_pgadmin_TAG:-9.14}"                    # dpage/pgadmin4
@@ -35,6 +36,6 @@ OCI_wolproxy_TAG="${OCI_wolproxy_TAG:-latest}"               # ghcr.io/proxvex/w
 
 # Export all tags so docker-compose subprocesses can resolve ${DOCKER_*_TAG} references
 export DOCKER_traefik_TAG DOCKER_zitadel_TAG DOCKER_zitadel_login_TAG DOCKER_postgrest_TAG DOCKER_cloudflare_tunnel_TAG
-export OCI_proxvex_TAG OCI_gptwol_TAG OCI_node_red_TAG OCI_modbus2mqtt_TAG OCI_eclipse_mosquitto_TAG OCI_gitea_TAG
+export OCI_proxvex_TAG OCI_gptwol_TAG OCI_node_red_TAG OCI_modbus2mqtt_TAG OCI_eclipse_mosquitto_TAG OCI_zigbee2mqtt_TAG OCI_gitea_TAG
 export OCI_postgres_TAG OCI_pgadmin_TAG OCI_nginx_TAG OCI_mariadb_TAG OCI_phpmyadmin_TAG OCI_docker_registry_mirror_TAG
 export OCI_zot_mirror_TAG OCI_playwright_TAG OCI_oauth2_proxy_testbed_TAG OCI_wolproxy_TAG
