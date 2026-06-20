@@ -56,6 +56,7 @@ github-runner=ubuntupve
 ghcr-registry-mirror=ubuntupve
 docker-mirror-test=ubuntupve
 zot-mirror=ubuntupve
+esphome=ubuntupve
 wolproxy=pve1.cluster
 "
 
@@ -128,6 +129,7 @@ print_steps() {
     21  Deploy wolproxy (stable JSON API for WoL+ping, M2M Bearer JWT)
     22  Create runner-wake-svc Machine User in Zitadel (outputs WAKE_CLIENT_ID/SECRET for GitHub Actions)
     23  Deploy zigbee2mqtt (Zigbee coordinator: Sonoff ZBDongle on ttyACM0)
+    24  Deploy esphome (target: $(host_for_app esphome)) [HTTP-only dashboard, no native HTTPS]
 STEPS
 }
 
@@ -1110,6 +1112,19 @@ if should_run 23; then
 fi
 
 # ================================================================
+# Step 24: Deploy esphome (target: ubuntupve)
+#   ESPHome dashboard for building/flashing ESP firmware. Deployed to
+#   ubuntupve (see APP_HOST_MAP) rather than the default PVE host. The
+#   standalone dashboard has no native HTTPS, so it is served over plain
+#   HTTP on :6052 — put a reverse proxy in front if TLS is required. To
+#   flash devices over USB on the host, add host_device_path to esphome.json.
+# ================================================================
+if should_run 24; then
+  banner 24 "Deploy esphome ($(host_for_app esphome))"
+  "$SCRIPT_DIR/deploy.sh" --host "$(host_for_app esphome)" esphome.json
+fi
+
+# ================================================================
 # Done
 # ================================================================
 echo ""
@@ -1130,6 +1145,7 @@ echo "  Zigbee2MQTT: zigbee2mqtt.local (auto-IP, serial: Sonoff ZBDongle / ttyAC
 echo "  GHCR Mirror: 192.168.4.48 (ghcr-mirror, ubuntupve, test infra)"
 echo "  Test Mirror: 192.168.4.49 (docker-mirror-test, ubuntupve, test infra)"
 echo "  Zot Mirror:  192.168.4.50 (zot-mirror, ubuntupve, ghcr.io pull-through)"
+echo "  ESPHome:     esphome.local (ubuntupve, auto-IP, HTTP dashboard :6052)"
 echo "  gptwol:      LAN: http://gptwol:5000  (Browser OIDC login)"
 echo "               Public: https://gptwol.ohnewarum.de/api/wake/<host>  (Bearer JWT only)"
 echo "  wolproxy:    LAN: http://wolproxy:5000  (no UI, JSON API)"
