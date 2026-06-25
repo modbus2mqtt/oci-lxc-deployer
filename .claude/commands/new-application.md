@@ -38,7 +38,7 @@ Only claim a capability the docs actually confirm — e.g. Zigbee2MQTT has no OI
 
 | Property | Notes |
 |---|---|
-| **`disk_size`** | **⚠️ MUST set.** Default is **`0.5` GB** — too small for any non-tiny image; the OCI extract dies with `Disk quota exceeded (os error 122)`. Estimate: compressed image ×3–4 ≈ extracted rootfs, plus headroom. Small Alpine ~`1`, Debian/Node/Python ~`4`, build-heavy ~`8`–`16`. (esphome & homebridge both failed prod until this was set.) |
+| **`disk_size`** | Default is **`0.5` GB** — **intentionally small** (on non-ZFS/thick storage the rootfs is fully allocated, so a bigger disk means slower, larger backups; keep it minimal). It fits small images, but **silently** too small for large ones: the OCI extract then dies with `Disk quota exceeded (os error 122)`. **Set it only when the image needs more than ~0.5 GB extracted.** Rough guide: small Alpine (≤~200 MB compressed — mosquitto, zigbee2mqtt, node-red all run on the default) → leave it; Debian/Node/Python (homebridge, esphome) → `4`; build-heavy (runners, Playwright) → `8`–`16`. Estimate: compressed image ×3–4 ≈ extracted rootfs, plus headroom. |
 | **`memory`** | set from the app's documented/known footprint when it's above the base default — e.g. `playwright` 2048, `github-runner` 8192. Lightweight services can omit it. |
 | `volumes` | persistent data path(s) from the docs, sized generously (grows over time); add `certs=/ssl` when native SSL/mTLS is on. |
 
@@ -56,7 +56,7 @@ It exposes `host_device_path` (a stable `/dev/serial/by-id/...`) → `container_
 
 ## Step 6 — `application.json` property checklist
 
-`hostname` (=app name) · **`disk_size`** · `memory` (if needed) · `volumes` · `envs` (`TZ=Europe/Berlin` + app env) · `rootfs_storage: local-zfs` · `volume_storage: local-zfs, required` · `oci_image` (`<repo>/<image>:{{oci_image_tag}}`) · `wait_for_network: true` · `uid`/`gid`/`username` (match the image) · `http_port` **or** `local_https_port`+ssl props · `volume_backup: true` · addon/oidc/mtls props per Step 3.
+`hostname` (=app name) · `disk_size` (only if image > ~0.5 GB) · `memory` (if needed) · `volumes` · `envs` (`TZ=Europe/Berlin` + app env) · `rootfs_storage: local-zfs` · `volume_storage: local-zfs, required` · `oci_image` (`<repo>/<image>:{{oci_image_tag}}`) · `wait_for_network: true` · `uid`/`gid`/`username` (match the image) · `http_port` **or** `local_https_port`+ssl props · `volume_backup: true` · addon/oidc/mtls props per Step 3.
 
 Metadata: `name`, `description` (what it is + runs as an LXC), `extends`, `icon`, `tags` (reuse: `automation`/`iot`/`database`/`infrastructure`/`api`/`development`), `supported_addons`, `url`, `documentation`, `source`. Every property `id` must exist in `json/shared/parameter-definitions.json` — unknown ids silently do nothing. Read the closest sibling and match key order.
 
@@ -92,7 +92,7 @@ Create `production/<app>.json` (`{ "application": "<app>", "task": "installation
 
 ## Hard-won gotchas
 
-- **`disk_size` default `0.5 GB`** is the #1 footgun — always set it.
+- **`disk_size` default `0.5 GB`** is intentionally small (fast/small backups on non-ZFS thick storage) but **fails silently** for large images — check the image size and override only when it won't fit (don't blindly set it; small Alpine apps run on the default).
 - **`extends` merges everything** — phase lists append to the base (deduped by template name, in category order `image→create_ct→pre_start→pre_start_finalize→start→post_start→replace_ct→check`); `properties`/`parameters` are base-first then yours (so a later same-`id` entry overrides); `supported_addons` is a set union. Set only what differs; never copy the base lifecycle into the app. Need a true override of one task? `"no_extend": true` on that task object clears the base's contribution.
 - **`http_port` vs `local_https_port`** decides HTTP vs HTTPS health checks — wrong choice fails the check even though the app is up.
 - **Claim capabilities only from real docs** — a wrong `addon-oidc`/`addon-ssl` produces broken auth/TLS wiring.
