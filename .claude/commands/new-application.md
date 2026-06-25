@@ -52,7 +52,7 @@ If the app talks to a **USB serial device** (Zigbee/Z-Wave coordinator, Modbus R
 "reconfigure":   { "pre_start": ["110-conf-map-serial.json"] }
 ```
 
-It exposes `host_device_path` (a stable `/dev/serial/by-id/...`) → `container_device_path` (e.g. `/dev/ttyUSB0`). Document both in the `.md`. (`extends` **merges** phases — listing only `pre_start` appends to the base, it doesn't replace the rest.)
+It exposes `host_device_path` (a stable `/dev/serial/by-id/...`) → `container_device_path` (e.g. `/dev/ttyUSB0`). Document both in the `.md`. (`extends` **merges** phases — listing only `pre_start` appends to the base's `pre_start` (deduped by template name), it doesn't replace the rest. To fully replace a base task instead of appending, set `"no_extend": true` on that task object.)
 
 ## Step 6 — `application.json` property checklist
 
@@ -93,7 +93,7 @@ Create `production/<app>.json` (`{ "application": "<app>", "task": "installation
 ## Hard-won gotchas
 
 - **`disk_size` default `0.5 GB`** is the #1 footgun — always set it.
-- **`extends` merges lifecycle phases** — set only what differs; never copy the base lifecycle into the app.
+- **`extends` merges everything** — phase lists append to the base (deduped by template name, in category order `image→create_ct→pre_start→pre_start_finalize→start→post_start→replace_ct→check`); `properties`/`parameters` are base-first then yours (so a later same-`id` entry overrides); `supported_addons` is a set union. Set only what differs; never copy the base lifecycle into the app. Need a true override of one task? `"no_extend": true` on that task object clears the base's contribution.
 - **`http_port` vs `local_https_port`** decides HTTP vs HTTPS health checks — wrong choice fails the check even though the app is up.
 - **Claim capabilities only from real docs** — a wrong `addon-oidc`/`addon-ssl` produces broken auth/TLS wiring.
 - **An app is "registered" by its directory** (+ versions.sh pin, + optional production wiring) — there is no central index to edit.
