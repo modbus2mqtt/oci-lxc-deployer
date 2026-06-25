@@ -7,6 +7,7 @@
   "supported_addons": [],
   "properties": [
     { "id": "hostname", "default": "homebridge" },
+    { "id": "disk_size", "default": "4" },
     { "id": "volumes", "default": "config=/homebridge,size=4G" },
     { "id": "envs", "default": "TZ=Europe/Berlin\nHOMEBRIDGE_CONFIG_UI_PORT=8581" },
     { "id": "rootfs_storage", "default": "local-zfs" },

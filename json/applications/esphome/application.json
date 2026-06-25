@@ -7,6 +7,7 @@
   "supported_addons": [],
   "properties": [
     { "id": "hostname", "default": "esphome" },
+    { "id": "disk_size", "default": "4" },
     { "id": "volumes", "default": "config=/config,size=4G" },
     { "id": "envs", "default": "TZ=Europe/Berlin" },
     { "id": "rootfs_storage", "default": "local-zfs" },
