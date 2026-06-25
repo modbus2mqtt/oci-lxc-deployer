@@ -7,11 +7,41 @@ plugin ecosystem. Runs as an OCI-image LXC container
 `config.json`, install/configure plugins and read logs — listens on port
 **8581**.
 
-## HTTPS
+## HTTPS (addon-ssl)
 
-Homebridge Config UI X serves the web interface over **plain HTTP** by default.
-This application therefore exposes the UI on HTTP only. For TLS, put a reverse
-proxy in front of it, or run it on a trusted LAN segment.
+Config UI X can serve the web interface over **native HTTPS** — enable the
+**SSL addon** (`addon-ssl`, mode `native`). The managed server certificate is
+written into the `certs` volume (mounted at `/ssl`), and an `ssl` block is
+added to the Config UI X platform in `config.json` pointing at it:
+
+```json
+"ssl": { "key": "/ssl/privkey.pem", "cert": "/ssl/fullchain.pem" }
+```
+
+The UI then serves HTTPS on the same port **8581**. Enabling/disabling SSL
+edits `config.json` automatically (see _Configuration_): if the file does not
+exist yet it is generated with a minimal valid config; if it exists, only the
+`ssl` block is added or removed, preserving everything else.
+
+Without the addon the UI serves **plain HTTP** — put a reverse proxy in front
+or keep it on a trusted LAN segment.
+
+## Authentication (no OIDC)
+
+Config UI X uses its **own** authentication — a form login with users stored in
+`auth.json` and optional TOTP two-factor. It does **not** support OpenID
+Connect / SSO (upstream feature request
+[homebridge-config-ui-x#2007](https://github.com/homebridge/homebridge-config-ui-x/issues/2007)),
+so the OIDC addon is intentionally not offered for this application.
+
+## Configuration
+
+The effective config file is **`/homebridge/config.json`** (on the `config`
+volume; host-side: the `subvol-<vmid>-homebridge-config` managed volume). It is
+where the HomeKit bridge details (`bridge.username`, `bridge.pin`), installed
+plugins and the Config UI X platform (incl. the managed `ssl` block) live —
+edit it from the UI, or directly on the volume. The container-level LXC config
+(port maps, mounts, env) is on the PVE host at `/etc/pve/lxc/<vmid>.conf`.
 
 ## HomeKit pairing & mDNS
 
