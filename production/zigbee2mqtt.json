@@ -8,7 +8,7 @@
     { "name": "host_device_path", "value": "/dev/serial/by-id/usb-ITEAD_SONOFF_Zigbee_3.0_USB_Dongle_Plus_V2_20221202171948-if00" },
     { "name": "container_device_path", "value": "/dev/ttyACM0" },
     { "name": "install_replug_watcher", "value": "true" },
-    { "name": "extra_envs", "value": "ZIGBEE2MQTT_CONFIG_MQTT_SERVER=mqtts://eclipse-mosquitto.local:8883\nZIGBEE2MQTT_CONFIG_SERIAL_PORT=/dev/ttyACM0" }
+    { "name": "extra_envs", "value": "ZIGBEE2MQTT_CONFIG_MQTT_SERVER=mqtts://eclipse-mosquitto:8883\nZIGBEE2MQTT_CONFIG_SERIAL_PORT=/dev/ttyACM0" }
   ],
   "selectedAddons": ["addon-ssl", "addon-mtls"]
 }
