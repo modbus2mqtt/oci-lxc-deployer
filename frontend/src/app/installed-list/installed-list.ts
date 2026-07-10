@@ -13,6 +13,10 @@ import { CardGridComponent } from '../shared/components/card-grid/card-grid';
 import { CertificateManagementDialog } from '../certificate-management/certificate-management-dialog';
 import { UpgradeVersionDialog, UpgradeVersionDialogResult } from './upgrade-version-dialog';
 
+// Container states that count as debris the user can purge in one click.
+// `status` is a free-form pct string, so match case-insensitively.
+const DELETABLE_STATES = new Set(['stopped', 'migrated']);
+
 @Component({
   selector: 'app-installed-list',
   standalone: true,
@@ -24,6 +28,8 @@ export class InstalledList implements OnInit {
   installations: IManagedOciContainer[] = [];
   loading = true;
   error?: string;
+  deleting = false;
+  deleteStatus?: string;
 
   private svc = inject(VeConfigurationService);
   private cacheService = inject(CacheService);
@@ -89,6 +95,11 @@ export class InstalledList implements OnInit {
 
   ngOnInit(): void {
     this.veContextKey = this.route.snapshot.paramMap.get('veContextKey') ?? this.svc.getVeContextKey();
+    this.loadInstallations();
+  }
+
+  private loadInstallations(): void {
+    this.loading = true;
     this.cacheService.getInstallations().subscribe({
       next: (items) => {
         this.installations = items;
@@ -98,6 +109,45 @@ export class InstalledList implements OnInit {
         this.error = 'Error loading installations';
         this.loading = false;
       }
+    });
+  }
+
+  // Real containers (never the synthetic PVE host) whose state marks them as
+  // debris — the one-click cleanup targets exactly these. Locked containers are
+  // included: the destroy script does `pct unlock` first.
+  get deletableInstallations(): IManagedOciContainer[] {
+    return this.installations.filter(
+      (it) => !it.is_host && it.vm_id > 0 &&
+        DELETABLE_STATES.has(String(it.status ?? '').toLowerCase()),
+    );
+  }
+
+  // Bulk-destroy all stopped/migrated containers. No confirmation dialog by
+  // design — the button carries the count and only appears when there's
+  // something to purge, so the action is explicit at click time.
+  deleteStoppedAndMigrated(): void {
+    const targets = this.deletableInstallations;
+    if (this.deleting || targets.length === 0) return;
+
+    this.deleting = true;
+    this.deleteStatus = undefined;
+    const vmIds = targets.map((it) => it.vm_id);
+
+    this.svc.destroyInstallations(vmIds).subscribe({
+      next: (result) => {
+        this.deleting = false;
+        const failed = result.failed?.length ?? 0;
+        this.deleteStatus = failed > 0
+          ? `${result.destroyed.length} gelöscht, ${failed} fehlgeschlagen: ${result.failed.map((f) => f.vmid).join(', ')}`
+          : `${result.destroyed.length} Container gelöscht`;
+        // Force a fresh list — the destroyed containers must disappear.
+        this.cacheService.invalidate();
+        this.loadInstallations();
+      },
+      error: () => {
+        this.deleting = false;
+        this.deleteStatus = 'Löschen fehlgeschlagen';
+      },
     });
   }
 

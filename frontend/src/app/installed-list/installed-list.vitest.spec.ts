@@ -28,10 +28,12 @@ class MockVeConfigurationService {
   getInstallations = vi.fn(() => of<IInstallationsResponse>(mockInstallations));
   getInstallationVersions = vi.fn(() => of({ services: [], framework: 'oci-image' }));
   postVeUpgrade = vi.fn(() => of({ success: true, restartKey: 'rk_test' }));
+  destroyInstallations = vi.fn(() => of({ destroyed: [], failed: [] }));
 }
 
 class MockCacheService {
   getInstallations = vi.fn(() => of(mockInstallations));
+  invalidate = vi.fn();
 }
 
 // Ensure Angular testing environment is active (without deprecated imports in spec)
@@ -115,6 +117,46 @@ describe('InstalledList component (vitest)', () => {
         (b) => b.textContent?.trim() === 'Upgrade',
       );
       expect(upgradeBtn?.disabled).toBe(true);
+    });
+  });
+
+  describe('Cleanup of stopped/migrated containers', () => {
+    it('lists only non-running real containers as deletable', () => {
+      const cmp = TestBed.createComponent(InstalledList).componentInstance;
+      cmp.installations = [
+        { vm_id: 0, oci_image: '', is_host: true, status: 'running' },
+        { vm_id: 101, oci_image: 'x', status: 'running' },
+        { vm_id: 102, oci_image: 'x', status: 'stopped' },
+        { vm_id: 103, oci_image: 'x', status: 'Migrated' }, // case-insensitive
+      ];
+      const ids = cmp.deletableInstallations.map((i) => i.vm_id);
+      expect(ids).toEqual([102, 103]);
+    });
+
+    it('destroys the deletable vmIds, invalidates the cache and reloads', () => {
+      const fixture = TestBed.createComponent(InstalledList);
+      const cmp = fixture.componentInstance;
+      cmp.installations = [
+        { vm_id: 101, oci_image: 'x', status: 'running' },
+        { vm_id: 102, oci_image: 'x', status: 'stopped' },
+        { vm_id: 103, oci_image: 'x', status: 'migrated' },
+      ];
+
+      cmp.deleteStoppedAndMigrated();
+
+      expect(svc.destroyInstallations).toHaveBeenCalledWith([102, 103]);
+      expect(cacheService.invalidate).toHaveBeenCalledTimes(1);
+      // reload re-fetches via CacheService.getInstallations
+      expect(cacheService.getInstallations).toHaveBeenCalled();
+      expect(cmp.deleting).toBe(false);
+      expect(cmp.deleteStatus).toContain('gelöscht');
+    });
+
+    it('does nothing when there is nothing to delete', () => {
+      const cmp = TestBed.createComponent(InstalledList).componentInstance;
+      cmp.installations = [{ vm_id: 101, oci_image: 'x', status: 'running' }];
+      cmp.deleteStoppedAndMigrated();
+      expect(svc.destroyInstallations).not.toHaveBeenCalled();
     });
   });
 });
