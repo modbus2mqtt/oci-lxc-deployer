@@ -133,9 +133,21 @@ describe('InstalledList component (vitest)', () => {
       expect(ids).toEqual([102, 103]);
     });
 
-    it('destroys the deletable vmIds, invalidates the cache and reloads', () => {
+    it('destroys the deletable vmIds one at a time and drops each card live', () => {
       const fixture = TestBed.createComponent(InstalledList);
       const cmp = fixture.componentInstance;
+      // Record how many containers are still present at each request — since the
+      // deletes run sequentially and each ok card is removed immediately, the
+      // 2nd request must see one fewer container than the 1st.
+      const sizeAtCall: number[] = [];
+      svc.destroyInstallations = vi.fn((ids: number[]) => {
+        sizeAtCall.push(cmp.installations.length);
+        return of({ destroyed: [`${ids[0]}@h`], failed: [] });
+      });
+      // Server truth after both deletes: only the running one remains.
+      cacheService.getInstallations = vi.fn(() =>
+        of([{ vm_id: 101, oci_image: 'x', status: 'running' }]),
+      );
       cmp.installations = [
         { vm_id: 101, oci_image: 'x', status: 'running' },
         { vm_id: 102, oci_image: 'x', status: 'stopped' },
@@ -144,12 +156,39 @@ describe('InstalledList component (vitest)', () => {
 
       cmp.deleteStoppedAndMigrated();
 
-      expect(svc.destroyInstallations).toHaveBeenCalledWith([102, 103]);
+      // One request per container, not one bulk call
+      expect(svc.destroyInstallations).toHaveBeenNthCalledWith(1, [102]);
+      expect(svc.destroyInstallations).toHaveBeenNthCalledWith(2, [103]);
+      expect(sizeAtCall).toEqual([3, 2]); // card removed live between requests
       expect(cacheService.invalidate).toHaveBeenCalledTimes(1);
-      // reload re-fetches via CacheService.getInstallations
-      expect(cacheService.getInstallations).toHaveBeenCalled();
       expect(cmp.deleting).toBe(false);
-      expect(cmp.deleteStatus).toContain('gelöscht');
+      expect(cmp.deleteProgress).toBeUndefined();
+      expect(cmp.deleteStatus).toContain('2 Container gelöscht');
+    });
+
+    it('keeps failed containers visible and reports them in the status', () => {
+      const fixture = TestBed.createComponent(InstalledList);
+      const cmp = fixture.componentInstance;
+      // 102 fails server-side (failed[] non-empty), 103 succeeds.
+      svc.destroyInstallations = vi.fn((ids: number[]) =>
+        ids[0] === 102
+          ? of({ destroyed: [], failed: [{ vmid: 102, ve_host: 'h', error: 'boom' }] })
+          : of({ destroyed: ['103@h'], failed: [] }),
+      );
+      // Server truth after: the failed 102 still exists, 103 is gone.
+      cacheService.getInstallations = vi.fn(() =>
+        of([{ vm_id: 102, oci_image: 'x', status: 'stopped' }]),
+      );
+      cmp.installations = [
+        { vm_id: 102, oci_image: 'x', status: 'stopped' },
+        { vm_id: 103, oci_image: 'x', status: 'migrated' },
+      ];
+
+      cmp.deleteStoppedAndMigrated();
+
+      expect(cmp.installations.map((i) => i.vm_id)).toEqual([102]);
+      expect(cmp.deleteStatus).toContain('1 gelöscht');
+      expect(cmp.deleteStatus).toContain('fehlgeschlagen: 102');
     });
 
     it('does nothing when there is nothing to delete', () => {

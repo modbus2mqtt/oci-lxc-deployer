@@ -1,5 +1,7 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { from, of } from 'rxjs';
+import { catchError, concatMap, map } from 'rxjs/operators';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
@@ -30,6 +32,8 @@ export class InstalledList implements OnInit {
   error?: string;
   deleting = false;
   deleteStatus?: string;
+  // Live progress of the sequential cleanup so the button can show "7/12".
+  deleteProgress?: { done: number; total: number };
 
   private svc = inject(VeConfigurationService);
   private cacheService = inject(CacheService);
@@ -122,9 +126,11 @@ export class InstalledList implements OnInit {
     );
   }
 
-  // Bulk-destroy all stopped/migrated containers. No confirmation dialog by
-  // design — the button carries the count and only appears when there's
-  // something to purge, so the action is explicit at click time.
+  // Destroy all stopped/migrated containers. No confirmation dialog by design —
+  // the button carries the count and only appears when there's something to
+  // purge, so the action is explicit at click time. Containers are destroyed
+  // one at a time (each `pct destroy` is slow) so the button can show real
+  // "N/total" progress instead of blocking silently until everything is done.
   deleteStoppedAndMigrated(): void {
     const targets = this.deletableInstallations;
     if (this.deleting || targets.length === 0) return;
@@ -132,23 +138,43 @@ export class InstalledList implements OnInit {
     this.deleting = true;
     this.deleteStatus = undefined;
     const vmIds = targets.map((it) => it.vm_id);
+    this.deleteProgress = { done: 0, total: vmIds.length };
 
-    this.svc.destroyInstallations(vmIds).subscribe({
-      next: (result) => {
-        this.deleting = false;
-        const failed = result.failed?.length ?? 0;
-        this.deleteStatus = failed > 0
-          ? `${result.destroyed.length} gelöscht, ${failed} fehlgeschlagen: ${result.failed.map((f) => f.vmid).join(', ')}`
-          : `${result.destroyed.length} Container gelöscht`;
-        // Force a fresh list — the destroyed containers must disappear.
-        this.cacheService.invalidate();
-        this.loadInstallations();
-      },
-      error: () => {
-        this.deleting = false;
-        this.deleteStatus = 'Löschen fehlgeschlagen';
-      },
-    });
+    const destroyed: number[] = [];
+    const failed: number[] = [];
+
+    from(vmIds)
+      .pipe(
+        concatMap((vmId) =>
+          this.svc.destroyInstallations([vmId]).pipe(
+            map((result) => ({ vmId, ok: (result.failed?.length ?? 0) === 0 })),
+            // A network/HTTP error must not abort the remaining deletions —
+            // record this one as failed and carry on with the next container.
+            catchError(() => of({ vmId, ok: false })),
+          ),
+        ),
+      )
+      .subscribe({
+        next: ({ vmId, ok }) => {
+          (ok ? destroyed : failed).push(vmId);
+          if (ok) {
+            // Drop the destroyed container's card right away for live feedback;
+            // failed ones stay visible so the user sees what's stuck.
+            this.installations = this.installations.filter((it) => it.vm_id !== vmId);
+          }
+          if (this.deleteProgress) this.deleteProgress.done++;
+        },
+        complete: () => {
+          this.deleting = false;
+          this.deleteProgress = undefined;
+          this.deleteStatus = failed.length > 0
+            ? `${destroyed.length} gelöscht, ${failed.length} fehlgeschlagen: ${failed.join(', ')}`
+            : `${destroyed.length} Container gelöscht`;
+          // Force a fresh list — the destroyed containers must disappear.
+          this.cacheService.invalidate();
+          this.loadInstallations();
+        },
+      });
   }
 
   startUpgrade(installation: IManagedOciContainer) {
