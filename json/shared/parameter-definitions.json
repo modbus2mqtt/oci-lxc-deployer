@@ -88,6 +88,15 @@
       "group": "Other",
       "advanced": true
     },
+    "base_volumes": {
+      "name": "Base Volumes",
+      "type": "string",
+      "required": false,
+      "multiline": true,
+      "group": "Other",
+      "advanced": true,
+      "description": "Volumes a base application requires of every application extending it, in the same format as 'volumes'. Merged with the application's own volumes, which stay authoritative for the same key. Used by docker-compose to always mount the proxvex volume that holds the on-start hooks."
+    },
     "all_stack_ids": {
       "name": "All Stack IDs",
       "type": "string",
