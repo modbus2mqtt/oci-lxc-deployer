@@ -22,6 +22,7 @@ HOSTNAME="{{ hostname }}"
 PREV_VMID="{{ previous_vm_id }}"
 VOLUMES="{{ volumes }}"
 ADDON_VOLUMES="{{ addon_volumes }}"
+COMPOSE_PROJECT="{{ compose_project }}"
 VOLUME_STORAGE="{{ volume_storage }}"
 VOLUME_SIZE="{{ volume_size }}"
 VOLUME_BACKUP="{{ volume_backup }}"
@@ -48,6 +49,16 @@ fi
 VOLUMES=$(pve_merge_addon_volumes "$VOLUMES" "$ADDON_VOLUMES")
 if [ -n "$ADDON_VOLUMES" ]; then
   log "Merged addon_volumes with base volumes"
+fi
+
+# docker-compose applications always need the proxvex volume: the on-start
+# hooks that launch dockerd after a plain `pct restart` live in
+# <proxvex volume>/on_start.d/. Other application types only get it when an
+# addon asks for it (via addon_volumes). Merging keeps an application's own
+# 'proxvex' entry authoritative.
+if [ -n "$COMPOSE_PROJECT" ] && [ "$COMPOSE_PROJECT" != "NOT_DEFINED" ]; then
+  VOLUMES=$(pve_merge_addon_volumes "$VOLUMES" "proxvex=/etc/proxvex,0755,0:0")
+  log "docker-compose application: ensured proxvex volume"
 fi
 
 if [ -n "$VOLUMES" ]; then
