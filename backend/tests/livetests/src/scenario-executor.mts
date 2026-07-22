@@ -1453,7 +1453,18 @@ export async function executeScenarios(
           const needsOidc = ep.requiresOidc === "true";
           const urlChanged = ep.url !== apiUrl;
           const oidcChanged = needsOidc !== !!oidcCredentials;
-          if (urlChanged || oidcChanged) {
+          // Only a scenario that replaces the Hub itself may move the runner's
+          // apiUrl. Every other scenario reporting an endpoint is noise — and
+          // harmful noise under --all, where all workers share this state: one
+          // stray report sends every concurrent CLI call to a dead URL. No
+          // reachability probe here on purpose; during a genuine Hub replace
+          // the new endpoint is briefly down by design.
+          const replacesHub = scenario.id.includes("/self-");
+          if ((urlChanged || oidcChanged) && !replacesHub) {
+            logWarn(
+              `Ignoring endpoint report ${ep.url} from ${scenario.id} — only self-* scenarios move the Hub`,
+            );
+          } else if (urlChanged || oidcChanged) {
             logInfo(`Endpoint state shift: ${apiUrl} → ${ep.url} (OIDC ${needsOidc ? "required" : "cleared"})`);
             apiUrl = ep.url;
             if (!needsOidc) {
