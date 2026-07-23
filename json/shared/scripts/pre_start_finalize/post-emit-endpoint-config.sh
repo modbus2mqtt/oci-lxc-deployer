@@ -32,6 +32,7 @@ set -eu
 
 VMID="{{ vm_id }}"
 DEPLOYER_BASE="{{ deployer_base_url }}"
+APPLICATION_ID="{{ application_id }}"
 
 emit() {
     # Even on skip, emit ONE valid outputs frame so the runner sees we ran
@@ -50,6 +51,18 @@ fi
 CONF_FILE="/etc/pve/lxc/${VMID}.conf"
 if [ ! -f "$CONF_FILE" ]; then
     echo "emit-endpoint-config: no $CONF_FILE, emitting empty endpoint" >&2
+    emit "" "false" ""
+    exit 0
+fi
+
+# Only a proxvex container may report where the deployer lives. The template
+# hangs in oci-image's pipeline, so it also runs for ordinary applications —
+# and the SSL detection below keys off *this* container's /etc/ssl/addon
+# mount. Without this guard every application carrying addon-ssl reports the
+# deployer as having moved to HTTPS, and the runner follows it into a port
+# that nothing listens on.
+if [ "$APPLICATION_ID" != "proxvex" ]; then
+    echo "emit-endpoint-config: application '$APPLICATION_ID' is not the deployer, emitting empty endpoint" >&2
     emit "" "false" ""
     exit 0
 fi

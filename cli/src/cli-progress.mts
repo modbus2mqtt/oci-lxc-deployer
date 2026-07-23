@@ -11,6 +11,23 @@ import { TimeoutError, ExecutionFailedError } from "./cli-types.mjs";
  */
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
+/**
+ * After this much silence, drop the delta cursor and re-poll from scratch.
+ *
+ * Delta polling goes blind for good if `lastSeenIndex` ever moves past a
+ * message we still need: the message index is a process-global counter shared
+ * by all concurrent tasks, and adopted clone messages are injected carrying
+ * their ORIGINAL (lower) indexes. The terminal "Completed" frame then stays
+ * invisible and the task dies of timeout although the backend finished it
+ * minutes earlier — seen under livetest --all on upgrade/reconfigure
+ * scenarios, where the backend group ended in Completed/finished=true while
+ * the CLI polled on for another 4-5 minutes.
+ *
+ * The existing recovery only covers a Hub replacement (retry gap + known
+ * post-replace endpoint); this one needs no such context.
+ */
+const CURSOR_RESET_AFTER_MS = 90_000;
+
 export interface ProgressOptions {
   quiet?: boolean;
   json?: boolean;
@@ -70,6 +87,7 @@ export class CliProgress {
     // This handles the same-URL case (upgrade where addon-ssl+oidc stayed
     // on) that the explicit URL-switch path doesn't cover.
     let hadRetryGap = false;
+    let lastCursorReset = 0;
     while (Date.now() < deadline) {
       let messages: IVeExecuteMessage[];
       try {
@@ -262,6 +280,22 @@ export class CliProgress {
           `[T+${elapsedSinceStart}s] Still polling, no progress for ${silentFor}s\n`,
         );
         this.lastHeartbeatTime = now;
+      }
+
+      // Cursor-drift safety net — see CURSOR_RESET_AFTER_MS.
+      if (
+        this.lastSeenIndex >= 0 &&
+        now - this.lastMessageTime > CURSOR_RESET_AFTER_MS &&
+        now - lastCursorReset > CURSOR_RESET_AFTER_MS
+      ) {
+        lastCursorReset = now;
+        const elapsed = Math.round((now - this.startTime) / 1000);
+        const silent = Math.round((now - this.lastMessageTime) / 1000);
+        process.stderr.write(
+          `[T+${elapsed}s] No new message for ${silent}s — dropping delta cursor `
+            + `(was ${this.lastSeenIndex}) and re-polling in full\n`,
+        );
+        this.lastSeenIndex = -1;
       }
 
       await sleep(3000);

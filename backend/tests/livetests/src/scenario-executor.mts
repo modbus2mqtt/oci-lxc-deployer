@@ -1203,6 +1203,7 @@ export async function executeScenarios(
               }
               // Start the clone so downstream `pct exec` works (the clone is
               // stopped by default).
+              let cloneAttachable = false;
               try {
                 await nestedSshAsync(
                   config.pveHost, config.portPveSsh,
@@ -1212,7 +1213,15 @@ export async function executeScenarios(
                 // Poll until lxc-attach succeeds (init PID is reachable).
                 // nestedSsh swallows errors; use nestedSshStrict here so the
                 // poll loop sees failures and retries.
-                const deadline = Date.now() + 30000;
+                //
+                // 120s, not 30s: under --all four workers clone and boot
+                // containers on one ZFS pool at once, and a merely slow clone
+                // used to fall out of this loop silently — the scenario then
+                // ran against a stopped container and its first
+                // execute_on:lxc template died with "lxc-attach: Connection
+                // refused - Failed to get init pid", leaving the clone behind
+                // to block its VMID for every later run.
+                const deadline = Date.now() + 120000;
                 while (Date.now() < deadline) {
                   try {
                     await nestedSshStrictAsync(
@@ -1220,6 +1229,7 @@ export async function executeScenarios(
                       `pct exec ${cloneVmId} -- /bin/true 2>/dev/null`,
                       5000,
                     );
+                    cloneAttachable = true;
                     break;
                   } catch {
                     await new Promise((r) => setTimeout(r, 1000));
@@ -1233,7 +1243,14 @@ export async function executeScenarios(
               if (sourceVm.addons) cloned.addons = sourceVm.addons;
               if (sourceVm.hostname) cloned.hostname = sourceVm.hostname;
               sourceVm = cloned;
-              logOk(`Source clone ready: VM ${cloneVmId} (will be destroyed after scenario)`);
+              if (cloneAttachable) {
+                logOk(`Source clone ready: VM ${cloneVmId} (will be destroyed after scenario)`);
+              } else {
+                logWarn(
+                  `Source clone ${cloneVmId} is not attachable after 120s — the scenario continues, `
+                  + `but any execute_on:lxc template will fail against it`,
+                );
+              }
             } catch (err) {
               logWarn(`pct clone failed (${err instanceof Error ? err.message : String(err)}) — falling back to shared source`);
               // Best-effort cleanup of a snapshot we may have created.
@@ -1453,7 +1470,18 @@ export async function executeScenarios(
           const needsOidc = ep.requiresOidc === "true";
           const urlChanged = ep.url !== apiUrl;
           const oidcChanged = needsOidc !== !!oidcCredentials;
-          if (urlChanged || oidcChanged) {
+          // Only a scenario that replaces the Hub itself may move the runner's
+          // apiUrl. Every other scenario reporting an endpoint is noise — and
+          // harmful noise under --all, where all workers share this state: one
+          // stray report sends every concurrent CLI call to a dead URL. No
+          // reachability probe here on purpose; during a genuine Hub replace
+          // the new endpoint is briefly down by design.
+          const replacesHub = scenario.id.includes("/self-");
+          if ((urlChanged || oidcChanged) && !replacesHub) {
+            logWarn(
+              `Ignoring endpoint report ${ep.url} from ${scenario.id} — only self-* scenarios move the Hub`,
+            );
+          } else if (urlChanged || oidcChanged) {
             logInfo(`Endpoint state shift: ${apiUrl} → ${ep.url} (OIDC ${needsOidc ? "required" : "cleared"})`);
             apiUrl = ep.url;
             if (!needsOidc) {
