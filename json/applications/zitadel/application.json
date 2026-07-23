@@ -109,6 +109,9 @@
     ]
   },
   "reconfigure": {
+    "pre_start": [
+      "154-conf-read-zitadel-externaldomain.json"
+    ],
     "post_start": [
       "341-post-set-login-policy.json"
     ]
