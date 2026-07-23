@@ -237,6 +237,7 @@ export class CliApiClient {
     method: string,
     path: string,
     body?: unknown,
+    timeoutMs?: number,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {};
@@ -261,6 +262,9 @@ export class CliApiClient {
     const fetchOptions: RequestInit = { method, headers, redirect: "manual" };
     if (body !== undefined) {
       fetchOptions.body = JSON.stringify(body);
+    }
+    if (timeoutMs !== undefined) {
+      fetchOptions.signal = AbortSignal.timeout(timeoutMs);
     }
 
     let response: Response;
@@ -461,7 +465,12 @@ export class CliApiClient {
     if (since !== undefined) parts.push(`since=${since}`);
     if (restartKey) parts.push(`restartKey=${encodeURIComponent(restartKey)}`);
     const query = parts.length > 0 ? `?${parts.join("&")}` : "";
-    return this.request("GET", `/api/${veCtx}/ve/execute${query}`);
+    // 30s cap: this endpoint is polled in a loop, and a Hub whose event loop
+    // stalls (seen with a swap-thrashing deployer CT) otherwise hangs a
+    // single poll for minutes — silently eating the CLI's whole execution
+    // budget without producing a heartbeat or a retry. A timeout turns the
+    // stall into a normal retry the poll loop already knows how to handle.
+    return this.request("GET", `/api/${veCtx}/ve/execute${query}`, undefined, 30_000);
   }
 
   async getValidation(): Promise<{ valid: boolean; [key: string]: any }> {
